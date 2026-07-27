@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "chain": "netto",
+      "enabled": true,
+      "priority": 1,
+      "url": "https://www.netto-online.de/filialen/dortmund/rauschenbuschstr-1/5659",
+      "scope": "family_primary_netto",
+      "notes": "Primary family Netto branch confirmed 2026-07-24.",
+      "keywords": [
+        "Filial-Angebote",
+        "gültig",
+        "statt",
+        "/ kg",
+        "Netto Marken-Discount"
+      ],
+      "store_external_id": "5659",
+      "store_name": "Netto Marken-Discount — Dortmund, Rauschenbuschstr. 1"
+    },
+    {
+      "chain": "lidl",
+      "enabled": true,
+      "priority": 1,
+      "url": "https://www.lidl.de/c/whatsapp-prospekte",
+      "scope": "national_offers_entry",
+      "notes": "Expected to be the highest-risk collector. Phase 1 measures direct HTTP accessibility before deciding JSON/HTML/Playwright strategy.",
+      "keywords": [
+        "Angebote",
+        "Lidl",
+        "Diese Woche",
+        "Lidl Plus"
+      ]
+    },
+    {
+      "chain": "aldi_nord",
+      "enabled": true,
+      "priority": 2,
+      "url": "https://www.aldi-nord.de/angebote.html",
+      "scope": "national_offers",
+      "notes": "ALDI Nord official current-week offers page. Long-lived source validity outliers are bounded by the deterministic current-page week policy; preview remains shadow-only.",
+      "keywords": [
+        "Aktuelle Woche",
+        "Nächste Woche",
+        "Einkaufsliste",
+        "Packung",
+        "kg ="
+      ]
+    },
+    {
+      "chain": "edeka",
+      "enabled": true,
+      "priority": 2,
+      "url": "https://www.edeka.de/maerkte/071897/angebote/",
+      "scope": "family_primary_edeka",
+      "notes": "Family-primary EDEKA confirmed 2026-07-24: EDEKA Patzer, Eichwaldstraße 5-7, 44319 Dortmund-Wickede. Public market ID 071897; internal EDEKA market ID 587881.",
+      "keywords": [
+        "Angebote",
+        "EDEKA Patzer",
+        "Gültig ab",
+        "Festpreis",
+        "Rabattierter Preis",
+        "App-Preis"
+      ],
+      "store_external_id": "071897",
+      "store_internal_id": "587881",
+      "store_name": "EDEKA Patzer"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Runtime data
+data/raw/*
+!data/raw/.gitkeep
+
+# Backups / local
+*.tar.gz
+*.log
+
+# Frontend future
+frontend/node_modules/
+frontend/build/

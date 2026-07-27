@@ -1,0 +1,89 @@
+name: ${COMPOSE_PROJECT_NAME:-hermes-deals}
+
+services:
+  db:
+    image: postgres:18.4-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - hermes_deals_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [internal]
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      RAW_SNAPSHOT_DIR: /data/raw
+      SOURCES_CONFIG: /app/config/sources.json
+      HTTP_USER_AGENT: ${HTTP_USER_AGENT}
+    volumes:
+      - ./data/raw:/data/raw
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [internal]
+
+  web:
+    image: nginx:1.30.4-alpine
+    restart: unless-stopped
+    ports:
+      - "${DEALS_BIND_IP:-127.0.0.1}:${DEALS_HTTP_PORT:-9128}:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./infra/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.ocr
+    # Run one-shot collectors as the host user so bind-mounted raw snapshots
+    # remain manageable by normal deploy/backup/rollback operations.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    profiles: ["tools"]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      RAW_SNAPSHOT_DIR: /data/raw
+      SOURCES_CONFIG: /app/config/sources.json
+      HTTP_USER_AGENT: ${HTTP_USER_AGENT}
+    volumes:
+      - ./data/raw:/data/raw
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  hermes_deals_pgdata:

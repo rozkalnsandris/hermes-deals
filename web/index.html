@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="lv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hermes Deals — Collector diagnostics</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background:#07100d; color:#e7f3ed; min-height:100vh; }
+    .shell { max-width:1180px; margin:auto; padding:28px 18px 60px; }
+    .top { display:flex; justify-content:space-between; gap:20px; align-items:flex-end; margin-bottom:24px; }
+    h1 { margin:0; font-size:32px; }
+    .accent { color:#55e69a; }
+    .muted { color:#8da99b; }
+    .badge { border:1px solid #244737; background:#0c1b15; padding:7px 10px; border-radius:999px; font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+    .card { background:#0c1713; border:1px solid #1b3328; border-radius:18px; padding:18px; box-shadow:0 14px 40px rgba(0,0,0,.18); }
+    .card h3 { margin:0 0 10px; text-transform:capitalize; }
+    .status { font-weight:700; } .ok { color:#55e69a; } .check { color:#ffc857; }
+    .kv { display:grid; grid-template-columns:1fr auto; gap:7px 14px; font-size:14px; margin-top:12px; }
+    .section { margin-top:18px; }
+    code { color:#a9f5cc; }
+    pre { overflow:auto; background:#07100d; border-radius:12px; padding:14px; color:#b8d8c8; border:1px solid #183127; }
+    button { background:#55e69a; color:#06120c; border:0; border-radius:10px; padding:10px 14px; font-weight:750; cursor:pointer; }
+    @media (max-width:900px){ .grid{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width:560px){ .grid{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column} }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="top">
+      <div><div class="muted">Private family shopping intelligence</div><h1>Hermes <span class="accent">Deals</span></h1></div>
+      <div id="phase-badge" class="badge">Collector diagnostics · pārbaudu API…</div>
+    </div>
+
+    <section class="card">
+      <strong>Šī lapa ir pagaidu diagnostikas UI.</strong> Gala SvelteKit/Tailwind PWA tiks būvēta nākamajā posmā uz šī API un datu kontrakta.
+      <div id="health" class="muted" style="margin-top:8px">Pārbaudu API…</div>
+    </section>
+
+    <section class="section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2>Avotu stāvoklis</h2><button onclick="load()">Atjaunot</button></div>
+      <div id="sources" class="grid"><div class="card muted">Vēl nav probe rezultātu. Palaid <code>make probe</code>.</div></div>
+    </section>
+
+    <section class="card section">
+      <h2>Datu uzticamības robeža</h2>
+      <p class="muted">Veikala parseris drīkst nodot tālāk tikai validētu <code>OfferCandidate</code>. Lidl ceļš papildus saglabā immutable raw provenance, OCR/semantic/math pierādījumus un stingru persistence gate.</p>
+      <pre>Retailer source → immutable snapshot → parser/OCR → evidence gates → OfferCandidate → PostgreSQL</pre>
+      <p><a href="/api/docs" style="color:#55e69a">FastAPI dokumentācija /api/docs</a></p>
+    </section>
+  </main>
+<script>
+async function load(){
+  try {
+    const h = await fetch('/api/health', {cache:'no-store'}).then(r=>r.json());
+    document.querySelector('#health').textContent = `API ${h.status} · v${h.version} · phase ${h.phase}`;
+    document.querySelector('#phase-badge').textContent = `Phase ${h.phase} · API v${h.version}`;
+    const data = await fetch('/api/v1/sources/latest', {cache:'no-store'}).then(r=>r.json());
+    const el=document.querySelector('#sources');
+    if(!data.length){ el.innerHTML='<div class="card muted">Vēl nav probe rezultātu. Palaid <code>make probe</code>.</div>'; return; }
+    el.innerHTML=data.map(s=>`<article class="card">
+      <h3>${s.source_chain.replace('_',' ')}</h3>
+      <div class="status ${s.success?'ok':'check'}">${s.success?'HTTP probe OK':'Jāpārbauda'}</div>
+      <div class="kv">
+        <span class="muted">HTTP</span><span>${s.http_status ?? '—'}</span>
+        <span class="muted">Dati</span><span>${Math.round((s.content_bytes||0)/1024)} KB</span>
+        <span class="muted">Laiks</span><span>${s.elapsed_ms ?? '—'} ms</span>
+        <span class="muted">Stratēģija</span><span>${s.strategy_hint}</span>
+        <span class="muted">JSON-LD</span><span>${s.json_ld_blocks}</span>
+      </div>
+    </article>`).join('');
+  } catch(e){ document.querySelector('#health').textContent='API nav sasniedzams: '+e; }
+}
+load();
+</script>
+</body>
+</html>
