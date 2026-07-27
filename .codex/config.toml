@@ -1,0 +1,27 @@
+
+# HERMES-DEALS-CODEX-HOOKS
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_use_policy.py"'
+timeout = 10
+statusMessage = "Checking Hermes Deals safety policy"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/stop_gate.py"'
+timeout = 15
+statusMessage = "Running Hermes Deals final diff gate"
+
+# Prepared fallback for deep persistent browser exploration. CLI+Skill is preferred by default.
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--headless", "--isolated"]
+enabled = false
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"

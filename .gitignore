@@ -18,3 +18,63 @@ data/raw/*
 # Frontend future
 frontend/node_modules/
 frontend/build/
+
+# BEGIN HERMES-DEALS-CODEX-MANAGED
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials.json
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Node / browser tooling
+node_modules/
+.playwright/
+.playwright-cli/
+playwright-report/
+test-results/
+.codex/evidence/
+
+# Build / local runtime noise
+dist/
+build/
+*.egg-info/
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.local-backups/
+backup/
+backups/
+*.bak
+*.bak.*
+*.swp
+*~
+
+# Local databases / dumps
+*.sql
+*.dump
+*.dump.*
+*.sqlite
+*.sqlite3
+*.db
+# END HERMES-DEALS-CODEX-MANAGED
