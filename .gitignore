@@ -47,6 +47,7 @@ venv/
 
 # Node / browser tooling
 node_modules/
+.claude/
 .playwright/
 .playwright-cli/
 playwright-report/
@@ -54,6 +55,8 @@ test-results/
 .codex/evidence/
 
 # Build / local runtime noise
+.hermes-deals-project
+audit/
 dist/
 build/
 *.egg-info/
