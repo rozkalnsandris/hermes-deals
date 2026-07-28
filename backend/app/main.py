@@ -17,6 +17,19 @@ from app.schemas import BasketCompareOut, BasketCompareRequest, BasketRetailerLi
 from app.settings import get_settings
 from app.source_config import SourceConfig, load_sources
 
+from app.review_queue import (
+    ReviewDecisionRequest,
+    ReviewDraftRequest,
+    approve_review_item,
+    get_review_item,
+    list_review_items,
+    reject_review_item,
+    reopen_review_item,
+    review_item_dict,
+    review_summary,
+    save_review_draft,
+)
+
 app = FastAPI(
     title="Hermes Deals API",
     version="0.3.7",
@@ -1274,4 +1287,181 @@ def canonical_product_price_history(
             )
             for row in observations
         ],
+    )
+
+
+UI_REVIEW_PATH = Path(__file__).resolve().parent / "ui" / "review.html"
+
+
+def _review_get_or_404(
+    db: Session,
+    item_id: UUID,
+):
+    try:
+        return get_review_item(db, item_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Review item not found",
+        ) from exc
+
+
+def _review_conflict(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get(
+    "/ui/review",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def review_ui() -> HTMLResponse:
+    if not UI_REVIEW_PATH.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Review UI bundle is not available",
+        )
+    return HTMLResponse(
+        UI_REVIEW_PATH.read_text(encoding="utf-8")
+    )
+
+
+@app.get("/api/v1/review-items")
+def review_items(
+    status: str | None = Query(default=None, max_length=32),
+    source_chain: str | None = Query(
+        default="lidl",
+        max_length=32,
+    ),
+    limit: int = Query(default=250, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    rows = list_review_items(
+        db,
+        status=status,
+        source_chain=source_chain,
+        limit=limit,
+    )
+    return {
+        "count": len(rows),
+        "items": [
+            review_item_dict(db, row)
+            for row in rows
+        ],
+    }
+
+
+@app.get("/api/v1/review-items/summary")
+def review_items_summary(
+    source_chain: str | None = Query(
+        default="lidl",
+        max_length=32,
+    ),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return review_summary(
+        db,
+        source_chain=source_chain,
+    )
+
+
+@app.get("/api/v1/review-items/{item_id}")
+def review_item(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return review_item_dict(
+        db,
+        _review_get_or_404(db, item_id),
+        include_revisions=True,
+    )
+
+
+@app.patch("/api/v1/review-items/{item_id}")
+def review_item_save(
+    item_id: UUID,
+    request: ReviewDraftRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _review_get_or_404(db, item_id)
+    try:
+        row = save_review_draft(
+            db,
+            item_id=item_id,
+            corrections=request.corrections,
+            note=request.note,
+            needs_followup=request.needs_followup,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise _review_conflict(exc) from exc
+    return review_item_dict(
+        db,
+        row,
+        include_revisions=True,
+    )
+
+
+@app.post("/api/v1/review-items/{item_id}/approve")
+def review_item_approve(
+    item_id: UUID,
+    request: ReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _review_get_or_404(db, item_id)
+    try:
+        row = approve_review_item(
+            db,
+            item_id=item_id,
+            note=request.note,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise _review_conflict(exc) from exc
+    return review_item_dict(
+        db,
+        row,
+        include_revisions=True,
+    )
+
+
+@app.post("/api/v1/review-items/{item_id}/reject")
+def review_item_reject(
+    item_id: UUID,
+    request: ReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _review_get_or_404(db, item_id)
+    try:
+        row = reject_review_item(
+            db,
+            item_id=item_id,
+            note=request.note,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise _review_conflict(exc) from exc
+    return review_item_dict(
+        db,
+        row,
+        include_revisions=True,
+    )
+
+
+@app.post("/api/v1/review-items/{item_id}/reopen")
+def review_item_reopen(
+    item_id: UUID,
+    request: ReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _review_get_or_404(db, item_id)
+    try:
+        row = reopen_review_item(
+            db,
+            item_id=item_id,
+            note=request.note,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise _review_conflict(exc) from exc
+    return review_item_dict(
+        db,
+        row,
+        include_revisions=True,
     )

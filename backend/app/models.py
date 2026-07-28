@@ -311,3 +311,111 @@ class OfferProductLink(Base):
         default=lambda: datetime.now(timezone.utc),
     )
 
+
+
+
+class OfferReviewItem(Base):
+    """Mutable human decision layered over immutable source/parser evidence."""
+
+    __tablename__ = "offer_review_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_chain",
+            "source_flyer_key",
+            "source_row_key",
+            name="uq_offer_review_items_source_row",
+        ),
+        CheckConstraint(
+            "status IN ('pending','draft','needs_followup','approved','rejected')",
+            name="ck_offer_review_items_status",
+        ),
+        CheckConstraint(
+            "page_number IS NULL OR page_number > 0",
+            name="ck_offer_review_items_page_positive",
+        ),
+        CheckConstraint(
+            "(status = 'approved' AND published_offer_candidate_id IS NOT NULL AND decided_at IS NOT NULL) "
+            "OR (status = 'rejected' AND published_offer_candidate_id IS NULL AND decided_at IS NOT NULL) "
+            "OR (status IN ('pending','draft','needs_followup') "
+            "AND published_offer_candidate_id IS NULL AND decided_at IS NULL)",
+            name="ck_offer_review_items_decision_state",
+        ),
+        Index("ix_offer_review_items_status", "status"),
+        Index("ix_offer_review_items_source_chain", "source_chain"),
+        Index("ix_offer_review_items_flyer_page", "source_flyer_key", "page_number"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    source_chain: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("source_snapshots.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    source_flyer_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_row_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parser_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    original_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    corrected_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_offer_candidate_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("offer_candidates.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
+class OfferReviewRevision(Base):
+    """Append-only audit trail for Review Queue actions."""
+
+    __tablename__ = "offer_review_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "review_item_id",
+            "revision_no",
+            name="uq_offer_review_revisions_item_revision",
+        ),
+        CheckConstraint(
+            "revision_no > 0",
+            name="ck_offer_review_revisions_revision_positive",
+        ),
+        CheckConstraint(
+            "action IN ('seed','draft','needs_followup','approve','reject','reopen')",
+            name="ck_offer_review_revisions_action",
+        ),
+        Index("ix_offer_review_revisions_item", "review_item_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    review_item_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("offer_review_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
