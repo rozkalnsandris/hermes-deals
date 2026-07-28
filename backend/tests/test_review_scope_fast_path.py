@@ -122,6 +122,9 @@ class ReviewScopeFastPathTest(unittest.TestCase):
             'method:"POST"',
             '$("fast_scope_approve").onclick=approveScopeOnlyFast',
             'await save(false);',
+            'const preferredNextId=currentIndex>=0',
+            'const nextRow=preferred||document.querySelector(".row[data-id]")',
+            'await openItem(nextRow.dataset.id);',
         ):
             self.assertIn(marker, html)
 

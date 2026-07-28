@@ -200,6 +200,12 @@ function updateScopeFastReviewButton(){
 async function approveScopeOnlyFast(){
   if(!scopeFastReviewEligible(selected)) return;
   const itemId=selected.id;
+  const visibleIds=[...document.querySelectorAll(".row[data-id]")]
+    .map(node=>node.dataset.id);
+  const currentIndex=visibleIds.indexOf(itemId);
+  const preferredNextId=currentIndex>=0
+    ? (visibleIds[currentIndex+1]||visibleIds[currentIndex-1]||null)
+    : null;
   const button=document.getElementById("fast_scope_approve");
   button.disabled=true;
   try{
@@ -214,6 +220,16 @@ async function approveScopeOnlyFast(){
     }
     selected=null;
     await load();
+
+    const preferred=preferredNextId
+      ? document.querySelector('.row[data-id="'+CSS.escape(preferredNextId)+'"]')
+      : null;
+    const nextRow=preferred||document.querySelector(".row[data-id]");
+    if(nextRow){
+      await openItem(nextRow.dataset.id);
+    }else{
+      $("detail").innerHTML='<div class="empty">Šajā filtrā vairs nav rindu pārbaudei.</div>';
+    }
   }catch(error){
     alert("Fast approval neizdevās: "+(error?.message||String(error)));
   }finally{
