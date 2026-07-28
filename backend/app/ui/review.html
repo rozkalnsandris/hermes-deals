@@ -101,7 +101,7 @@ async function openItem(id){
     <div class="actions">
       <button class="primary" id="save">Saglabāt labojumu</button>
       <button id="follow">Jāpārbauda vēl</button>
-      <button class="primary" id="approve">Apstiprināt un publicēt</button>
+      <button id="fast_scope_approve" type="button" hidden title="Tikai pilnām scope-only rindām; variable-weight ir bloķēts.">✓ In scope + apstiprināt</button> <button class="primary" id="approve">Apstiprināt un publicēt</button>
       <button class="danger" id="reject">Noraidīt</button>
       <button id="reopen">Atgriezt gaidīšanā</button>
     </div>
@@ -176,6 +176,55 @@ async function reopen(){
 $("reload").onclick=load;
 $("status").onchange=load;
 load();
+
+
+function scopeFastReviewEligible(item){
+  if(!item || !["pending","draft","needs_followup"].includes(item.status)) return false;
+  const reasons=new Set(item.reason_codes||[]);
+  if(!reasons.has("scope_requires_review")) return false;
+  if(reasons.has("variable_weight_requires_review")) return false;
+  const p={...(item.original_payload||{}),...(item.corrected_payload||{})};
+  if((p.price_basis||"")==="variable_weight_example") return false;
+  if((p.channel||"")!=="physical_store") return false;
+  const product=p.product_name||p.product_name_raw;
+  return [product,p.price_eur,p.valid_from,p.valid_until]
+    .every(v=>v!==null&&v!==undefined&&String(v).trim()!=="");
+}
+function updateScopeFastReviewButton(){
+  const button=document.getElementById("fast_scope_approve");
+  if(!button) return;
+  button.hidden=!scopeFastReviewEligible(selected);
+}
+async function approveScopeOnlyFast(){
+  if(!scopeFastReviewEligible(selected)) return;
+  const itemId=selected.id;
+  const button=document.getElementById("fast_scope_approve");
+  button.disabled=true;
+  try{
+    const response=await fetch(
+      "/api/v1/review-items/"+encodeURIComponent(itemId)+"/approve-scope-only",
+      {method:"POST"}
+    );
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok){
+      throw new Error(body.detail||("HTTP "+response.status));
+    }
+    selected=null;
+    await load();
+  }catch(error){
+    alert("Fast approval neizdevās: "+(error?.message||String(error)));
+  }finally{
+    button.disabled=false;
+    updateScopeFastReviewButton();
+  }
+}
+window.addEventListener("DOMContentLoaded",()=>{
+  const button=document.getElementById("fast_scope_approve");
+  if(button) button.addEventListener("click",approveScopeOnlyFast);
+  updateScopeFastReviewButton();
+});
+setInterval(updateScopeFastReviewButton,250);
+
 </script>
 </body>
 </html>

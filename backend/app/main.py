@@ -1465,3 +1465,23 @@ def review_item_reopen(
         row,
         include_revisions=True,
     )
+
+
+@app.post(
+    "/api/v1/review-items/{item_id}/approve-scope-only",
+    include_in_schema=True,
+)
+def approve_scope_only_review_item_route(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+):
+    from app.review_queue import (
+        approve_scope_only_review_item,
+        review_item_dict,
+    )
+
+    try:
+        row = approve_scope_only_review_item(db, item_id=item_id)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return review_item_dict(db, row, include_revisions=True)

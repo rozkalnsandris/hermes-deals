@@ -602,3 +602,59 @@ def review_item_dict(
             for row in revisions
         ]
     return payload
+
+
+def scope_only_fast_review_eligible(item: OfferReviewItem) -> bool:
+    # Complete physical-store row whose only fast-path blocker is scope.
+    if item.status not in {"pending", "draft", "needs_followup"}:
+        return False
+
+    reasons = {str(value) for value in (item.reason_codes or [])}
+    if "scope_requires_review" not in reasons:
+        return False
+    if "variable_weight_requires_review" in reasons:
+        return False
+
+    payload = dict(item.original_payload or {})
+    payload.update(item.corrected_payload or {})
+
+    if str(payload.get("price_basis") or "") == "variable_weight_example":
+        return False
+    if str(payload.get("channel") or "") != "physical_store":
+        return False
+
+    product = payload.get("product_name") or payload.get("product_name_raw")
+    required = (
+        product,
+        payload.get("price_eur"),
+        payload.get("valid_from"),
+        payload.get("valid_until"),
+    )
+    return all(value is not None and str(value).strip() for value in required)
+
+
+def approve_scope_only_review_item(
+    db: Session,
+    *,
+    item_id: UUID,
+) -> OfferReviewItem:
+    # Explicit human action; uses the normal auditable draft + approval path.
+    item = get_review_item(db, item_id)
+    if not scope_only_fast_review_eligible(item):
+        raise ValueError("Review item is not eligible for scope-only fast approval")
+
+    corrected = dict(item.corrected_payload or {})
+    corrected["scope"] = "in_scope"
+
+    save_review_draft(
+        db,
+        item_id=item_id,
+        corrections=corrected,
+        note="Scope-only fast review: human confirmed in-scope.",
+        needs_followup=False,
+    )
+    return approve_review_item(
+        db,
+        item_id=item_id,
+        note="Scope-only fast review: human confirmed in-scope.",
+    )
