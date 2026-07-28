@@ -74,7 +74,7 @@ async function load(){
   $("list").innerHTML=items.length?items.map(x=>`<div class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></div>`).join(""):'<div class="row muted">Rinda ir tukša.</div>';
   document.querySelectorAll(".row[data-id]").forEach(n=>n.onclick=()=>openItem(n.dataset.id));
 }
-function field(id,label,value,type="text"){return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}" value="${esc(value)}"></div>`}
+function field(id,label,value,type="text"){const step=type==="number"?' step="0.01"':"";return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}"${step} value="${esc(value)}"></div>`}
 async function openItem(id){
   const r=await fetch("/api/v1/review-items/"+id);
   if(!r.ok)return;
