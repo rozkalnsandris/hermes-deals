@@ -114,6 +114,8 @@ async function openItem(id){
   $("approve").onclick=approve;
   $("reject").onclick=reject;
   $("reopen").onclick=reopen;
+  $("fast_scope_approve").onclick=approveScopeOnlyFast;
+  updateScopeFastReviewButton();
 }
 function corrections(){
   const g=id=>$(id).value.trim();
@@ -201,6 +203,7 @@ async function approveScopeOnlyFast(){
   const button=document.getElementById("fast_scope_approve");
   button.disabled=true;
   try{
+    await save(false);
     const response=await fetch(
       "/api/v1/review-items/"+encodeURIComponent(itemId)+"/approve-scope-only",
       {method:"POST"}
@@ -218,12 +221,8 @@ async function approveScopeOnlyFast(){
     updateScopeFastReviewButton();
   }
 }
-window.addEventListener("DOMContentLoaded",()=>{
-  const button=document.getElementById("fast_scope_approve");
-  if(button) button.addEventListener("click",approveScopeOnlyFast);
-  updateScopeFastReviewButton();
-});
-setInterval(updateScopeFastReviewButton,250);
+// fast_scope_approve is created dynamically inside openItem(),
+// so its handler is bound there after every render.
 
 </script>
 </body>

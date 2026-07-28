@@ -120,6 +120,8 @@ class ReviewScopeFastPathTest(unittest.TestCase):
             'p.channel||""',
             'approve-scope-only',
             'method:"POST"',
+            '$("fast_scope_approve").onclick=approveScopeOnlyFast',
+            'await save(false);',
         ):
             self.assertIn(marker, html)
 
