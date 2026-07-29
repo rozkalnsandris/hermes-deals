@@ -1,0 +1,4 @@
+services:
+  api:
+    image: "hermes-deals-api:${HERMES_DEALS_API_TAG:?set_HERMES_DEALS_API_TAG}"
+    pull_policy: never
