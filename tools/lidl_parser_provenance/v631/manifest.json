@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "status": "authoritative_historical_corpus_generator",
+  "runtime_imported": false,
+  "production_parser_replacement": false,
+  "source_identity": {
+    "r61_base_sha256": "55b403e1b23eb3bce5eb67e2d1665b47be7bf4d5e8ea109234f9c317a77518a2",
+    "rolled_back_worktree_shadow_sha256": "8c2d3894499053b1807bc1f2edadbdb9526c1ae8110b5a1702c1ac60c7bf0622",
+    "authoritative_v631_sha256": "7191e910f07bb0a14ece3f398f1ba73e3ea250fc4bec1aeafea3afa8ce6dda90",
+    "authoritative_v631_test_sha256": "5850f10d78b3c71fffc34393316549047bff352c45892ac5c83a6684a51ace39",
+    "parser_version": "lidl-pdf-v08c-r61-shadow-v631"
+  },
+  "corpus_bindings": [
+    {
+      "flyer_key": "20260727-20260801-r7-b5699c84139b",
+      "scan": "scan-0005",
+      "pdf_sha256": "b5699c84139b638b1bf5ad2dab5d61d1e9709061b5a11baa4b1f129dc6a9aa63",
+      "raw_sha256": "13846070fd2c6546fb8c8f3280fdb238875a54072699fceaf69516630297e539"
+    },
+    {
+      "flyer_key": "20260803-20260808-r21-c20598d30ff5",
+      "scan": "scan-0003",
+      "pdf_sha256": "c20598d30ff56ce4580c16473b9fc3fdae33649ba32925355d07d8b49c367eb5",
+      "raw_sha256": "a54d233f9ea5a44bf80655572d0c5d76797cb7fbf07842eeb7aabdacce9218d0"
+    }
+  ],
+  "policy": {
+    "r61_base_frozen": true,
+    "v631_micro_tuning_for_known_four_omissions": false,
+    "historical_parser_rows_immutable": true,
+    "exact_historical_eof_whitespace_preserved": true,
+    "git_whitespace_exception_scoped_to_exact_v631_files": true,
+    "future_rescan_requires_explicit_executable_migration": true,
+    "old_codex_worktree_is_not_authoritative_after_this_commit": true
+  }
+}

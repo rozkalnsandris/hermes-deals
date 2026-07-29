@@ -1,0 +1,3 @@
+# Exact historical provenance: preserve bytes, including original EOF whitespace.
+r61_shadow.py -whitespace
+test_lidl_r61_shadow.py -whitespace
