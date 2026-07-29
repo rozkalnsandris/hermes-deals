@@ -25,6 +25,14 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
             '<input id="asOf" class="control" type="date">',
             html,
         )
+        for marker in (
+            'id="asOfPickerButton"',
+            'id="asOfPicker"',
+            'class="native-date-proxy" type="date"',
+            "asOfPicker.showPicker()",
+            'asOfPicker.addEventListener("change"',
+        ):
+            self.assertIn(marker, html)
         self.assertNotIn("${d.as_of}", html)
         self.assertNotIn("${esc(d.valid_from)}", html)
 
@@ -42,7 +50,24 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         ):
             self.assertIn(marker, html)
         self.assertNotIn('<option value="pending" selected>', html)
-        self.assertNotIn('type="date"', html)
+        for marker in (
+            'data-date-target="${id}"',
+            'id="${id}_picker"',
+            'class="native-date-proxy" type="date"',
+            "picker.showPicker()",
+            "textInput.value=fmtDate(picker.value)",
+        ):
+            self.assertIn(marker, html)
+
+    def test_family_and_review_keep_visible_latvian_date_with_native_picker(self) -> None:
+        family = FAMILY.read_text(encoding="utf-8")
+        review = REVIEW.read_text(encoding="utf-8")
+        self.assertIn('placeholder="DD.MM.GGGG"', family)
+        self.assertIn('placeholder="DD.MM.GGGG"', review)
+        self.assertIn('type="date"', family)
+        self.assertIn('type="date"', review)
+        self.assertIn("showPicker()", family)
+        self.assertIn("showPicker()", review)
 
     def test_empty_family_search_explains_matching_review_state(self) -> None:
         html = FAMILY.read_text(encoding="utf-8")
