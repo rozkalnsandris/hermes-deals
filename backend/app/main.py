@@ -32,8 +32,8 @@ from app.review_queue import (
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.8",
-    description="Private family shopping intelligence platform — Phase 5G B15A current/upcoming family deals view.",
+    version="0.3.9",
+    description="Private family shopping intelligence platform — Phase 5G B15C explicit unit-basis pricing foundation.",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -46,8 +46,8 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
     return {
         "status": "ok",
         "service": "hermes-deals-api",
-        "phase": "5G-B15A",
-        "version": "0.3.8",
+        "phase": "5G-B15C",
+        "version": "0.3.9",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -55,6 +55,24 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
 @app.get("/api/v1/contracts/offer-candidate")
 def offer_candidate_contract() -> dict[str, object]:
     return OfferCandidate.model_json_schema()
+
+
+UNIT_BASIS_PRICING_MODES = {
+    "unit_price_only",
+    "example_total_plus_unit",
+    "app_example_total_plus_unit",
+}
+
+
+def _is_unit_basis_offer(row: OfferCandidateRecord) -> bool:
+    return row.pricing_mode in UNIT_BASIS_PRICING_MODES
+
+
+def _canonical_price_eligible_clause():
+    return or_(
+        OfferCandidateRecord.pricing_mode.is_(None),
+        OfferCandidateRecord.pricing_mode == "fixed_package",
+    )
 
 
 def _active_source_config(source_chain: SourceChain) -> SourceConfig | None:
@@ -681,6 +699,9 @@ def current_deals(
             regular_price_eur=row.regular_price_eur,
             unit_price_eur=row.unit_price_eur,
             unit_label=row.unit_label,
+            pricing_mode=row.pricing_mode,
+            regular_unit_price_eur=row.regular_unit_price_eur,
+            example_weight_g=row.example_weight_g,
             discount_percent=row.discount_percent,
             app_price_eur=row.app_price_eur,
             requires_app=row.requires_app,
@@ -704,7 +725,7 @@ def current_deals(
                 and row.app_valid_from <= effective_date <= row.app_valid_until
             ),
             canonical_product_id=link_map.get(row.id),
-            canonical_comparable=row.id in link_map,
+            canonical_comparable=(row.id in link_map and not _is_unit_basis_offer(row)),
         )
         for row in selected_rows
     ]
@@ -1030,6 +1051,7 @@ def canonical_product_current_offers(
                 OfferCandidateRecord.source_chain == source_chain,
                 store_predicate,
                 OfferCandidateRecord.source_offer_id == source_offer_id,
+                _canonical_price_eligible_clause(),
                 OfferCandidateRecord.valid_from.is_not(None),
                 OfferCandidateRecord.valid_until.is_not(None),
                 OfferCandidateRecord.valid_from <= effective_date,
@@ -1211,6 +1233,7 @@ def canonical_product_price_history(
                     OfferCandidateRecord.source_chain == source_chain,
                     store_predicate,
                     OfferCandidateRecord.source_offer_id == source_offer_id,
+                    _canonical_price_eligible_clause(),
                 )
             )
 

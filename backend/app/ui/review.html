@@ -95,6 +95,12 @@ async function openItem(id){
       ${field("f_package","Iepakojums",val(e,"package_text","package_text_raw"))}
       ${field("f_price","Cena €",val(e,"price_eur"),"number")}
       ${field("f_regular","Parastā cena €",val(e,"regular_price_eur"),"number")}
+      ${field("f_unit","Vienības cena €",val(e,"unit_price_eur"),"number")}
+      ${field("f_unit_label","Vienība",val(e,"unit_label")||"kg")}
+      ${field("f_regular_unit","Parastā vienības cena €",val(e,"regular_unit_price_eur"),"number")}
+      ${field("f_example_weight","Piemēra svars g",val(e,"example_weight_g"),"number")}
+      <div><label>Cenas režīms</label><select id="f_pricing_mode"><option value="">—</option><option value="fixed_package">fixed_package</option><option value="unit_price_only">unit_price_only</option><option value="example_total_plus_unit">example_total_plus_unit</option><option value="app_example_total_plus_unit">app_example_total_plus_unit</option></select></div>
+      <div><label>Nepieciešams Lidl Plus</label><select id="f_requires_app"><option value="false">Nē</option><option value="true">Jā</option></select></div>
       ${field("f_app","Lidl Plus cena €",val(e,"app_price_eur"),"number")}
       ${field("f_from","Spēkā no",val(e,"valid_from"),"date")}
       ${field("f_until","Spēkā līdz",val(e,"valid_until"),"date")}
@@ -113,6 +119,8 @@ async function openItem(id){
     <details><summary>Audit trail</summary><pre>${esc(JSON.stringify(selected.revisions||[],null,2))}</pre></details>`;
   $("f_scope").value=val(e,"scope")||"review";
   $("f_channel").value=val(e,"channel")||"physical_store";
+  $("f_pricing_mode").value=val(e,"pricing_mode")||"";
+  $("f_requires_app").value=val(e,"requires_app")?"true":"false";
   document.querySelectorAll("[data-date-target]").forEach(button=>{const id=button.dataset.dateTarget,textInput=$(id),picker=$(id+"_picker");button.onclick=()=>{const iso=parseLvDate(textInput.value);if(iso)picker.value=iso;try{picker.showPicker();}catch(error){picker.focus();picker.click();}};picker.onchange=()=>{if(picker.value)textInput.value=fmtDate(picker.value);};});
   $("save").onclick=()=>save(false);
   $("follow").onclick=()=>save(true);
@@ -131,6 +139,12 @@ function corrections(){
     package_text:g("f_package")||null,
     price_eur:g("f_price")||null,
     regular_price_eur:g("f_regular")||null,
+    unit_price_eur:g("f_unit")||null,
+    unit_label:g("f_unit_label")||null,
+    pricing_mode:g("f_pricing_mode")||null,
+    regular_unit_price_eur:g("f_regular_unit")||null,
+    example_weight_g:g("f_example_weight")||null,
+    requires_app:g("f_requires_app")==="true",
     app_price_eur:g("f_app")||null,
     valid_from:dateValue("f_from"),
     valid_until:dateValue("f_until"),

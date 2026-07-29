@@ -33,6 +33,9 @@ class OfferCandidate(BaseModel):
     regular_price_eur: Decimal | None = Field(default=None, gt=0, max_digits=10, decimal_places=2)
     unit_price_eur: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
     unit_label: str | None = None
+    pricing_mode: str | None = None
+    regular_unit_price_eur: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=4)
+    example_weight_g: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
     discount_percent: int | None = Field(default=None, ge=0, le=100)
     app_price_eur: Decimal | None = Field(default=None, gt=0, max_digits=10, decimal_places=2)
     requires_app: bool = False
@@ -65,6 +68,31 @@ class OfferCandidate(BaseModel):
             raise ValueError("app_valid_until must not be earlier than app_valid_from")
         if self.app_valid_from is not None and self.app_price_eur is None:
             raise ValueError("app validity requires app_price_eur")
+
+        allowed_pricing_modes = {
+            "fixed_package",
+            "unit_price_only",
+            "example_total_plus_unit",
+            "app_example_total_plus_unit",
+        }
+        if self.pricing_mode is not None and self.pricing_mode not in allowed_pricing_modes:
+            raise ValueError("unsupported pricing_mode")
+
+        unit_basis_modes = allowed_pricing_modes - {"fixed_package"}
+        if self.pricing_mode in unit_basis_modes:
+            if self.unit_price_eur is None:
+                raise ValueError("unit-basis pricing_mode requires unit_price_eur")
+            if self.unit_label is None or not self.unit_label.strip():
+                raise ValueError("unit-basis pricing_mode requires unit_label")
+
+        if self.pricing_mode in {
+            "example_total_plus_unit",
+            "app_example_total_plus_unit",
+        } and self.example_weight_g is None:
+            raise ValueError("example-total pricing_mode requires example_weight_g")
+
+        if self.pricing_mode == "app_example_total_plus_unit" and not self.requires_app:
+            raise ValueError("app example pricing_mode requires requires_app=true")
         return self
 
 
@@ -105,6 +133,9 @@ class OfferCandidateOut(BaseModel):
     regular_price_eur: Decimal | None
     unit_price_eur: Decimal | None
     unit_label: str | None
+    pricing_mode: str | None = None
+    regular_unit_price_eur: Decimal | None = None
+    example_weight_g: Decimal | None = None
     discount_percent: int | None
     app_price_eur: Decimal | None
     requires_app: bool
@@ -344,6 +375,9 @@ class CurrentDealOut(BaseModel):
     regular_price_eur: Decimal | None
     unit_price_eur: Decimal | None
     unit_label: str | None
+    pricing_mode: str | None = None
+    regular_unit_price_eur: Decimal | None = None
+    example_weight_g: Decimal | None = None
     discount_percent: Decimal | None
     app_price_eur: Decimal | None
     requires_app: bool

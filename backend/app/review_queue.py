@@ -28,6 +28,9 @@ EDITABLE_FIELDS = {
     "regular_price_eur",
     "unit_price_eur",
     "unit_label",
+    "pricing_mode",
+    "regular_unit_price_eur",
+    "example_weight_g",
     "discount_percent",
     "app_price_eur",
     "requires_app",
@@ -376,6 +379,38 @@ def _build_offer(
     if price is None:
         raise ValueError("Approval requires price_eur")
 
+    pricing_mode = str(merged.get("pricing_mode") or "").strip() or None
+    variable_weight = "variable_weight_requires_review" in {
+        str(value) for value in (item.reason_codes or [])
+    }
+    unit_basis_modes = {
+        "unit_price_only",
+        "example_total_plus_unit",
+        "app_example_total_plus_unit",
+    }
+    if variable_weight:
+        if pricing_mode not in unit_basis_modes:
+            raise ValueError(
+                "Variable-weight approval requires explicit unit-basis pricing_mode"
+            )
+        if _decimal(merged.get("unit_price_eur")) is None:
+            raise ValueError("Variable-weight approval requires unit_price_eur")
+        if not str(merged.get("unit_label") or "").strip():
+            raise ValueError("Variable-weight approval requires unit_label")
+        if (
+            pricing_mode in {"example_total_plus_unit", "app_example_total_plus_unit"}
+            and _decimal(merged.get("example_weight_g")) is None
+        ):
+            raise ValueError(
+                "Variable-weight example pricing requires example_weight_g"
+            )
+        if pricing_mode == "app_example_total_plus_unit" and not bool(
+            merged.get("requires_app")
+        ):
+            raise ValueError(
+                "App example unit-basis pricing requires requires_app=true"
+            )
+
     source_url = str(
         merged.get("source_url")
         or item.provenance_json.get("source_url")
@@ -393,6 +428,10 @@ def _build_offer(
         "review_original_source_snapshot_id": str(original_snapshot.id),
         "review_original_parser_version": item.parser_version,
         "review_reason_codes": list(item.reason_codes or []),
+        "pricing_mode": pricing_mode,
+        "price_basis": merged.get("price_basis"),
+        "regular_unit_price_eur": merged.get("regular_unit_price_eur"),
+        "example_weight_g": merged.get("example_weight_g"),
         "review_original_payload": dict(item.original_payload or {}),
         "review_corrected_payload": dict(item.corrected_payload or {}),
         "review_provenance": dict(item.provenance_json or {}),
@@ -421,6 +460,9 @@ def _build_offer(
         regular_price_eur=_decimal(merged.get("regular_price_eur")),
         unit_price_eur=_decimal(merged.get("unit_price_eur")),
         unit_label=merged.get("unit_label"),
+        pricing_mode=pricing_mode,
+        regular_unit_price_eur=_decimal(merged.get("regular_unit_price_eur")),
+        example_weight_g=_decimal(merged.get("example_weight_g")),
         discount_percent=(
             None
             if merged.get("discount_percent") in (None, "")
