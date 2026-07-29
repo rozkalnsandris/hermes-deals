@@ -32,7 +32,7 @@ from app.review_queue import (
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.9",
+    version="0.3.10",
     description="Private family shopping intelligence platform — Phase 5G B15C explicit unit-basis pricing foundation.",
     docs_url="/api/docs",
     redoc_url=None,
@@ -46,8 +46,8 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
     return {
         "status": "ok",
         "service": "hermes-deals-api",
-        "phase": "5G-B15C",
-        "version": "0.3.9",
+        "phase": "5G-B15D",
+        "version": "0.3.10",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -529,9 +529,20 @@ def current_deals(
         for chain in SourceChain
     }
 
+    # Stable source_offer_id remains the primary identity contract. A reviewed
+    # completeness-rescue publication may additionally supersede an exact
+    # physical-deal duplicate that arrived through another source identity.
+    from app.completeness_rescue_read import (
+        dedupe_completeness_rescue_publications,
+    )
+
+    visible_state_rows = dedupe_completeness_rescue_publications(
+        (key[0], row)
+        for key, row in newest_by_state_identity.items()
+    )
+
     current_rows: list[OfferCandidateRecord] = []
-    for key, row in newest_by_state_identity.items():
-        state = key[0]
+    for state, row in visible_state_rows:
         availability_counts[state] += 1
         retailer_availability[row.source_chain][state] += 1
         if state == view:

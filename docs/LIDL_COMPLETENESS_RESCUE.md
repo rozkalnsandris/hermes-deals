@@ -52,3 +52,20 @@ The importer consumes JSONL. Every row contains:
 `candidate_key` is the stable Review identity. Evidence changes for an already
 seeded key therefore fail closed through the existing immutable Review seed
 contract instead of silently creating a replacement.
+
+## Read-layer precedence for reviewed rescue publications
+
+Stable `source_offer_id` remains the primary observation identity. A manually
+approved completeness-rescue publication may represent the same physical flyer
+deal as an already-persisted parser observation under a different
+`source_offer_id`. The family Current/Upcoming read path therefore applies one
+additional, narrow precedence rule after stable-identity deduplication:
+
+- only an immutable `completeness_rescue_review` publication can trigger it;
+- source chain, store, normalized product name, base price, validity window and
+  source URL must all match exactly;
+- the reviewed rescue publication wins the read view;
+- neither historical observation is deleted or updated.
+
+This prevents a reviewed enrichment from appearing as a second family deal
+without weakening persistence identity or generic retailer deduplication.
