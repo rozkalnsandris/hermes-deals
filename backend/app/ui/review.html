@@ -73,17 +73,75 @@ async function load(){
   const d=await r.json();
   const rawItems=d.items||[];
   const items=status==="open"?rawItems.filter(x=>["pending","draft","needs_followup"].includes(x.status)):rawItems;
-  $("list").innerHTML=items.length?items.map(x=>`<div class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></div>`).join(""):'<div class="row muted">Rinda ir tukša.</div>';
+  $("list").innerHTML=items.length?items.map(x=>{
+    if(x.review_kind==="page_alert"){
+      const p=x.original_payload||{},n=p.hint_count??(p.hints||[]).length;
+      return `<div class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapas pārbaude</span><span class="muted">Iespējami ${esc(n)} neapstrādāti produkti</span></div>`;
+    }
+    return `<div class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></div>`;
+  }).join(""):'<div class="row muted">Rinda ir tukša.</div>';
   document.querySelectorAll(".row[data-id]").forEach(n=>n.onclick=()=>openItem(n.dataset.id));
 }
 function fmtDate(v){if(!v)return"";const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));return m?`${m[3]}.${m[2]}.${m[1]}`:String(v);}
 function parseLvDate(v){const m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).trim());if(!m)return null;const iso=`${m[3]}-${m[2]}-${m[1]}`,d=new Date(`${iso}T00:00:00Z`);return Number.isNaN(d.getTime())||d.toISOString().slice(0,10)!==iso?null:iso;}
 function field(id,label,value,type="text"){if(type==="date")return `<div><label for="${id}">${label}</label><div class="date-entry"><input id="${id}" type="text" inputmode="numeric" autocomplete="off" placeholder="DD.MM.GGGG" value="${esc(fmtDate(value))}"><button type="button" class="date-picker-button" data-date-target="${id}" aria-label="${esc(label)}: atvērt kalendāru" title="Atvērt kalendāru">📅</button><input id="${id}_picker" class="native-date-proxy" type="date" tabindex="-1" aria-label="${esc(label)} kalendārs" value="${esc(value||"")}"></div></div>`;const step=type==="number"?' step="0.01"':"";return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}"${step} value="${esc(value)}"></div>`}
+async function createReviewFromHint(index){
+  const r=await fetch(
+    "/api/v1/review-items/"+encodeURIComponent(selected.id)+
+    "/page-alert/hints/"+encodeURIComponent(index)+"/create",
+    {method:"POST"}
+  );
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){alert(d.detail||"Neizdevās izveidot Review produktu");return;}
+  await load();
+  await openItem(d.id);
+}
+async function markPageAlertChecked(){
+  const r=await fetch(
+    "/api/v1/review-items/"+encodeURIComponent(selected.id)+"/reject",
+    {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({note:"Lapas pārbaude pabeigta."})
+    }
+  );
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){alert(d.detail||"Neizdevās atzīmēt lapu kā pārbaudītu");return;}
+  await load();
+  selected=d;
+  renderPageAlert();
+}
+function renderPageAlert(){
+  const p=selected.original_payload||{},hints=p.hints||[];
+  const open=["pending","draft","needs_followup"].includes(selected.status);
+  const hintHtml=hints.map((hint,index)=>`
+    <div class="source">
+      <strong>${esc(hint.product_name_hint||hint.native_title||"Iespējams produkts")}</strong><br>
+      <span class="muted">Native: ${esc(hint.native_title||"—")}</span><br>
+      <span class="muted">Scope: ${esc(hint.scope||"review")} · bbox ${esc(JSON.stringify(hint.title_bbox||[]))}</span>
+      ${open?`<div class="actions"><button type="button" data-create-hint="${index}">Izveidot Review produktu</button></div>`:""}
+    </div>`).join("");
+  $("detail").innerHTML=`
+    <h2>⚠ Lidl bukleta lapa ${esc(selected.page_number??"—")}</h2>
+    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>${esc(selected.parser_version)}<br><span class="badge">lapas pārbaude</span><span class="badge">${esc(selected.status)}</span></div>
+    <p>Šeit parseris nav droši rekonstruējis visus produktus. Zemāk ir tikai nosaukuma/pozīcijas hinti — cena un produkta dati netiek izdomāti automātiski.</p>
+    ${hintHtml||'<div class="muted">Hintu nav.</div>'}
+    ${open?'<div class="actions"><button class="primary" id="page_checked" type="button">Atzīmēt lapu pārbaudītu</button></div>':""}
+    ${selected.status==="rejected"?'<div class="muted">Šī lapa ir atzīmēta kā pārbaudīta.</div>':""}
+    <details><summary>Page alert evidence</summary><pre>${esc(JSON.stringify(selected.original_payload,null,2))}</pre></details>
+    <details><summary>Audit trail</summary><pre>${esc(JSON.stringify(selected.revisions||[],null,2))}</pre></details>`;
+  document.querySelectorAll("[data-create-hint]").forEach(button=>{
+    button.onclick=()=>createReviewFromHint(Number(button.dataset.createHint));
+  });
+  const checked=$("page_checked");
+  if(checked)checked.onclick=markPageAlertChecked;
+}
 async function openItem(id){
   const r=await fetch("/api/v1/review-items/"+id);
   if(!r.ok)return;
   selected=await r.json();
   document.querySelectorAll(".row").forEach(n=>n.classList.toggle("active",n.dataset.id===id));
+  if(selected.review_kind==="page_alert"){renderPageAlert();return;}
   const e=selected.effective_payload||{},p=selected.provenance||{};
   const crop=p.crop_url?`<img class="crop" src="${esc(p.crop_url)}" alt="Bukleta fragments">`:"";
   $("detail").innerHTML=`

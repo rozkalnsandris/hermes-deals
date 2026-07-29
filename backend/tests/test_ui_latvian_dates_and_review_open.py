@@ -36,6 +36,14 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         self.assertNotIn("${d.as_of}", html)
         self.assertNotIn("${esc(d.valid_from)}", html)
 
+    def test_review_ui_supports_page_alert_manual_completion(self) -> None:
+        html = REVIEW.read_text(encoding="utf-8")
+        self.assertIn("lapas pārbaude", html)
+        self.assertIn("neapstrādāti produkti", html)
+        self.assertIn("Izveidot Review produktu", html)
+        self.assertIn("Atzīmēt lapu pārbaudītu", html)
+        self.assertIn("/page-alert/hints/", html)
+
     def test_review_ui_defaults_to_all_open_states_and_keeps_drafts_visible(self) -> None:
         html = REVIEW.read_text(encoding="utf-8")
         for marker in (

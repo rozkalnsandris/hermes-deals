@@ -20,6 +20,12 @@ from app.models import (
     SourceSnapshot,
 )
 from app.review_queue import seed_review_item
+from app.lidl_weekly_review_bridge import (
+    apply_weekly_review_bridge,
+    create_review_from_page_alert_hint,
+    plan_weekly_review_bridge,
+    resolve_original_lidl_snapshot,
+)
 
 
 class ReviewQueueApiTest(unittest.TestCase):
@@ -126,6 +132,184 @@ class ReviewQueueApiTest(unittest.TestCase):
                 },
             )
             return str(row.id)
+
+    def weekly_candidate(self) -> dict:
+        return {
+            "candidate_key": "weekly-maxi-king",
+            "flyer_key": "20260803-20260808-r21-c20598d30ff5",
+            "page": 16,
+            "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+            "source_raw_sha256": "a" * 64,
+            "source_pdf_sha256": "c" * 64,
+            "workflow_version": "lidl-weekly-completeness-review-alerts-v1",
+            "evidence_kind": "native_unowned_display_price",
+            "product_name": "KINDER Maxi King",
+            "price_eur": "1.59",
+            "title_bbox": [1.0, 2.0, 3.0, 4.0],
+        }
+
+    def weekly_alert(self) -> dict:
+        return {
+            "alert_key": "weekly-page-one",
+            "flyer_key": "20260803-20260808-r21-c20598d30ff5",
+            "page": 1,
+            "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+            "source_raw_sha256": "a" * 64,
+            "source_pdf_sha256": "c" * 64,
+            "workflow_version": "lidl-weekly-completeness-review-alerts-v1",
+            "page_gate": "review_profile_weekly_physical_deals",
+            "page_gate_source": "review_profile",
+            "hint_count": 2,
+            "hints": [
+                {
+                    "product_name_hint": "Buttercroissant",
+                    "native_title": "Buttercroissant",
+                    "scope": "review",
+                    "title_bbox": [1.0, 2.0, 3.0, 4.0],
+                    "evidence_kind": "native_unrepresented_strict_title",
+                },
+                {
+                    "product_name_hint": "LANGNESE Magnum",
+                    "native_title": "LANGNESE Magnum",
+                    "scope": "review",
+                    "title_bbox": [5.0, 6.0, 7.0, 8.0],
+                    "evidence_kind": "native_unrepresented_strict_title",
+                },
+            ],
+        }
+
+    def test_weekly_bridge_resolves_original_snapshot(self) -> None:
+        with self.Session() as db:
+            resolved = resolve_original_lidl_snapshot(
+                db,
+                source_raw_sha256="a" * 64,
+            )
+            self.assertEqual(resolved.id, self.snapshot_id)
+
+    def test_weekly_bridge_seeds_native_candidate_and_page_alert(self) -> None:
+        with self.Session() as db:
+            result = apply_weekly_review_bridge(
+                db,
+                candidates=[self.weekly_candidate()],
+                page_alerts=[self.weekly_alert()],
+            )
+        self.assertEqual(result["candidate_seed_count"], 1)
+        self.assertEqual(result["page_alert_seed_count"], 1)
+        self.assertEqual(len(result["seeded_candidate_ids"]), 1)
+        self.assertEqual(len(result["seeded_page_alert_ids"]), 1)
+
+    def test_weekly_bridge_suppresses_existing_review_product(self) -> None:
+        with self.Session() as db:
+            seed_review_item(
+                db,
+                source_chain="lidl",
+                source_snapshot_id=self.snapshot_id,
+                source_flyer_key="20260803-20260808-r21-c20598d30ff5",
+                source_row_key="already-reviewed-maxi",
+                page_number=16,
+                parser_version="old",
+                reason_codes=["scope_requires_review"],
+                original_payload={
+                    "product_name": "KINDER Maxi King",
+                    "price_eur": "1.59",
+                    "valid_from": "2026-08-03",
+                    "valid_until": "2026-08-08",
+                    "scope": "review",
+                    "channel": "physical_store",
+                },
+                provenance_json={},
+            )
+            plan = plan_weekly_review_bridge(
+                db,
+                candidates=[self.weekly_candidate()],
+                page_alerts=[self.weekly_alert()],
+            )
+        self.assertEqual(plan["candidate_seed_count"], 0)
+        self.assertEqual(plan["candidate_suppressed_count"], 1)
+
+    def test_weekly_bridge_removes_resolved_page_alert_hints(self) -> None:
+        with self.Session() as db:
+            seed_review_item(
+                db,
+                source_chain="lidl",
+                source_snapshot_id=self.snapshot_id,
+                source_flyer_key="20260803-20260808-r21-c20598d30ff5",
+                source_row_key="already-reviewed-butter",
+                page_number=1,
+                parser_version="old",
+                reason_codes=["scope_requires_review"],
+                original_payload={
+                    "product_name": "Buttercroissant",
+                    "price_eur": "0.24",
+                    "valid_from": "2026-08-03",
+                    "valid_until": "2026-08-08",
+                    "scope": "review",
+                    "channel": "physical_store",
+                },
+                provenance_json={},
+            )
+            plan = plan_weekly_review_bridge(
+                db,
+                candidates=[self.weekly_candidate()],
+                page_alerts=[self.weekly_alert()],
+            )
+        self.assertEqual(plan["page_alert_seed_count"], 1)
+        alert = plan["planned_page_alerts"][0]
+        self.assertEqual(alert["hint_count"], 1)
+        self.assertEqual(alert["hints"][0]["product_name_hint"], "LANGNESE Magnum")
+
+    def test_page_alert_hint_creates_idempotent_editable_product_review(self) -> None:
+        with self.Session() as db:
+            result = apply_weekly_review_bridge(
+                db,
+                candidates=[self.weekly_candidate()],
+                page_alerts=[self.weekly_alert()],
+            )
+            alert_id = uuid.UUID(result["seeded_page_alert_ids"][0])
+            first = create_review_from_page_alert_hint(
+                db,
+                alert_item_id=alert_id,
+                hint_index=1,
+            )
+            second = create_review_from_page_alert_hint(
+                db,
+                alert_item_id=alert_id,
+                hint_index=1,
+            )
+            self.assertEqual(first.id, second.id)
+            self.assertEqual(first.original_payload["product_name"], "LANGNESE Magnum")
+            self.assertEqual(first.original_payload["valid_from"], "2026-08-03")
+            self.assertEqual(first.original_payload["valid_until"], "2026-08-08")
+            self.assertIsNone(first.original_payload["price_eur"])
+
+    def test_page_alert_api_cannot_publish_and_can_create_hint_review(self) -> None:
+        with self.Session() as db:
+            result = apply_weekly_review_bridge(
+                db,
+                candidates=[self.weekly_candidate()],
+                page_alerts=[self.weekly_alert()],
+            )
+            alert_id = result["seeded_page_alert_ids"][0]
+
+        detail = self.client.get(f"/api/v1/review-items/{alert_id}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.json()["review_kind"], "page_alert")
+
+        blocked = self.client.post(
+            f"/api/v1/review-items/{alert_id}/approve",
+            json={"note": "must not publish"},
+        )
+        self.assertEqual(blocked.status_code, 409, blocked.text)
+
+        created = self.client.post(
+            f"/api/v1/review-items/{alert_id}/page-alert/hints/0/create"
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(created.json()["review_kind"], "product")
+        self.assertEqual(
+            created.json()["effective_payload"]["product_name"],
+            "Buttercroissant",
+        )
 
     def test_seed_is_idempotent_and_original_is_immutable(
         self,

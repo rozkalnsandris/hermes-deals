@@ -30,6 +30,8 @@ from app.review_queue import (
     save_review_draft,
 )
 
+from app.lidl_weekly_review_bridge import create_review_from_page_alert_hint
+
 app = FastAPI(
     title="Hermes Deals API",
     version="0.3.10",
@@ -1470,6 +1472,31 @@ def review_item_reopen(
             db,
             item_id=item_id,
             note=request.note,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise _review_conflict(exc) from exc
+    return review_item_dict(
+        db,
+        row,
+        include_revisions=True,
+    )
+
+
+@app.post(
+    "/api/v1/review-items/{item_id}/page-alert/hints/{hint_index}/create",
+    include_in_schema=True,
+)
+def create_review_from_page_alert_hint_route(
+    item_id: UUID,
+    hint_index: int,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    _review_get_or_404(db, item_id)
+    try:
+        row = create_review_from_page_alert_hint(
+            db,
+            alert_item_id=item_id,
+            hint_index=hint_index,
         )
     except (ValueError, RuntimeError) as exc:
         raise _review_conflict(exc) from exc

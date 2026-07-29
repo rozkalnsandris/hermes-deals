@@ -47,3 +47,27 @@ Approved rows cannot be reopened automatically because that would require an exp
 ## Crop support
 
 The Review UI displays `provenance.crop_url` when present. A later controlled import step can pre-render flyer crops and attach them while seeding the Review Queue.
+
+
+## Weekly page-review alerts
+
+The weekly Lidl completeness stop-rule does not reconstruct every missing
+product automatically.
+
+A `page_alert` is stored in the existing Review Queue as a non-publishable
+review item. It contains only reviewed page provenance plus strict native title
+hints. Product price/package truth is intentionally absent.
+
+The Review UI renders page alerts separately:
+
+- each hint can create an idempotent normal product Review row;
+- product name and flyer validity are prefilled;
+- price/package remain manual;
+- the generated product row follows the ordinary correction + approval path;
+- a page alert itself can never be approved/published as an offer;
+- after human inspection the alert can be marked checked (stored using the
+  existing rejected/closed state and audit revision).
+
+Before seeding weekly artifacts, the bridge compares candidates and hints with
+existing Review history on the same flyer/page. Only strong same-product
+matches are suppressed, so uncertain aliases remain visible for manual review.

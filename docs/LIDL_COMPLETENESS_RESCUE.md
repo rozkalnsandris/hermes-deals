@@ -94,3 +94,20 @@ automatic Lidl reconstruction.
 `review-profile.json` remains the authoritative page-role gate when present.
 The workflow remains non-writing until an explicit later Review integration
 step: no database writes, no automatic Review seeding, and no auto-publication.
+
+
+## Review UI bridge
+
+`app.lidl_weekly_review_bridge` is the bridge between weekly shadow artifacts
+and the existing human Review model.
+
+It preserves the stop-rule:
+
+- native unowned-price candidates may become normal Review product rows;
+- page alerts remain non-product Review rows;
+- page-alert hints are manual prefill only;
+- already-reviewed strong same-product matches suppress duplicate weekly
+  candidates/hints;
+- source snapshot resolution is provenance-bound to the exact Lidl raw SHA and
+  excludes derived `manual_review_v1` snapshots;
+- no page alert can be published directly.

@@ -48,6 +48,10 @@ EDITABLE_FIELDS = {
 OPEN_STATES = {"pending", "draft", "needs_followup"}
 
 
+def is_page_review_alert(item: OfferReviewItem) -> bool:
+    return str((item.original_payload or {}).get("review_kind") or "") == "page_alert"
+
+
 class ReviewDraftRequest(BaseModel):
     corrections: dict[str, Any] = Field(default_factory=dict)
     note: str | None = Field(default=None, max_length=2000)
@@ -255,6 +259,8 @@ def save_review_draft(
     needs_followup: bool = False,
 ) -> OfferReviewItem:
     item = get_review_item(db, item_id)
+    if is_page_review_alert(item):
+        raise ValueError("Page review alerts are not editable product rows")
     if item.status not in OPEN_STATES:
         raise ValueError(f"Review item is not editable in status={item.status}")
 
@@ -493,6 +499,8 @@ def approve_review_item(
     note: str | None,
 ) -> OfferReviewItem:
     item = get_review_item(db, item_id)
+    if is_page_review_alert(item):
+        raise ValueError("Page review alerts cannot be published as offers")
     if item.status == "approved":
         return item
     if item.status not in OPEN_STATES:
@@ -604,6 +612,7 @@ def review_item_dict(
         "page_number": item.page_number,
         "parser_version": item.parser_version,
         "status": item.status,
+        "review_kind": ("page_alert" if is_page_review_alert(item) else "product"),
         "reason_codes": list(item.reason_codes or []),
         "original_payload": dict(item.original_payload or {}),
         "corrected_payload": dict(item.corrected_payload or {}),
@@ -648,6 +657,8 @@ def review_item_dict(
 
 def scope_only_fast_review_eligible(item: OfferReviewItem) -> bool:
     # Complete physical-store row whose only fast-path blocker is scope.
+    if is_page_review_alert(item):
+        return False
     if item.status not in {"pending", "draft", "needs_followup"}:
         return False
 
