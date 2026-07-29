@@ -121,7 +121,7 @@ class ReviewScopeFastPathTest(unittest.TestCase):
             'approve-scope-only',
             'method:"POST"',
             '$("fast_scope_approve").onclick=approveScopeOnlyFast',
-            'await save(false);',
+            'if(await save(false)===false)return;',
             'const preferredNextId=currentIndex>=0',
             'const nextRow=preferred||document.querySelector(".row[data-id]")',
             'await openItem(nextRow.dataset.id);',

@@ -40,8 +40,9 @@
   <section class="panel">
     <div class="toolbar">
       <select id="status">
+        <option value="open" selected>Atvērtie (gaida + laboti + jāpārbauda)</option>
         <option value="">Visi statusi</option>
-        <option value="pending" selected>Gaida pārbaudi</option>
+        <option value="pending">Gaida pārbaudi</option>
         <option value="draft">Labots</option>
         <option value="needs_followup">Jāpārbauda vēl</option>
         <option value="approved">Publicēts</option>
@@ -67,14 +68,17 @@ function val(o,...keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null)
 async function load(){
   const status=$("status").value;
   const q=new URLSearchParams({source_chain:"lidl",limit:"500"});
-  if(status)q.set("status",status);
+  if(status&&status!=="open")q.set("status",status);
   const r=await fetch("/api/v1/review-items?"+q);
   const d=await r.json();
-  const items=d.items||[];
+  const rawItems=d.items||[];
+  const items=status==="open"?rawItems.filter(x=>["pending","draft","needs_followup"].includes(x.status)):rawItems;
   $("list").innerHTML=items.length?items.map(x=>`<div class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></div>`).join(""):'<div class="row muted">Rinda ir tukša.</div>';
   document.querySelectorAll(".row[data-id]").forEach(n=>n.onclick=()=>openItem(n.dataset.id));
 }
-function field(id,label,value,type="text"){const step=type==="number"?' step="0.01"':"";return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}"${step} value="${esc(value)}"></div>`}
+function fmtDate(v){if(!v)return"";const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));return m?`${m[3]}.${m[2]}.${m[1]}`:String(v);}
+function parseLvDate(v){const m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).trim());if(!m)return null;const iso=`${m[3]}-${m[2]}-${m[1]}`,d=new Date(`${iso}T00:00:00Z`);return Number.isNaN(d.getTime())||d.toISOString().slice(0,10)!==iso?null:iso;}
+function field(id,label,value,type="text"){if(type==="date")return `<div><label for="${id}">${label}</label><input id="${id}" type="text" inputmode="numeric" autocomplete="off" placeholder="DD.MM.GGGG" value="${esc(fmtDate(value))}"></div>`;const step=type==="number"?' step="0.01"':"";return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}"${step} value="${esc(value)}"></div>`}
 async function openItem(id){
   const r=await fetch("/api/v1/review-items/"+id);
   if(!r.ok)return;
@@ -119,6 +123,7 @@ async function openItem(id){
 }
 function corrections(){
   const g=id=>$(id).value.trim();
+  const dateValue=id=>{const raw=g(id);if(!raw)return null;const iso=parseLvDate(raw);if(!iso)throw new Error("Datums jāievada formātā DD.MM.GGGG");return iso;};
   return {
     product_name:g("f_name"),
     brand:g("f_brand")||null,
@@ -126,8 +131,8 @@ function corrections(){
     price_eur:g("f_price")||null,
     regular_price_eur:g("f_regular")||null,
     app_price_eur:g("f_app")||null,
-    valid_from:g("f_from")||null,
-    valid_until:g("f_until")||null,
+    valid_from:dateValue("f_from"),
+    valid_until:dateValue("f_until"),
     scope:$("f_scope").value,
     channel:$("f_channel").value
   };
@@ -143,18 +148,21 @@ async function call(url,opt){
   await openItem(selected.id);
 }
 async function save(needs){
+  let c;
+  try{c=corrections();}catch(error){alert(error?.message||String(error));return false;}
   await call("/api/v1/review-items/"+selected.id,{
     method:"PATCH",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
-      corrections:corrections(),
+      corrections:c,
       note:$("f_note").value,
       needs_followup:needs
     })
   });
+  return true;
 }
 async function approve(){
-  await save(false);
+  if(await save(false)===false)return;
   await call("/api/v1/review-items/"+selected.id+"/approve",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
@@ -209,7 +217,7 @@ async function approveScopeOnlyFast(){
   const button=document.getElementById("fast_scope_approve");
   button.disabled=true;
   try{
-    await save(false);
+    if(await save(false)===false)return;
     const response=await fetch(
       "/api/v1/review-items/"+encodeURIComponent(itemId)+"/approve-scope-only",
       {method:"POST"}
