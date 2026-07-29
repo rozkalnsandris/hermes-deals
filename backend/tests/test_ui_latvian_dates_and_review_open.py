@@ -69,6 +69,17 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         self.assertIn("showPicker()", family)
         self.assertIn("showPicker()", review)
 
+    def test_native_date_picker_anchor_stays_on_calendar_button(self) -> None:
+        family = FAMILY.read_text(encoding="utf-8")
+        review = REVIEW.read_text(encoding="utf-8")
+        for html in (family, review):
+            self.assertIn(".date-entry{position:relative;", html)
+            self.assertIn(".native-date-proxy{position:absolute;right:0;top:0;", html)
+            self.assertNotIn("left:-100px", html)
+            self.assertNotIn("top:-100px", html)
+        self.assertIn("width:46px;height:46px", family)
+        self.assertIn("width:44px;height:42px", review)
+
     def test_empty_family_search_explains_matching_review_state(self) -> None:
         html = FAMILY.read_text(encoding="utf-8")
         for marker in (
