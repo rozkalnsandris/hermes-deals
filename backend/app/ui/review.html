@@ -163,6 +163,9 @@ async function save(needs){
   return true;
 }
 async function approve(){
+  const scope=$("f_scope").value;
+  if(scope==="excluded"){alert("Izslēgtu piedāvājumu nevar publicēt.");return;}
+  if(scope==="review")$("f_scope").value="in_scope";
   if(await save(false)===false)return;
   await call("/api/v1/review-items/"+selected.id+"/approve",{
     method:"POST",

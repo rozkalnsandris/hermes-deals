@@ -80,6 +80,16 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         self.assertIn("width:46px;height:46px", family)
         self.assertIn("width:44px;height:42px", review)
 
+    def test_normal_review_approval_confirms_scope_before_publish(self) -> None:
+        html = REVIEW.read_text(encoding="utf-8")
+        for marker in (
+            'if(scope==="excluded"){alert("Izslēgtu piedāvājumu nevar publicēt.");return;}',
+            'if(scope==="review")$("f_scope").value="in_scope";',
+            'if(await save(false)===false)return;',
+            '"/api/v1/review-items/"+selected.id+"/approve"',
+        ):
+            self.assertIn(marker, html)
+
     def test_empty_family_search_explains_matching_review_state(self) -> None:
         html = FAMILY.read_text(encoding="utf-8")
         for marker in (
