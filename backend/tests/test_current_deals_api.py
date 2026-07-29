@@ -656,6 +656,63 @@ class CurrentDealsApiTest(unittest.TestCase):
         ).json()
         self.assertEqual(after_extension["available_count"], 0)
 
+    def test_current_upcoming_views_are_explicit(self) -> None:
+        at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
+        with self.Session.begin() as db:
+            snapshot = self.snapshot("lidl", at)
+            db.add(snapshot)
+            db.add_all([
+                self.offer(snapshot=snapshot,chain="lidl",source_offer_id="current-view",store=None,name="Current view",brand=None,price="1.00",valid_from=date(2026,7,28),valid_until=date(2026,7,31),collected_at=at),
+                self.offer(snapshot=snapshot,chain="lidl",source_offer_id="upcoming-view",store=None,name="Upcoming view",brand=None,price="2.00",valid_from=date(2026,8,3),valid_until=date(2026,8,8),collected_at=at),
+            ])
+
+        current=self.client.get("/api/v1/deals/current?as_of=2026-07-29").json()
+        upcoming=self.client.get("/api/v1/deals/current?as_of=2026-07-29&view=upcoming").json()
+        self.assertEqual(current["count"],1)
+        self.assertEqual(current["deals"][0]["product_name_raw"],"Current view")
+        self.assertEqual(upcoming["count"],1)
+        self.assertEqual(upcoming["deals"][0]["product_name_raw"],"Upcoming view")
+        self.assertEqual(current["availability_counts"]["current"],1)
+        self.assertEqual(current["availability_counts"]["upcoming"],1)
+        self.assertEqual(upcoming["availability_counts"]["current"],1)
+        self.assertEqual(upcoming["availability_counts"]["upcoming"],1)
+
+    def test_upcoming_view_keeps_older_snapshot_identity(self) -> None:
+        at1=datetime(2026,7,28,8,0,tzinfo=timezone.utc)
+        at2=datetime(2026,7,29,8,0,tzinfo=timezone.utc)
+        with self.Session.begin() as db:
+            older=self.snapshot("lidl",at1)
+            newer=self.snapshot("lidl",at2)
+            db.add_all([older,newer])
+            db.add_all([
+                self.offer(snapshot=older,chain="lidl",source_offer_id="future-a",store=None,name="Future A old",brand=None,price="1.00",valid_from=date(2026,8,3),valid_until=date(2026,8,8),collected_at=at1),
+                self.offer(snapshot=older,chain="lidl",source_offer_id="future-b",store=None,name="Future B",brand=None,price="2.00",valid_from=date(2026,8,3),valid_until=date(2026,8,8),collected_at=at1),
+                self.offer(snapshot=newer,chain="lidl",source_offer_id="future-a",store=None,name="Future A new",brand=None,price="1.50",valid_from=date(2026,8,3),valid_until=date(2026,8,8),collected_at=at2),
+            ])
+
+        body=self.client.get("/api/v1/deals/current?as_of=2026-07-29&view=upcoming").json()
+        self.assertEqual(body["count"],2)
+        self.assertEqual(body["availability_counts"]["upcoming"],2)
+        by_id={row["source_offer_id"]:row for row in body["deals"]}
+        self.assertEqual(set(by_id),{"future-a","future-b"})
+        self.assertEqual(by_id["future-a"]["product_name_raw"],"Future A new")
+        self.assertEqual(by_id["future-a"]["price_eur"],"1.50")
+
+    def test_ui_has_current_upcoming_switch(self) -> None:
+        response=self.client.get("/ui")
+        self.assertEqual(response.status_code,200)
+        for marker in (
+            'id="dealView"',
+            'data-deal-view="current"',
+            'data-deal-view="upcoming"',
+            "Drīzumā",
+            "view:dealView",
+            'dealView==="upcoming"',
+            "Šim filtram nav drīzumā gaidāmu piedāvājumu.",
+        ):
+            self.assertIn(marker,response.text)
+
+
 
 
 if __name__ == "__main__":

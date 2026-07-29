@@ -32,8 +32,8 @@ from app.review_queue import (
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.7",
-    description="Private family shopping intelligence platform — Phase 5G B15A app-specific validity semantics.",
+    version="0.3.8",
+    description="Private family shopping intelligence platform — Phase 5G B15A current/upcoming family deals view.",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -47,7 +47,7 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
         "status": "ok",
         "service": "hermes-deals-api",
         "phase": "5G-B15A",
-        "version": "0.3.7",
+        "version": "0.3.8",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -415,6 +415,7 @@ def current_deals(
     as_of: date | None = Query(default=None),
     q: str | None = Query(default=None, min_length=1, max_length=100),
     retailer: str | None = Query(default=None, max_length=32),
+    view: str = Query(default="current", pattern="^(current|upcoming)$"),
     app_only: bool = Query(default=False),
     coupon_only: bool = Query(default=False),
     discount_only: bool = Query(default=False),
@@ -435,40 +436,56 @@ def current_deals(
     rows = list(
         db.scalars(
             select(OfferCandidateRecord).where(
-                or_(
-                    and_(
-                        OfferCandidateRecord.valid_from.is_not(None),
-                        OfferCandidateRecord.valid_until.is_not(None),
-                        OfferCandidateRecord.valid_from <= effective_date,
-                        OfferCandidateRecord.valid_until >= effective_date,
-                    ),
-                    and_(
-                        OfferCandidateRecord.app_price_eur.is_not(None),
-                        OfferCandidateRecord.app_valid_from.is_not(None),
-                        OfferCandidateRecord.app_valid_until.is_not(None),
-                        OfferCandidateRecord.app_valid_from <= effective_date,
-                        OfferCandidateRecord.app_valid_until >= effective_date,
-                    ),
-                ),
                 OfferCandidateRecord.source_offer_id.is_not(None),
             )
         ).all()
     )
 
-    newest_by_identity: dict[
-        tuple[str, str | None, str],
+    # Preserve the existing /deals/current contract: store scope is part
+    # of the stable offer identity, not a global pre-filter. This matters
+    # for retailer/store-specific observations and is covered by the
+    # existing store-scope dedup regression.
+    scoped_rows = rows
+
+    def price_windows(row: OfferCandidateRecord) -> list[tuple[date, date]]:
+        windows: list[tuple[date, date]] = []
+        if row.valid_from is not None and row.valid_until is not None:
+            windows.append((row.valid_from, row.valid_until))
+        if (
+            row.app_price_eur is not None
+            and row.app_valid_from is not None
+            and row.app_valid_until is not None
+        ):
+            windows.append((row.app_valid_from, row.app_valid_until))
+        return windows
+
+    def availability_state(row: OfferCandidateRecord) -> str:
+        windows = price_windows(row)
+        if any(start <= effective_date <= end for start, end in windows):
+            return "current"
+        if any(start > effective_date for start, _ in windows):
+            return "upcoming"
+        if windows and all(end < effective_date for _, end in windows):
+            return "expired"
+        return "unknown"
+
+    # Deduplicate inside each state. A future observation with the same stable
+    # retailer identity must not hide a still-current campaign observation.
+    newest_by_state_identity: dict[
+        tuple[str, str, str | None, str],
         OfferCandidateRecord,
     ] = {}
-
-    for row in rows:
+    for row in scoped_rows:
         if row.source_offer_id is None:
             continue
+        state = availability_state(row)
         key = (
+            state,
             row.source_chain,
             row.source_store_external_id,
             row.source_offer_id,
         )
-        existing = newest_by_identity.get(key)
+        existing = newest_by_state_identity.get(key)
         if existing is None or (
             row.collected_at,
             str(row.id),
@@ -476,18 +493,7 @@ def current_deals(
             existing.collected_at,
             str(existing.id),
         ):
-            newest_by_identity[key] = row
-
-    current_rows = list(newest_by_identity.values())
-
-    def availability_state(row: OfferCandidateRecord) -> str:
-        if row.valid_from is None or row.valid_until is None:
-            return "unknown"
-        if row.valid_from > effective_date:
-            return "upcoming"
-        if row.valid_until < effective_date:
-            return "expired"
-        return "current"
+            newest_by_state_identity[key] = row
 
     availability_counts = {
         "current": 0,
@@ -495,50 +501,23 @@ def current_deals(
         "unknown": 0,
         "expired": 0,
     }
-    retailer_availability: dict[str, dict[str, int]] = {}
-
-    for chain in SourceChain:
-        snapshot_query = select(SourceSnapshot).where(
-            SourceSnapshot.source_chain == chain.value,
-            SourceSnapshot.success.is_(True),
-        )
-        source = _active_source_config(chain)
-        if source is not None and source.store_external_id:
-            snapshot_query = snapshot_query.where(
-                SourceSnapshot.scope == source.scope
-            )
-
-        latest_snapshot = db.scalar(
-            snapshot_query.order_by(
-                SourceSnapshot.collected_at.desc(),
-                SourceSnapshot.id.desc(),
-            ).limit(1)
-        )
-        if latest_snapshot is None:
-            continue
-
-        latest_offer_query = select(OfferCandidateRecord).where(
-            OfferCandidateRecord.snapshot_id == latest_snapshot.id,
-            OfferCandidateRecord.source_chain == chain.value,
-            OfferCandidateRecord.source_offer_id.is_not(None),
-        )
-        latest_offer_query = _apply_active_store_offer_filter(
-            latest_offer_query,
-            chain,
-        )
-        latest_offer_rows = list(db.scalars(latest_offer_query).all())
-
-        bucket = {
+    retailer_availability: dict[str, dict[str, int]] = {
+        chain.value: {
             "current": 0,
             "upcoming": 0,
             "unknown": 0,
             "expired": 0,
         }
-        for row in latest_offer_rows:
-            state = availability_state(row)
-            bucket[state] += 1
-            availability_counts[state] += 1
-        retailer_availability[chain.value] = bucket
+        for chain in SourceChain
+    }
+
+    current_rows: list[OfferCandidateRecord] = []
+    for key, row in newest_by_state_identity.items():
+        state = key[0]
+        availability_counts[state] += 1
+        retailer_availability[row.source_chain][state] += 1
+        if state == view:
+            current_rows.append(row)
 
     normalized_query = q.strip().casefold() if q is not None else None
     if normalized_query:
