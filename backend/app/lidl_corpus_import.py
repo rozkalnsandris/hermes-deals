@@ -723,6 +723,7 @@ def _rescue_original_payload(
         "price_eur": record.get("price_eur"),
         "regular_price_eur": record.get("regular_price_eur"),
         "app_price_eur": record.get("app_price_eur"),
+        "requires_app": bool(record.get("requires_app", False)),
         "valid_from": context.valid_from.isoformat(),
         "valid_until": context.valid_until.isoformat(),
         "scope": record["scope"],

@@ -109,6 +109,34 @@ class LidlCompletenessRescueTest(unittest.TestCase):
             ],
         )
 
+    def test_app_price_requires_explicit_requires_app_true(self) -> None:
+        row = dict(self.record)
+        row.update(
+            {
+                "candidate_key": "p001-app-invalid",
+                "app_price_eur": "1.99",
+            }
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "app_price_eur requires requires_app=true",
+        ):
+            self._load([row])
+
+    def test_app_price_with_requires_app_is_preserved(self) -> None:
+        row = dict(self.record)
+        row.update(
+            {
+                "candidate_key": "p001-app-valid",
+                "app_price_eur": "1.99",
+                "requires_app": True,
+            }
+        )
+        loaded = self._load([row])[0]
+        self.assertEqual(loaded["app_price_eur"], "1.99")
+        self.assertIs(loaded["requires_app"], True)
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -42,6 +42,7 @@ The importer consumes JSONL. Every row contains:
 - `evidence_text`
 - `product_name`
 - optional package / price fields
+- `requires_app` (mandatory `true` whenever `app_price_eur` is present)
 - `scope`
 - `channel=physical_store`
 - `confidence`

@@ -360,6 +360,7 @@ class LidlCorpusImportTest(unittest.TestCase):
             "scope": "review",
             "channel": "physical_store",
             "confidence": 0.88,
+            "requires_app": False,
             "review_required": True,
             "production_ready": False,
         }
@@ -405,6 +406,7 @@ class LidlCorpusImportTest(unittest.TestCase):
                 item.provenance_json["bbox"],
                 [10.0, 20.0, 100.0, 80.0],
             )
+            self.assertIs(item.original_payload["requires_app"], False)
             self.assertEqual(
                 db.scalar(select(func.count()).select_from(OfferCandidateRecord)),
                 0,

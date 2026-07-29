@@ -133,6 +133,22 @@ def validate_record(
     product_name = _nonempty(record.get("product_name"), "product_name")
     evidence_text = _nonempty(record.get("evidence_text"), "evidence_text")
 
+    app_price_eur = _optional_money(
+        record.get("app_price_eur"), "app_price_eur"
+    )
+    requires_app_raw = record.get("requires_app", False)
+    if not isinstance(requires_app_raw, bool):
+        raise ValueError("Completeness rescue requires_app must be boolean")
+    requires_app = requires_app_raw
+    if app_price_eur is not None and not requires_app:
+        raise ValueError(
+            "Completeness rescue app_price_eur requires requires_app=true"
+        )
+    if requires_app and app_price_eur is None:
+        raise ValueError(
+            "Completeness rescue requires_app=true requires app_price_eur"
+        )
+
     normalized = dict(record)
     normalized.update(
         {
@@ -156,9 +172,8 @@ def validate_record(
             "regular_price_eur": _optional_money(
                 record.get("regular_price_eur"), "regular_price_eur"
             ),
-            "app_price_eur": _optional_money(
-                record.get("app_price_eur"), "app_price_eur"
-            ),
+            "app_price_eur": app_price_eur,
+            "requires_app": requires_app,
         }
     )
 
