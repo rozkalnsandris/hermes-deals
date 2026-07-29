@@ -337,6 +337,79 @@ class LidlCorpusImportTest(unittest.TestCase):
                 1,
             )
 
+    def test_completeness_rescue_seed_is_review_only_and_idempotent(self) -> None:
+        from app.lidl_corpus_import import seed_completeness_rescue_rows
+
+        artifact = self.flyer / "completeness-rescue.jsonl"
+        record = {
+            "schema_version": 1,
+            "candidate_key": "p001-native-test",
+            "flyer_key": self.flyer.name,
+            "scan": self.scan.name,
+            "parser_version": EXPECTED_PARSER_VERSION,
+            "parser_sha256": "a" * 64,
+            "source_raw_sha256": self.raw_sha,
+            "source_pdf_sha256": self.pdf_sha,
+            "page": 1,
+            "evidence_kind": "native_geometry",
+            "bbox": [10.0, 20.0, 100.0, 80.0],
+            "evidence_text": "TEST Rescue",
+            "product_name": "TEST Rescue",
+            "package_text": "250 g",
+            "price_eur": "2.49",
+            "scope": "review",
+            "channel": "physical_store",
+            "confidence": 0.88,
+            "review_required": True,
+            "production_ready": False,
+        }
+        artifact.write_text(
+            json.dumps(record, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        with Session(self.engine) as db:
+            snapshot = self._snapshot(db)
+            first = seed_completeness_rescue_rows(
+                db,
+                flyer_dir=self.flyer,
+                scan_name=self.scan.name,
+                snapshot=snapshot,
+                artifact_path=artifact,
+                expected_raw_sha256=self.raw_sha,
+                expected_pdf_sha256=self.pdf_sha,
+                expected_count=1,
+            )
+            second = seed_completeness_rescue_rows(
+                db,
+                flyer_dir=self.flyer,
+                scan_name=self.scan.name,
+                snapshot=snapshot,
+                artifact_path=artifact,
+                expected_raw_sha256=self.raw_sha,
+                expected_pdf_sha256=self.pdf_sha,
+                expected_count=1,
+            )
+            self.assertEqual(first[0].id, second[0].id)
+            item = db.get(OfferReviewItem, first[0].id)
+            self.assertEqual(item.status, "pending")
+            self.assertIn(
+                "completeness_rescue_requires_review",
+                item.reason_codes,
+            )
+            self.assertEqual(
+                item.provenance_json["evidence_kind"],
+                "native_geometry",
+            )
+            self.assertEqual(
+                item.provenance_json["bbox"],
+                [10.0, 20.0, 100.0, 80.0],
+            )
+            self.assertEqual(
+                db.scalar(select(func.count()).select_from(OfferCandidateRecord)),
+                0,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,12 @@ from app.models import OfferCandidateRecord, OfferReviewItem, SourceSnapshot
 from app.offer_store import save_offer_candidates
 from app.review_queue import seed_review_item
 from app.schemas import OfferCandidate, SourceChain
+from app.lidl_completeness_rescue import (
+    RESCUE_VERSION,
+    load_rescue_artifact,
+    rescue_reason_codes,
+    rescue_row_key,
+)
 
 SOURCE_STRATEGY = "lidl_public_flyer_json_canonical"
 CORPUS_IMPORT_VERSION = "lidl-corpus-import-v1"
@@ -700,6 +706,116 @@ def seed_review_rows(
     return items
 
 
+def _rescue_original_payload(
+    *,
+    record: dict[str, Any],
+    context: FlyerContext,
+) -> dict[str, Any]:
+    page = int(record["page"])
+    image_url = _page_visual(context, page)
+    return {
+        "product_name": record["product_name"],
+        "product_name_raw": record["product_name"],
+        "brand": None,
+        "brand_raw": None,
+        "package_text": record.get("package_text"),
+        "package_text_raw": record.get("package_text"),
+        "price_eur": record.get("price_eur"),
+        "regular_price_eur": record.get("regular_price_eur"),
+        "app_price_eur": record.get("app_price_eur"),
+        "valid_from": context.valid_from.isoformat(),
+        "valid_until": context.valid_until.isoformat(),
+        "scope": record["scope"],
+        "channel": record["channel"],
+        "source_url": context.viewer_url,
+        "source_image_url": image_url,
+        "source_store_external_id": FAMILY_STORE_EXTERNAL_ID,
+        "source_store_name": FAMILY_STORE_NAME,
+        "price_basis": "completeness_rescue_review",
+        "scope_source": "completeness_rescue_evidence",
+        "channel_source": "physical_flyer_binding",
+        "validity_source": "flyer_validity",
+        "warnings": rescue_reason_codes(record),
+        "completeness_rescue": dict(record),
+    }
+
+
+def seed_completeness_rescue_rows(
+    db: Session,
+    *,
+    flyer_dir: Path,
+    scan_name: str,
+    snapshot: SourceSnapshot,
+    artifact_path: Path,
+    expected_raw_sha256: str,
+    expected_pdf_sha256: str,
+    expected_count: int,
+) -> list[OfferReviewItem]:
+    context = load_context(
+        flyer_dir=flyer_dir,
+        scan_name=scan_name,
+        expected_raw_sha256=expected_raw_sha256,
+        expected_pdf_sha256=expected_pdf_sha256,
+    )
+    if snapshot.source_chain != "lidl" or snapshot.sha256 != context.raw_sha256:
+        raise ValueError("Completeness rescue snapshot does not match flyer source")
+    records = load_rescue_artifact(
+        artifact_path,
+        flyer_key=context.flyer_key,
+        scan_name=scan_name,
+        parser_version=context.parser_version,
+        parser_sha256=context.parser_sha256,
+        raw_sha256=context.raw_sha256,
+        pdf_sha256=context.pdf_sha256,
+        valid_pages=set(context.pages),
+        expected_count=expected_count,
+    )
+
+    items: list[OfferReviewItem] = []
+    for record in records:
+        page = int(record["page"])
+        image_url = _page_visual(context, page)
+        key = rescue_row_key(scan_name, record)
+        provenance = {
+            "completeness_rescue_version": RESCUE_VERSION,
+            "flyer_key": context.flyer_key,
+            "scan": scan_name,
+            "candidate_key": record["candidate_key"],
+            "record_digest": record["record_digest"],
+            "page": page,
+            "bbox": list(record["bbox"]),
+            "evidence_kind": record["evidence_kind"],
+            "evidence_text": record["evidence_text"],
+            "confidence": record.get("confidence"),
+            "source_snapshot_id": str(snapshot.id),
+            "source_snapshot_sha256": context.raw_sha256,
+            "source_pdf_sha256": context.pdf_sha256,
+            "official_flyer_id": context.official_flyer_id,
+            "region": context.region,
+            "source_url": context.viewer_url,
+            "document_url": context.document_url,
+            "page_image_url": image_url,
+            "crop_url": image_url,
+            "crop_kind": "bbox_evidence",
+            "base_parser_version": context.parser_version,
+            "base_parser_sha256": context.parser_sha256,
+        }
+        item = seed_review_item(
+            db,
+            source_chain="lidl",
+            source_flyer_key=context.flyer_key,
+            source_row_key=key,
+            parser_version=RESCUE_VERSION,
+            original_payload=_rescue_original_payload(record=record, context=context),
+            provenance_json=provenance,
+            reason_codes=rescue_reason_codes(record),
+            source_snapshot_id=snapshot.id,
+            page_number=page,
+        )
+        items.append(item)
+    return items
+
+
 def persist_safe_offers(
     db: Session,
     *,
@@ -795,6 +911,67 @@ def _command_seed_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_validate_rescue(args: argparse.Namespace) -> int:
+    context = load_context(
+        flyer_dir=Path(args.flyer_dir),
+        scan_name=args.scan,
+        expected_raw_sha256=args.raw_sha,
+        expected_pdf_sha256=args.pdf_sha,
+    )
+    records = load_rescue_artifact(
+        Path(args.artifact),
+        flyer_key=context.flyer_key,
+        scan_name=args.scan,
+        parser_version=context.parser_version,
+        parser_sha256=context.parser_sha256,
+        raw_sha256=context.raw_sha256,
+        pdf_sha256=context.pdf_sha256,
+        valid_pages=set(context.pages),
+        expected_count=args.rescue_count,
+    )
+    print(
+        json.dumps(
+            {
+                "rescue_version": RESCUE_VERSION,
+                "count": len(records),
+                "candidate_keys": [r["candidate_key"] for r in records],
+                "review_only": True,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _command_seed_rescue(args: argparse.Namespace) -> int:
+    with _session() as db:
+        snapshot = db.get(SourceSnapshot, UUID(args.snapshot_id))
+        if snapshot is None:
+            raise ValueError("SourceSnapshot not found")
+        items = seed_completeness_rescue_rows(
+            db,
+            flyer_dir=Path(args.flyer_dir),
+            scan_name=args.scan,
+            snapshot=snapshot,
+            artifact_path=Path(args.artifact),
+            expected_raw_sha256=args.raw_sha,
+            expected_pdf_sha256=args.pdf_sha,
+            expected_count=args.rescue_count,
+        )
+        print(
+            json.dumps(
+                {
+                    "seeded_or_reused": len(items),
+                    "review_only": True,
+                    "review_ids": [str(item.id) for item in items],
+                },
+                sort_keys=True,
+            )
+        )
+    return 0
+
+
 def _command_promote_safe(args: argparse.Namespace) -> int:
     with _session() as db:
         snapshot = db.get(SourceSnapshot, UUID(args.snapshot_id))
@@ -857,6 +1034,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--snapshot-id", required=True)
     p.add_argument("--review-count", required=True, type=int)
     p.set_defaults(func=_command_seed_review)
+
+    p = sub.add_parser("validate-rescue")
+    common(p)
+    p.add_argument("--artifact", required=True)
+    p.add_argument("--rescue-count", required=True, type=int)
+    p.set_defaults(func=_command_validate_rescue)
+
+    p = sub.add_parser("seed-rescue")
+    common(p)
+    p.add_argument("--snapshot-id", required=True)
+    p.add_argument("--artifact", required=True)
+    p.add_argument("--rescue-count", required=True, type=int)
+    p.set_defaults(func=_command_seed_rescue)
 
     p = sub.add_parser("promote-safe")
     common(p)
