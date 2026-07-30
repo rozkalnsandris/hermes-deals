@@ -7,7 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 
@@ -31,11 +31,12 @@ from app.review_queue import (
 )
 
 from app.lidl_weekly_review_bridge import create_review_from_page_alert_hint
+from app.lidl_review_preview import ReviewPreviewUnavailable, resolve_review_preview
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.11",
-    description="Private family shopping intelligence platform — Phase 5G B15C explicit unit-basis pricing foundation.",
+    version="0.3.12",
+    description="Private family shopping intelligence platform — Phase 5G B15F worker-pre-rendered provenance-bound Lidl Review previews.",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -48,8 +49,8 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
     return {
         "status": "ok",
         "service": "hermes-deals-api",
-        "phase": "5G-B15E",
-        "version": "0.3.11",
+        "phase": "5G-B15F",
+        "version": "0.3.12",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -1389,6 +1390,36 @@ def review_item(
         db,
         _review_get_or_404(db, item_id),
         include_revisions=True,
+    )
+
+
+@app.get(
+    "/api/v1/review-items/{item_id}/page-preview",
+    include_in_schema=True,
+    responses={200: {"content": {"image/png": {}}}},
+)
+def review_item_page_preview(
+    item_id: UUID,
+    mode: str = Query(default="page", max_length=16),
+    hint_index: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+) -> Response:
+    item = _review_get_or_404(db, item_id)
+    try:
+        path, source_pdf_sha256 = resolve_review_preview(
+            item,
+            mode=mode,
+            hint_index=hint_index,
+        )
+    except ReviewPreviewUnavailable as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        path=path,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=86400, immutable",
+            "X-Hermes-Source-PDF-SHA256": source_pdf_sha256,
+        },
     )
 
 

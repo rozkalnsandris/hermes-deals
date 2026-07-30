@@ -46,7 +46,7 @@ Approved rows cannot be reopened automatically because that would require an exp
 
 ## Crop support
 
-The Review UI displays `provenance.crop_url` when present. A later controlled import step can pre-render flyer crops and attach them while seeding the Review Queue.
+The Review UI displays `provenance.crop_url` when present. For weekly page alerts and products created from their hints, the dedicated Lidl worker pre-renders SHA256-bound page and context PNG assets from the immutable flyer PDF. The API remains PyMuPDF-free and only serves validated files from the fixed Review preview asset root; it never accepts an arbitrary filesystem path and never changes Review or offer state.
 
 
 ## Weekly page-review alerts

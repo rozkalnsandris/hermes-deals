@@ -43,6 +43,15 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         self.assertIn("Izveidot Review produktu", html)
         self.assertIn("Atzīmēt lapu pārbaudītu", html)
         self.assertIn("/page-alert/hints/", html)
+        for marker in (
+            'function previewUrl(id,mode="page",hintIndex=null)',
+            'Bukleta lapas priekšskatījums',
+            'Atvērt pilnā izmērā',
+            'Atvērt produkta apkārtni',
+            '/page-preview?',
+            'wirePreviewErrors()',
+        ):
+            self.assertIn(marker, html)
 
     def test_review_ui_defaults_to_all_open_states_and_keeps_drafts_visible(self) -> None:
         html = REVIEW.read_text(encoding="utf-8")

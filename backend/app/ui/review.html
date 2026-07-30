@@ -27,7 +27,8 @@
     .source{padding:12px;background:#f4f5f6;border-radius:10px;margin-bottom:14px;word-break:break-word}
     .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
     pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f5f5f5;padding:10px;border-radius:8px}
-    img.crop{max-width:100%;border-radius:10px;border:1px solid #ddd;margin-top:10px}
+    img.crop,img.preview{display:block;max-width:100%;border-radius:10px;border:1px solid #ddd;margin-top:10px;background:#f3f4f5}
+    .preview-block{padding:12px;background:#f4f5f6;border-radius:10px;margin:12px 0}.preview-head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.preview-note{padding:10px;border:1px dashed #bbb;border-radius:9px;margin-top:10px}.hint-preview{margin-top:10px}
     @media(max-width:820px){main{grid-template-columns:1fr}#list{max-height:42vh}.grid{grid-template-columns:1fr}}
   </style>
 </head>
@@ -65,6 +66,8 @@ const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let selected=null;
 function val(o,...keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null)return o[k]}return""}
+function previewUrl(id,mode="page",hintIndex=null){const q=new URLSearchParams({mode});if(hintIndex!==null)q.set("hint_index",String(hintIndex));return `/api/v1/review-items/${encodeURIComponent(id)}/page-preview?${q}`;}
+function wirePreviewErrors(){document.querySelectorAll("img[data-preview]").forEach(img=>{img.addEventListener("error",()=>{img.hidden=true;const note=img.parentElement?.querySelector("[data-preview-error]");if(note)note.hidden=false;},{once:true});});}
 async function load(){
   const status=$("status").value;
   const q=new URLSearchParams({source_chain:"lidl",limit:"500"});
@@ -114,17 +117,21 @@ async function markPageAlertChecked(){
 function renderPageAlert(){
   const p=selected.original_payload||{},hints=p.hints||[];
   const open=["pending","draft","needs_followup"].includes(selected.status);
-  const hintHtml=hints.map((hint,index)=>`
-    <div class="source">
+  const hintHtml=hints.map((hint,index)=>{
+    const bandUrl=previewUrl(selected.id,"band",index);
+    return `<div class="source">
       <strong>${esc(hint.product_name_hint||hint.native_title||"Iespējams produkts")}</strong><br>
       <span class="muted">Native: ${esc(hint.native_title||"—")}</span><br>
       <span class="muted">Scope: ${esc(hint.scope||"review")} · bbox ${esc(JSON.stringify(hint.title_bbox||[]))}</span>
+      <div class="hint-preview"><a href="${esc(bandUrl)}" target="_blank" rel="noopener">Atvērt produkta apkārtni</a><img class="preview" data-preview loading="lazy" src="${esc(bandUrl)}" alt="Bukleta fragments ap ${esc(hint.product_name_hint||hint.native_title||"produktu")}"><div class="preview-note muted" data-preview-error hidden>Produkta apkārtnes priekšskatījums nav pieejams.</div></div>
       ${open?`<div class="actions"><button type="button" data-create-hint="${index}">Izveidot Review produktu</button></div>`:""}
-    </div>`).join("");
+    </div>`;}).join("");
+  const pageUrl=previewUrl(selected.id,"page");
   $("detail").innerHTML=`
     <h2>⚠ Lidl bukleta lapa ${esc(selected.page_number??"—")}</h2>
     <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>${esc(selected.parser_version)}<br><span class="badge">lapas pārbaude</span><span class="badge">${esc(selected.status)}</span></div>
     <p>Šeit parseris nav droši rekonstruējis visus produktus. Zemāk ir tikai nosaukuma/pozīcijas hinti — cena un produkta dati netiek izdomāti automātiski.</p>
+    <div class="preview-block"><div class="preview-head"><strong>Bukleta lapas priekšskatījums</strong><a href="${esc(pageUrl)}" target="_blank" rel="noopener">Atvērt pilnā izmērā</a></div><img class="preview" data-preview src="${esc(pageUrl)}" alt="Lidl bukleta lapa ${esc(selected.page_number??"—")}"><div class="preview-note muted" data-preview-error hidden>PDF lapas priekšskatījums nav pieejams. Produktu nepublicē, kamēr avota lapa nav apskatāma.</div></div>
     ${hintHtml||'<div class="muted">Hintu nav.</div>'}
     ${open?'<div class="actions"><button class="primary" id="page_checked" type="button">Atzīmēt lapu pārbaudītu</button></div>':""}
     ${selected.status==="rejected"?'<div class="muted">Šī lapa ir atzīmēta kā pārbaudīta.</div>':""}
@@ -135,6 +142,7 @@ function renderPageAlert(){
   });
   const checked=$("page_checked");
   if(checked)checked.onclick=markPageAlertChecked;
+  wirePreviewErrors();
 }
 async function openItem(id){
   const r=await fetch("/api/v1/review-items/"+id);
@@ -143,7 +151,10 @@ async function openItem(id){
   document.querySelectorAll(".row").forEach(n=>n.classList.toggle("active",n.dataset.id===id));
   if(selected.review_kind==="page_alert"){renderPageAlert();return;}
   const e=selected.effective_payload||{},p=selected.provenance||{};
-  const crop=p.crop_url?`<img class="crop" src="${esc(p.crop_url)}" alt="Bukleta fragments">`:"";
+  const generatedBand=previewUrl(selected.id,"band");
+  const generatedPage=previewUrl(selected.id,"page");
+  const hasGeneratedPreview=selected.source_chain==="lidl"&&Boolean(p.source_pdf_sha256||p.pdf_sha256);
+  const crop=p.crop_url?`<img class="crop" src="${esc(p.crop_url)}" alt="Bukleta fragments">`:(hasGeneratedPreview?`<div class="preview-block"><div class="preview-head"><strong>Avota fragments</strong><a href="${esc(generatedPage)}" target="_blank" rel="noopener">Atvērt visu lapu</a></div><img class="preview" data-preview src="${esc(generatedBand)}" alt="Bukleta fragments"><div class="preview-note muted" data-preview-error hidden>Avota priekšskatījums nav pieejams. Produktu nepublicē, kamēr avota lapa nav apskatāma.</div></div>`:"");
   $("detail").innerHTML=`
     <h2>${esc(val(e,"product_name","product_name_raw")||"Piedāvājums")}</h2>
     <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>Lapa ${esc(selected.page_number??"—")} · ${esc(selected.parser_version)}<br>${selected.reason_codes.map(x=>`<span class="badge">${esc(x)}</span>`).join("")}${crop}</div>
@@ -187,6 +198,7 @@ async function openItem(id){
   $("reopen").onclick=reopen;
   $("fast_scope_approve").onclick=approveScopeOnlyFast;
   updateScopeFastReviewButton();
+  wirePreviewErrors();
 }
 function corrections(){
   const g=id=>$(id).value.trim();
