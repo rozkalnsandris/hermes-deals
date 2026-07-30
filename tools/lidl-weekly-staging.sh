@@ -10,6 +10,7 @@ DISCOVERY_DIR="${1:?discovery directory required}"
 OUT="${2:?empty output directory required}"
 TARGET="${3:-next}"
 SOURCE_REVIEW_FILE="${4:-}"
+REVIEW_PROFILE_FILE="${5:-}"
 
 [[ "$WORKER_IMAGE" != *:latest ]] || {
   echo "FAIL: mutable worker image is forbidden: $WORKER_IMAGE" >&2
@@ -43,6 +44,19 @@ if [[ -n "$SOURCE_REVIEW_FILE" ]]; then
   SOURCE_REVIEW_ARGS=(--source-review-file /source-review.json)
 fi
 
+REVIEW_PROFILE_MOUNT=()
+REVIEW_PROFILE_ARGS=()
+if [[ -n "$REVIEW_PROFILE_FILE" ]]; then
+  [[ -f "$REVIEW_PROFILE_FILE" ]] || {
+    echo "FAIL: review profile file missing: $REVIEW_PROFILE_FILE" >&2
+    exit 2
+  }
+  REVIEW_PROFILE_MOUNT=(
+    --mount "type=bind,src=$(realpath "$REVIEW_PROFILE_FILE"),dst=/review-profile.json,readonly"
+  )
+  REVIEW_PROFILE_ARGS=(--review-profile-file /review-profile.json)
+fi
+
 exec docker run --rm \
   --user "$(id -u):$(id -g)" \
   --network none \
@@ -59,6 +73,7 @@ exec docker run --rm \
   --mount "type=bind,src=$(realpath "$STAGING"),dst=/staging" \
   --mount "type=bind,src=$(realpath "$OUT"),dst=/out" \
   "${SOURCE_REVIEW_MOUNT[@]}" \
+  "${REVIEW_PROFILE_MOUNT[@]}" \
   "$WORKER_IMAGE" \
   python /repo/tools/lidl_weekly_staging.py \
     --discovery-dir /discovery \
@@ -66,4 +81,5 @@ exec docker run --rm \
     --output-dir /out \
     --reference-corpus-root /corpus \
     --target "$TARGET" \
-    "${SOURCE_REVIEW_ARGS[@]}"
+    "${SOURCE_REVIEW_ARGS[@]}" \
+    "${REVIEW_PROFILE_ARGS[@]}"

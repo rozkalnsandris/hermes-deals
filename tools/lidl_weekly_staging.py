@@ -21,6 +21,7 @@ sys.path.insert(0, "/repo/tools")
 sys.path.insert(0, "/repo/tools/lidl_parser_provenance")
 
 from app.lidl_weekly_completeness_contract import (  # noqa: E402
+    WEEKLY_PAGE_ROLE_REVIEWED_STATUSES,
     WeeklyTargetProfileGate,
     require_weekly_target_profile,
 )
@@ -38,7 +39,7 @@ from lidl_weekly_one_shot import (  # noqa: E402
 )
 
 
-WORKFLOW_VERSION = "lidl-family-weekly-staging-v3-source-review"
+WORKFLOW_VERSION = "lidl-family-weekly-staging-v4-reviewed-page-role-profile"
 SOURCE_LAYOUT_VERSION = "lidl-family-weekly-staging-v2-input-gate"
 EXIT_CODES = {
     "STAGED_SCAN_READY": 0,
@@ -389,6 +390,131 @@ def _validate_source_review(
     if review["permissions"] != expected_permissions:
         raise StagingError("source review permissions are unsafe")
     return review, _sha256_bytes(_canonical_json_bytes(review))
+
+
+def _review_profile_pages(
+    values: Any,
+    *,
+    label: str,
+    page_count: int,
+    allow_empty: bool = False,
+) -> list[int]:
+    if not isinstance(values, list) or (not values and not allow_empty):
+        requirement = "a list" if allow_empty else "a non-empty list"
+        raise StagingError(f"review profile {label} must be {requirement}")
+    pages: list[int] = []
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise StagingError(
+                f"review profile {label} page must be an integer: {value!r}"
+            )
+        page = int(value)
+        if page < 1 or page > int(page_count):
+            raise StagingError(
+                f"review profile {label} page out of range: "
+                f"page={page} page_count={page_count}"
+            )
+        pages.append(page)
+    if len(pages) != len(set(pages)):
+        raise StagingError(f"review profile {label} contains duplicates")
+    return pages
+
+
+def _validate_review_profile(
+    *,
+    review_profile_file: Path,
+    pdf_sha256: str,
+    page_count: int,
+) -> tuple[dict[str, Any], bytes, str]:
+    if not review_profile_file.is_file():
+        raise StagingError("review profile file is missing")
+    if review_profile_file.stat().st_size > 128 * 1024:
+        raise StagingError("review profile file is too large")
+    raw = review_profile_file.read_bytes()
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise StagingError(
+            f"review profile JSON invalid: {type(exc).__name__}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise StagingError("review profile must contain an object")
+    profile = dict(payload)
+    expected_fields = {
+        "schema_version",
+        "status",
+        "target_kind",
+        "target_pages",
+        "baseline_pages",
+        "excluded_page_roles",
+        "reference_expectations",
+        "unit_basis_reviews",
+        "source",
+        "note",
+    }
+    if set(profile) != expected_fields:
+        raise StagingError("review profile field set mismatch")
+    if profile["schema_version"] != 1:
+        raise StagingError("review profile schema version mismatch")
+    if profile["status"] not in WEEKLY_PAGE_ROLE_REVIEWED_STATUSES:
+        raise StagingError("review profile page-role status is not reviewed")
+    if profile["target_kind"] != "weekly_physical_deals":
+        raise StagingError("review profile target kind mismatch")
+
+    target_pages = _review_profile_pages(
+        profile["target_pages"],
+        label="target_pages",
+        page_count=page_count,
+    )
+    baseline_pages = _review_profile_pages(
+        profile["baseline_pages"],
+        label="baseline_pages",
+        page_count=page_count,
+        allow_empty=True,
+    )
+    excluded_raw = profile["excluded_page_roles"]
+    if not isinstance(excluded_raw, Mapping) or not excluded_raw:
+        raise StagingError(
+            "review profile excluded_page_roles must be a non-empty object"
+        )
+    excluded_pages: list[int] = []
+    for role, values in sorted(excluded_raw.items()):
+        if not isinstance(role, str) or not role.strip():
+            raise StagingError("review profile excluded page role is invalid")
+        excluded_pages.extend(
+            _review_profile_pages(
+                values,
+                label=f"excluded_page_roles.{role}",
+                page_count=page_count,
+            )
+        )
+
+    assigned = target_pages + baseline_pages + excluded_pages
+    if len(assigned) != len(set(assigned)):
+        raise StagingError("review profile page roles overlap")
+    expected_pages = set(range(1, int(page_count) + 1))
+    if set(assigned) != expected_pages:
+        missing = sorted(expected_pages - set(assigned))
+        extra = sorted(set(assigned) - expected_pages)
+        raise StagingError(
+            "review profile does not partition all pages: "
+            f"missing={missing} extra={extra}"
+        )
+
+    expectations = profile["reference_expectations"]
+    if not isinstance(expectations, Mapping):
+        raise StagingError("review profile reference expectations are invalid")
+    if expectations.get("target_page_count") != len(target_pages):
+        raise StagingError("review profile target page count mismatch")
+    if not isinstance(profile["unit_basis_reviews"], list):
+        raise StagingError("review profile unit_basis_reviews must be a list")
+    source = str(profile["source"] or "")
+    if pdf_sha256 not in source:
+        raise StagingError("review profile source PDF identity mismatch")
+    if not str(profile["note"] or "").strip():
+        raise StagingError("review profile note is missing")
+
+    return profile, raw, _sha256_bytes(raw)
 
 
 def staging_flyer_key(
@@ -750,6 +876,7 @@ def run_staging(
     target: str,
     reference_corpus_root: Path | None = None,
     source_review_file: Path | None = None,
+    review_profile_file: Path | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if any(output_dir.iterdir()):
@@ -973,9 +1100,36 @@ def run_staging(
         _atomic_json(output_dir / "staging-status.json", payload)
         return payload
 
+    review_profile_created = False
+    review_profile_sha = ""
+    review_profile_path = flyer_root / "review-profile.json"
+    if review_profile_file is not None:
+        _, review_profile_raw, review_profile_sha = _validate_review_profile(
+            review_profile_file=review_profile_file,
+            pdf_sha256=selected.pdf_sha256,
+            page_count=selected.page_count,
+        )
+        review_profile_created = _write_bytes_once(
+            review_profile_path,
+            review_profile_raw,
+        )
+
     staging_payload = dict(staging_before_scan)
     staging_payload["scan_root"] = str(scan_root)
     staging_payload["scan_created"] = scan_created
+    staging_payload["review_profile_created"] = review_profile_created
+    staging_payload["review_profile_path"] = (
+        str(review_profile_path) if review_profile_path.is_file() else ""
+    )
+    staging_payload["review_profile_sha256"] = (
+        review_profile_sha
+        if review_profile_sha
+        else (
+            _sha256_file(review_profile_path)
+            if review_profile_path.is_file()
+            else ""
+        )
+    )
     staging_payload["reused"] = not any(
         (
             source_created,
@@ -983,6 +1137,7 @@ def run_staging(
             raw_created,
             observation_meta_created,
             scan_created,
+            review_profile_created,
         )
     )
 
@@ -1026,6 +1181,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target", choices=("current", "next"), default="next")
     parser.add_argument("--reference-corpus-root", type=Path)
     parser.add_argument("--source-review-file", type=Path)
+    parser.add_argument("--review-profile-file", type=Path)
     return parser
 
 
@@ -1039,6 +1195,7 @@ def main(argv: list[str] | None = None) -> int:
             target=args.target,
             reference_corpus_root=args.reference_corpus_root,
             source_review_file=args.source_review_file,
+            review_profile_file=args.review_profile_file,
         )
     except StagingError as exc:
         payload = _status_payload(

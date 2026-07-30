@@ -15,6 +15,7 @@ from lidl_weekly_staging import (
     _parser_input_identity,
     _product_binding_digest,
     _stable_source_identity,
+    _validate_review_profile,
     _validate_source_review,
     _write_bytes_once,
     product_bindings,
@@ -60,6 +61,30 @@ def source_payload(*, raw_marker: str = "first") -> bytes:
         },
         sort_keys=True,
     ).encode()
+
+
+def profile_payload(*, pdf_sha256: str = "a" * 64) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "status": "independent_page_role_reviewed_product_audit_in_progress",
+        "target_kind": "weekly_physical_deals",
+        "target_pages": [1],
+        "baseline_pages": [2],
+        "excluded_page_roles": {
+            "editorial": [3],
+            "online_nonfood": [4],
+        },
+        "reference_expectations": {
+            "status": "provisional_until_full_card_audit",
+            "target_page_count": 1,
+        },
+        "unit_basis_reviews": [],
+        "source": (
+            "Independent visual page-role audit of exact immutable PDF "
+            + pdf_sha256
+        ),
+        "note": "Page roles only; product truth remains independently reviewed.",
+    }
 
 
 def review_payload(
@@ -244,6 +269,63 @@ class LidlWeeklyStagingTest(unittest.TestCase):
         payload["approved_live_input"]["product_binding_count"] = 3
         with self.assertRaises(StagingError):
             self._validate_review(payload)
+
+    def _validate_profile(
+        self,
+        payload: dict[str, object],
+    ) -> tuple[dict[str, object], bytes, str]:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "review-profile.json"
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            return _validate_review_profile(
+                review_profile_file=path,
+                pdf_sha256="a" * 64,
+                page_count=4,
+            )
+
+    def test_review_profile_exact_partition_is_accepted(self) -> None:
+        payload = profile_payload()
+        profile, raw, digest = self._validate_profile(payload)
+        self.assertEqual(profile, payload)
+        self.assertTrue(raw.endswith(b"\n"))
+        self.assertEqual(len(digest), 64)
+
+    def test_review_profile_rejects_unreviewed_status(self) -> None:
+        payload = profile_payload()
+        payload["status"] = "draft"
+        with self.assertRaises(StagingError):
+            self._validate_profile(payload)
+
+    def test_review_profile_rejects_overlapping_page_roles(self) -> None:
+        payload = profile_payload()
+        payload["baseline_pages"] = [1, 2]
+        with self.assertRaises(StagingError):
+            self._validate_profile(payload)
+
+    def test_review_profile_rejects_page_partition_gap(self) -> None:
+        payload = profile_payload()
+        payload["excluded_page_roles"]["online_nonfood"] = []
+        with self.assertRaises(StagingError):
+            self._validate_profile(payload)
+
+    def test_review_profile_rejects_source_pdf_mismatch(self) -> None:
+        with self.assertRaises(StagingError):
+            self._validate_profile(profile_payload(pdf_sha256="b" * 64))
+
+    def test_review_profile_rejects_target_count_mismatch(self) -> None:
+        payload = profile_payload()
+        payload["reference_expectations"]["target_page_count"] = 2
+        with self.assertRaises(StagingError):
+            self._validate_profile(payload)
+
+    def test_review_profile_rejects_field_set_drift(self) -> None:
+        payload = profile_payload()
+        payload["unexpected"] = True
+        with self.assertRaises(StagingError):
+            self._validate_profile(payload)
 
     def test_binding_change_summary_tracks_add_remove_and_title(self) -> None:
         reference = json.loads(source_payload())

@@ -64,3 +64,21 @@ After validation the canonical decision is written once as
 be created in that same observation. With no reviewed page-role profile, the
 expected result is `WAIT_PROFILE`; this is still not corpus promotion or
 production import.
+
+## Reviewed page-role profile gate
+
+A source-reviewed authoritative scan is not promotion-ready until an immutable
+human-reviewed page-role profile is supplied with `--review-profile-file`.
+The profile is bound to the exact PDF SHA-256, must use a reviewed status, and
+must partition every flyer page exactly once across:
+
+- `target_pages` for physical weekly food, drink and household-consumable deals;
+- `baseline_pages` already covered by normal structured extraction;
+- named `excluded_page_roles` such as editorial, online-only or durable non-food.
+
+The profile decides only page roles. It does not approve products, prices,
+packages, validity, production writes, Review Queue seeding or publication.
+The exact input bytes are written once as `<flyer>/review-profile.json`; a
+mismatching replay fails closed. Once the profile and scan are both valid, the
+staging result becomes `STAGED_SCAN_READY` for a separately controlled corpus
+promotion step.
