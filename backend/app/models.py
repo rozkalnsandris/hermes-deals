@@ -15,13 +15,20 @@ class Base(DeclarativeBase):
 
 class SourceSnapshot(Base):
     __tablename__ = "source_snapshots"
+    __table_args__ = (
+        Index(
+            "ix_source_snapshots_chain_collected",
+            "source_chain",
+            "collected_at",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    source_chain: Mapped[str] = mapped_column(String(32), index=True)
+    source_chain: Mapped[str] = mapped_column(String(32))
     source_url: Mapped[str] = mapped_column(Text)
     final_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     scope: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     elapsed_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -43,10 +50,16 @@ class OfferCandidateRecord(Base):
             "source_offer_id",
             name="uq_offer_candidates_snapshot_offer",
         ),
+        Index(
+            "ix_offer_candidates_chain_valid",
+            "source_chain",
+            "valid_from",
+            "valid_until",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    source_chain: Mapped[str] = mapped_column(String(32), index=True)
+    source_chain: Mapped[str] = mapped_column(String(32))
     source_store_external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_store_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_offer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

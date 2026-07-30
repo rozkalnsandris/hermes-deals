@@ -85,6 +85,7 @@ class ReviewQueueApiTest(unittest.TestCase):
             )
 
     def tearDown(self) -> None:
+        self.client.close()
         app.dependency_overrides.clear()
         self.engine.dispose()
 

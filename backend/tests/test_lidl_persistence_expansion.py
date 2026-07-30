@@ -22,6 +22,7 @@ from app.models import Base, OfferCandidateRecord, SourceSnapshot
 class LidlPersistenceExpansionTest(unittest.TestCase):
     def _setup_db(self, root: Path) -> tuple[object, SourceSnapshot, str]:
         engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+        self.addCleanup(engine.dispose)
         Base.metadata.create_all(engine)
 
         raw = root / "flyer.json"

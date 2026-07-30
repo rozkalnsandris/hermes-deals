@@ -3,14 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
+from io import BytesIO
 import json
 from pathlib import Path
 import re
 import time
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import SourceSnapshot
@@ -18,10 +21,15 @@ from app.parsers.netto import NettoParserContext, parse_netto_html
 from app.schemas import OfferCandidate
 from app.settings import get_settings
 from app.source_config import SourceConfig
-from app.structured_source_shadow import extract_netto_direct_viewers
+from app.structured_source_shadow import (
+    extract_netto_direct_viewers,
+    extract_netto_group_slug,
+)
 
 
-PARSER_VERSION = "netto-v1.2-store-prospect"
+PARSER_VERSION = "netto-v1.3-store-prospect"
+MANIFEST_STRATEGY_V1 = "netto_store_page_plus_current_prospect_v1"
+MANIFEST_STRATEGY_V2 = "netto_store_page_plus_current_prospect_pdf_v2"
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
 VALIDITY_RE = re.compile(
     r"(?i)(?:Montag,?\s*)?(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[–—-]\s*"
@@ -41,6 +49,12 @@ class NettoStoreProspectBundle:
     validity_text: str
     selected_store_cookie_present: bool
     elapsed_ms: int
+    validity_source_url: str = ""
+    validity_source_type: str = "prospect_html_meta"
+    publication_api_url: str | None = None
+    publication_json: bytes = b""
+    prospect_pdf_url: str | None = None
+    prospect_pdf: bytes = b""
 
 
 def _de_date(value: str) -> date:
@@ -48,17 +62,21 @@ def _de_date(value: str) -> date:
     return datetime.strptime(value, fmt).date()
 
 
-def extract_prospect_validity(html_bytes: bytes) -> tuple[date,date,str]:
-    soup=BeautifulSoup(html_bytes,"html.parser")
-    meta=soup.find("meta",attrs={"name":"description"})
-    text=(meta.get("content") or "") if meta else ""
+def _extract_text_validity(
+    text: str,
+    *,
+    evidence_label: str,
+) -> tuple[date, date, str]:
     matches=list(VALIDITY_RE.finditer(text))
     ranges={
         (_de_date(m.group(1)),_de_date(m.group(2)))
         for m in matches
     }
     if len(ranges)!=1:
-        raise ValueError(f"Netto prospect must expose exactly one validity range; found={sorted(ranges)}")
+        raise ValueError(
+            f"Netto {evidence_label} must expose exactly one validity range; "
+            f"found={sorted(ranges)}"
+        )
     start,end=next(iter(ranges))
     if end < start:
         raise ValueError("Netto prospect validity reversed")
@@ -67,6 +85,76 @@ def extract_prospect_validity(html_bytes: bytes) -> tuple[date,date,str]:
         if (_de_date(m.group(1)),_de_date(m.group(2)))==(start,end)
     )
     return start,end," ".join(matched.split())
+
+
+def extract_prospect_validity(html_bytes: bytes) -> tuple[date,date,str]:
+    soup=BeautifulSoup(html_bytes,"html.parser")
+    meta=soup.find("meta",attrs={"name":"description"})
+    text=(meta.get("content") or "") if meta else ""
+    return _extract_text_validity(text, evidence_label="prospect HTML")
+
+
+def extract_pdf_prospect_validity(pdf_bytes: bytes) -> tuple[date, date, str]:
+    reader = PdfReader(BytesIO(pdf_bytes))
+    if not reader.pages:
+        raise ValueError("Netto prospect PDF has no pages")
+    text = "\n".join(
+        page.extract_text() or ""
+        for page in reader.pages[:3]
+    )
+    return _extract_text_validity(
+        text,
+        evidence_label="prospect PDF first three pages",
+    )
+
+
+def _fetch_pdf_validity(
+    client: httpx.Client,
+    *,
+    viewer_response: httpx.Response,
+    prospect_slug: str,
+) -> tuple[date, date, str, str, bytes, str, bytes]:
+    group_slug = extract_netto_group_slug(viewer_response.text)
+    if not group_slug:
+        raise ValueError(
+            f"Netto Publitas group slug missing for {prospect_slug}"
+        )
+    publication_api_url = (
+        "https://api.publitas.com/v1/groups/"
+        f"{group_slug}/publications/{prospect_slug}.json"
+    )
+    publication_response = client.get(
+        publication_api_url,
+        headers={"Accept": "application/json"},
+    )
+    publication_response.raise_for_status()
+    payload = publication_response.json()
+    config = payload.get("config") if isinstance(payload, dict) else None
+    download_pdf_url = (
+        config.get("downloadPdfUrl")
+        if isinstance(config, dict)
+        else None
+    )
+    if not isinstance(download_pdf_url, str) or not download_pdf_url.strip():
+        raise ValueError(
+            f"Netto publication PDF URL missing for {prospect_slug}"
+        )
+    prospect_pdf_url = urljoin(
+        str(viewer_response.url),
+        download_pdf_url,
+    )
+    pdf_response = client.get(prospect_pdf_url, timeout=120)
+    pdf_response.raise_for_status()
+    start, end, text = extract_pdf_prospect_validity(pdf_response.content)
+    return (
+        start,
+        end,
+        text,
+        str(publication_response.url),
+        publication_response.content,
+        str(pdf_response.url),
+        pdf_response.content,
+    )
 
 
 def fetch_netto_store_prospect(source: SourceConfig) -> NettoStoreProspectBundle:
@@ -99,19 +187,65 @@ def fetch_netto_store_prospect(source: SourceConfig) -> NettoStoreProspectBundle
 
         current=[]
         fetched={}
+        failures: dict[str, str] = {}
         for slug,url in viewers.items():
-            response=client.get(url,headers={"Referer":source.url})
-            response.raise_for_status()
-            start,end,text=extract_prospect_validity(response.content)
-            fetched[slug]=(response,start,end,text)
+            try:
+                response=client.get(url,headers={"Referer":source.url})
+                response.raise_for_status()
+                publication_api_url = None
+                publication_json = b""
+                prospect_pdf_url = None
+                prospect_pdf = b""
+                validity_source_type = "prospect_html_meta"
+                validity_source_url = str(response.url)
+                try:
+                    start,end,text=extract_prospect_validity(response.content)
+                except ValueError:
+                    (
+                        start,
+                        end,
+                        text,
+                        publication_api_url,
+                        publication_json,
+                        prospect_pdf_url,
+                        prospect_pdf,
+                    ) = _fetch_pdf_validity(
+                        client,
+                        viewer_response=response,
+                        prospect_slug=slug,
+                    )
+                    validity_source_type = "prospect_pdf_text"
+                    validity_source_url = prospect_pdf_url
+            except Exception as exc:
+                failures[slug] = f"{type(exc).__name__}: {exc}"[:1000]
+                continue
+            fetched[slug] = {
+                "response": response,
+                "start": start,
+                "end": end,
+                "text": text,
+                "validity_source_type": validity_source_type,
+                "validity_source_url": validity_source_url,
+                "publication_api_url": publication_api_url,
+                "publication_json": publication_json,
+                "prospect_pdf_url": prospect_pdf_url,
+                "prospect_pdf": prospect_pdf,
+            }
             if start <= today <= end:
                 current.append(slug)
 
         if len(current)!=1:
-            raise ValueError(f"Expected exactly one current Netto prospect; found={current}")
+            raise ValueError(
+                "Expected exactly one current Netto prospect; "
+                f"found={current}; failures={failures}"
+            )
 
         slug=current[0]
-        response,start,end,text=fetched[slug]
+        selected=fetched[slug]
+        response=selected["response"]
+        start=selected["start"]
+        end=selected["end"]
+        text=selected["text"]
 
     return NettoStoreProspectBundle(
         store_url=str(store.url),
@@ -124,6 +258,12 @@ def fetch_netto_store_prospect(source: SourceConfig) -> NettoStoreProspectBundle
         validity_text=text,
         selected_store_cookie_present=True,
         elapsed_ms=round((time.monotonic()-started)*1000),
+        validity_source_url=selected["validity_source_url"],
+        validity_source_type=selected["validity_source_type"],
+        publication_api_url=selected["publication_api_url"],
+        publication_json=selected["publication_json"],
+        prospect_pdf_url=selected["prospect_pdf_url"],
+        prospect_pdf=selected["prospect_pdf"],
     )
 
 
@@ -137,7 +277,10 @@ def apply_prospect_validity(
         raw=dict(offer.raw_payload or {})
         raw.update({
             "campaign_prospect_slug":bundle.prospect_slug,
-            "campaign_validity_source_url":bundle.prospect_url,
+            "campaign_validity_source_url":(
+                bundle.validity_source_url or bundle.prospect_url
+            ),
+            "campaign_validity_source_type":bundle.validity_source_type,
             "campaign_validity_text":bundle.validity_text,
         })
         result.append(offer.model_copy(update={
@@ -167,9 +310,30 @@ def _write_bundle(
     store_path.write_bytes(bundle.store_html)
     prospect_path.write_bytes(bundle.prospect_html)
 
+    publication_path = None
+    publication_sha = None
+    if bundle.publication_json:
+        publication_sha = sha256(bundle.publication_json).hexdigest()
+        publication_path = (
+            root
+            / f"{stamp}-5659-{bundle.prospect_slug}-publication-"
+            f"{publication_sha[:12]}.json"
+        )
+        publication_path.write_bytes(bundle.publication_json)
+
+    pdf_path = None
+    pdf_sha = None
+    if bundle.prospect_pdf:
+        pdf_sha = sha256(bundle.prospect_pdf).hexdigest()
+        pdf_path = (
+            root
+            / f"{stamp}-5659-{bundle.prospect_slug}-{pdf_sha[:12]}.pdf"
+        )
+        pdf_path.write_bytes(bundle.prospect_pdf)
+
     manifest={
-        "schema_version":1,
-        "strategy":"netto_store_page_plus_current_prospect_v1",
+        "schema_version":2,
+        "strategy":MANIFEST_STRATEGY_V2,
         "store_external_id":"5659",
         "store_name":source.store_name,
         "scope":source.scope,
@@ -180,9 +344,23 @@ def _write_bundle(
         "valid_from":bundle.valid_from.isoformat(),
         "valid_until":bundle.valid_until.isoformat(),
         "validity_text":bundle.validity_text,
+        "validity_source_url":(
+            bundle.validity_source_url or bundle.prospect_url
+        ),
+        "validity_source_type":bundle.validity_source_type,
         "selected_store_cookie_present":bundle.selected_store_cookie_present,
         "store_path":str(store_path),
         "prospect_path":str(prospect_path),
+        "publication_api_url":bundle.publication_api_url,
+        "publication_path":(
+            str(publication_path) if publication_path is not None else None
+        ),
+        "publication_sha256":publication_sha,
+        "prospect_pdf_url":bundle.prospect_pdf_url,
+        "prospect_pdf_path":(
+            str(pdf_path) if pdf_path is not None else None
+        ),
+        "prospect_pdf_sha256":pdf_sha,
         "store_sha256":store_sha,
         "prospect_sha256":prospect_sha,
     }
@@ -203,7 +381,7 @@ def collect_netto_store_prospect(db: Session, source: SourceConfig) -> SourceSna
         content_bytes=0,
         keyword_hits={},
         json_ld_blocks=0,
-        strategy_hint="netto_store_page_plus_current_prospect_v1_pending",
+        strategy_hint=f"{MANIFEST_STRATEGY_V2}_pending",
         success=False,
     )
     try:
@@ -213,14 +391,24 @@ def collect_netto_store_prospect(db: Session, source: SourceConfig) -> SourceSna
         snapshot.http_status=200
         snapshot.elapsed_ms=bundle.elapsed_ms
         snapshot.content_type="application/vnd.hermes-deals.netto-store-prospect+json"
-        snapshot.content_bytes=len(bundle.store_html)+len(bundle.prospect_html)
+        snapshot.content_bytes=(
+            len(bundle.store_html)
+            + len(bundle.prospect_html)
+            + len(bundle.publication_json)
+            + len(bundle.prospect_pdf)
+        )
         snapshot.sha256=digest
         snapshot.snapshot_path=str(manifest_path)
-        snapshot.keyword_hits={"store_offers":1,"current_prospect":1,"validity_range":1}
-        snapshot.strategy_hint="netto_store_page_plus_current_prospect_v1"
+        snapshot.keyword_hits={
+            "store_offers":1,
+            "current_prospect":1,
+            "validity_range":1,
+            "validity_pdf":int(bundle.validity_source_type=="prospect_pdf_text"),
+        }
+        snapshot.strategy_hint=MANIFEST_STRATEGY_V2
         snapshot.success=True
     except Exception as exc:
-        snapshot.strategy_hint="netto_store_page_plus_current_prospect_v1_error"
+        snapshot.strategy_hint=f"{MANIFEST_STRATEGY_V2}_error"
         snapshot.error=f"{type(exc).__name__}: {exc}"[:2000]
 
     db.add(snapshot)
@@ -234,7 +422,8 @@ def parse_netto_store_prospect_snapshot(
     context: NettoParserContext,
 ) -> list[OfferCandidate]:
     manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("strategy")!="netto_store_page_plus_current_prospect_v1":
+    strategy=manifest.get("strategy")
+    if strategy not in {MANIFEST_STRATEGY_V1, MANIFEST_STRATEGY_V2}:
         raise ValueError("Unexpected Netto manifest strategy")
     if str(manifest.get("store_external_id")) != str(context.store_external_id):
         raise ValueError("Netto manifest store mismatch")
@@ -250,7 +439,26 @@ def parse_netto_store_prospect_snapshot(
     if sha256(prospect_bytes).hexdigest()!=manifest["prospect_sha256"]:
         raise ValueError("Netto prospect SHA mismatch")
 
-    start,end,_=extract_prospect_validity(prospect_bytes)
+    validity_source_type=manifest.get(
+        "validity_source_type",
+        "prospect_html_meta",
+    )
+    publication_json=b""
+    prospect_pdf=b""
+    if validity_source_type=="prospect_html_meta":
+        start,end,_=extract_prospect_validity(prospect_bytes)
+    elif validity_source_type=="prospect_pdf_text":
+        publication_path=Path(manifest["publication_path"])
+        publication_json=publication_path.read_bytes()
+        if sha256(publication_json).hexdigest()!=manifest["publication_sha256"]:
+            raise ValueError("Netto publication API SHA mismatch")
+        pdf_path=Path(manifest["prospect_pdf_path"])
+        prospect_pdf=pdf_path.read_bytes()
+        if sha256(prospect_pdf).hexdigest()!=manifest["prospect_pdf_sha256"]:
+            raise ValueError("Netto prospect PDF SHA mismatch")
+        start,end,_=extract_pdf_prospect_validity(prospect_pdf)
+    else:
+        raise ValueError("Unexpected Netto validity source type")
     if start.isoformat()!=manifest["valid_from"] or end.isoformat()!=manifest["valid_until"]:
         raise ValueError("Netto prospect validity no longer matches manifest")
 
@@ -269,5 +477,14 @@ def parse_netto_store_prospect_snapshot(
         validity_text=manifest["validity_text"],
         selected_store_cookie_present=True,
         elapsed_ms=0,
+        validity_source_url=manifest.get(
+            "validity_source_url",
+            manifest["prospect_url"],
+        ),
+        validity_source_type=validity_source_type,
+        publication_api_url=manifest.get("publication_api_url"),
+        publication_json=publication_json,
+        prospect_pdf_url=manifest.get("prospect_pdf_url"),
+        prospect_pdf=prospect_pdf,
     )
     return apply_prospect_validity(offers,bundle=bundle)

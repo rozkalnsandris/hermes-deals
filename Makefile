@@ -15,7 +15,7 @@ migrate:
 	docker compose run --rm api alembic upgrade head
 
 test:
-	docker compose run --rm api python -m unittest discover -s tests -v
+	docker compose exec -T api python -m unittest discover -s tests -v
 
 probe:
 	docker compose run --rm worker python -m app.collector_cli probe --all

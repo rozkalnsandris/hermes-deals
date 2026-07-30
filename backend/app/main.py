@@ -35,8 +35,8 @@ from app.lidl_review_preview import ReviewPreviewUnavailable, resolve_review_pre
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.12",
-    description="Private family shopping intelligence platform — Phase 5G B15F worker-pre-rendered provenance-bound Lidl Review previews.",
+    version="0.3.13",
+    description="Private family shopping intelligence platform — Phase 5G B15F stability and source-provenance update.",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -50,7 +50,7 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
         "status": "ok",
         "service": "hermes-deals-api",
         "phase": "5G-B15F",
-        "version": "0.3.12",
+        "version": "0.3.13",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -445,6 +445,7 @@ def current_deals(
         default="name",
         pattern="^(name|price_asc|price_desc|newest|discount_desc)$",
     ),
+    offset: int = Query(default=0, ge=0),
     limit: int = Query(default=250, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> CurrentDealsOut:
@@ -668,7 +669,7 @@ def current_deals(
         )
 
     available_count = len(current_rows)
-    selected_rows = current_rows[:limit]
+    selected_rows = current_rows[offset : offset + limit]
 
     link_map: dict[UUID, UUID] = {}
     if selected_rows:
@@ -754,6 +755,8 @@ def current_deals(
         discount_only=discount_only,
         image_only=image_only,
         available_count=available_count,
+        offset=offset,
+        limit=limit,
         count=len(deals),
         retailer_counts=retailer_counts,
         feature_counts=feature_counts,

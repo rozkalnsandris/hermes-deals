@@ -40,6 +40,7 @@ class CanonicalProductReadApiTest(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        self.client.close()
         app.dependency_overrides.clear()
         self.engine.dispose()
 

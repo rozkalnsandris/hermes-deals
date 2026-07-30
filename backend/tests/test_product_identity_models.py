@@ -23,6 +23,7 @@ from app.models import (
 class ProductIdentityModelTest(unittest.TestCase):
     def _engine(self):
         engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+        self.addCleanup(engine.dispose)
 
         @event.listens_for(engine, "connect")
         def _enable_foreign_keys(dbapi_connection, _record):

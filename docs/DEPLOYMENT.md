@@ -22,7 +22,7 @@ Release flow:
 Example deployment selector:
 
 ```sh
-HERMES_DEALS_API_TAG=release-0.3.11-<gitsha> \
+HERMES_DEALS_API_TAG=release-<version>-<gitsha> \
 docker compose \
   -f docker-compose.yml \
   -f docker-compose.production.yml \

@@ -2,17 +2,21 @@
 
 ## Current direction
 
-Production target after the UI phase:
+Current implemented runtime:
 
-- SvelteKit + Tailwind CSS 4 PWA; deployment mode will be acceptance-tested rather than locked prematurely
+- FastAPI-served family and review HTML interfaces
 - Nginx single-origin ingress (`/`, `/api`, `/ws`)
 - FastAPI / Python 3.13
 - PostgreSQL 18
 - SQLAlchemy 2 + Psycopg 3 + Alembic
+- Python collectors, HTTP/JSON first; Playwright only for source investigation
+- Docker Compose on the Raspberry Pi 5
+
+Longer-term client direction:
+
+- SvelteKit + Tailwind CSS 4 PWA; deployment mode will be acceptance-tested rather than locked prematurely
 - IndexedDB for offline client queue/cache
 - WebSocket for live notifications, never as the source of truth
-- Python collectors, HTTP/JSON first; Playwright ARM64 only as fallback
-- Docker Compose on the Raspberry Pi 5
 - Cloudflare Tunnel only after local acceptance
 
 ## Data truth

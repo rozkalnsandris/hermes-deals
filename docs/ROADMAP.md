@@ -11,8 +11,9 @@
 - Phase 3B0: product-identity truth sync + GTIN/identifier evidence + schema ADR — done
 - Phase 3B: versioned offer normalization + canonical products + match-candidate history + confirmed-link schema — done
 - Phase 3C: Unicode-safe normalizer-v1 + evidence-backed normalizer-v1.1 package enrichment + review-only candidate report — done
-- Phase 3D: reviewed canonical-product seeding + controlled confirmed links + derived price-history API — current next
-- Phase 3E: first read-only mobile UI vertical slice for products, offers and price history
-- Phase 4: family preferences + deal scoring + basket/store-trip optimizer
-- Phase 5: household/auth + shared shopping list + offline/realtime PWA
+- Phase 3D: reviewed canonical-product seeding + controlled confirmed links + derived price-history API — done
+- Phase 3E: first read-only mobile UI vertical slice for products, offers and price history — done
+- Phase 4: basic basket comparison — done; family preferences, deal scoring and store-trip optimization remain
+- Phase 5: Current/Upcoming family deal UI and auditable Lidl Review workflow — delivered incrementally; household authentication, shared multi-user state and offline/realtime PWA remain
+- Stability 0.3.13: exact-running-image verification, Alembic metadata parity, server-side deal pagination, clean test-client lifecycle and Netto PDF validity fallback — done in repository; production deployment remains a separate controlled gate
 - Phase 6: recipes + meal planner + ingredient aggregation

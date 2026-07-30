@@ -412,6 +412,8 @@ class CurrentDealsOut(BaseModel):
     discount_only: bool
     image_only: bool
     available_count: int
+    offset: int
+    limit: int
     count: int
     retailer_counts: dict[str, int]
     feature_counts: dict[str, int]

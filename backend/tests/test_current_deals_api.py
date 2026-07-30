@@ -50,6 +50,7 @@ class CurrentDealsApiTest(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        self.client.close()
         app.dependency_overrides.clear()
         self.engine.dispose()
 
@@ -612,6 +613,8 @@ class CurrentDealsApiTest(unittest.TestCase):
             "PAGE_SIZE=12",
             "renderDealPage",
             "paginationItems",
+            "offset:String((currentPage-1)*PAGE_SIZE)",
+            "await loadGrid(false)",
         ):
             self.assertIn(marker,response.text)
 
@@ -711,6 +714,51 @@ class CurrentDealsApiTest(unittest.TestCase):
             "Šim filtram nav drīzumā gaidāmu piedāvājumu.",
         ):
             self.assertIn(marker,response.text)
+
+    def test_offset_pagination_has_no_overlap_and_reports_total(self) -> None:
+        at = datetime(2026, 7, 30, 8, 0, tzinfo=timezone.utc)
+        with self.Session.begin() as db:
+            snapshot = self.snapshot("netto", at)
+            db.add(snapshot)
+            db.add_all(
+                [
+                    self.offer(
+                        snapshot=snapshot,
+                        chain="netto",
+                        source_offer_id=f"page-{index}",
+                        store="5659",
+                        name=f"Product {index:02d}",
+                        brand=None,
+                        price="1.00",
+                        valid_from=date(2026, 7, 30),
+                        valid_until=date(2026, 8, 1),
+                        collected_at=at,
+                    )
+                    for index in range(25)
+                ]
+            )
+
+        first = self.client.get(
+            "/api/v1/deals/current?as_of=2026-07-30&limit=12&offset=0"
+        ).json()
+        second = self.client.get(
+            "/api/v1/deals/current?as_of=2026-07-30&limit=12&offset=12"
+        ).json()
+        last = self.client.get(
+            "/api/v1/deals/current?as_of=2026-07-30&limit=12&offset=24"
+        ).json()
+
+        self.assertEqual(first["available_count"], 25)
+        self.assertEqual(first["offset"], 0)
+        self.assertEqual(first["limit"], 12)
+        self.assertEqual(first["count"], 12)
+        self.assertEqual(second["offset"], 12)
+        self.assertEqual(second["count"], 12)
+        self.assertEqual(last["offset"], 24)
+        self.assertEqual(last["count"], 1)
+        first_ids = {row["offer_candidate_id"] for row in first["deals"]}
+        second_ids = {row["offer_candidate_id"] for row in second["deals"]}
+        self.assertFalse(first_ids & second_ids)
 
 
 
