@@ -930,6 +930,14 @@ def main() -> int:
     parser.add_argument("--flyer-dir", required=True, type=Path)
     parser.add_argument("--scan", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument(
+        "--no-ocr",
+        action="store_true",
+        help=(
+            "Compatibility flag for the shell wrapper; this workflow currently "
+            "performs native-PDF completeness analysis only."
+        ),
+    )
     args = parser.parse_args()
     discover(
         flyer_dir=args.flyer_dir,

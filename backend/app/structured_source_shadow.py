@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from hashlib import sha256
 import html
 import json
@@ -130,6 +130,52 @@ def extract_lidl_flyers(payload: Any) -> list[dict[str, Any]]:
         key = str(flyer.get("id") or flyer.get("flyerJson"))
         unique[key] = flyer
     return list(unique.values())
+
+
+def select_lidl_period_variants(
+    flyers: list[dict[str, Any]],
+    on_date: date,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Select the active and immediately following Aktionsprospekt windows."""
+    windows: dict[tuple[date, date], list[dict[str, Any]]] = {}
+    for flyer in flyers:
+        if flyer.get("name") != "Aktionsprospekt" or not flyer.get("flyerJson"):
+            continue
+        try:
+            start = date.fromisoformat(str(flyer.get("offerStartDate")))
+            end = date.fromisoformat(str(flyer.get("offerEndDate")))
+        except ValueError:
+            continue
+        if start > end:
+            continue
+        windows.setdefault((start, end), []).append(flyer)
+
+    active_windows = [
+        window
+        for window in windows
+        if window[0] <= on_date <= window[1]
+    ]
+    if not active_windows:
+        return [], []
+
+    current_window = max(
+        active_windows,
+        key=lambda window: (window[0], window[1]),
+    )
+    next_windows = [
+        window
+        for window in windows
+        if window[0] > current_window[1]
+    ]
+    next_window = (
+        min(next_windows, key=lambda window: (window[0], window[1]))
+        if next_windows
+        else None
+    )
+    return (
+        windows[current_window],
+        [] if next_window is None else windows[next_window],
+    )
 
 
 def summarize_lidl_detail(payload: dict[str, Any]) -> dict[str, Any]:
@@ -291,18 +337,10 @@ def lidl_shadow(client: httpx.Client, output_dir: Path, stamp: str) -> dict[str,
     overview_raw = save_raw(output_dir, stamp, "lidl-overview", overview.content, "json")
     flyers = extract_lidl_flyers(overview.json())
 
-    current = [
-        flyer for flyer in flyers
-        if flyer.get("name") == "Aktionsprospekt"
-        and flyer.get("offerStartDate") == "2026-07-20"
-        and flyer.get("offerEndDate") == "2026-07-25"
-    ]
-    next_week = [
-        flyer for flyer in flyers
-        if flyer.get("name") == "Aktionsprospekt"
-        and flyer.get("offerStartDate") == "2026-07-27"
-        and flyer.get("offerEndDate") == "2026-08-01"
-    ]
+    current, next_week = select_lidl_period_variants(
+        flyers,
+        datetime.now(timezone.utc).date(),
+    )
     national = next(
         (
             flyer for flyer in current
@@ -316,7 +354,7 @@ def lidl_shadow(client: httpx.Client, output_dir: Path, stamp: str) -> dict[str,
         None,
     )
     if national is None:
-        raise RuntimeError("Current Lidl national Aktionsprospekt was not found")
+        raise RuntimeError("Active Lidl national Aktionsprospekt was not found")
 
     detail = client.get(national["flyerJson"], headers={"Accept": "application/json"})
     detail.raise_for_status()

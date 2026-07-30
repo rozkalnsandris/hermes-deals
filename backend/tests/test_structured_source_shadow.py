@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import unittest
 
 from app.structured_source_shadow import (
@@ -7,6 +8,7 @@ from app.structured_source_shadow import (
     extract_lidl_store_id,
     extract_netto_direct_viewers,
     extract_netto_group_slug,
+    select_lidl_period_variants,
     summarize_lidl_detail,
     summarize_publitas,
 )
@@ -59,6 +61,55 @@ class StructuredSourceShadowTest(unittest.TestCase):
             "offerEndDate": "2026-07-25",
         }
         self.assertEqual(len(extract_lidl_flyers({"a": [flyer], "b": flyer})), 1)
+
+    def test_lidl_periods_follow_runtime_date_instead_of_fixed_weeks(self) -> None:
+        def flyer(
+            identifier: str,
+            start: str,
+            end: str,
+            *,
+            name: str = "Aktionsprospekt",
+        ) -> dict[str, str]:
+            return {
+                "id": identifier,
+                "name": name,
+                "flyerJson": f"https://example/{identifier}",
+                "offerStartDate": start,
+                "offerEndDate": end,
+            }
+
+        current, upcoming = select_lidl_period_variants(
+            [
+                flyer("old", "2026-07-20", "2026-07-25"),
+                flyer("current-a", "2026-07-27", "2026-08-01"),
+                flyer("current-b", "2026-07-27", "2026-08-01"),
+                flyer("next", "2026-08-03", "2026-08-08"),
+                flyer("later", "2026-08-10", "2026-08-15"),
+                flyer("other", "2026-07-27", "2026-08-01", name="Other"),
+            ],
+            date(2026, 7, 30),
+        )
+
+        self.assertEqual(
+            [row["id"] for row in current],
+            ["current-a", "current-b"],
+        )
+        self.assertEqual([row["id"] for row in upcoming], ["next"])
+
+    def test_lidl_periods_fail_closed_without_active_window(self) -> None:
+        current, upcoming = select_lidl_period_variants(
+            [
+                {
+                    "name": "Aktionsprospekt",
+                    "flyerJson": "https://example/future",
+                    "offerStartDate": "2026-08-03",
+                    "offerEndDate": "2026-08-08",
+                }
+            ],
+            date(2026, 7, 30),
+        )
+        self.assertEqual(current, [])
+        self.assertEqual(upcoming, [])
 
     def test_lidl_detail_makes_price_gap_explicit(self) -> None:
         payload = {

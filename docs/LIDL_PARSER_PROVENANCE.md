@@ -17,14 +17,23 @@ This bundle is content-addressed and is the authoritative provenance for:
 The checked-out legacy Codex worktree currently contains a deliberate V6.2
 rollback and must not be treated as the source of those scans.
 
-## Rescan policy
+## Executable rescan adapter
 
-Do not run a fresh automatic Lidl corpus rescan merely from the old Codex
-worktree. It would use V6.2 and would not reproduce the parser identity of the
-authoritative corpus.
+The main repository now contains a content-addressed loader at:
 
-Before future automatic rescans, migrate the executable corpus workflow into
-the main Hermes Deals repository and bind each scan to an exact parser hash.
+`tools/lidl_parser_provenance/lidl_v631_runtime.py`
+
+It verifies both frozen source SHA-256 values before loading V6.3.1 and fails
+closed on any drift. The OCR worker installs the pinned PyMuPDF dependency
+through `backend/requirements-ocr.txt`.
+
+The adapter was replayed against KW32 `scan-0003`; all 352 canonical parser
+rows matched the archived observation exactly. This makes controlled rescans
+reproducible, but it does not turn Lidl into an automatic production collector
+and does not bypass corpus review or production gates.
+
+Do not run a fresh Lidl corpus rescan from the old Codex worktree. It contains
+the V6.2 rollback and is not authoritative.
 
 ## Completeness debt
 

@@ -11,8 +11,8 @@ Rules:
 - `r61_shadow.py` is exact V6.3.1 source.
 - historical corpus parser rows are immutable.
 - do not micro-tune this copy to close the four known KW32 omissions.
-- future automatic rescans require an explicit migration of the executable
-  corpus workflow into the main repository.
+- controlled rescans must use the main-repository content-addressed adapter at
+  `../lidl_v631_runtime.py`; automatic production collection remains disabled.
 - the former `/home/andris/hermes-deals-codex` worktree is evidence only and
   is not an authoritative source after this bundle is committed.
 - `r61_shadow.py` and its exact historical test intentionally keep their
