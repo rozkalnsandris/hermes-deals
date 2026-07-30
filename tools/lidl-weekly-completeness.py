@@ -17,17 +17,22 @@ from app.lidl_weekly_completeness_contract import (
     anchor_is_owned,
     bbox_center,
     classify_target_scope,
-    load_weekly_target_profile,
+    WeeklyTargetProfileGate,
+    require_weekly_target_profile,
     normalize_text,
     promo_or_non_product_title,
     represented_on_page,
     stable_candidate_key,
     text_similarity,
 )
-from r61_runtime import load_frozen_r61
+from lidl_parser_provenance.lidl_v631_runtime import (
+    PARSER_VERSION as V631_PARSER_VERSION,
+    SHADOW_SHA256 as V631_PARSER_SHA256,
+    load_lidl_v631,
+)
 
 
-WORKFLOW_VERSION = "lidl-weekly-completeness-review-alerts-v1"
+WORKFLOW_VERSION = "lidl-weekly-completeness-review-alerts-v2-v631-strict-profile"
 AUTHORITATIVE_SCAN_FILES = ("parser-rows.json", "corrected-rows.json")
 
 
@@ -602,7 +607,8 @@ def discover(
     scan: str,
     output_dir: Path,
 ) -> dict[str, Any]:
-    r61, _, _ = load_frozen_r61()
+    runtime = load_lidl_v631()
+    r61 = runtime.base
 
     scan_dir = flyer_dir / "scans" / scan
     summary_path = scan_dir / "summary.json"
@@ -633,27 +639,25 @@ def discover(
         "source_raw_sha256": hashlib.sha256(source_raw).hexdigest(),
     }
 
-    review_profile = load_weekly_target_profile(
+    if scan_summary.get("parser_version") != V631_PARSER_VERSION:
+        raise RuntimeError(
+            "authoritative scan parser_version is not V6.3.1: "
+            f"{scan_summary.get('parser_version')!r}"
+        )
+    if scan_summary.get("parser_sha256") != V631_PARSER_SHA256:
+        raise RuntimeError(
+            "authoritative scan parser_sha256 is not the frozen V6.3.1 SHA"
+        )
+
+    review_profile = require_weekly_target_profile(
         flyer_dir,
         page_count=len(pages),
     )
-    target_pages: dict[int, str] = {}
-    if review_profile is not None:
-        page_gate_source = "review_profile"
-        target_pages = {
-            int(page): "review_profile_weekly_physical_deals"
-            for page in review_profile["target_pages"]
-        }
-    else:
-        page_gate_source = "derived_fallback"
-        for page in range(1, len(pages) + 1):
-            allowed, reason = _target_page(
-                page,
-                page_scope=page_scope,
-                structured_by_page=structured_by_page,
-            )
-            if allowed:
-                target_pages[page] = reason
+    page_gate_source = "review_profile"
+    target_pages: dict[int, str] = {
+        int(page): "review_profile_weekly_physical_deals"
+        for page in review_profile["target_pages"]
+    }
 
     candidates: list[dict[str, Any]] = []
     native_unowned_signals: list[dict[str, Any]] = []
@@ -890,6 +894,11 @@ def discover(
         "review_profile_status": (
             review_profile["status"] if review_profile is not None else None
         ),
+        "review_profile_page_role_reviewed": (
+            review_profile["page_role_reviewed"]
+            if review_profile is not None
+            else None
+        ),
         "review_profile_sha256": (
             review_profile["sha256"] if review_profile is not None else None
         ),
@@ -939,11 +948,16 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
-    discover(
-        flyer_dir=args.flyer_dir,
-        scan=args.scan,
-        output_dir=args.output_dir,
-    )
+    try:
+        discover(
+            flyer_dir=args.flyer_dir,
+            scan=args.scan,
+            output_dir=args.output_dir,
+        )
+    except WeeklyTargetProfileGate as exc:
+        print(json.dumps({"result": exc.result, "reason": str(exc)}, sort_keys=True))
+        print(f"RESULT={exc.result}")
+        return 22
     return 0
 
 

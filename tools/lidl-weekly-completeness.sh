@@ -3,12 +3,18 @@ set -Eeuo pipefail
 
 REPO="${HERMES_DEALS_REPO:-/home/andris/hermes-deals}"
 CORPUS="${HERMES_LIDL_CORPUS:-$HOME/hermes-deals-lidl-corpus}"
-WORKER_IMAGE="${HERMES_LIDL_WORKER_IMAGE:-hermes-deals-worker:latest}"
+WORKER_IMAGE="${HERMES_LIDL_WORKER_IMAGE:?set HERMES_LIDL_WORKER_IMAGE to an immutable release tag}"
 
 FLYER_KEY="${1:-latest}"
 SCAN="${2:-latest}"
 OUT="${3:-}"
 MODE="${4:-}"
+
+[[ "$WORKER_IMAGE" != *:latest ]] || {
+  echo "FAIL: mutable worker image is forbidden: $WORKER_IMAGE" >&2
+  exit 2
+}
+docker image inspect "$WORKER_IMAGE" >/dev/null
 
 if [[ "$FLYER_KEY" == "latest" ]]; then
   FLYER_KEY="$(find "$CORPUS/flyers" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | tail -1)"
@@ -42,9 +48,9 @@ exec docker run --rm \
   --security-opt no-new-privileges:true \
   --tmpfs /tmp:rw,nosuid,nodev,size=768m \
   -e PYTHONDONTWRITEBYTECODE=1 \
-  -v "$REPO/backend:/repo/backend:ro" \
-  -v "$REPO/tools:/repo/tools:ro" \
-  -v "$FLYER:/corpus/$FLYER_KEY:ro" \
-  -v "$OUT:/out:rw" \
+  --mount "type=bind,src=$REPO/backend,dst=/repo/backend,readonly" \
+  --mount "type=bind,src=$REPO/tools,dst=/repo/tools,readonly" \
+  --mount "type=bind,src=$FLYER,dst=/corpus/$FLYER_KEY,readonly" \
+  --mount "type=bind,src=$OUT,dst=/out" \
   "$WORKER_IMAGE" \
   python /repo/tools/lidl-weekly-completeness.py "${ARGS[@]}"

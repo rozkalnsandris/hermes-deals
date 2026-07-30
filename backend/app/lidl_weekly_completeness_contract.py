@@ -244,6 +244,14 @@ def represented_on_page(
     )
 
 
+WEEKLY_PAGE_ROLE_REVIEWED_STATUSES = frozenset(
+    {
+        "reviewed",
+        "independent_page_role_reviewed_product_audit_in_progress",
+    }
+)
+
+
 def load_weekly_target_profile(
     flyer_dir: Path,
     *,
@@ -292,13 +300,40 @@ def load_weekly_target_profile(
     if len(pages) != len(set(pages)):
         raise ValueError("review profile target_pages contains duplicates")
 
+    status = str(payload.get("status") or "")
     return {
         "schema_version": 1,
-        "status": str(payload.get("status") or ""),
+        "status": status,
+        "page_role_reviewed": status in WEEKLY_PAGE_ROLE_REVIEWED_STATUSES,
         "target_kind": target_kind,
         "target_pages": sorted(pages),
         "sha256": hashlib.sha256(raw).hexdigest(),
     }
+
+
+class WeeklyTargetProfileGate(RuntimeError):
+    def __init__(self, result: str, message: str) -> None:
+        super().__init__(message)
+        self.result = result
+
+
+def require_weekly_target_profile(
+    flyer_dir: Path,
+    *,
+    page_count: int,
+) -> dict[str, Any]:
+    profile = load_weekly_target_profile(flyer_dir, page_count=page_count)
+    if profile is None:
+        raise WeeklyTargetProfileGate(
+            "WAIT_PROFILE",
+            "review-profile.json is missing",
+        )
+    if not profile["page_role_reviewed"]:
+        raise WeeklyTargetProfileGate(
+            "WAIT_PROFILE",
+            f"review profile page-role status is not reviewed: {profile['status']!r}",
+        )
+    return profile
 
 
 def stable_candidate_key(

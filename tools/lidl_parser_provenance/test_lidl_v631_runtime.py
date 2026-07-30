@@ -19,6 +19,17 @@ class LidlV631RuntimeTest(unittest.TestCase):
         self.assertEqual(runtime.shadow.PARSER_VERSION, PARSER_VERSION)
         self.assertEqual(runtime.provenance_dir.name, "v631")
 
+    def test_base_runtime_exposes_weekly_completeness_primitives(self) -> None:
+        runtime = load_lidl_v631()
+        for name in (
+            "extract_pdf_spans",
+            "extract_display_price_observations",
+            "_title_groups",
+            "_is_suspicious_title",
+        ):
+            self.assertTrue(callable(getattr(runtime.base, name, None)), name)
+        self.assertFalse(hasattr(runtime.shadow, "extract_pdf_spans"))
+
     def test_source_hash_drift_fails_closed(self) -> None:
         with TemporaryDirectory() as raw:
             root = Path(raw)

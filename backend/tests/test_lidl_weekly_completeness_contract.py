@@ -10,7 +10,9 @@ from app.lidl_weekly_completeness_contract import (
     bbox_center_distance,
     classify_target_scope,
     is_online_only,
+    WeeklyTargetProfileGate,
     load_weekly_target_profile,
+    require_weekly_target_profile,
     normalize_text,
     obvious_non_target_title,
     plausible_same_title,
@@ -103,6 +105,7 @@ class LidlWeeklyCompletenessContractTest(unittest.TestCase):
             self.assertEqual(profile["target_pages"], [1, 12, 16, 64])
             self.assertEqual(profile["target_kind"], "weekly_physical_deals")
             self.assertEqual(profile["status"], "reviewed")
+            self.assertTrue(profile["page_role_reviewed"])
             self.assertEqual(len(profile["sha256"]), 64)
             self.assertNotIn(2, profile["target_pages"])
 
@@ -250,6 +253,52 @@ class LidlWeeklyCompletenessContractTest(unittest.TestCase):
                 "LUPILU Paw Patrol Rucksack",
             )
         )
+
+    def test_required_profile_missing_returns_wait_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(WeeklyTargetProfileGate) as caught:
+                require_weekly_target_profile(Path(temporary), page_count=10)
+            self.assertEqual(caught.exception.result, "WAIT_PROFILE")
+
+    def test_required_profile_accepts_independent_page_role_reviewed_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "review-profile.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "status": "independent_page_role_reviewed_product_audit_in_progress",
+                        "target_kind": "weekly_physical_deals",
+                        "target_pages": [1, 12],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            profile = require_weekly_target_profile(root, page_count=69)
+            self.assertTrue(profile["page_role_reviewed"])
+            self.assertEqual(
+                profile["status"],
+                "independent_page_role_reviewed_product_audit_in_progress",
+            )
+
+    def test_required_profile_rejects_non_reviewed_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "review-profile.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "status": "draft",
+                        "target_kind": "weekly_physical_deals",
+                        "target_pages": [1],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(WeeklyTargetProfileGate) as caught:
+                require_weekly_target_profile(root, page_count=10)
+            self.assertEqual(caught.exception.result, "WAIT_PROFILE")
+
 
 
 if __name__ == "__main__":
