@@ -1,25 +1,3 @@
-# Secrets
-.env
-
-# Python
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-
-# Runtime data
-data/raw/*
-!data/raw/.gitkeep
-
-# Backups / local
-*.tar.gz
-*.log
-
-# Frontend future
-frontend/node_modules/
-frontend/build/
-
-# BEGIN HERMES-DEALS-CODEX-MANAGED
 # Secrets / credentials
 .env
 .env.*
@@ -45,39 +23,51 @@ htmlcov/
 .venv/
 venv/
 
-# Node / browser tooling
+# Node / frontend
 node_modules/
+frontend/node_modules/
+frontend/build/
+
+# Browser / local agent tooling
 .claude/
 .playwright/
 .playwright-cli/
 playwright-report/
 test-results/
 .codex/evidence/
-
-# Build / local runtime noise
 .hermes-deals-project
+
+# Runtime evidence and local output
+data/raw/*
+!data/raw/.gitkeep
 audit/
-dist/
-build/
-*.egg-info/
-*.log
 logs/
 tmp/
 temp/
 .cache/
+
+# Builds / packages
+dist/
+build/
+*.egg-info/
+
+# Backups / databases
 .local-backups/
 backup/
 backups/
-*.bak
-*.bak.*
-*.swp
-*~
-
-# Local databases / dumps
+*.tar.gz
+*.log
 *.sql
 *.dump
 *.dump.*
 *.sqlite
 *.sqlite3
 *.db
-# END HERMES-DEALS-CODEX-MANAGED
+
+# Editor / OS noise
+*.bak
+*.bak.*
+*.swp
+*~
+.DS_Store
+Thumbs.db

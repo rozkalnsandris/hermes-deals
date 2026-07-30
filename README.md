@@ -81,3 +81,14 @@ separately.
 - pypdf `6.14.2` for official prospect validity evidence
 
 These are deployed/reviewed pins, not a claim that every pin will always remain the newest upstream release.
+
+## Local maintenance
+
+- `make clean` removes only generated Python/lint/test caches under `backend/`
+  and `tools/`.
+- `make test` runs the backend regression suite in the active API container.
+- `make verify` runs the full Compose, migration, dependency, regression and
+  Nginx health gate.
+
+`make clean` deliberately preserves `data/raw/`, `audit/`, `.codex/evidence/`,
+local databases and backup archives.
