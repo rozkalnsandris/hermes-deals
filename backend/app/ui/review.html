@@ -17,11 +17,11 @@
     select,button,input,textarea{font:inherit}
     select,input,textarea{width:100%;padding:10px;border:1px solid #c9cdd2;border-radius:9px;background:white}
     button{padding:10px 13px;border:1px solid #bbb;border-radius:9px;background:white;cursor:pointer}
-    button.primary,.danger{font-weight:700}
+    button.primary,.danger{font-weight:700}button:disabled{cursor:wait;opacity:.58}
     #list{max-height:calc(100vh - 175px);overflow:auto}
-    .row{padding:12px 14px;border-bottom:1px solid #eee;cursor:pointer}
-    .row:hover,.row.active{background:#f0f2f4}.row strong{display:block}
-    .badge{display:inline-block;font-size:12px;border:1px solid #bbb;border-radius:999px;padding:2px 7px;margin-right:5px}
+    .row{display:block;width:100%;padding:12px 14px;border:0;border-bottom:1px solid #eee;border-radius:0;background:white;color:inherit;text-align:left;cursor:pointer}
+    .row:hover,.row.active{background:#f0f2f4}.row:focus-visible{outline:3px solid #8ab4f8;outline-offset:-3px}.row strong{display:block}
+    .badge{display:inline-block;font-size:12px;border:1px solid #bbb;border-radius:999px;padding:2px 7px;margin-right:5px}.badge.pending{background:#fff6d8;border-color:#e0bd4f}.badge.draft{background:#e8f0ff;border-color:#82a9eb}.badge.needs_followup{background:#fff0e5;border-color:#e0a16e}.badge.approved{background:#e5f5e9;border-color:#79b888}.badge.rejected{background:#f4e8e8;border-color:#c79292}.queue-count{align-self:center;font-size:13px;font-weight:700;color:#686d74;margin-left:auto}.toast{position:fixed;right:18px;bottom:18px;z-index:20;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:11px;background:#17191c;color:white;box-shadow:0 14px 32px rgba(0,0,0,.25);opacity:0;transform:translateY(8px);pointer-events:none;transition:.18s ease}.toast.show{opacity:1;transform:none}.toast.error{background:#8f2525}.readonly-form input:disabled,.readonly-form select:disabled,.readonly-form textarea:disabled,.readonly-form button:disabled{opacity:.72;cursor:not-allowed;background:#f3f4f5;color:#555}
     #detail{padding:18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     label{display:block;font-size:12px;font-weight:700;margin:0 0 5px}.date-entry{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:7px;align-items:center}.date-picker-button{width:44px;height:42px;border:1px solid #bbb;border-radius:9px;background:white;display:grid;place-items:center;font-size:16px}.native-date-proxy{position:absolute;right:0;top:0;width:44px;height:42px;opacity:.01;border:0;padding:0;pointer-events:none}
     .full{grid-column:1/-1}
@@ -50,8 +50,9 @@
         <option value="approved">Publicēts</option>
         <option value="rejected">Noraidīts</option>
       </select>
-      <button id="reload">Atjaunot</button>
+      <button id="reload" type="button">Atjaunot</button>
       <a href="/ui">Atpakaļ uz Deals</a>
+      <span id="queueCount" class="queue-count" aria-live="polite"></span>
     </div>
     <div id="list"><div class="row muted">Ielādē…</div></div>
   </section>
@@ -62,29 +63,53 @@
     </div>
   </section>
 </main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let selected=null;
+const OPEN_STATUSES=new Set(["pending","draft","needs_followup"]);
+const REVIEW_REFRESH_KEY="hermesDealsReviewRefresh";
+const dealsRefreshChannel="BroadcastChannel" in window?new BroadcastChannel("hermes-deals-review"):null;
+let selected=null,busy=false,toastTimer=null;
 function val(o,...keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null)return o[k]}return""}
+function statusLabel(status){return {pending:"Gaida pārbaudi",draft:"Labots",needs_followup:"Jāpārbauda vēl",approved:"Publicēts",rejected:"Noraidīts"}[status]||status;}
+function detailMessage(detail,fallback){if(typeof detail==="string"&&detail.trim())return detail;if(Array.isArray(detail)){const text=detail.map(item=>item?.msg||item?.message||"").filter(Boolean).join("; ");if(text)return text;}if(detail&&typeof detail==="object"){if(typeof detail.message==="string")return detail.message;try{return JSON.stringify(detail);}catch{}}return fallback;}
+function showToast(message,error=false){const node=$("toast");node.textContent=message;node.classList.toggle("error",error);node.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove("show"),3200);}
+function setBusy(next){busy=Boolean(next);document.querySelectorAll("#detail button,#reload,#status").forEach(node=>node.disabled=busy);}
+function notifyDealsRefresh(item){const message={type:"review-published",item_id:item?.id||null,at:Date.now()};dealsRefreshChannel?.postMessage(message);try{localStorage.setItem(REVIEW_REFRESH_KEY,JSON.stringify(message));}catch{}}
+function preferredNextRowId(itemId){const ids=[...document.querySelectorAll(".row[data-id]")].map(node=>node.dataset.id),i=ids.indexOf(itemId);return i>=0?(ids[i+1]||ids[i-1]||null):null;}
+function renderEmptyDetail(message="Izvēlies produktu kreisajā pusē."){selected=null;$("detail").innerHTML=`<div class="muted">${esc(message)}</div>`;}
 function previewUrl(id,mode="page",hintIndex=null){const q=new URLSearchParams({mode});if(hintIndex!==null)q.set("hint_index",String(hintIndex));return `/api/v1/review-items/${encodeURIComponent(id)}/page-preview?${q}`;}
 function wirePreviewErrors(){document.querySelectorAll("img[data-preview]").forEach(img=>{img.addEventListener("error",()=>{img.hidden=true;const note=img.parentElement?.querySelector("[data-preview-error]");if(note)note.hidden=false;},{once:true});});}
-async function load(){
+async function load(preferredId=null){
   const status=$("status").value;
   const q=new URLSearchParams({source_chain:"lidl",limit:"500"});
   if(status&&status!=="open")q.set("status",status);
-  const r=await fetch("/api/v1/review-items?"+q);
-  const d=await r.json();
-  const rawItems=d.items||[];
-  const items=status==="open"?rawItems.filter(x=>["pending","draft","needs_followup"].includes(x.status)):rawItems;
-  $("list").innerHTML=items.length?items.map(x=>{
-    if(x.review_kind==="page_alert"){
-      const p=x.original_payload||{},n=p.hint_count??(p.hints||[]).length;
-      return `<div class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapas pārbaude</span><span class="muted">Iespējami ${esc(n)} neapstrādāti produkti</span></div>`;
-    }
-    return `<div class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong><span class="badge">${esc(x.status)}</span><span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></div>`;
-  }).join(""):'<div class="row muted">Rinda ir tukša.</div>';
-  document.querySelectorAll(".row[data-id]").forEach(n=>n.onclick=()=>openItem(n.dataset.id));
+  try{
+    const r=await fetch("/api/v1/review-items?"+q,{headers:{Accept:"application/json"}});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(detailMessage(d.detail,`HTTP ${r.status}`));
+    const rawItems=d.items||[];
+    const items=status==="open"?rawItems.filter(x=>OPEN_STATUSES.has(x.status)):rawItems;
+    $("queueCount").textContent=`${items.length} ${items.length===1?"ieraksts":"ieraksti"}`;
+    $("list").innerHTML=items.length?items.map(x=>{
+      const statusBadge=`<span class="badge ${esc(x.status)}">${esc(statusLabel(x.status))}</span>`;
+      if(x.review_kind==="page_alert"){
+        const p=x.original_payload||{},n=p.hint_count??(p.hints||[]).length;
+        return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong>${statusBadge}<span class="badge">lapas pārbaude</span><span class="muted">Iespējami ${esc(n)} neapstrādāti produkti</span></button>`;
+      }
+      return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong>${statusBadge}<span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></button>`;
+    }).join(""):'<div class="row muted">Rinda ir tukša.</div>';
+    document.querySelectorAll(".row[data-id]").forEach(n=>n.onclick=()=>openItem(n.dataset.id));
+    if(preferredId&&items.some(item=>item.id===preferredId))await openItem(preferredId);
+    else if(preferredId&&!items.length)renderEmptyDetail("Šajā filtrā vairs nav rindu pārbaudei.");
+    return items;
+  }catch(error){
+    $("queueCount").textContent="";
+    $("list").innerHTML=`<div class="row muted">Neizdevās ielādēt: ${esc(error?.message||String(error))}</div>`;
+    showToast("Pārskatīšanas rindu neizdevās ielādēt.",true);
+    return [];
+  }
 }
 function fmtDate(v){if(!v)return"";const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));return m?`${m[3]}.${m[2]}.${m[1]}`:String(v);}
 function parseLvDate(v){const m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).trim());if(!m)return null;const iso=`${m[3]}-${m[2]}-${m[1]}`,d=new Date(`${iso}T00:00:00Z`);return Number.isNaN(d.getTime())||d.toISOString().slice(0,10)!==iso?null:iso;}
@@ -96,24 +121,20 @@ async function createReviewFromHint(index){
     {method:"POST"}
   );
   const d=await r.json().catch(()=>({}));
-  if(!r.ok){alert(d.detail||"Neizdevās izveidot Review produktu");return;}
-  await load();
-  await openItem(d.id);
+  if(!r.ok){showToast(detailMessage(d.detail,"Neizdevās izveidot Review produktu"),true);return;}
+  await load(d.id);
+  showToast("Review produkts izveidots.");
 }
 async function markPageAlertChecked(){
-  const r=await fetch(
+  await call(
     "/api/v1/review-items/"+encodeURIComponent(selected.id)+"/reject",
     {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({note:"Lapas pārbaude pabeigta."})
-    }
+    },
+    {advance:true,successMessage:"Lapas pārbaude pabeigta."}
   );
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok){alert(d.detail||"Neizdevās atzīmēt lapu kā pārbaudītu");return;}
-  await load();
-  selected=d;
-  renderPageAlert();
 }
 function renderPageAlert(){
   const p=selected.original_payload||{},hints=p.hints||[];
@@ -130,7 +151,7 @@ function renderPageAlert(){
   const pageUrl=previewUrl(selected.id,"page");
   $("detail").innerHTML=`
     <h2>⚠ Lidl bukleta lapa ${esc(selected.page_number??"—")}</h2>
-    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>${esc(selected.parser_version)}<br><span class="badge">lapas pārbaude</span><span class="badge">${esc(selected.status)}</span></div>
+    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>${esc(selected.parser_version)}<br><span class="badge">lapas pārbaude</span><span class="badge ${esc(selected.status)}">${esc(statusLabel(selected.status))}</span></div>
     <p>Šeit parseris nav droši rekonstruējis visus produktus. Zemāk ir tikai nosaukuma/pozīcijas hinti — cena un produkta dati netiek izdomāti automātiski.</p>
     <div class="preview-block"><div class="preview-head"><strong>Bukleta lapas priekšskatījums</strong><a href="${esc(pageUrl)}" target="_blank" rel="noopener">Atvērt pilnā izmērā</a></div><img class="preview" data-preview src="${esc(pageUrl)}" alt="Lidl bukleta lapa ${esc(selected.page_number??"—")}"><div class="preview-note muted" data-preview-error hidden>PDF lapas priekšskatījums nav pieejams. Produktu nepublicē, kamēr avota lapa nav apskatāma.</div></div>
     ${hintHtml||'<div class="muted">Hintu nav.</div>'}
@@ -146,19 +167,20 @@ function renderPageAlert(){
   wirePreviewErrors();
 }
 async function openItem(id){
-  const r=await fetch("/api/v1/review-items/"+id);
-  if(!r.ok)return;
-  selected=await r.json();
+  const r=await fetch("/api/v1/review-items/"+encodeURIComponent(id),{headers:{Accept:"application/json"}});
+  const body=await r.json().catch(()=>({}));
+  if(!r.ok){showToast(detailMessage(body.detail,"Ierakstu neizdevās atvērt."),true);return;}
+  selected=body;
   document.querySelectorAll(".row").forEach(n=>n.classList.toggle("active",n.dataset.id===id));
   if(selected.review_kind==="page_alert"){renderPageAlert();return;}
-  const e=selected.effective_payload||{},p=selected.provenance||{};
+  const e=selected.effective_payload||{},p=selected.provenance||{},open=OPEN_STATUSES.has(selected.status);
   const generatedBand=previewUrl(selected.id,"band");
   const generatedPage=previewUrl(selected.id,"page");
   const hasGeneratedPreview=selected.source_chain==="lidl"&&Boolean(p.source_pdf_sha256||p.pdf_sha256);
   const crop=p.crop_url?`<img class="crop" src="${esc(p.crop_url)}" alt="Bukleta fragments">`:(hasGeneratedPreview?`<div class="preview-block"><div class="preview-head"><strong>Avota fragments</strong><a href="${esc(generatedPage)}" target="_blank" rel="noopener">Atvērt visu lapu</a></div><img class="preview" data-preview src="${esc(generatedBand)}" alt="Bukleta fragments"><div class="preview-note muted" data-preview-error hidden>Avota priekšskatījums nav pieejams. Produktu nepublicē, kamēr avota lapa nav apskatāma.</div></div>`:"");
   $("detail").innerHTML=`
     <h2>${esc(val(e,"product_name","product_name_raw")||"Piedāvājums")}</h2>
-    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>Lapa ${esc(selected.page_number??"—")} · ${esc(selected.parser_version)}<br>${selected.reason_codes.map(x=>`<span class="badge">${esc(x)}</span>`).join("")}${crop}</div>
+    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>Lapa ${esc(selected.page_number??"—")} · ${esc(selected.parser_version)}<br><span class="badge ${esc(selected.status)}">${esc(statusLabel(selected.status))}</span>${selected.reason_codes.map(x=>`<span class="badge">${esc(x)}</span>`).join("")}${crop}</div>
     <div class="grid">
       ${field("f_name","Produkta nosaukums",val(e,"product_name","product_name_raw"))}
       ${field("f_brand","Zīmols",val(e,"brand","brand_raw"))}
@@ -179,10 +201,10 @@ async function openItem(id){
       <div class="full"><label>Piezīme</label><textarea id="f_note" rows="3">${esc(selected.reviewer_note??"")}</textarea></div>
     </div>
     <div class="actions">
-      <button class="primary" id="save">Saglabāt labojumu</button>
+      ${open?`<button class="primary" id="save">Saglabāt labojumu</button>
       <button id="follow">Jāpārbauda vēl</button>
       <button id="fast_scope_approve" type="button" hidden title="Tikai pilnām scope-only rindām; variable-weight ir bloķēts.">✓ In scope + apstiprināt</button> <button class="primary" id="approve">Apstiprināt un publicēt</button>
-      <button class="danger" id="reject">Noraidīt</button>
+      <button class="danger" id="reject">Noraidīt</button>`:`<span class="muted">Ieraksts ir ${esc(statusLabel(selected.status).toLocaleLowerCase("lv-LV"))}.</span>`}
       <button id="reopen">Atgriezt gaidīšanā</button>
     </div>
     <details><summary>Oriģinālais parsera ieraksts</summary><pre>${esc(JSON.stringify(selected.original_payload,null,2))}</pre></details>
@@ -192,12 +214,13 @@ async function openItem(id){
   $("f_pricing_mode").value=val(e,"pricing_mode")||"";
   $("f_requires_app").value=val(e,"requires_app")?"true":"false";
   document.querySelectorAll("[data-date-target]").forEach(button=>{const id=button.dataset.dateTarget,textInput=$(id),picker=$(id+"_picker");button.onclick=()=>{const iso=parseLvDate(textInput.value);if(iso)picker.value=iso;try{picker.showPicker();}catch(error){picker.focus();picker.click();}};picker.onchange=()=>{if(picker.value)textInput.value=fmtDate(picker.value);};});
-  $("save").onclick=()=>save(false);
-  $("follow").onclick=()=>save(true);
-  $("approve").onclick=approve;
-  $("reject").onclick=reject;
+  if(!open){const form=$("detail").querySelector(".grid");form?.classList.add("readonly-form");form?.querySelectorAll("input,select,textarea,button").forEach(node=>node.disabled=true);}
+  if($("save"))$("save").onclick=()=>save(false);
+  if($("follow"))$("follow").onclick=()=>save(true);
+  if($("approve"))$("approve").onclick=approve;
+  if($("reject"))$("reject").onclick=reject;
   $("reopen").onclick=reopen;
-  $("fast_scope_approve").onclick=approveScopeOnlyFast;
+  if($("fast_scope_approve"))$("fast_scope_approve").onclick=approveScopeOnlyFast;
   updateScopeFastReviewButton();
   wirePreviewErrors();
 }
@@ -223,19 +246,35 @@ function corrections(){
     channel:$("f_channel").value
   };
 }
-async function call(url,opt){
-  const r=await fetch(url,opt);
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok){
-    alert(d.detail||"Darbība neizdevās");
-    throw new Error(d.detail||"request failed");
+async function call(url,opt,options={}){
+  const itemId=selected?.id;
+  const nextId=options.advance?preferredNextRowId(itemId):itemId;
+  setBusy(true);
+  try{
+    const r=await fetch(url,opt);
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(detailMessage(d.detail,`HTTP ${r.status}`));
+    await load();
+    if(options.advance){
+      const preferred=nextId?document.querySelector('.row[data-id="'+CSS.escape(nextId)+'"]'):null;
+      const nextRow=preferred||document.querySelector(".row[data-id]");
+      if(nextRow)await openItem(nextRow.dataset.id);
+      else renderEmptyDetail("Šajā filtrā vairs nav rindu pārbaudei.");
+    }else if(itemId){
+      await openItem(itemId);
+    }
+    if(options.successMessage)showToast(options.successMessage);
+    return d;
+  }catch(error){
+    showToast(error?.message||"Darbība neizdevās",true);
+    throw error;
+  }finally{
+    setBusy(false);
   }
-  await load();
-  await openItem(selected.id);
 }
 async function save(needs){
   let c;
-  try{c=corrections();}catch(error){alert(error?.message||String(error));return false;}
+  try{c=corrections();}catch(error){showToast(error?.message||String(error),true);return false;}
   await call("/api/v1/review-items/"+selected.id,{
     method:"PATCH",
     headers:{"Content-Type":"application/json"},
@@ -244,36 +283,37 @@ async function save(needs){
       note:$("f_note").value,
       needs_followup:needs
     })
-  });
+  },{successMessage:needs?"Atzīmēts turpmākai pārbaudei.":"Labojums saglabāts."});
   return true;
 }
 async function approve(){
   const scope=$("f_scope").value;
-  if(scope==="excluded"){alert("Izslēgtu piedāvājumu nevar publicēt.");return;}
+  if(scope==="excluded"){showToast("Izslēgtu piedāvājumu nevar publicēt.",true);return;}
   if(scope==="review")$("f_scope").value="in_scope";
   if(await save(false)===false)return;
-  await call("/api/v1/review-items/"+selected.id+"/approve",{
+  const published=await call("/api/v1/review-items/"+selected.id+"/approve",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({note:$("f_note").value})
-  });
+  },{advance:true,successMessage:"Piedāvājums publicēts."});
+  notifyDealsRefresh(published);
 }
 async function reject(){
   await call("/api/v1/review-items/"+selected.id+"/reject",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({note:$("f_note").value})
-  });
+  },{advance:true,successMessage:"Ieraksts noraidīts."});
 }
 async function reopen(){
   await call("/api/v1/review-items/"+selected.id+"/reopen",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({note:$("f_note").value})
-  });
+  },{advance:$("status").value!=="open",successMessage:"Ieraksts atgriezts gaidīšanā."});
 }
-$("reload").onclick=load;
-$("status").onchange=load;
+$("reload").onclick=()=>load(selected?.id||null);
+$("status").onchange=()=>{renderEmptyDetail();load();};
 load();
 
 
@@ -307,13 +347,14 @@ async function approveScopeOnlyFast(){
   button.disabled=true;
   try{
     if(await save(false)===false)return;
+    setBusy(true);
     const response=await fetch(
       "/api/v1/review-items/"+encodeURIComponent(itemId)+"/approve-scope-only",
       {method:"POST"}
     );
     const body=await response.json().catch(()=>({}));
     if(!response.ok){
-      throw new Error(body.detail||("HTTP "+response.status));
+      throw new Error(detailMessage(body.detail,"HTTP "+response.status));
     }
     selected=null;
     await load();
@@ -325,11 +366,14 @@ async function approveScopeOnlyFast(){
     if(nextRow){
       await openItem(nextRow.dataset.id);
     }else{
-      $("detail").innerHTML='<div class="empty">Šajā filtrā vairs nav rindu pārbaudei.</div>';
+      renderEmptyDetail("Šajā filtrā vairs nav rindu pārbaudei.");
     }
+    notifyDealsRefresh(body);
+    showToast("Piedāvājums publicēts.");
   }catch(error){
-    alert("Fast approval neizdevās: "+(error?.message||String(error)));
+    showToast("Fast approval neizdevās: "+(error?.message||String(error)),true);
   }finally{
+    setBusy(false);
     button.disabled=false;
     updateScopeFastReviewButton();
   }

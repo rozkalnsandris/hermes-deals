@@ -100,7 +100,7 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
     def test_normal_review_approval_confirms_scope_before_publish(self) -> None:
         html = REVIEW.read_text(encoding="utf-8")
         for marker in (
-            'if(scope==="excluded"){alert("Izslēgtu piedāvājumu nevar publicēt.");return;}',
+            'if(scope==="excluded"){showToast("Izslēgtu piedāvājumu nevar publicēt.",true);return;}',
             'if(scope==="review")$("f_scope").value="in_scope";',
             'if(await save(false)===false)return;',
             '"/api/v1/review-items/"+selected.id+"/approve"',
