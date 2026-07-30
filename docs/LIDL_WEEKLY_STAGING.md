@@ -82,3 +82,33 @@ The exact input bytes are written once as `<flyer>/review-profile.json`; a
 mismatching replay fails closed. Once the profile and scan are both valid, the
 staging result becomes `STAGED_SCAN_READY` for a separately controlled corpus
 promotion step.
+
+## Controlled immutable corpus observation promotion
+
+A `STAGED_SCAN_READY` result is still not a production import. B15H4 adds a
+separate append-only promotion boundary that copies one exact reviewed staging
+observation into the matching immutable corpus flyer without replacing the
+canonical root source, changing the reviewed page-role profile, writing the
+production database, seeding Review Queue, publishing offers or installing a
+timer.
+
+The promoted layout is:
+
+```text
+~/hermes-deals-lidl-corpus/flyers/<flyer-key>/
+  source.pdf                       # existing canonical PDF, unchanged
+  source.json                      # existing reference raw source, unchanged
+  review-profile.json              # existing reviewed page-role profile, unchanged
+  observations/<raw64>/
+    source.json
+    observation.json
+    source-review.json
+    corpus-promotion.json
+    scans/v631-<parser12>/...
+```
+
+Promotion requires an exact user approval bound to the flyer key, PDF SHA-256,
+raw SHA-256, V6.3.1 parser SHA-256, source-review SHA-256, review-profile
+SHA-256, staging digest and exact scan counts. The only permitted write is the
+new content-addressed corpus observation directory. Existing bytes are verified
+and reused; collisions fail closed.
