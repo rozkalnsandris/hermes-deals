@@ -9,10 +9,13 @@ from unittest.mock import patch
 from lidl_weekly_staging import (
     StagingError,
     EXIT_CODES,
+    _binding_change_summary,
+    _canonical_json_bytes,
     _identity_digest,
     _parser_input_identity,
     _product_binding_digest,
     _stable_source_identity,
+    _validate_source_review,
     _write_bytes_once,
     product_bindings,
     staging_flyer_key,
@@ -57,6 +60,47 @@ def source_payload(*, raw_marker: str = "first") -> bytes:
         },
         sort_keys=True,
     ).encode()
+
+
+def review_payload(
+    *,
+    decision: str = "approve_parser_input_refresh",
+    scope: str = "authoritative_staging_scan_only",
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "decision": decision,
+        "scope": scope,
+        "approved_by": "Andris Rožkalns",
+        "approved_at": "2026-07-30T21:54:00+02:00",
+        "note": "Approved exact source refresh for staging scan only.",
+        "flyer_key": "20260803-20260808-r21-aaaaaaaaaaaa",
+        "pdf_sha256": "a" * 64,
+        "reference_input": {
+            "parser_input_identity_sha256": "b" * 64,
+            "product_binding_sha256": "c" * 64,
+            "product_binding_count": 1,
+        },
+        "approved_live_input": {
+            "parser_input_identity_sha256": "d" * 64,
+            "product_binding_sha256": "e" * 64,
+            "product_binding_count": 2,
+        },
+        "observed_changes": {
+            "binding_added": 1,
+            "binding_removed": 0,
+            "binding_title_changed": 1,
+        },
+        "permissions": {
+            "staging_scan": True,
+            "corpus_write": False,
+            "db_write": False,
+            "review_seed": False,
+            "auto_approve": False,
+            "auto_publish": False,
+            "systemd_change": False,
+        },
+    }
 
 
 class LidlWeeklyStagingTest(unittest.TestCase):
@@ -150,6 +194,89 @@ class LidlWeeklyStagingTest(unittest.TestCase):
         payload = json.loads(source_payload())
         payload["flyer"]["pages"][0]["links"][0]["width"] = 120
         self.assertEqual(product_bindings(json.dumps(payload).encode()), ())
+
+    def _validate_review(self, payload: dict[str, object]) -> tuple[dict[str, object], str]:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "source-review.json"
+            path.write_bytes(_canonical_json_bytes(payload))
+            return _validate_source_review(
+                source_review_file=path,
+                flyer_key="20260803-20260808-r21-aaaaaaaaaaaa",
+                pdf_sha256="a" * 64,
+                reference_input={
+                    "parser_input_identity_sha256": "b" * 64,
+                    "product_binding_sha256": "c" * 64,
+                    "product_binding_count": 1,
+                },
+                live_parser_input_sha256="d" * 64,
+                live_product_binding_sha256="e" * 64,
+                live_product_binding_count=2,
+                binding_changes={
+                    "binding_added": 1,
+                    "binding_removed": 0,
+                    "binding_title_changed": 1,
+                },
+            )
+
+    def test_source_review_exact_approval_is_accepted(self) -> None:
+        payload = review_payload()
+        review, digest = self._validate_review(payload)
+        self.assertEqual(review, payload)
+        self.assertEqual(len(digest), 64)
+
+    def test_source_review_digest_is_key_order_independent(self) -> None:
+        payload = review_payload()
+        reversed_payload = dict(reversed(list(payload.items())))
+        first = self._validate_review(payload)[1]
+        second = self._validate_review(reversed_payload)[1]
+        self.assertEqual(first, second)
+
+    def test_source_review_rejects_nonapproval_decision(self) -> None:
+        with self.assertRaises(StagingError):
+            self._validate_review(review_payload(decision="reject"))
+
+    def test_source_review_rejects_unsafe_scope(self) -> None:
+        with self.assertRaises(StagingError):
+            self._validate_review(review_payload(scope="corpus_promotion"))
+
+    def test_source_review_rejects_live_input_mismatch(self) -> None:
+        payload = review_payload()
+        payload["approved_live_input"]["product_binding_count"] = 3
+        with self.assertRaises(StagingError):
+            self._validate_review(payload)
+
+    def test_binding_change_summary_tracks_add_remove_and_title(self) -> None:
+        reference = json.loads(source_payload())
+        live = json.loads(source_payload())
+        live["flyer"]["products"]["p1"]["title"] = "Vollmilch"
+        live["flyer"]["pages"][0]["links"].append(
+            {
+                "left": 50,
+                "top": 10,
+                "width": 10,
+                "height": 10,
+                "productDetails": {
+                    "productId": "456",
+                    "title": "Butter",
+                },
+            }
+        )
+        live["flyer"]["products"]["p2"] = {
+            "productId": "456",
+            "title": "Butter",
+        }
+        summary = _binding_change_summary(
+            json.dumps(reference).encode(),
+            json.dumps(live).encode(),
+        )
+        self.assertEqual(
+            summary,
+            {
+                "binding_added": 1,
+                "binding_removed": 0,
+                "binding_title_changed": 1,
+            },
+        )
 
 
 if __name__ == "__main__":

@@ -38,7 +38,8 @@ from lidl_weekly_one_shot import (  # noqa: E402
 )
 
 
-WORKFLOW_VERSION = "lidl-family-weekly-staging-v2-input-gate"
+WORKFLOW_VERSION = "lidl-family-weekly-staging-v3-source-review"
+SOURCE_LAYOUT_VERSION = "lidl-family-weekly-staging-v2-input-gate"
 EXIT_CODES = {
     "STAGED_SCAN_READY": 0,
     "WAIT_SOURCE": 20,
@@ -177,6 +178,18 @@ def _identity_digest(identity: Mapping[str, Any]) -> str:
     return sha256(encoded).hexdigest()
 
 
+def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
+    return (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def _canonical_parser_input(source_json: bytes) -> Mapping[str, Any]:
     try:
         payload = json.loads(source_json)
@@ -240,6 +253,142 @@ def _reference_parser_input(
         "product_binding_sha256": _product_binding_digest(source_json),
         "product_binding_count": len(product_bindings(source_json)),
     }
+
+
+def _binding_change_summary(
+    reference_source_json: bytes,
+    live_source_json: bytes,
+) -> dict[str, int]:
+    def keyed(source_json: bytes) -> dict[tuple[Any, ...], ProductBinding]:
+        return {
+            (row.page, row.product_id, row.bbox): row
+            for row in product_bindings(source_json)
+        }
+
+    reference = keyed(reference_source_json)
+    live = keyed(live_source_json)
+    reference_keys = set(reference)
+    live_keys = set(live)
+    common = reference_keys & live_keys
+    return {
+        "binding_added": len(live_keys - reference_keys),
+        "binding_removed": len(reference_keys - live_keys),
+        "binding_title_changed": sum(
+            reference[key].title != live[key].title
+            for key in common
+        ),
+    }
+
+
+def _load_reference_source_json(
+    *,
+    reference_corpus_root: Path | None,
+    flyer_key: str,
+    expected_pdf_sha256: str,
+) -> bytes | None:
+    if reference_corpus_root is None:
+        return None
+    flyer_root = reference_corpus_root.resolve() / "flyers" / flyer_key
+    source_json_path = flyer_root / "source.json"
+    source_pdf_path = flyer_root / "source.pdf"
+    if not source_json_path.exists() and not source_pdf_path.exists():
+        return None
+    if not source_json_path.is_file() or not source_pdf_path.is_file():
+        raise StagingError("reference corpus source is incomplete")
+    if _sha256_file(source_pdf_path) != expected_pdf_sha256:
+        raise StagingError("reference corpus PDF identity mismatch")
+    return source_json_path.read_bytes()
+
+
+def _validate_source_review(
+    *,
+    source_review_file: Path,
+    flyer_key: str,
+    pdf_sha256: str,
+    reference_input: Mapping[str, Any],
+    live_parser_input_sha256: str,
+    live_product_binding_sha256: str,
+    live_product_binding_count: int,
+    binding_changes: Mapping[str, int],
+) -> tuple[dict[str, Any], str]:
+    if not source_review_file.is_file():
+        raise StagingError("source review file is missing")
+    if source_review_file.stat().st_size > 64 * 1024:
+        raise StagingError("source review file is too large")
+    try:
+        payload = json.loads(source_review_file.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise StagingError(
+            f"source review JSON invalid: {type(exc).__name__}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise StagingError("source review must contain an object")
+    review = dict(payload)
+    required_top_level = {
+        "schema_version",
+        "decision",
+        "scope",
+        "approved_by",
+        "approved_at",
+        "note",
+        "flyer_key",
+        "pdf_sha256",
+        "reference_input",
+        "approved_live_input",
+        "observed_changes",
+        "permissions",
+    }
+    if set(review) != required_top_level:
+        raise StagingError("source review field set mismatch")
+    if review["schema_version"] != 1:
+        raise StagingError("source review schema version mismatch")
+    if review["decision"] != "approve_parser_input_refresh":
+        raise StagingError("source review decision is not approval")
+    if review["scope"] != "authoritative_staging_scan_only":
+        raise StagingError("source review scope is unsafe")
+    if not str(review["approved_by"]).strip():
+        raise StagingError("source review approver is missing")
+    if not str(review["approved_at"]).strip():
+        raise StagingError("source review timestamp is missing")
+    if not str(review["note"]).strip():
+        raise StagingError("source review note is missing")
+    if review["flyer_key"] != flyer_key:
+        raise StagingError("source review flyer key mismatch")
+    if review["pdf_sha256"] != pdf_sha256:
+        raise StagingError("source review PDF identity mismatch")
+
+    expected_reference = {
+        "parser_input_identity_sha256": reference_input[
+            "parser_input_identity_sha256"
+        ],
+        "product_binding_sha256": reference_input["product_binding_sha256"],
+        "product_binding_count": reference_input["product_binding_count"],
+    }
+    if review["reference_input"] != expected_reference:
+        raise StagingError("source review reference input mismatch")
+
+    expected_live = {
+        "parser_input_identity_sha256": live_parser_input_sha256,
+        "product_binding_sha256": live_product_binding_sha256,
+        "product_binding_count": live_product_binding_count,
+    }
+    if review["approved_live_input"] != expected_live:
+        raise StagingError("source review approved live input mismatch")
+    if review["observed_changes"] != dict(binding_changes):
+        raise StagingError("source review change summary mismatch")
+
+    expected_permissions = {
+        "staging_scan": True,
+        "corpus_write": False,
+        "db_write": False,
+        "review_seed": False,
+        "auto_approve": False,
+        "auto_publish": False,
+        "systemd_change": False,
+    }
+    if review["permissions"] != expected_permissions:
+        raise StagingError("source review permissions are unsafe")
+    return review, _sha256_bytes(_canonical_json_bytes(review))
 
 
 def staging_flyer_key(
@@ -568,6 +717,7 @@ def _status_payload(
     staging: Mapping[str, Any] | None = None,
     scan: Mapping[str, Any] | None = None,
     review_profile: Mapping[str, Any] | None = None,
+    source_review: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -579,6 +729,7 @@ def _status_payload(
         "staging": dict(staging or {}),
         "scan": dict(scan or {}),
         "review_profile": dict(review_profile or {}),
+        "source_review": dict(source_review or {}),
         "parser_version": PARSER_VERSION,
         "parser_sha256": SHADOW_SHA256,
         "staging_write": True,
@@ -598,6 +749,7 @@ def run_staging(
     output_dir: Path,
     target: str,
     reference_corpus_root: Path | None = None,
+    source_review_file: Path | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if any(output_dir.iterdir()):
@@ -637,7 +789,7 @@ def run_staging(
     flyer_root = staging_root.resolve() / "flyers" / flyer_key
     source_manifest = {
         "schema_version": 1,
-        "workflow_version": WORKFLOW_VERSION,
+        "workflow_version": SOURCE_LAYOUT_VERSION,
         "flyer_key": flyer_key,
         "source": {
             "pdf_sha256": selected.pdf_sha256,
@@ -680,6 +832,11 @@ def run_staging(
         flyer_key=flyer_key,
         expected_pdf_sha256=selected.pdf_sha256,
     )
+    reference_source_json = _load_reference_source_json(
+        reference_corpus_root=reference_corpus_root,
+        flyer_key=flyer_key,
+        expected_pdf_sha256=selected.pdf_sha256,
+    )
 
     observation_root = flyer_root / "observations" / raw_sha
     raw_created = _write_bytes_once(
@@ -688,7 +845,7 @@ def run_staging(
     )
     observation_meta = {
         "schema_version": 1,
-        "workflow_version": WORKFLOW_VERSION,
+        "workflow_version": SOURCE_LAYOUT_VERSION,
         "raw_sha256": raw_sha,
         "raw_bytes": selected.raw_bytes,
         "stable_source_identity_sha256": identity_sha,
@@ -734,19 +891,64 @@ def run_staging(
         "reference_input": reference_input or {},
     }
 
-    if (
+    parser_input_changed = (
         reference_input is not None
         and reference_input["parser_input_identity_sha256"] != parser_input_sha
-    ):
-        payload = _status_payload(
-            result="WAIT_SOURCE_REVIEW",
-            reason="parser_input_identity_changed_for_existing_pdf",
-            target=target,
-            source=source_meta,
-            staging=staging_before_scan,
+    )
+    source_review_payload: dict[str, Any] = {}
+    if parser_input_changed:
+        if reference_source_json is None:
+            raise StagingError("reference source JSON is unavailable")
+        binding_changes = _binding_change_summary(
+            reference_source_json,
+            selected.source_json,
         )
-        _atomic_json(output_dir / "staging-status.json", payload)
-        return payload
+        if source_review_file is None:
+            payload = _status_payload(
+                result="WAIT_SOURCE_REVIEW",
+                reason="parser_input_identity_changed_for_existing_pdf",
+                target=target,
+                source=source_meta,
+                staging=staging_before_scan,
+            )
+            _atomic_json(output_dir / "staging-status.json", payload)
+            return payload
+        review, review_sha = _validate_source_review(
+            source_review_file=source_review_file,
+            flyer_key=flyer_key,
+            pdf_sha256=selected.pdf_sha256,
+            reference_input=reference_input,
+            live_parser_input_sha256=parser_input_sha,
+            live_product_binding_sha256=product_binding_sha,
+            live_product_binding_count=product_binding_count,
+            binding_changes=binding_changes,
+        )
+        review_path = observation_root / "source-review.json"
+        review_created = _write_bytes_once(
+            review_path,
+            _canonical_json_bytes(review),
+        )
+        source_review_payload = {
+            "approved": True,
+            "created": review_created,
+            "path": str(review_path),
+            "sha256": review_sha,
+            "decision": review["decision"],
+            "scope": review["scope"],
+            "approved_by": review["approved_by"],
+            "approved_at": review["approved_at"],
+            "observed_changes": binding_changes,
+        }
+        staging_before_scan["source_review_created"] = review_created
+        staging_before_scan["source_review_sha256"] = review_sha
+        staging_before_scan["source_review_path"] = str(review_path)
+        staging_before_scan["reused"] = (
+            staging_before_scan["reused"] and not review_created
+        )
+    elif source_review_file is not None:
+        raise StagingError(
+            "source review was provided without parser-input drift"
+        )
 
     try:
         scan_root, summary, scan_created = _materialize_scan(
@@ -797,6 +999,7 @@ def run_staging(
             source=source_meta,
             staging=staging_payload,
             scan=summary,
+            source_review=source_review_payload,
         )
         _atomic_json(output_dir / "staging-status.json", payload)
         return payload
@@ -809,6 +1012,7 @@ def run_staging(
         staging=staging_payload,
         scan=summary,
         review_profile=profile,
+        source_review=source_review_payload,
     )
     _atomic_json(output_dir / "staging-status.json", payload)
     return payload
@@ -821,6 +1025,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--target", choices=("current", "next"), default="next")
     parser.add_argument("--reference-corpus-root", type=Path)
+    parser.add_argument("--source-review-file", type=Path)
     return parser
 
 
@@ -833,6 +1038,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir,
             target=args.target,
             reference_corpus_root=args.reference_corpus_root,
+            source_review_file=args.source_review_file,
         )
     except StagingError as exc:
         payload = _status_payload(

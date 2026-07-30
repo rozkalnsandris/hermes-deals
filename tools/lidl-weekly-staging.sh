@@ -9,6 +9,7 @@ WORKER_IMAGE="${HERMES_LIDL_WORKER_IMAGE:?set HERMES_LIDL_WORKER_IMAGE to an imm
 DISCOVERY_DIR="${1:?discovery directory required}"
 OUT="${2:?empty output directory required}"
 TARGET="${3:-next}"
+SOURCE_REVIEW_FILE="${4:-}"
 
 [[ "$WORKER_IMAGE" != *:latest ]] || {
   echo "FAIL: mutable worker image is forbidden: $WORKER_IMAGE" >&2
@@ -29,6 +30,19 @@ mkdir -p "$STAGING" "$OUT"
 }
 docker image inspect "$WORKER_IMAGE" >/dev/null
 
+SOURCE_REVIEW_MOUNT=()
+SOURCE_REVIEW_ARGS=()
+if [[ -n "$SOURCE_REVIEW_FILE" ]]; then
+  [[ -f "$SOURCE_REVIEW_FILE" ]] || {
+    echo "FAIL: source review file missing: $SOURCE_REVIEW_FILE" >&2
+    exit 2
+  }
+  SOURCE_REVIEW_MOUNT=(
+    --mount "type=bind,src=$(realpath "$SOURCE_REVIEW_FILE"),dst=/source-review.json,readonly"
+  )
+  SOURCE_REVIEW_ARGS=(--source-review-file /source-review.json)
+fi
+
 exec docker run --rm \
   --user "$(id -u):$(id -g)" \
   --network none \
@@ -44,10 +58,12 @@ exec docker run --rm \
   --mount "type=bind,src=$(realpath "$CORPUS"),dst=/corpus,readonly" \
   --mount "type=bind,src=$(realpath "$STAGING"),dst=/staging" \
   --mount "type=bind,src=$(realpath "$OUT"),dst=/out" \
+  "${SOURCE_REVIEW_MOUNT[@]}" \
   "$WORKER_IMAGE" \
   python /repo/tools/lidl_weekly_staging.py \
     --discovery-dir /discovery \
     --staging-root /staging \
     --output-dir /out \
     --reference-corpus-root /corpus \
-    --target "$TARGET"
+    --target "$TARGET" \
+    "${SOURCE_REVIEW_ARGS[@]}"
