@@ -58,7 +58,7 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         for marker in (
             'value="open" selected',
             'Atvērtie (gaida + laboti + jāpārbauda)',
-            'status==="open"?rawItems.filter',
+            'status==="open"?allItems.filter',
             '"pending","draft","needs_followup"',
             'placeholder="DD.MM.GGGG"',
             "function parseLvDate(v)",

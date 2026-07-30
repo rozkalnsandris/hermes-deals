@@ -13,14 +13,14 @@
     h1{font-size:22px;margin:0 0 4px}.muted{color:#686d74}
     main{max-width:1280px;margin:auto;padding:18px;display:grid;grid-template-columns:minmax(280px,420px) 1fr;gap:18px}
     .panel{background:white;border:1px solid #ddd;border-radius:14px;overflow:hidden}
-    .toolbar{padding:14px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #eee}
+    .toolbar{padding:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #eee}.toolbar #status{flex:1 1 260px}.toolbar #reviewSearch{flex:2 1 320px}.status-counts{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid #eee;background:#fafbfc}.status-chip{padding:6px 9px;border-radius:999px;font-size:12px;font-weight:700}.status-chip.active{background:#17191c;color:white;border-color:#17191c}.detail-nav{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #eee;background:#fafbfc;position:sticky;top:0;z-index:2}.detail-nav .position{margin-left:auto;color:#686d74;font-size:13px;font-weight:700}.dirty-state{display:inline-flex;margin-left:8px;padding:3px 8px;border-radius:999px;background:#fff3c4;border:1px solid #d7b94c;color:#5c4b00;font-size:12px;font-weight:800;vertical-align:middle}.actions.sticky-actions{position:sticky;bottom:0;padding:12px;background:rgba(255,255,255,.96);border-top:1px solid #ddd;box-shadow:0 -8px 20px rgba(0,0,0,.06);z-index:3}.shortcut-note{font-size:12px;color:#686d74;margin-left:auto;align-self:center}
     select,button,input,textarea{font:inherit}
     select,input,textarea{width:100%;padding:10px;border:1px solid #c9cdd2;border-radius:9px;background:white}
     button{padding:10px 13px;border:1px solid #bbb;border-radius:9px;background:white;cursor:pointer}
     button.primary,.danger{font-weight:700}button:disabled{cursor:wait;opacity:.58}
     #list{max-height:calc(100vh - 175px);overflow:auto}
     .row{display:block;width:100%;padding:12px 14px;border:0;border-bottom:1px solid #eee;border-radius:0;background:white;color:inherit;text-align:left;cursor:pointer}
-    .row:hover,.row.active{background:#f0f2f4}.row:focus-visible{outline:3px solid #8ab4f8;outline-offset:-3px}.row strong{display:block}
+    .row:hover,.row.active{background:#f0f2f4}.row.active{box-shadow:inset 4px 0 #17191c}.row:focus-visible{outline:3px solid #8ab4f8;outline-offset:-3px}.row strong{display:block}.row .match{background:#fff0a8;border-radius:3px;padding:0 1px}
     .badge{display:inline-block;font-size:12px;border:1px solid #bbb;border-radius:999px;padding:2px 7px;margin-right:5px}.badge.pending{background:#fff6d8;border-color:#e0bd4f}.badge.draft{background:#e8f0ff;border-color:#82a9eb}.badge.needs_followup{background:#fff0e5;border-color:#e0a16e}.badge.approved{background:#e5f5e9;border-color:#79b888}.badge.rejected{background:#f4e8e8;border-color:#c79292}.queue-count{align-self:center;font-size:13px;font-weight:700;color:#686d74;margin-left:auto}.toast{position:fixed;right:18px;bottom:18px;z-index:20;max-width:min(420px,calc(100vw - 36px));padding:12px 14px;border-radius:11px;background:#17191c;color:white;box-shadow:0 14px 32px rgba(0,0,0,.25);opacity:0;transform:translateY(8px);pointer-events:none;transition:.18s ease}.toast.show{opacity:1;transform:none}.toast.error{background:#8f2525}.readonly-form input:disabled,.readonly-form select:disabled,.readonly-form textarea:disabled,.readonly-form button:disabled{opacity:.72;cursor:not-allowed;background:#f3f4f5;color:#555}
     #detail{padding:18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     label{display:block;font-size:12px;font-weight:700;margin:0 0 5px}.date-entry{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:7px;align-items:center}.date-picker-button{width:44px;height:42px;border:1px solid #bbb;border-radius:9px;background:white;display:grid;place-items:center;font-size:16px}.native-date-proxy{position:absolute;right:0;top:0;width:44px;height:42px;opacity:.01;border:0;padding:0;pointer-events:none}
@@ -30,7 +30,7 @@
     pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f5f5f5;padding:10px;border-radius:8px}
     img.crop,img.preview{display:block;max-width:100%;border-radius:10px;border:1px solid #ddd;margin-top:10px;background:#f3f4f5}
     .preview-block{padding:12px;background:#f4f5f6;border-radius:10px;margin:12px 0}.preview-head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.preview-note{padding:10px;border:1px dashed #bbb;border-radius:9px;margin-top:10px}.hint-preview{margin-top:10px}
-    @media(max-width:820px){main{grid-template-columns:1fr}#list{max-height:42vh}.grid{grid-template-columns:1fr}}
+    @media(max-width:820px){main{grid-template-columns:1fr;padding:10px}.toolbar{padding:10px}.toolbar #status,.toolbar #reviewSearch{flex:1 1 100%}#list{max-height:38vh}.grid{grid-template-columns:1fr}.detail-nav{top:0}.actions.sticky-actions{bottom:0}.shortcut-note{display:none}}
   </style>
 </head>
 <body>
@@ -41,6 +41,7 @@
 <main>
   <section class="panel">
     <div class="toolbar">
+      <input id="reviewSearch" type="search" placeholder="Meklēt nosaukumu, cenu, iepakojumu vai lapu…" autocomplete="off" aria-label="Meklēt pārskatīšanas rindā">
       <select id="status">
         <option value="open" selected>Atvērtie (gaida + laboti + jāpārbauda)</option>
         <option value="">Visi statusi</option>
@@ -54,10 +55,12 @@
       <a href="/ui">Atpakaļ uz Deals</a>
       <span id="queueCount" class="queue-count" aria-live="polite"></span>
     </div>
+    <div id="statusCounts" class="status-counts" aria-label="Statusu kopsavilkums"></div>
     <div id="list"><div class="row muted">Ielādē…</div></div>
   </section>
 
   <section class="panel">
+    <div class="detail-nav" aria-label="Pārskatīšanas navigācija"><button id="prevItem" type="button">← Iepriekšējais</button><button id="nextItem" type="button">Nākamais →</button><span id="detailPosition" class="position">—</span></div>
     <div id="detail">
       <div class="muted">Izvēlies produktu kreisajā pusē.</div>
     </div>
@@ -70,42 +73,59 @@ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const OPEN_STATUSES=new Set(["pending","draft","needs_followup"]);
 const REVIEW_REFRESH_KEY="hermesDealsReviewRefresh";
 const dealsRefreshChannel="BroadcastChannel" in window?new BroadcastChannel("hermes-deals-review"):null;
-let selected=null,busy=false,toastTimer=null;
+let selected=null,busy=false,toastTimer=null,allItems=[],dirty=false,initialFormState="",searchTimer=null,lastStatus="open";
 function val(o,...keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null)return o[k]}return""}
 function statusLabel(status){return {pending:"Gaida pārbaudi",draft:"Labots",needs_followup:"Jāpārbauda vēl",approved:"Publicēts",rejected:"Noraidīts"}[status]||status;}
 function detailMessage(detail,fallback){if(typeof detail==="string"&&detail.trim())return detail;if(Array.isArray(detail)){const text=detail.map(item=>item?.msg||item?.message||"").filter(Boolean).join("; ");if(text)return text;}if(detail&&typeof detail==="object"){if(typeof detail.message==="string")return detail.message;try{return JSON.stringify(detail);}catch{}}return fallback;}
 function showToast(message,error=false){const node=$("toast");node.textContent=message;node.classList.toggle("error",error);node.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove("show"),3200);}
-function setBusy(next){busy=Boolean(next);document.querySelectorAll("#detail button,#reload,#status").forEach(node=>node.disabled=busy);}
+function setBusy(next){busy=Boolean(next);document.querySelectorAll("#detail button,#reload,#status,#reviewSearch,#statusCounts button").forEach(node=>node.disabled=busy);updateDetailNav();}
+function searchNeedle(){return $("reviewSearch").value.trim().toLocaleLowerCase("de-DE");}
+function statusFilteredItems(){const status=$("status").value;return status==="open"?allItems.filter(item=>OPEN_STATUSES.has(item.status)):status?allItems.filter(item=>item.status===status):allItems.slice();}
+function itemSearchText(item){const p=item.effective_payload||{},o=item.original_payload||{};return [p.product_name,p.product_name_raw,p.brand,p.brand_raw,p.package_text,p.package_text_raw,p.price_eur,item.page_number,statusLabel(item.status),...(item.reason_codes||[]),o.hint_count].filter(v=>v!==null&&v!==undefined).join(" ").toLocaleLowerCase("de-DE");}
+function filteredItems(){const base=statusFilteredItems(),needle=searchNeedle();return needle?base.filter(item=>itemSearchText(item).includes(needle)):base;}
+function renderStatusCounts(){const counts={pending:0,draft:0,needs_followup:0,approved:0,rejected:0};for(const item of allItems)if(item.status in counts)counts[item.status]++;const open=counts.pending+counts.draft+counts.needs_followup,current=$("status").value;const chips=[["open",`Atvērtie ${open}`],["pending",`Gaida ${counts.pending}`],["draft",`Laboti ${counts.draft}`],["needs_followup",`Jāpārbauda ${counts.needs_followup}`],["approved",`Publicēti ${counts.approved}`],["rejected",`Noraidīti ${counts.rejected}`],["",`Visi ${allItems.length}`]];$("statusCounts").innerHTML=chips.map(([value,label])=>`<button type="button" class="status-chip${value===current?" active":""}" data-status-value="${esc(value)}" ${busy?"disabled":""}>${esc(label)}</button>`).join("");$("statusCounts").querySelectorAll("[data-status-value]").forEach(button=>button.onclick=()=>changeStatus(button.dataset.statusValue));}
+function editableFormState(){return JSON.stringify([...document.querySelectorAll("#detail .grid input,#detail .grid select,#detail .grid textarea")].filter(node=>!node.disabled).map(node=>[node.id,node.value]));}
+function setDirty(next){dirty=Boolean(next);const node=$("dirtyState");if(node)node.hidden=!dirty;}
+function captureFormState(){initialFormState=editableFormState();setDirty(false);document.querySelectorAll("#detail .grid input,#detail .grid select,#detail .grid textarea").forEach(node=>{node.addEventListener("input",()=>setDirty(editableFormState()!==initialFormState));node.addEventListener("change",()=>setDirty(editableFormState()!==initialFormState));});}
+function confirmDiscard(){return !dirty||window.confirm("Ir nesaglabātas izmaiņas. Turpināt un tās atmest?");}
+function visibleRowIds(){return [...document.querySelectorAll(".row[data-id]")].map(node=>node.dataset.id);}
+function updateDetailNav(){const ids=visibleRowIds(),index=selected?ids.indexOf(selected.id):-1;$("prevItem").disabled=busy||index<=0;$("nextItem").disabled=busy||index<0||index>=ids.length-1;$("detailPosition").textContent=index>=0?`${index+1} no ${ids.length}`:`${ids.length} rindas`;}
+function syncReviewUrl(itemId=selected?.id||""){const p=new URLSearchParams();if($("status").value!=="open")p.set("status",$("status").value);if($("reviewSearch").value.trim())p.set("q",$("reviewSearch").value.trim());if(itemId)p.set("item",itemId);history.replaceState(null,"",`${location.pathname}${p.toString()?`?${p}`:""}`);}
 function notifyDealsRefresh(item){const message={type:"review-published",item_id:item?.id||null,at:Date.now()};dealsRefreshChannel?.postMessage(message);try{localStorage.setItem(REVIEW_REFRESH_KEY,JSON.stringify(message));}catch{}}
 function preferredNextRowId(itemId){const ids=[...document.querySelectorAll(".row[data-id]")].map(node=>node.dataset.id),i=ids.indexOf(itemId);return i>=0?(ids[i+1]||ids[i-1]||null):null;}
-function renderEmptyDetail(message="Izvēlies produktu kreisajā pusē."){selected=null;$("detail").innerHTML=`<div class="muted">${esc(message)}</div>`;}
+function renderEmptyDetail(message="Izvēlies produktu kreisajā pusē."){selected=null;setDirty(false);$("detail").innerHTML=`<div class="muted">${esc(message)}</div>`;updateDetailNav();syncReviewUrl("");}
 function previewUrl(id,mode="page",hintIndex=null){const q=new URLSearchParams({mode});if(hintIndex!==null)q.set("hint_index",String(hintIndex));return `/api/v1/review-items/${encodeURIComponent(id)}/page-preview?${q}`;}
 function wirePreviewErrors(){document.querySelectorAll("img[data-preview]").forEach(img=>{img.addEventListener("error",()=>{img.hidden=true;const note=img.parentElement?.querySelector("[data-preview-error]");if(note)note.hidden=false;},{once:true});});}
+async function renderList(preferredId=null){
+  const statusItems=statusFilteredItems(),items=filteredItems(),needle=searchNeedle();
+  $("queueCount").textContent=needle?`${items.length} no ${statusItems.length}`:`${items.length} ${items.length===1?"ieraksts":"ieraksti"}`;
+  $("list").innerHTML=items.length?items.map(x=>{
+    const statusBadge=`<span class="badge ${esc(x.status)}">${esc(statusLabel(x.status))}</span>`;
+    if(x.review_kind==="page_alert"){
+      const p=x.original_payload||{},n=p.hint_count??(p.hints||[]).length;
+      return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong>${statusBadge}<span class="badge">lapas pārbaude</span><span class="muted">Iespējami ${esc(n)} neapstrādāti produkti</span></button>`;
+    }
+    return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong>${statusBadge}<span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></button>`;
+  }).join(""):'<div class="row muted">Šim filtram nekas nav atrasts.</div>';
+  document.querySelectorAll(".row[data-id]").forEach(node=>node.onclick=()=>{if(confirmDiscard())openItem(node.dataset.id);});
+  renderStatusCounts();
+  if(preferredId&&items.some(item=>item.id===preferredId))await openItem(preferredId);
+  else if(selected&&items.some(item=>item.id===selected.id)){document.querySelector(`.row[data-id="${CSS.escape(selected.id)}"]`)?.classList.add("active");updateDetailNav();}
+  else if(preferredId&&!items.length)renderEmptyDetail("Šajā filtrā vairs nav rindu pārbaudei.");
+  else updateDetailNav();
+  syncReviewUrl();
+  return items;
+}
 async function load(preferredId=null){
-  const status=$("status").value;
-  const q=new URLSearchParams({source_chain:"lidl",limit:"500"});
-  if(status&&status!=="open")q.set("status",status);
   try{
-    const r=await fetch("/api/v1/review-items?"+q,{headers:{Accept:"application/json"}});
+    const r=await fetch("/api/v1/review-items?source_chain=lidl&limit=500",{headers:{Accept:"application/json"}});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(detailMessage(d.detail,`HTTP ${r.status}`));
-    const rawItems=d.items||[];
-    const items=status==="open"?rawItems.filter(x=>OPEN_STATUSES.has(x.status)):rawItems;
-    $("queueCount").textContent=`${items.length} ${items.length===1?"ieraksts":"ieraksti"}`;
-    $("list").innerHTML=items.length?items.map(x=>{
-      const statusBadge=`<span class="badge ${esc(x.status)}">${esc(statusLabel(x.status))}</span>`;
-      if(x.review_kind==="page_alert"){
-        const p=x.original_payload||{},n=p.hint_count??(p.hints||[]).length;
-        return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong>${statusBadge}<span class="badge">lapas pārbaude</span><span class="muted">Iespējami ${esc(n)} neapstrādāti produkti</span></button>`;
-      }
-      return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong>${statusBadge}<span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></button>`;
-    }).join(""):'<div class="row muted">Rinda ir tukša.</div>';
-    document.querySelectorAll(".row[data-id]").forEach(n=>n.onclick=()=>openItem(n.dataset.id));
-    if(preferredId&&items.some(item=>item.id===preferredId))await openItem(preferredId);
-    else if(preferredId&&!items.length)renderEmptyDetail("Šajā filtrā vairs nav rindu pārbaudei.");
-    return items;
+    allItems=d.items||[];
+    return await renderList(preferredId);
   }catch(error){
     $("queueCount").textContent="";
+    $("statusCounts").innerHTML="";
     $("list").innerHTML=`<div class="row muted">Neizdevās ielādēt: ${esc(error?.message||String(error))}</div>`;
     showToast("Pārskatīšanas rindu neizdevās ielādēt.",true);
     return [];
@@ -172,14 +192,14 @@ async function openItem(id){
   if(!r.ok){showToast(detailMessage(body.detail,"Ierakstu neizdevās atvērt."),true);return;}
   selected=body;
   document.querySelectorAll(".row").forEach(n=>n.classList.toggle("active",n.dataset.id===id));
-  if(selected.review_kind==="page_alert"){renderPageAlert();return;}
+  if(selected.review_kind==="page_alert"){setDirty(false);renderPageAlert();updateDetailNav();syncReviewUrl(id);return;}
   const e=selected.effective_payload||{},p=selected.provenance||{},open=OPEN_STATUSES.has(selected.status);
   const generatedBand=previewUrl(selected.id,"band");
   const generatedPage=previewUrl(selected.id,"page");
   const hasGeneratedPreview=selected.source_chain==="lidl"&&Boolean(p.source_pdf_sha256||p.pdf_sha256);
   const crop=p.crop_url?`<img class="crop" src="${esc(p.crop_url)}" alt="Bukleta fragments">`:(hasGeneratedPreview?`<div class="preview-block"><div class="preview-head"><strong>Avota fragments</strong><a href="${esc(generatedPage)}" target="_blank" rel="noopener">Atvērt visu lapu</a></div><img class="preview" data-preview src="${esc(generatedBand)}" alt="Bukleta fragments"><div class="preview-note muted" data-preview-error hidden>Avota priekšskatījums nav pieejams. Produktu nepublicē, kamēr avota lapa nav apskatāma.</div></div>`:"");
   $("detail").innerHTML=`
-    <h2>${esc(val(e,"product_name","product_name_raw")||"Piedāvājums")}</h2>
+    <h2>${esc(val(e,"product_name","product_name_raw")||"Piedāvājums")}<span id="dirtyState" class="dirty-state" hidden>Nesaglabāts</span></h2>
     <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>Lapa ${esc(selected.page_number??"—")} · ${esc(selected.parser_version)}<br><span class="badge ${esc(selected.status)}">${esc(statusLabel(selected.status))}</span>${selected.reason_codes.map(x=>`<span class="badge">${esc(x)}</span>`).join("")}${crop}</div>
     <div class="grid">
       ${field("f_name","Produkta nosaukums",val(e,"product_name","product_name_raw"))}
@@ -200,12 +220,12 @@ async function openItem(id){
       <div><label>Kanāls</label><select id="f_channel"><option value="physical_store">physical_store</option><option value="online_only">online_only</option></select></div>
       <div class="full"><label>Piezīme</label><textarea id="f_note" rows="3">${esc(selected.reviewer_note??"")}</textarea></div>
     </div>
-    <div class="actions">
+    <div class="actions sticky-actions">
       ${open?`<button class="primary" id="save">Saglabāt labojumu</button>
       <button id="follow">Jāpārbauda vēl</button>
       <button id="fast_scope_approve" type="button" hidden title="Tikai pilnām scope-only rindām; variable-weight ir bloķēts.">✓ In scope + apstiprināt</button> <button class="primary" id="approve">Apstiprināt un publicēt</button>
       <button class="danger" id="reject">Noraidīt</button>`:`<span class="muted">Ieraksts ir ${esc(statusLabel(selected.status).toLocaleLowerCase("lv-LV"))}.</span>`}
-      <button id="reopen">Atgriezt gaidīšanā</button>
+      <button id="reopen">Atgriezt gaidīšanā</button><span class="shortcut-note">Ctrl+S saglabāt · ↑/↓ pārvietoties · / meklēt</span>
     </div>
     <details><summary>Oriģinālais parsera ieraksts</summary><pre>${esc(JSON.stringify(selected.original_payload,null,2))}</pre></details>
     <details><summary>Audit trail</summary><pre>${esc(JSON.stringify(selected.revisions||[],null,2))}</pre></details>`;
@@ -213,8 +233,9 @@ async function openItem(id){
   $("f_channel").value=val(e,"channel")||"physical_store";
   $("f_pricing_mode").value=val(e,"pricing_mode")||"";
   $("f_requires_app").value=val(e,"requires_app")?"true":"false";
-  document.querySelectorAll("[data-date-target]").forEach(button=>{const id=button.dataset.dateTarget,textInput=$(id),picker=$(id+"_picker");button.onclick=()=>{const iso=parseLvDate(textInput.value);if(iso)picker.value=iso;try{picker.showPicker();}catch(error){picker.focus();picker.click();}};picker.onchange=()=>{if(picker.value)textInput.value=fmtDate(picker.value);};});
+  document.querySelectorAll("[data-date-target]").forEach(button=>{const id=button.dataset.dateTarget,textInput=$(id),picker=$(id+"_picker");button.onclick=()=>{const iso=parseLvDate(textInput.value);if(iso)picker.value=iso;try{picker.showPicker();}catch(error){picker.focus();picker.click();}};picker.onchange=()=>{if(picker.value){textInput.value=fmtDate(picker.value);textInput.dispatchEvent(new Event("input",{bubbles:true}));}};});
   if(!open){const form=$("detail").querySelector(".grid");form?.classList.add("readonly-form");form?.querySelectorAll("input,select,textarea,button").forEach(node=>node.disabled=true);}
+  captureFormState();
   if($("save"))$("save").onclick=()=>save(false);
   if($("follow"))$("follow").onclick=()=>save(true);
   if($("approve"))$("approve").onclick=approve;
@@ -223,6 +244,8 @@ async function openItem(id){
   if($("fast_scope_approve"))$("fast_scope_approve").onclick=approveScopeOnlyFast;
   updateScopeFastReviewButton();
   wirePreviewErrors();
+  updateDetailNav();
+  syncReviewUrl(id);
 }
 function corrections(){
   const g=id=>$(id).value.trim();
@@ -299,6 +322,7 @@ async function approve(){
   notifyDealsRefresh(published);
 }
 async function reject(){
+  if(dirty&&!window.confirm("Noraidot, nesaglabātie labojumi tiks atmesti. Turpināt?"))return;
   await call("/api/v1/review-items/"+selected.id+"/reject",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
@@ -312,9 +336,15 @@ async function reopen(){
     body:JSON.stringify({note:$("f_note").value})
   },{advance:$("status").value!=="open",successMessage:"Ieraksts atgriezts gaidīšanā."});
 }
-$("reload").onclick=()=>load(selected?.id||null);
-$("status").onchange=()=>{renderEmptyDetail();load();};
-load();
+async function changeStatus(value){if(!confirmDiscard()){$("status").value=lastStatus;return;}$("status").value=value;lastStatus=value;renderEmptyDetail();await renderList();}
+async function moveSelection(delta){if(!confirmDiscard())return;const ids=visibleRowIds();if(!ids.length)return;const index=selected?ids.indexOf(selected.id):-1,target=index<0?0:Math.max(0,Math.min(ids.length-1,index+delta));if(target===index)return;await openItem(ids[target]);document.querySelector(`.row[data-id="${CSS.escape(ids[target])}"]`)?.scrollIntoView({block:"nearest"});}
+$("reload").onclick=()=>{if(confirmDiscard())load(selected?.id||null);};
+$("status").onchange=()=>changeStatus($("status").value);
+$("reviewSearch").addEventListener("input",()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>renderList(),160);});
+$("prevItem").onclick=()=>moveSelection(-1);$("nextItem").onclick=()=>moveSelection(1);
+document.addEventListener("keydown",event=>{const tag=event.target?.tagName;if((event.ctrlKey||event.metaKey)&&event.key.toLocaleLowerCase()==="s"){if($("save")&&!busy){event.preventDefault();save(false);}return;}if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;if(event.key==="/"){event.preventDefault();$("reviewSearch").focus();return;}if(event.key==="ArrowDown"){event.preventDefault();moveSelection(1);}if(event.key==="ArrowUp"){event.preventDefault();moveSelection(-1);}});
+window.addEventListener("beforeunload",event=>{if(!dirty)return;event.preventDefault();event.returnValue="";});
+const initialParams=new URLSearchParams(location.search);if(initialParams.has("status"))$("status").value=initialParams.get("status");lastStatus=$("status").value;if(initialParams.has("q"))$("reviewSearch").value=initialParams.get("q");load(initialParams.get("item"));
 
 
 function scopeFastReviewEligible(item){
