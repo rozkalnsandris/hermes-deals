@@ -1,0 +1,18 @@
+[Unit]
+Description=Hermes Deals Netto 5659 store/prospect collector
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+ConditionPathExists=/home/andris/.local/state/hermes-deals/netto-scheduler-armed
+
+[Service]
+Type=oneshot
+User=andris
+WorkingDirectory=/home/andris/hermes-deals
+Environment=HOME=/home/andris
+# Execute inside the running production API container so the collector always
+# uses the exact release image selected by the production deployment.
+ExecStart=/usr/bin/flock -n /home/andris/.local/state/hermes-deals/netto-collector.lock /usr/bin/docker compose exec -T --user 1000:1000 api python -m app.collector_cli collect --source netto --min-offers 20
+TimeoutStartSec=300
+Nice=10
+UMask=0027

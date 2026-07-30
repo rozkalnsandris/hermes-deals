@@ -1,0 +1,18 @@
+[Unit]
+Description=Hermes Deals ALDI Nord collector
+Documentation=https://www.aldi-nord.de/angebote.html
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=andris
+WorkingDirectory=/home/andris/hermes-deals
+Environment=HOME=/home/andris
+# Execute inside the running production API container so the collector always
+# uses the exact release image selected by the production deployment.
+ExecStart=/usr/bin/flock -n /home/andris/.local/state/hermes-deals/aldi-collector.lock /usr/bin/docker compose exec -T --user 1000:1000 api python -m app.collector_cli collect --source aldi_nord --min-offers 220
+TimeoutStartSec=300
+Nice=10
+UMask=0027

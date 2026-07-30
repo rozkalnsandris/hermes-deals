@@ -31,3 +31,26 @@ docker compose \
 
 The last known-good release image archive must be retained across Docker image
 pruning. Keep at least the previous and current release archives.
+
+## Scheduled retailer collectors
+
+The production systemd collector services are stored in `infra/systemd/`.
+Their `ExecStart` commands use `docker compose exec` against the already
+running `api` service. This is intentional: every scheduled collection must
+run the exact immutable release image currently deployed in production, not
+the mutable base-Compose `hermes-deals-api:latest` image.
+
+Install an updated service unit, reload systemd, and verify the resolved
+command before starting a canary:
+
+```sh
+sudo install -m 0644 infra/systemd/hermes-deals-*-collector.service \
+  /etc/systemd/system/
+sudo systemctl daemon-reload
+systemctl show -p ExecStart hermes-deals-netto-collector.service
+```
+
+Keep the existing timer schedules and arming files separate from the service
+command. After changing a collector service, run one controlled retailer
+canary and compare health, snapshot/offer counts, invariants, and the API read
+path before relying on the next timer execution.
