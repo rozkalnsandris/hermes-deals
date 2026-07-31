@@ -35,8 +35,8 @@ from app.lidl_review_preview import ReviewPreviewUnavailable, resolve_review_pre
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.22",
-    description="Private family shopping intelligence platform — Phase 5G B15I1 Lidl Review scope repair release.",
+    version="0.3.23",
+    description="Private family shopping intelligence platform — Phase 5G B15I3 Lidl import-time target scope gate release.",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -49,8 +49,8 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
     return {
         "status": "ok",
         "service": "hermes-deals-api",
-        "phase": "5G-B15I1",
-        "version": "0.3.22",
+        "phase": "5G-B15I3",
+        "version": "0.3.23",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -19,7 +19,7 @@ _EDIBLE_HERB_RE = re.compile(
 )
 _INCLUDE_HOUSEHOLD_RE = re.compile(
     r"\b(?:waschmittel|weichspüler|spülmittel|reiniger|toilettenpapier|windel|"
-    r"pampers|taschentücher|küchenrolle|shampoo|duschgel|katzenstreu)\b",
+    r"pampers|taschentücher|küchenrolle|wc[-\s]?stein|somat|katzenstreu)\b",
     re.I,
 )
 _FOOD_DRINK_RE = re.compile(
@@ -36,7 +36,7 @@ _COMPOUND_TARGET_RE = re.compile(
     r"schinken|salami|fleisch|fisch|lachs|nudel|pasta|pizza|kuchen|torte|"
     r"schokolade|riegel|müsli|kaffee|tee|saft|cola|bier|wein|wasser|"
     r"waschmittel|weichspüler|spülmittel|reiniger|toilettenpapier|"
-    r"taschentücher|küchenrolle|shampoo|duschgel|windel|katzenstreu)",
+    r"taschentücher|küchenrolle|wcstein|windel|katzenstreu)",
     re.I,
 )
 _HARD_NON_TARGET_RE = re.compile(
@@ -49,25 +49,37 @@ _HARD_NON_TARGET_RE = re.compile(
     r"paddel|pool|reise|hotel|flug|fotobuch|fotoservice|karriere|job|"
     r"fahrrad|e[-\s]?bike|rutsche|wasserbahn|energiespartopf|tellerset|"
     r"servierschüssel|kaffeevollautomat|standmixer|fleckenreiniger|entsafter|"
-    r"elektrischer mopp|saug[-\s]?und wischroboter|rucksack|schulranzen|"
-    r"schultasche)\b",
+    r"elektrischer mopp|saug[-\s]?und wischroboter|panini[-\s]?maker|"
+    r"einkaufstrolley|trolley|mini[-\s]?fahrzeug|tri[-\s]?scooter|scooter|"
+    r"lernspielzeug|spiel[-\s]?set|sammelfigur|spielzelt|kuscheltier|"
+    r"flugdrache|rätselbuch|malbuch|badewannenmatte|babyjogginghose|jogginghose|rollregal|"
+    r"lichterkette|rucksack|schulranzen|schultasche|sneakersocken|socken)\b",
     re.I,
 )
+_PERSONAL_CARE_RE = re.compile(
+    r"\b(?:zahnpasta|zahnbürste|zahnpflege|mundspül\w*|mundpflege|shampoo|"
+    r"duschgel|creme\s+dusche|dusche|deodorant|deo|rasier\w*|haarpflege|"
+    r"hautpflege|körperpflege|seife)\b",
+    re.I,
+)
+
+
 _ORNAMENTAL_PLANT_RE = re.compile(
     r"\b(?:blühpflanze|gartenhortensie|hortensie|lavendel|grünpflanze|"
     r"orchidee|phalaenopsis|zierpflanze|blumenstrauß|blumenstrauss)\b",
     re.I,
 )
 _STRUCTURED_TARGET_CATEGORY_RE = re.compile(
-    r"(?:lebensmittel|getränk|drogerie|körperpflege|waschen|reinigen|"
-    r"haushaltsreiniger|tierbedarf|tierfutter|lebensmittelvorrat)",
+    r"(?:lebensmittel|getränk|waschen|reinigen|haushaltsreiniger|"
+    r"tierbedarf|tierfutter|lebensmittelvorrat)",
     re.I,
 )
 _STRUCTURED_NON_TARGET_CATEGORY_RE = re.compile(
     r"(?:geschirr|besteck|porzellan|küchengerät|elektro|werkzeug|bekleidung|"
     r"mode|textil|möbel|sportgerät|freizeitgerät|reise|foto|spielzeug|spielware|"
     r"fahrrad|haushaltsgerät|kinderausstattung|schule|schulranzen|"
-    r"schultaschen|rucksack)",
+    r"schultaschen|rucksack|körperpflege|mundpflege|zahnpflege|"
+    r"haarpflege|duschpflege)",
     re.I,
 )
 _TITLE_TARGET_RE = re.compile(
@@ -82,13 +94,14 @@ _TITLE_TARGET_RE = re.compile(
     r"mezzo|energy|refresh|wasser|volvic|saft|drink|bier|pils|wein|sekt|"
     r"whisky|whiskey|wodka|vodka|ouzo|bourbon|liqueur|likör|waschmittel|"
     r"weichspüler|hygienespüler|spülmittel|reiniger|allzwecktücher|"
-    r"toilettenpapier|taschentücher|küchenrolle|shampoo|duschgel|mundspül|"
-    r"windel|pampers|katzenstreu|tierfutter|purina)\b",
+    r"toilettenpapier|taschentücher|küchenrolle|wc[-\s]?stein|windel|"
+    r"pampers|katzenstreu|tierfutter|purina)\b",
     re.I,
 )
 _PROMO_NOISE_RE = re.compile(
     r"^(?:pro monat|gesamtpreis|gutscheincode|mit lidl plus|lidl plus|"
-    r"nur online|auch online|uvp|je stück|je packung)$",
+    r"nur online|auch online|uvp|je stück|je packung|punkte oder|"
+    r"\d+ monate gereift)$",
     re.I,
 )
 _ONLINE_ONLY_RE = re.compile(r"\bnur\s+online\b", re.I)
@@ -144,7 +157,11 @@ def classify_target_scope(
 
     if _EDIBLE_HERB_RE.search(title_text):
         return "in_scope"
-    if _HARD_NON_TARGET_RE.search(title_text) or _ORNAMENTAL_PLANT_RE.search(title_text):
+    if (
+        _PERSONAL_CARE_RE.search(title_text)
+        or _HARD_NON_TARGET_RE.search(title_text)
+        or _ORNAMENTAL_PLANT_RE.search(title_text)
+    ):
         return "excluded"
     if category_text:
         if _STRUCTURED_NON_TARGET_CATEGORY_RE.search(category_text):

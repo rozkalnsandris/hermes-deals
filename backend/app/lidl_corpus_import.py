@@ -36,6 +36,10 @@ from app.lidl_review_seed_reconciliation import (
     canonical_row_material as review_canonical_row_material,
     load_review_seed_plan,
 )
+from app.lidl_weekly_completeness_contract import (
+    classify_target_scope,
+    promo_or_non_product_title,
+)
 
 SOURCE_STRATEGY = "lidl_public_flyer_json_canonical"
 CORPUS_IMPORT_VERSION = "lidl-corpus-import-v1"
@@ -43,6 +47,9 @@ RECONCILED_CORPUS_IMPORT_VERSION = "lidl-corpus-import-v2-reconciled"
 EXPECTED_PARSER_VERSION = "lidl-pdf-v08c-r61-shadow-v631"
 FAMILY_STORE_EXTERNAL_ID = "DE06664"
 FAMILY_STORE_NAME = "Lidl Husener Straße 44, Dortmund"
+IMPORT_SCOPE_IN_SCOPE = "in_scope"
+IMPORT_SCOPE_REVIEW = "review"
+IMPORT_SCOPE_EXCLUDED = "excluded"
 
 
 @dataclass(frozen=True)
@@ -254,23 +261,99 @@ def _page_visual(context: FlyerContext, page_number: int) -> str | None:
     return None
 
 
-def safe_rows(scan_dir: Path) -> list[dict[str, str]]:
+def import_scope_decision(row: dict[str, str]) -> str:
+    """Return the final import-time target-scope decision for one corpus row.
+
+    Parser scope remains useful evidence, but it is not sufficient for an
+    automatic write. The shared title/category contract can veto personal
+    care, durable non-food and other excluded rows. Promo fragments and
+    incomplete non-product titles are routed to Review instead of production.
+    """
+    parser_scope = str(row.get("scope") or "").strip()
+    channel = str(row.get("channel") or "").strip()
+    title = _none(row.get("product_name"))
+
+    if channel != "physical_store":
+        return IMPORT_SCOPE_EXCLUDED
+    if parser_scope == IMPORT_SCOPE_EXCLUDED:
+        return IMPORT_SCOPE_EXCLUDED
+    if parser_scope == IMPORT_SCOPE_REVIEW:
+        return IMPORT_SCOPE_REVIEW
+    if parser_scope != IMPORT_SCOPE_IN_SCOPE:
+        return IMPORT_SCOPE_REVIEW
+    if title is None or promo_or_non_product_title(title):
+        return IMPORT_SCOPE_REVIEW
+
+    shared = classify_target_scope(
+        title=title,
+        structured_category_text=row.get("structured_category_text") or "",
+    )
+    if shared == IMPORT_SCOPE_EXCLUDED:
+        return IMPORT_SCOPE_EXCLUDED
+    if shared == IMPORT_SCOPE_IN_SCOPE:
+        return IMPORT_SCOPE_IN_SCOPE
+
+    # The parser may possess page/geometry/category evidence that is not
+    # serialized as plain title text. A conservative shared classifier review
+    # result therefore does not erase an existing parser in_scope decision;
+    # only explicit exclusions and non-product titles veto automatic import.
+    return IMPORT_SCOPE_IN_SCOPE
+
+
+def _accepted_rows(scan_dir: Path) -> list[dict[str, str]]:
     accepted = scan_dir / "accepted-physical.tsv"
     source = accepted if accepted.exists() else scan_dir / "target-rows.tsv"
-    rows = _read_tsv(source)
-    result = [
+    return _read_tsv(source)
+
+
+def safe_rows(scan_dir: Path) -> list[dict[str, str]]:
+    return [
         row
-        for row in rows
-        if row.get("scope") == "in_scope"
-        and row.get("channel") == "physical_store"
+        for row in _accepted_rows(scan_dir)
+        if import_scope_decision(row) == IMPORT_SCOPE_IN_SCOPE
         and _truth(row.get("production_ready_shadow"))
         and row.get("price_basis") != "variable_weight_example"
     ]
+
+
+def accepted_review_rows(scan_dir: Path) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for ordinal, row in enumerate(_accepted_rows(scan_dir), start=1):
+        if import_scope_decision(row) != IMPORT_SCOPE_REVIEW:
+            continue
+        review_row = dict(row)
+        review_row["import_source_row_ordinal"] = str(ordinal)
+        result.append(review_row)
     return result
 
 
+def accepted_excluded_rows(scan_dir: Path) -> list[dict[str, str]]:
+    return [
+        row
+        for row in _accepted_rows(scan_dir)
+        if import_scope_decision(row) == IMPORT_SCOPE_EXCLUDED
+    ]
+
+
+def _review_dedupe_material(row: dict[str, str]) -> str:
+    return _canonical_row_material(
+        {
+            key: value
+            for key, value in row.items()
+            if key != "import_source_row_ordinal"
+        }
+    )
+
+
 def review_rows(scan_dir: Path) -> list[dict[str, str]]:
-    return _read_tsv(scan_dir / "review-required.tsv")
+    rows = _read_tsv(scan_dir / "review-required.tsv")
+    seen = {_review_dedupe_material(row) for row in rows}
+    for row in accepted_review_rows(scan_dir):
+        material = _review_dedupe_material(row)
+        if material not in seen:
+            rows.append(row)
+            seen.add(material)
+    return rows
 
 
 def validate_scan_contract(
@@ -291,6 +374,8 @@ def validate_scan_contract(
     scan_dir = flyer_dir / "scans" / scan_name
     safe = safe_rows(scan_dir)
     review = review_rows(scan_dir)
+    accepted_review = accepted_review_rows(scan_dir)
+    excluded = accepted_excluded_rows(scan_dir)
 
     if len(safe) != expected_safe_count:
         raise ValueError(
@@ -327,6 +412,8 @@ def validate_scan_contract(
         "valid_until": context.valid_until.isoformat(),
         "safe_count": len(safe),
         "review_count": len(review),
+        "accepted_review_count": len(accepted_review),
+        "excluded_count": len(excluded),
     }
 
 
@@ -485,8 +572,12 @@ def build_offer(
     identity_plan_sha256: str | None = None,
     semantic_digest_sha256: str | None = None,
 ) -> OfferCandidate:
-    if row.get("scope") != "in_scope":
-        raise ValueError("Only in_scope corpus rows may become automatic offers")
+    scope_decision = import_scope_decision(row)
+    if scope_decision != IMPORT_SCOPE_IN_SCOPE:
+        raise ValueError(
+            "Corpus row failed import-time target scope gate: "
+            f"decision={scope_decision}"
+        )
     if row.get("channel") != "physical_store":
         raise ValueError("Only physical_store corpus rows may become automatic offers")
     if not _truth(row.get("production_ready_shadow")):
@@ -533,8 +624,10 @@ def build_offer(
         "page_image_url": image_url,
         "parser_version": context.parser_version,
         "parser_sha256": context.parser_sha256,
-        "scope": row.get("scope"),
+        "scope": IMPORT_SCOPE_IN_SCOPE,
         "scope_source": row.get("scope_source"),
+        "parser_scope": row.get("scope"),
+        "import_scope_decision": scope_decision,
         "channel": row.get("channel"),
         "channel_source": row.get("channel_source"),
         "price_basis": row.get("price_basis"),
@@ -689,8 +782,11 @@ def build_reconciled_safe_offers(
 
 def review_reason_codes(row: dict[str, str]) -> list[str]:
     reasons: list[str] = []
+    decision = import_scope_decision(row)
     if row.get("scope") == "review":
         reasons.append("scope_requires_review")
+    if row.get("scope") == "in_scope" and decision == IMPORT_SCOPE_REVIEW:
+        reasons.append("import_scope_requires_review")
     if row.get("price_basis") == "variable_weight_example":
         reasons.append("variable_weight_requires_review")
     for warning in _json_list(row.get("warnings")):
@@ -721,7 +817,13 @@ def _review_original_payload(
         "app_price_eur": _none(row.get("app_price_eur")),
         "valid_from": _none(row.get("valid_from")),
         "valid_until": _none(row.get("valid_until")),
-        "scope": row.get("scope"),
+        "scope": (
+            IMPORT_SCOPE_REVIEW
+            if import_scope_decision(row) == IMPORT_SCOPE_REVIEW
+            else row.get("scope")
+        ),
+        "parser_scope": row.get("scope"),
+        "import_scope_decision": import_scope_decision(row),
         "channel": row.get("channel"),
         "source_url": context.viewer_url,
         "source_image_url": image_url,
@@ -784,6 +886,11 @@ def seed_review_rows(
             "crop_kind": "full_page_fallback",
             "parser_version": context.parser_version,
             "parser_sha256": context.parser_sha256,
+            "parser_scope": row.get("scope"),
+            "import_scope_decision": import_scope_decision(row),
+            "import_source_row_ordinal": _none(
+                row.get("import_source_row_ordinal")
+            ),
         }
         item = seed_review_item(
             db,
