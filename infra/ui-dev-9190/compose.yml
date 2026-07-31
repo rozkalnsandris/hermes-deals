@@ -1,0 +1,122 @@
+services:
+  ui_dev_api:
+    image: "${HERMES_UI_DEV_API_IMAGE:?set HERMES_UI_DEV_API_IMAGE}"
+    pull_policy: never
+    restart: unless-stopped
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+    env_file:
+      - "${HERMES_UI_DEV_RUNTIME_ENV:?set HERMES_UI_DEV_RUNTIME_ENV}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges=true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=128m
+    volumes:
+      - type: bind
+        source: "${HERMES_UI_DEV_WORKTREE:?set HERMES_UI_DEV_WORKTREE}/backend/app/ui"
+        target: /app/app/ui
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HERMES_CONFIG_DIR:?set HERMES_CONFIG_DIR}"
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HERMES_RAW_DIR:?set HERMES_RAW_DIR}"
+        target: /data/raw
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          "http://127.0.0.1:8000/api/health", timeout=3).read()
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    labels:
+      com.rozkalns.hermes-deals.ui-dev: "9190"
+      com.rozkalns.hermes-deals.ui-dev.role: api
+      com.rozkalns.hermes-deals.ui-dev.branch: "${HERMES_UI_DEV_BRANCH}"
+      com.rozkalns.hermes-deals.ui-dev.head: "${HERMES_UI_DEV_HEAD}"
+    networks:
+      production_internal:
+        aliases:
+          - hermes-deals-ui-dev-api-9190
+
+  ui_dev_web:
+    image: "${HERMES_UI_DEV_WEB_IMAGE:?set HERMES_UI_DEV_WEB_IMAGE}"
+    pull_policy: never
+    user: "nginx"
+    restart: unless-stopped
+    entrypoint:
+      - nginx
+      - -c
+      - /etc/nginx/nginx.conf
+      - -g
+      - daemon off;
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges=true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    volumes:
+      - type: bind
+        source: "${HERMES_UI_DEV_NGINX_CONFIG:?set HERMES_UI_DEV_NGINX_CONFIG}"
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - name: ui-development
+        target: 8080
+        host_ip: "${HERMES_UI_DEV_BIND_IP:?set HERMES_UI_DEV_BIND_IP}"
+        published: "${HERMES_UI_DEV_PORT:-9190}"
+        protocol: tcp
+        app_protocol: http
+    depends_on:
+      ui_dev_api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -qO- http://127.0.0.1:8080/healthz
+          | grep -qx ok
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    labels:
+      com.rozkalns.hermes-deals.ui-dev: "9190"
+      com.rozkalns.hermes-deals.ui-dev.role: web
+      com.rozkalns.hermes-deals.ui-dev.branch: "${HERMES_UI_DEV_BRANCH}"
+      com.rozkalns.hermes-deals.ui-dev.head: "${HERMES_UI_DEV_HEAD}"
+    networks:
+      production_internal: {}
+
+networks:
+  production_internal:
+    external: true
+    name: "${HERMES_PRODUCTION_NETWORK:?set HERMES_PRODUCTION_NETWORK}"
