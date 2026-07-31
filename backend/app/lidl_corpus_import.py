@@ -30,6 +30,12 @@ from app.lidl_corpus_reconciliation import (
     load_reconciliation_plan,
     validate_import_approval,
 )
+from app.lidl_review_seed_reconciliation import (
+    REVIEW_SEED_DECISION,
+    REVIEW_SEED_WORKFLOW_VERSION,
+    canonical_row_material as review_canonical_row_material,
+    load_review_seed_plan,
+)
 
 SOURCE_STRATEGY = "lidl_public_flyer_json_canonical"
 CORPUS_IMPORT_VERSION = "lidl-corpus-import-v1"
@@ -800,6 +806,228 @@ def seed_review_rows(
     return items
 
 
+def seed_reconciled_review_rows(
+    db: Session,
+    *,
+    flyer_dir: Path,
+    scan_name: str,
+    snapshot: SourceSnapshot,
+    expected_raw_sha256: str,
+    expected_pdf_sha256: str,
+    review_plan_path: Path,
+    expected_review_plan_sha256: str,
+    expected_count: int,
+) -> dict[str, Any]:
+    context = load_context(
+        flyer_dir=flyer_dir,
+        scan_name=scan_name,
+        expected_raw_sha256=expected_raw_sha256,
+        expected_pdf_sha256=expected_pdf_sha256,
+    )
+    if snapshot.source_chain != "lidl" or snapshot.sha256 != context.raw_sha256:
+        raise ValueError("Filtered review seed snapshot does not match flyer source")
+
+    rows = review_rows(flyer_dir / "scans" / scan_name)
+    plan = load_review_seed_plan(
+        path=review_plan_path,
+        expected_sha256=expected_review_plan_sha256,
+        flyer_key=context.flyer_key,
+        scan_name=scan_name,
+        raw_sha256=context.raw_sha256,
+        pdf_sha256=context.pdf_sha256,
+        snapshot_id=str(snapshot.id),
+        review_rows=rows,
+    )
+    if len(plan.entries) != expected_count:
+        raise ValueError(
+            f"Filtered review seed count mismatch: "
+            f"expected {expected_count}, got {len(plan.entries)}"
+        )
+
+    plan_ordinals = {
+        int(entry["review_row_ordinal"])
+        for entry in plan.entries
+    }
+    plan_keys = {
+        str(entry["source_row_key"])
+        for entry in plan.entries
+    }
+    existing_plan_items = list(
+        db.scalars(
+            select(OfferReviewItem)
+            .where(
+                OfferReviewItem.source_chain == "lidl",
+                OfferReviewItem.source_flyer_key == context.flyer_key,
+                OfferReviewItem.source_row_key.in_(plan_keys),
+            )
+            .order_by(OfferReviewItem.source_row_key.asc())
+        ).all()
+    )
+    if len(existing_plan_items) not in {0, expected_count}:
+        raise ValueError(
+            "Filtered review seed is in a partial existing state: "
+            f"{len(existing_plan_items)} of {expected_count}"
+        )
+    if existing_plan_items and {
+        item.source_row_key for item in existing_plan_items
+    } != plan_keys:
+        raise ValueError("Filtered review seed existing identity set mismatch")
+
+    eligible_rows = [
+        (ordinal, row)
+        for ordinal, row in enumerate(rows, start=1)
+        if row.get("scope") in {"review", "in_scope"}
+    ]
+    omitted_rows = [
+        (ordinal, row)
+        for ordinal, row in eligible_rows
+        if ordinal not in plan_ordinals
+    ]
+    if len(omitted_rows) != 47:
+        raise ValueError("Filtered review seed suppressed-row count mismatch")
+
+    existing_items = list(
+        db.scalars(
+            select(OfferReviewItem)
+            .where(
+                OfferReviewItem.source_chain == "lidl",
+                OfferReviewItem.source_flyer_key == context.flyer_key,
+            )
+            .order_by(OfferReviewItem.id.asc())
+        ).all()
+    )
+    existing_by_material: dict[str, list[OfferReviewItem]] = {}
+    for item in existing_items:
+        original = item.original_payload or {}
+        corpus_row = original.get("corpus_row")
+        if not isinstance(corpus_row, dict):
+            continue
+        material = review_canonical_row_material(corpus_row)
+        existing_by_material.setdefault(material, []).append(item)
+
+    suppressed_ids: list[str] = []
+    published_ids: list[UUID] = []
+    for _, row in omitted_rows:
+        material = review_canonical_row_material(row)
+        matches = existing_by_material.get(material, [])
+        if len(matches) != 1:
+            raise ValueError(
+                "Filtered review seed suppressed row does not have "
+                "one exact existing Review match"
+            )
+        item = matches[0]
+        if item.status != "approved":
+            raise ValueError("Filtered review seed suppressed row is not approved")
+        if item.published_offer_candidate_id is None:
+            raise ValueError(
+                "Filtered review seed suppressed row lacks published offer"
+            )
+        published = db.get(
+            OfferCandidateRecord,
+            item.published_offer_candidate_id,
+        )
+        if published is None:
+            raise ValueError(
+                "Filtered review seed suppressed publication is missing"
+            )
+        suppressed_ids.append(str(item.id))
+        published_ids.append(item.published_offer_candidate_id)
+
+    if len(set(suppressed_ids)) != 47:
+        raise ValueError("Filtered review seed suppressed Review identities drift")
+    if len(set(published_ids)) != 47:
+        raise ValueError("Filtered review seed suppressed publication identities drift")
+
+    items: list[OfferReviewItem] = []
+    for entry in plan.entries:
+        ordinal = int(entry["review_row_ordinal"])
+        row = rows[ordinal - 1]
+        page = int(entry["page"])
+        image_url = _page_visual(context, page)
+        key = str(entry["source_row_key"])
+        provenance = {
+            "corpus_import_version": CORPUS_IMPORT_VERSION,
+            "review_seed_workflow_version": REVIEW_SEED_WORKFLOW_VERSION,
+            "review_seed_decision": REVIEW_SEED_DECISION,
+            "review_seed_plan_sha256": plan.sha256,
+            "flyer_key": context.flyer_key,
+            "scan": scan_name,
+            "source_row_key": key,
+            "source_row_ordinal": ordinal,
+            "row_digest_sha256": entry["row_digest_sha256"],
+            "page": page,
+            "source_snapshot_id": str(snapshot.id),
+            "source_snapshot_sha256": context.raw_sha256,
+            "source_pdf_sha256": context.pdf_sha256,
+            "official_flyer_id": context.official_flyer_id,
+            "region": context.region,
+            "source_url": context.viewer_url,
+            "document_url": context.document_url,
+            "page_image_url": image_url,
+            "crop_url": image_url,
+            "crop_kind": "full_page_fallback",
+            "parser_version": context.parser_version,
+            "parser_sha256": context.parser_sha256,
+        }
+        item = seed_review_item(
+            db,
+            source_chain="lidl",
+            source_flyer_key=context.flyer_key,
+            source_row_key=key,
+            parser_version=context.parser_version,
+            original_payload=_review_original_payload(
+                row=row,
+                context=context,
+                page=page,
+            ),
+            provenance_json=provenance,
+            reason_codes=list(entry["reason_codes"]),
+            source_snapshot_id=snapshot.id,
+            page_number=page,
+        )
+        items.append(item)
+
+    final_plan_items = list(
+        db.scalars(
+            select(OfferReviewItem)
+            .where(
+                OfferReviewItem.source_chain == "lidl",
+                OfferReviewItem.source_flyer_key == context.flyer_key,
+                OfferReviewItem.source_row_key.in_(plan_keys),
+            )
+            .order_by(OfferReviewItem.source_row_key.asc())
+        ).all()
+    )
+    if len(final_plan_items) != expected_count:
+        raise ValueError("Filtered review seed final identity count mismatch")
+    for item in final_plan_items:
+        if item.status != "pending":
+            raise ValueError("Filtered review seed created non-pending item")
+        if item.published_offer_candidate_id is not None:
+            raise ValueError("Filtered review seed unexpectedly published an offer")
+        if item.provenance_json.get("review_seed_plan_sha256") != plan.sha256:
+            raise ValueError("Filtered review seed provenance plan SHA mismatch")
+
+    created = expected_count if not existing_plan_items else 0
+    return {
+        "result": "RECONCILED_REVIEW_SEED_COMPLETE",
+        "review_seed_plan_sha256": plan.sha256,
+        "seeded_or_reused": expected_count,
+        "created": created,
+        "reused": expected_count - created,
+        "suppressed_existing_approved_rows": 47,
+        "scope_excluded_rows": 44,
+        "review_seed": True,
+        "offer_candidate_write": False,
+        "auto_approve": False,
+        "auto_publish": False,
+        "delete_existing_rows": False,
+        "update_existing_rows": False,
+        "systemd_change": False,
+        "timer_install": False,
+    }
+
+
 def _rescue_original_payload(
     *,
     record: dict[str, Any],
@@ -1141,6 +1369,26 @@ def _command_seed_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_seed_reconciled_review(args: argparse.Namespace) -> int:
+    with _session() as db:
+        snapshot = db.get(SourceSnapshot, UUID(args.snapshot_id))
+        if snapshot is None:
+            raise ValueError("SourceSnapshot not found")
+        result = seed_reconciled_review_rows(
+            db,
+            flyer_dir=Path(args.flyer_dir),
+            scan_name=args.scan,
+            snapshot=snapshot,
+            expected_raw_sha256=args.raw_sha,
+            expected_pdf_sha256=args.pdf_sha,
+            review_plan_path=Path(args.review_plan),
+            expected_review_plan_sha256=args.review_plan_sha,
+            expected_count=args.review_count,
+        )
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def _command_validate_rescue(args: argparse.Namespace) -> int:
     context = load_context(
         flyer_dir=Path(args.flyer_dir),
@@ -1284,6 +1532,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--snapshot-id", required=True)
     p.add_argument("--review-count", required=True, type=int)
     p.set_defaults(func=_command_seed_review)
+
+    p = sub.add_parser("seed-reconciled-review")
+    common(p)
+    p.add_argument("--snapshot-id", required=True)
+    p.add_argument("--review-count", required=True, type=int)
+    p.add_argument("--review-plan", required=True)
+    p.add_argument("--review-plan-sha", required=True)
+    p.set_defaults(func=_command_seed_reconciled_review)
 
     p = sub.add_parser("validate-rescue")
     common(p)
