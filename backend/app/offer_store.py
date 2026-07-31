@@ -108,7 +108,12 @@ def _validate_exact_snapshot_rows(
             )
 
 
-def save_offer_candidates(db: Session, offers: list[OfferCandidate]) -> int:
+def save_offer_candidates(
+    db: Session,
+    offers: list[OfferCandidate],
+    *,
+    commit: bool = True,
+) -> int:
     if not offers:
         return 0
 
@@ -162,7 +167,10 @@ def save_offer_candidates(db: Session, offers: list[OfferCandidate]) -> int:
         )
         _validate_exact_snapshot_rows(persisted, expected_by_id)
 
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         return rows_written
     except Exception:
         db.rollback()

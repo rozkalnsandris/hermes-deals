@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.lidl_corpus_import import (
     EXPECTED_PARSER_VERSION,
     build_offer,
+    import_reconciled_safe,
     load_context,
     persist_safe_offers,
     register_source_snapshot,
@@ -20,6 +21,10 @@ from app.lidl_corpus_import import (
     seed_review_rows,
     source_offer_id,
     validate_scan_contract,
+)
+from app.lidl_corpus_reconciliation import (
+    semantic_digest,
+    semantic_material_from_row,
 )
 from app.models import Base, OfferCandidateRecord, OfferReviewItem, OfferReviewRevision
 
@@ -179,6 +184,123 @@ class LidlCorpusImportTest(unittest.TestCase):
             expected_pdf_sha256=self.pdf_sha,
         )
 
+    def _reconciliation_artifacts(self, rows: list[dict[str, str]]):
+        entries = []
+        for ordinal, row in enumerate(rows, start=1):
+            material = semantic_material_from_row(row)
+            digest = semantic_digest(material)
+            if ordinal <= 134:
+                source_id = (
+                    f"lidl:corpus:{self.flyer.name}:scan-0003:"
+                    f"r{ordinal:03d}:{digest[:12]}"
+                )
+                origin = "reused_exact_previous_corpus_identity"
+                previous_offer_id = f"00000000-0000-0000-0000-{ordinal:012d}"
+                previous_snapshot_id = "7fc04436-ad76-58ab-ab73-5bc7f6de7bbf"
+            else:
+                source_id = (
+                    f"lidl:flyer:{self.flyer.name}:semantic-v2:{digest[:24]}"
+                )
+                origin = "new_semantic_v2_identity"
+                previous_offer_id = None
+                previous_snapshot_id = None
+            entries.append(
+                {
+                    "ordinal": ordinal,
+                    "source_offer_id": source_id,
+                    "identity_origin": origin,
+                    "previous_offer_candidate_id": previous_offer_id,
+                    "previous_snapshot_id": previous_snapshot_id,
+                    "semantic_digest_sha256": digest,
+                    "semantic_material": material,
+                }
+            )
+        plan = {
+            "schema_version": 1,
+            "workflow_version": "lidl-corpus-source-id-reconciliation-v1",
+            "decision": "reuse_exact_previous_corpus_ids_and_allocate_semantic_v2_for_new_rows",
+            "flyer_key": self.flyer.name,
+            "scan": self.scan.name,
+            "source": {"raw_sha256": self.raw_sha, "pdf_sha256": self.pdf_sha},
+            "parser_version": EXPECTED_PARSER_VERSION,
+            "parser_sha256": "a" * 64,
+            "previous_corpus_snapshot": {
+                "snapshot_id": "7fc04436-ad76-58ab-ab73-5bc7f6de7bbf",
+                "raw_sha256": "a54d233f9ea5a44bf80655572d0c5d76797cb7fbf07842eeb7aabdacce9218d0",
+                "rows": 134,
+            },
+            "protected_manual_publications": {
+                "database_rows": 58,
+                "distinct_source_offer_ids": 54,
+                "revision_rows_collapsed_by_source_offer_id": 4,
+                "source_offer_ids": [
+                    f"manual-review-{index:032x}" for index in range(54)
+                ],
+            },
+            "counts": {
+                "planned_safe_rows": 204,
+                "reused_exact_previous_corpus_ids": 134,
+                "new_semantic_v2_ids": 70,
+                "identity_collisions": 0,
+                "manual_identity_collisions": 0,
+            },
+            "permissions": {
+                "db_write": False,
+                "review_seed": False,
+                "auto_approve": False,
+                "auto_publish": False,
+                "systemd_change": False,
+                "timer_install": False,
+            },
+            "entries": entries,
+        }
+        plan_path = self.root / "identity-plan.json"
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        plan_sha = _sha(plan_path)
+        approval = {
+            "schema_version": 1,
+            "workflow_version": "lidl-controlled-safe-import-approval-v2-read-dedup",
+            "decision": "approve_reconciled_safe_import",
+            "flyer_key": self.flyer.name,
+            "scan": self.scan.name,
+            "source": {"raw_sha256": self.raw_sha, "pdf_sha256": self.pdf_sha},
+            "identity_plan_sha256": plan_sha,
+            "counts": {
+                "new_source_snapshots": 1,
+                "safe_offer_candidates": 204,
+                "reused_previous_source_offer_ids": 134,
+                "new_semantic_v2_source_offer_ids": 70,
+                "protected_manual_database_rows": 58,
+                "protected_manual_distinct_source_offer_ids": 54,
+                "database_target_distinct_source_offer_ids": 258,
+
+                "expected_visible_target_flyer_rows": 257,
+
+                "completeness_rescue_precedence_suppressions": 1,
+            },
+            "permissions": {
+                "db_write": True,
+                "source_snapshot_write": True,
+                "offer_candidate_write": True,
+                "delete_existing_rows": False,
+                "update_existing_rows": False,
+                "review_seed": False,
+                "auto_approve": False,
+                "auto_publish": False,
+                "systemd_change": False,
+                "timer_install": False,
+            },
+        }
+        approval_path = self.root / "import-approval.json"
+        approval_path.write_text(
+            json.dumps(approval, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return plan_path, plan_sha, approval_path, _sha(approval_path)
+
     def test_validate_scan_exact_counts_and_parser_contract(self) -> None:
         report = validate_scan_contract(
             flyer_dir=self.flyer,
@@ -335,6 +457,75 @@ class LidlCorpusImportTest(unittest.TestCase):
                     .where(OfferCandidateRecord.snapshot_id == snapshot.id)
                 ),
                 1,
+            )
+
+    def test_accepted_physical_file_is_preferred_for_safe_rows(self) -> None:
+        self._write_tsv(self.scan / "accepted-physical.tsv", [self.safe])
+        self._write_tsv(self.scan / "target-rows.tsv", [self.review])
+        report = validate_scan_contract(
+            flyer_dir=self.flyer,
+            scan_name=self.scan.name,
+            expected_safe_count=1,
+            expected_review_count=1,
+            expected_raw_sha256=self.raw_sha,
+            expected_pdf_sha256=self.pdf_sha,
+        )
+        self.assertEqual(report["safe_count"], 1)
+
+    def test_reconciled_safe_import_is_atomic_and_idempotent(self) -> None:
+        rows = []
+        for ordinal in range(1, 205):
+            row = dict(self.safe)
+            row.update(
+                {
+                    "product_name": f"TEST Product {ordinal}",
+                    "price_eur": f"{1 + ordinal / 100:.2f}",
+                    "app_price_eur": "",
+                    "regular_price_eur": "",
+                }
+            )
+            rows.append(row)
+        self._write_tsv(self.scan / "accepted-physical.tsv", rows)
+        plan_path, plan_sha, approval_path, approval_sha = (
+            self._reconciliation_artifacts(rows)
+        )
+        with Session(self.engine) as db:
+            first = import_reconciled_safe(
+                db,
+                flyer_dir=self.flyer,
+                scan_name=self.scan.name,
+                raw_root=self.root / "raw",
+                db_raw_prefix=str(self.root / "raw"),
+                expected_raw_sha256=self.raw_sha,
+                expected_pdf_sha256=self.pdf_sha,
+                expected_count=204,
+                identity_plan_path=plan_path,
+                expected_identity_plan_sha256=plan_sha,
+                approval_path=approval_path,
+                expected_approval_sha256=approval_sha,
+            )
+            replay = import_reconciled_safe(
+                db,
+                flyer_dir=self.flyer,
+                scan_name=self.scan.name,
+                raw_root=self.root / "raw",
+                db_raw_prefix=str(self.root / "raw"),
+                expected_raw_sha256=self.raw_sha,
+                expected_pdf_sha256=self.pdf_sha,
+                expected_count=204,
+                identity_plan_path=plan_path,
+                expected_identity_plan_sha256=plan_sha,
+                approval_path=approval_path,
+                expected_approval_sha256=approval_sha,
+            )
+            self.assertTrue(first["snapshot_created"])
+            self.assertEqual(first["written"], 204)
+            self.assertFalse(replay["snapshot_created"])
+            self.assertEqual(replay["written"], 0)
+            self.assertEqual(replay["snapshot_persisted"], 204)
+            self.assertEqual(
+                db.scalar(select(func.count()).select_from(OfferCandidateRecord)),
+                204,
             )
 
     def test_completeness_rescue_seed_is_review_only_and_idempotent(self) -> None:

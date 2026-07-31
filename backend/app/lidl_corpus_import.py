@@ -26,9 +26,14 @@ from app.lidl_completeness_rescue import (
     rescue_reason_codes,
     rescue_row_key,
 )
+from app.lidl_corpus_reconciliation import (
+    load_reconciliation_plan,
+    validate_import_approval,
+)
 
 SOURCE_STRATEGY = "lidl_public_flyer_json_canonical"
 CORPUS_IMPORT_VERSION = "lidl-corpus-import-v1"
+RECONCILED_CORPUS_IMPORT_VERSION = "lidl-corpus-import-v2-reconciled"
 EXPECTED_PARSER_VERSION = "lidl-pdf-v08c-r61-shadow-v631"
 FAMILY_STORE_EXTERNAL_ID = "DE06664"
 FAMILY_STORE_NAME = "Lidl Husener Straße 44, Dortmund"
@@ -244,7 +249,9 @@ def _page_visual(context: FlyerContext, page_number: int) -> str | None:
 
 
 def safe_rows(scan_dir: Path) -> list[dict[str, str]]:
-    rows = _read_tsv(scan_dir / "target-rows.tsv")
+    accepted = scan_dir / "accepted-physical.tsv"
+    source = accepted if accepted.exists() else scan_dir / "target-rows.tsv"
+    rows = _read_tsv(source)
     result = [
         row
         for row in rows
@@ -379,6 +386,7 @@ def register_source_snapshot(
     db_raw_prefix: str,
     expected_raw_sha256: str,
     expected_pdf_sha256: str,
+    commit: bool = True,
 ) -> SourceSnapshot:
     context = load_context(
         flyer_dir=flyer_dir,
@@ -452,7 +460,10 @@ def register_source_snapshot(
         error=None,
     )
     db.add(snapshot)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(snapshot)
     return snapshot
 
@@ -463,6 +474,10 @@ def build_offer(
     ordinal: int,
     context: FlyerContext,
     snapshot: SourceSnapshot,
+    source_offer_id_override: str | None = None,
+    identity_origin: str | None = None,
+    identity_plan_sha256: str | None = None,
+    semantic_digest_sha256: str | None = None,
 ) -> OfferCandidate:
     if row.get("scope") != "in_scope":
         raise ValueError("Only in_scope corpus rows may become automatic offers")
@@ -487,8 +502,18 @@ def build_offer(
     app_price = _decimal(row.get("app_price_eur"))
     image_url = _page_visual(context, page)
 
+    reconciled = source_offer_id_override is not None
+    if reconciled and not all(
+        (identity_origin, identity_plan_sha256, semantic_digest_sha256)
+    ):
+        raise ValueError("Reconciled offer identity metadata is incomplete")
+
     raw_payload = {
-        "corpus_import_version": CORPUS_IMPORT_VERSION,
+        "corpus_import_version": (
+            RECONCILED_CORPUS_IMPORT_VERSION
+            if reconciled
+            else CORPUS_IMPORT_VERSION
+        ),
         "flyer_key": context.flyer_key,
         "scan": context.scan_name,
         "source_row_key": source_row_key(context.scan_name, ordinal, row),
@@ -517,16 +542,31 @@ def build_offer(
         "production_ready_shadow": True,
         "db_write_eligible": True,
     }
+    if reconciled:
+        raw_payload.update(
+            {
+                "source_id_reconciliation_version": (
+                    "lidl-corpus-source-id-reconciliation-v1"
+                ),
+                "source_id_reconciliation_plan_sha256": identity_plan_sha256,
+                "source_id_identity_origin": identity_origin,
+                "source_id_semantic_digest_sha256": semantic_digest_sha256,
+            }
+        )
 
     return OfferCandidate(
         source_chain=SourceChain.LIDL,
         source_store_external_id=FAMILY_STORE_EXTERNAL_ID,
         source_store_name=FAMILY_STORE_NAME,
-        source_offer_id=source_offer_id(
-            context.flyer_key,
-            context.scan_name,
-            ordinal,
-            row,
+        source_offer_id=(
+            source_offer_id_override
+            if source_offer_id_override is not None
+            else source_offer_id(
+                context.flyer_key,
+                context.scan_name,
+                ordinal,
+                row,
+            )
         ),
         product_name_raw=product,
         brand_raw=None,
@@ -584,6 +624,60 @@ def build_safe_offers(
     ]
     if len({str(offer.source_offer_id) for offer in offers}) != len(offers):
         raise ValueError("Safe offer identities are not unique")
+    return offers
+
+
+def build_reconciled_safe_offers(
+    *,
+    flyer_dir: Path,
+    scan_name: str,
+    snapshot: SourceSnapshot,
+    expected_raw_sha256: str,
+    expected_pdf_sha256: str,
+    expected_count: int,
+    identity_plan_path: Path,
+    expected_identity_plan_sha256: str,
+) -> list[OfferCandidate]:
+    context = load_context(
+        flyer_dir=flyer_dir,
+        scan_name=scan_name,
+        expected_raw_sha256=expected_raw_sha256,
+        expected_pdf_sha256=expected_pdf_sha256,
+    )
+    rows = safe_rows(flyer_dir / "scans" / scan_name)
+    if len(rows) != expected_count:
+        raise ValueError(
+            f"Safe row count mismatch: expected {expected_count}, got {len(rows)}"
+        )
+    plan = load_reconciliation_plan(
+        path=identity_plan_path,
+        expected_sha256=expected_identity_plan_sha256,
+        flyer_key=context.flyer_key,
+        scan_name=scan_name,
+        parser_version=context.parser_version,
+        parser_sha256=context.parser_sha256,
+        raw_sha256=context.raw_sha256,
+        pdf_sha256=context.pdf_sha256,
+        safe_rows=rows,
+    )
+    offers = [
+        build_offer(
+            row=row,
+            ordinal=ordinal,
+            context=context,
+            snapshot=snapshot,
+            source_offer_id_override=str(entry["source_offer_id"]),
+            identity_origin=str(entry["identity_origin"]),
+            identity_plan_sha256=plan.sha256,
+            semantic_digest_sha256=str(entry["semantic_digest_sha256"]),
+        )
+        for ordinal, (row, entry) in enumerate(
+            zip(rows, plan.entries),
+            start=1,
+        )
+    ]
+    if len({str(offer.source_offer_id) for offer in offers}) != len(offers):
+        raise ValueError("Reconciled safe offer identities are not unique")
     return offers
 
 
@@ -826,6 +920,7 @@ def persist_safe_offers(
     expected_raw_sha256: str,
     expected_pdf_sha256: str,
     expected_count: int,
+    commit: bool = True,
 ) -> tuple[int, list[OfferCandidate]]:
     offers = build_safe_offers(
         flyer_dir=flyer_dir,
@@ -835,8 +930,142 @@ def persist_safe_offers(
         expected_pdf_sha256=expected_pdf_sha256,
         expected_count=expected_count,
     )
-    written = save_offer_candidates(db, offers)
+    written = save_offer_candidates(db, offers, commit=commit)
     return written, offers
+
+
+def persist_reconciled_safe_offers(
+    db: Session,
+    *,
+    flyer_dir: Path,
+    scan_name: str,
+    snapshot: SourceSnapshot,
+    expected_raw_sha256: str,
+    expected_pdf_sha256: str,
+    expected_count: int,
+    identity_plan_path: Path,
+    expected_identity_plan_sha256: str,
+    commit: bool = True,
+) -> tuple[int, list[OfferCandidate]]:
+    offers = build_reconciled_safe_offers(
+        flyer_dir=flyer_dir,
+        scan_name=scan_name,
+        snapshot=snapshot,
+        expected_raw_sha256=expected_raw_sha256,
+        expected_pdf_sha256=expected_pdf_sha256,
+        expected_count=expected_count,
+        identity_plan_path=identity_plan_path,
+        expected_identity_plan_sha256=expected_identity_plan_sha256,
+    )
+    written = save_offer_candidates(db, offers, commit=commit)
+    return written, offers
+
+
+def import_reconciled_safe(
+    db: Session,
+    *,
+    flyer_dir: Path,
+    scan_name: str,
+    raw_root: Path,
+    db_raw_prefix: str,
+    expected_raw_sha256: str,
+    expected_pdf_sha256: str,
+    expected_count: int,
+    identity_plan_path: Path,
+    expected_identity_plan_sha256: str,
+    approval_path: Path,
+    expected_approval_sha256: str,
+) -> dict[str, Any]:
+    context = load_context(
+        flyer_dir=flyer_dir,
+        scan_name=scan_name,
+        expected_raw_sha256=expected_raw_sha256,
+        expected_pdf_sha256=expected_pdf_sha256,
+    )
+    rows = safe_rows(flyer_dir / "scans" / scan_name)
+    plan = load_reconciliation_plan(
+        path=identity_plan_path,
+        expected_sha256=expected_identity_plan_sha256,
+        flyer_key=context.flyer_key,
+        scan_name=scan_name,
+        parser_version=context.parser_version,
+        parser_sha256=context.parser_sha256,
+        raw_sha256=context.raw_sha256,
+        pdf_sha256=context.pdf_sha256,
+        safe_rows=rows,
+    )
+    validate_import_approval(
+        path=approval_path,
+        expected_sha256=expected_approval_sha256,
+        flyer_key=context.flyer_key,
+        scan_name=scan_name,
+        raw_sha256=context.raw_sha256,
+        pdf_sha256=context.pdf_sha256,
+        identity_plan_sha256=plan.sha256,
+    )
+    if len(rows) != expected_count:
+        raise ValueError(
+            f"Safe row count mismatch: expected {expected_count}, got {len(rows)}"
+        )
+    if db.in_transaction():
+        raise ValueError("Reconciled import requires a fresh database transaction")
+
+    deterministic_id = _snapshot_identity(context.raw_sha256)
+    snapshot_created = False
+    with db.begin():
+        snapshot_created = db.get(SourceSnapshot, deterministic_id) is None
+        snapshot = register_source_snapshot(
+            db,
+            flyer_dir=flyer_dir,
+            scan_name=scan_name,
+            raw_root=raw_root,
+            db_raw_prefix=db_raw_prefix,
+            expected_raw_sha256=expected_raw_sha256,
+            expected_pdf_sha256=expected_pdf_sha256,
+            commit=False,
+        )
+        written, offers = persist_reconciled_safe_offers(
+            db,
+            flyer_dir=flyer_dir,
+            scan_name=scan_name,
+            snapshot=snapshot,
+            expected_raw_sha256=expected_raw_sha256,
+            expected_pdf_sha256=expected_pdf_sha256,
+            expected_count=expected_count,
+            identity_plan_path=identity_plan_path,
+            expected_identity_plan_sha256=expected_identity_plan_sha256,
+            commit=False,
+        )
+        persisted = int(
+            db.scalar(
+                select(func.count())
+                .select_from(OfferCandidateRecord)
+                .where(OfferCandidateRecord.snapshot_id == snapshot.id)
+            )
+            or 0
+        )
+        if persisted != expected_count:
+            raise ValueError(
+                f"Reconciled snapshot persisted {persisted}; expected {expected_count}"
+            )
+        snapshot_id = str(snapshot.id)
+        expected_offers = len(offers)
+
+    return {
+        "result": "RECONCILED_SAFE_IMPORT_COMPLETE",
+        "snapshot_id": snapshot_id,
+        "snapshot_created": snapshot_created,
+        "written": written,
+        "expected": expected_offers,
+        "snapshot_persisted": persisted,
+        "identity_plan_sha256": plan.sha256,
+        "approval_sha256": expected_approval_sha256,
+        "review_seed": False,
+        "auto_approve": False,
+        "auto_publish": False,
+        "systemd_change": False,
+        "timer_install": False,
+    }
 
 
 def _session():
@@ -1008,6 +1237,26 @@ def _command_promote_safe(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_import_reconciled_safe(args: argparse.Namespace) -> int:
+    with _session() as db:
+        report = import_reconciled_safe(
+            db,
+            flyer_dir=Path(args.flyer_dir),
+            scan_name=args.scan,
+            raw_root=Path(args.raw_root),
+            db_raw_prefix=args.db_raw_prefix,
+            expected_raw_sha256=args.raw_sha,
+            expected_pdf_sha256=args.pdf_sha,
+            expected_count=args.safe_count,
+            identity_plan_path=Path(args.identity_plan),
+            expected_identity_plan_sha256=args.identity_plan_sha,
+            approval_path=Path(args.approval),
+            expected_approval_sha256=args.approval_sha,
+        )
+        print(json.dumps(report, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lidl-corpus-import")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1054,6 +1303,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--snapshot-id", required=True)
     p.add_argument("--safe-count", required=True, type=int)
     p.set_defaults(func=_command_promote_safe)
+
+    p = sub.add_parser("import-reconciled-safe")
+    common(p)
+    p.add_argument("--raw-root", required=True)
+    p.add_argument("--db-raw-prefix", default="/data/raw")
+    p.add_argument("--safe-count", required=True, type=int)
+    p.add_argument("--identity-plan", required=True)
+    p.add_argument("--identity-plan-sha", required=True)
+    p.add_argument("--approval", required=True)
+    p.add_argument("--approval-sha", required=True)
+    p.set_defaults(func=_command_import_reconciled_safe)
 
     return parser
 

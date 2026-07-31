@@ -57,3 +57,34 @@ timer_install=false
 This result means the reviewed observation is available inside the immutable
 corpus for a later, separately controlled import and Review Queue bridge. It is
 not itself a production data import.
+
+## B15H5 reconciled production import
+
+The controlled safe-offer import is a separate write gate. It consumes the exact
+immutable B15H4 observation, the audited 204-row source-ID reconciliation plan,
+and a dedicated safe-import approval.
+
+The identity contract reuses 134 exact previous corpus `source_offer_id` values
+and allocates 70 scan-independent `semantic-v2` identities. Fifty-eight manual
+publication database rows (54 stable identities after revision collapse) are
+protected and never updated or deleted.
+
+The import writes exactly one content-addressed SourceSnapshot and exactly 204
+offer candidates in a single database transaction. Exact replay writes zero new
+rows. Review Queue seeding, automatic approval/publication, existing-row
+updates/deletes, and systemd changes remain forbidden.
+
+### B15H5 exact read-side cardinality
+
+The controlled import creates 258 distinct target-flyer source identities in the
+database: 204 authoritative safe identities plus 54 protected manual identities.
+The family read policy intentionally returns 257 visible rows because the
+reviewed completeness-rescue publication for `Buttercroissant` wins over one
+matching automatic safe row. The suppressed safe identity remains immutable in
+the database and is not deleted or updated.
+
+The exact approval therefore binds all three values separately:
+
+- `database_target_distinct_source_offer_ids=258`;
+- `expected_visible_target_flyer_rows=257`;
+- `completeness_rescue_precedence_suppressions=1`.
