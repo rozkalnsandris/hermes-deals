@@ -818,6 +818,11 @@ def seed_reconciled_review_rows(
     expected_review_plan_sha256: str,
     expected_count: int,
 ) -> dict[str, Any]:
+    raise ValueError(
+        "Legacy reconciled Review seed v1 is disabled because it lacks "
+        "explicit target-scope classification"
+    )
+
     context = load_context(
         flyer_dir=flyer_dir,
         scan_name=scan_name,
