@@ -11,7 +11,7 @@ from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
 
 
-NORMALIZER_VERSION = "normalizer-v1.1"
+NORMALIZER_VERSION = "normalizer-v1.2"
 MATCHER_VERSION = "matcher-v1.1"
 
 _EXPLICIT_BARCODE_KEYS = {
@@ -344,6 +344,64 @@ def parse_edeka_image_package(
     )
 
 
+def parse_edeka_description_package(
+    raw_payload: dict[str, Any] | None,
+) -> PackageEvidence:
+    payload = raw_payload or {}
+    description = payload.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return PackageEvidence(None, None, None, None, None, None)
+
+    raw = description.strip()
+    cleaned = re.sub(r"<[^>]+>", " ", raw)
+    cleaned = re.sub(
+        r"\([^)]*(?:1\s*(?:kg|l)\s*=|grundpreis)[^)]*\)",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"(?:[,;]\s*)?1\s*(?:kg|l)\s*=\s*.*$",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = " ".join(cleaned.split())
+
+    multipacks = list(_MULTIPACK_RE.finditer(cleaned))
+    if multipacks:
+        evidence_by_signature: dict[tuple[str | None, str | None, int | None], PackageEvidence] = {}
+        for match in multipacks:
+            evidence = _metric_evidence(
+                quantity_text=match.group("quantity"),
+                unit_text=match.group("unit"),
+                count=int(match.group("count")),
+                source_text=raw,
+                parse_method="edeka_description_metric_multipack",
+                evidence_source="raw_payload.description",
+            )
+            evidence_by_signature[evidence.signature()] = evidence
+        if len(evidence_by_signature) == 1:
+            return next(iter(evidence_by_signature.values()))
+        return PackageEvidence(None, None, None, raw, None, "raw_payload.description")
+
+    evidence_by_signature: dict[tuple[str | None, str | None, int | None], PackageEvidence] = {}
+    for match in _SINGLE_METRIC_RE.finditer(cleaned):
+        evidence = _metric_evidence(
+            quantity_text=match.group("quantity"),
+            unit_text=match.group("unit"),
+            count=1,
+            source_text=raw,
+            parse_method="edeka_description_metric_single",
+            evidence_source="raw_payload.description",
+        )
+        evidence_by_signature[evidence.signature()] = evidence
+
+    if len(evidence_by_signature) == 1:
+        return next(iter(evidence_by_signature.values()))
+    return PackageEvidence(None, None, None, raw, None, "raw_payload.description")
+
+
 def _key_norm(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.casefold())
 
@@ -427,6 +485,10 @@ def normalize_offer_fields(
         image_package = parse_edeka_image_package(source_image_url)
         if image_package.parse_method is not None:
             package = image_package
+        else:
+            description_package = parse_edeka_description_package(raw_payload)
+            if description_package.parse_method is not None:
+                package = description_package
 
     gtin14, gtin_evidence = extract_explicit_gtin(raw_payload)
 
