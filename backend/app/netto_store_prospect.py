@@ -30,6 +30,7 @@ from app.structured_source_shadow import (
 PARSER_VERSION = "netto-v1.3-store-prospect"
 MANIFEST_STRATEGY_V1 = "netto_store_page_plus_current_prospect_v1"
 MANIFEST_STRATEGY_V2 = "netto_store_page_plus_current_prospect_pdf_v2"
+MANIFEST_STRATEGY_V3 = "netto_store_page_plus_current_prospect_pdf_v3"
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
 VALIDITY_RE = re.compile(
     r"(?i)(?:Montag,?\s*)?(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[–—-]\s*"
@@ -108,12 +109,25 @@ def extract_pdf_prospect_validity(pdf_bytes: bytes) -> tuple[date, date, str]:
     )
 
 
-def _fetch_pdf_validity(
+def _validate_prospect_pdf(pdf_bytes: bytes) -> None:
+    if not pdf_bytes.startswith(b"%PDF-"):
+        raise ValueError("Netto publication download is not a PDF")
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        if not reader.pages:
+            raise ValueError("Netto prospect PDF has no pages")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("Netto publication PDF is unreadable") from exc
+
+
+def _fetch_publication_pdf(
     client: httpx.Client,
     *,
     viewer_response: httpx.Response,
     prospect_slug: str,
-) -> tuple[date, date, str, str, bytes, str, bytes]:
+) -> tuple[str, bytes, str, bytes]:
     group_slug = extract_netto_group_slug(viewer_response.text)
     if not group_slug:
         raise ValueError(
@@ -145,11 +159,8 @@ def _fetch_pdf_validity(
     )
     pdf_response = client.get(prospect_pdf_url, timeout=120)
     pdf_response.raise_for_status()
-    start, end, text = extract_pdf_prospect_validity(pdf_response.content)
+    _validate_prospect_pdf(pdf_response.content)
     return (
-        start,
-        end,
-        text,
         str(publication_response.url),
         publication_response.content,
         str(pdf_response.url),
@@ -192,30 +203,38 @@ def fetch_netto_store_prospect(source: SourceConfig) -> NettoStoreProspectBundle
             try:
                 response=client.get(url,headers={"Referer":source.url})
                 response.raise_for_status()
-                publication_api_url = None
-                publication_json = b""
-                prospect_pdf_url = None
-                prospect_pdf = b""
-                validity_source_type = "prospect_html_meta"
-                validity_source_url = str(response.url)
                 try:
                     start,end,text=extract_prospect_validity(response.content)
+                    validity_source_type = "prospect_html_meta"
+                    validity_source_url = str(response.url)
                 except ValueError:
                     (
                         start,
                         end,
                         text,
-                        publication_api_url,
-                        publication_json,
-                        prospect_pdf_url,
-                        prospect_pdf,
-                    ) = _fetch_pdf_validity(
-                        client,
-                        viewer_response=response,
-                        prospect_slug=slug,
-                    )
+                    ) = (None, None, None)
+
+                (
+                    publication_api_url,
+                    publication_json,
+                    prospect_pdf_url,
+                    prospect_pdf,
+                ) = _fetch_publication_pdf(
+                    client,
+                    viewer_response=response,
+                    prospect_slug=slug,
+                )
+                pdf_start, pdf_end, pdf_text = extract_pdf_prospect_validity(
+                    prospect_pdf
+                )
+                if start is None or end is None or text is None:
+                    start, end, text = pdf_start, pdf_end, pdf_text
                     validity_source_type = "prospect_pdf_text"
                     validity_source_url = prospect_pdf_url
+                elif (start, end) != (pdf_start, pdf_end):
+                    raise ValueError(
+                        "Netto prospect HTML and PDF validity mismatch"
+                    )
             except Exception as exc:
                 failures[slug] = f"{type(exc).__name__}: {exc}"[:1000]
                 continue
@@ -298,6 +317,10 @@ def _write_bundle(
     source: SourceConfig,
     collected_at: datetime,
 ) -> tuple[Path,str]:
+    if not bundle.prospect_pdf:
+        raise ValueError("Netto current prospect PDF evidence is required")
+    _validate_prospect_pdf(bundle.prospect_pdf)
+
     settings=get_settings()
     root=settings.raw_snapshot_dir/"netto"
     root.mkdir(parents=True,exist_ok=True)
@@ -305,10 +328,20 @@ def _write_bundle(
 
     store_sha=sha256(bundle.store_html).hexdigest()
     prospect_sha=sha256(bundle.prospect_html).hexdigest()
+    def write_immutable(path: Path, value: bytes) -> None:
+        try:
+            with path.open("xb") as handle:
+                handle.write(value)
+        except FileExistsError:
+            if path.read_bytes() != value:
+                raise ValueError(
+                    f"Refusing to replace immutable Netto evidence: {path}"
+                )
+
     store_path=root/f"{stamp}-5659-store-{store_sha[:12]}.html"
     prospect_path=root/f"{stamp}-5659-{bundle.prospect_slug}-{prospect_sha[:12]}.html"
-    store_path.write_bytes(bundle.store_html)
-    prospect_path.write_bytes(bundle.prospect_html)
+    write_immutable(store_path, bundle.store_html)
+    write_immutable(prospect_path, bundle.prospect_html)
 
     publication_path = None
     publication_sha = None
@@ -319,21 +352,15 @@ def _write_bundle(
             / f"{stamp}-5659-{bundle.prospect_slug}-publication-"
             f"{publication_sha[:12]}.json"
         )
-        publication_path.write_bytes(bundle.publication_json)
+        write_immutable(publication_path, bundle.publication_json)
 
-    pdf_path = None
-    pdf_sha = None
-    if bundle.prospect_pdf:
-        pdf_sha = sha256(bundle.prospect_pdf).hexdigest()
-        pdf_path = (
-            root
-            / f"{stamp}-5659-{bundle.prospect_slug}-{pdf_sha[:12]}.pdf"
-        )
-        pdf_path.write_bytes(bundle.prospect_pdf)
+    pdf_sha = sha256(bundle.prospect_pdf).hexdigest()
+    pdf_path = root / f"5659-{bundle.prospect_slug}-{pdf_sha}.pdf"
+    write_immutable(pdf_path, bundle.prospect_pdf)
 
     manifest={
-        "schema_version":2,
-        "strategy":MANIFEST_STRATEGY_V2,
+        "schema_version":3,
+        "strategy":MANIFEST_STRATEGY_V3,
         "store_external_id":"5659",
         "store_name":source.store_name,
         "scope":source.scope,
@@ -367,7 +394,7 @@ def _write_bundle(
     data=json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
     digest=sha256(data).hexdigest()
     path=root/f"{stamp}-5659-store-prospect-manifest-{digest[:12]}.json"
-    path.write_bytes(data)
+    write_immutable(path, data)
     return path,digest
 
 
@@ -381,7 +408,7 @@ def collect_netto_store_prospect(db: Session, source: SourceConfig) -> SourceSna
         content_bytes=0,
         keyword_hits={},
         json_ld_blocks=0,
-        strategy_hint=f"{MANIFEST_STRATEGY_V2}_pending",
+        strategy_hint=f"{MANIFEST_STRATEGY_V3}_pending",
         success=False,
     )
     try:
@@ -405,10 +432,10 @@ def collect_netto_store_prospect(db: Session, source: SourceConfig) -> SourceSna
             "validity_range":1,
             "validity_pdf":int(bundle.validity_source_type=="prospect_pdf_text"),
         }
-        snapshot.strategy_hint=MANIFEST_STRATEGY_V2
+        snapshot.strategy_hint=MANIFEST_STRATEGY_V3
         snapshot.success=True
     except Exception as exc:
-        snapshot.strategy_hint=f"{MANIFEST_STRATEGY_V2}_error"
+        snapshot.strategy_hint=f"{MANIFEST_STRATEGY_V3}_error"
         snapshot.error=f"{type(exc).__name__}: {exc}"[:2000]
 
     db.add(snapshot)
@@ -422,8 +449,14 @@ def parse_netto_store_prospect_snapshot(
     context: NettoParserContext,
 ) -> list[OfferCandidate]:
     manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Netto manifest must be a JSON object")
     strategy=manifest.get("strategy")
-    if strategy not in {MANIFEST_STRATEGY_V1, MANIFEST_STRATEGY_V2}:
+    if strategy not in {
+        MANIFEST_STRATEGY_V1,
+        MANIFEST_STRATEGY_V2,
+        MANIFEST_STRATEGY_V3,
+    }:
         raise ValueError("Unexpected Netto manifest strategy")
     if str(manifest.get("store_external_id")) != str(context.store_external_id):
         raise ValueError("Netto manifest store mismatch")
@@ -445,6 +478,17 @@ def parse_netto_store_prospect_snapshot(
     )
     publication_json=b""
     prospect_pdf=b""
+    if strategy == MANIFEST_STRATEGY_V3:
+        pdf_path_value = manifest.get("prospect_pdf_path")
+        pdf_sha = manifest.get("prospect_pdf_sha256")
+        if not isinstance(pdf_path_value, str) or not isinstance(pdf_sha, str):
+            raise ValueError("Netto V3 manifest lacks PDF path or SHA")
+        pdf_path = Path(pdf_path_value)
+        prospect_pdf = pdf_path.read_bytes()
+        if sha256(prospect_pdf).hexdigest()!=pdf_sha:
+            raise ValueError("Netto prospect PDF SHA mismatch")
+        _validate_prospect_pdf(prospect_pdf)
+
     if validity_source_type=="prospect_html_meta":
         start,end,_=extract_prospect_validity(prospect_bytes)
     elif validity_source_type=="prospect_pdf_text":

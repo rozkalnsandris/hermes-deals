@@ -31,6 +31,7 @@ from app.review_queue import (
 )
 
 from app.lidl_weekly_review_bridge import create_review_from_page_alert_hint
+from app.netto_daily_special_api import router as netto_daily_special_router
 from app.lidl_review_preview import ReviewPreviewUnavailable, resolve_review_preview
 
 app = FastAPI(
@@ -41,6 +42,8 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/api/openapi.json",
 )
+
+app.include_router(netto_daily_special_router)
 
 
 @app.get("/api/health")
