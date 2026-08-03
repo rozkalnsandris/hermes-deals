@@ -258,21 +258,29 @@ def _cached_snapshot_offers(
     return tuple(offers)
 
 
-def _assert_preview_read_only(db: Session) -> None:
+def _assert_read_only_session(db: Session) -> None:
     bind = db.get_bind()
     if bind.dialect.name != "postgresql":
         return
-    default_mode = db.execute(
-        text("SHOW default_transaction_read_only")
-    ).scalar_one()
-    transaction_mode = db.execute(
-        text("SHOW transaction_read_only")
-    ).scalar_one()
-    if default_mode != "on" or transaction_mode != "on":
+    try:
+        # This is the first database statement in the request. Scope the
+        # endpoint's own transaction as read-only instead of requiring the
+        # whole production database to be read-only; collectors still need
+        # normal write transactions outside this route.
+        db.execute(text("SET TRANSACTION READ ONLY"))
+        transaction_mode = db.execute(
+            text("SHOW transaction_read_only")
+        ).scalar_one()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Daily-special endpoint could not enforce a read-only session",
+        ) from exc
+    if transaction_mode != "on":
         raise HTTPException(
             status_code=503,
             detail=(
-                "Daily-special shadow endpoint requires a read-only "
+                "Daily-special endpoint requires a read-only "
                 "database session"
             ),
         )
@@ -368,7 +376,7 @@ def daily_specials(
     as_of: date | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> DailySpecialDealsOut:
-    _assert_preview_read_only(db)
+    _assert_read_only_session(db)
     effective_date = (
         as_of
         if as_of is not None

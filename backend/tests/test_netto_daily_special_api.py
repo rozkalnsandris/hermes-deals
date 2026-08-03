@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from app.main import app
 from app.netto_daily_special_api import (
-    _assert_preview_read_only,
+    _assert_read_only_session,
     _discount_percent,
     _to_output,
     _cached_snapshot_offers,
@@ -48,7 +48,11 @@ class _PostgresDb:
     def get_bind(self):
         return self._Bind()
 
-    def execute(self, _statement):
+    def __init__(self, values: list[str] | None = None):
+        self.values = list(values or ["on"])
+        self.statements: list[str] = []
+
+    def execute(self, statement):
         class _Result:
             def __init__(self, value):
                 self.value = value
@@ -56,8 +60,10 @@ class _PostgresDb:
             def scalar_one(self):
                 return self.value
 
-        values = getattr(self, "values", ["off", "off"])
-        return _Result(values.pop(0))
+        self.statements.append(str(statement))
+        if "SHOW transaction_read_only" in str(statement):
+            return _Result(self.values.pop(0))
+        return _Result(None)
 
 
 def _offer(valid_on: date = date(2026, 8, 1)) -> OfferCandidate:
@@ -227,15 +233,20 @@ class NettoDailySpecialApiTest(unittest.TestCase):
             "explicit_immutable_retailer_evidence_only",
         )
 
-    def test_postgres_writeable_session_is_rejected(self):
-        db = _PostgresDb()
-        db.values = ["off", "off"]
+    def test_postgres_session_is_made_read_only(self):
+        db = _PostgresDb(["on"])
+        _assert_read_only_session(db)
+        self.assertIn("SET TRANSACTION READ ONLY", db.statements)
+        self.assertIn("SHOW transaction_read_only", db.statements)
+
+    def test_postgres_unenforceable_session_is_rejected(self):
+        db = _PostgresDb(["off"])
         with self.assertRaises(HTTPException) as raised:
-            _assert_preview_read_only(db)
+            _assert_read_only_session(db)
         self.assertEqual(raised.exception.status_code, 503)
 
     def test_sqlite_test_session_is_allowed(self):
-        _assert_preview_read_only(_FakeDb())
+        _assert_read_only_session(_FakeDb())
 
     def test_cached_snapshot_maps_geometry_backed_offer(self) -> None:
         candidate = NettoDailySpecialCandidate(
