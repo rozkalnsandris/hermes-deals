@@ -35,8 +35,8 @@ from app.lidl_review_preview import ReviewPreviewUnavailable, resolve_review_pre
 
 app = FastAPI(
     title="Hermes Deals API",
-    version="0.3.26",
-    description="Private family shopping intelligence platform — Phase 5G B15K normalizer-v1.2 and controlled identity release.",
+    version="0.3.27",
+    description="Private family shopping intelligence platform — Phase 5G B15L stable canonical identity propagation release.",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
@@ -49,8 +49,8 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
     return {
         "status": "ok",
         "service": "hermes-deals-api",
-        "phase": "5G-B15K",
-        "version": "0.3.26",
+        "phase": "5G-B15L",
+        "version": "0.3.27",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -671,34 +671,77 @@ def current_deals(
     available_count = len(current_rows)
     selected_rows = current_rows[offset : offset + limit]
 
-    link_map: dict[UUID, UUID] = {}
-    if selected_rows:
-        links = list(
-            db.scalars(
-                select(OfferProductLink).where(
-                    OfferProductLink.offer_candidate_id.in_(
-                        [row.id for row in selected_rows]
-                    )
-                )
-            ).all()
+    identity_keys = {
+        (
+            row.source_chain,
+            row.source_store_external_id,
+            row.source_offer_id,
         )
-        link_map = {
-            link.offer_candidate_id: link.canonical_product_id
-            for link in links
-        }
-
-    if current_rows:
-        feature_counts["canonical"] = len(
-            list(
-                db.scalars(
-                    select(OfferProductLink).where(
-                        OfferProductLink.offer_candidate_id.in_(
-                            [row.id for row in current_rows]
-                        )
-                    )
-                ).all()
+        for row in current_rows
+        if row.source_offer_id is not None
+    }
+    canonical_ids_by_identity: dict[
+        tuple[str, str | None, str],
+        set[UUID],
+    ] = {}
+    if identity_keys:
+        source_offer_ids = {key[2] for key in identity_keys}
+        linked_identity_rows = db.execute(
+            select(
+                OfferCandidateRecord.source_chain,
+                OfferCandidateRecord.source_store_external_id,
+                OfferCandidateRecord.source_offer_id,
+                OfferProductLink.canonical_product_id,
             )
+            .join(
+                OfferProductLink,
+                OfferProductLink.offer_candidate_id
+                == OfferCandidateRecord.id,
+            )
+            .where(
+                OfferCandidateRecord.source_offer_id.in_(
+                    source_offer_ids
+                )
+            )
+        ).all()
+        for (
+            source_chain,
+            source_store_external_id,
+            source_offer_id,
+            canonical_product_id,
+        ) in linked_identity_rows:
+            if source_offer_id is None:
+                continue
+            key = (
+                source_chain,
+                source_store_external_id,
+                source_offer_id,
+            )
+            if key not in identity_keys:
+                continue
+            canonical_ids_by_identity.setdefault(key, set()).add(
+                canonical_product_id
+            )
+
+    canonical_by_identity = {
+        key: next(iter(canonical_ids))
+        for key, canonical_ids in canonical_ids_by_identity.items()
+        if len(canonical_ids) == 1
+    }
+    link_map: dict[UUID, UUID] = {}
+    for row in current_rows:
+        if row.source_offer_id is None:
+            continue
+        key = (
+            row.source_chain,
+            row.source_store_external_id,
+            row.source_offer_id,
         )
+        canonical_product_id = canonical_by_identity.get(key)
+        if canonical_product_id is not None:
+            link_map[row.id] = canonical_product_id
+
+    feature_counts["canonical"] = len(link_map)
 
     deals = [
         CurrentDealOut(
