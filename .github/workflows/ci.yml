@@ -52,4 +52,3 @@ jobs:
           DATABASE_URL: "sqlite+pysqlite:///:memory:"
         run: |
           python -m pytest -q
-          
