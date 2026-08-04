@@ -15,7 +15,6 @@ if str(TOOLS_DIR) not in sys.path:
 from netto_shadow_promotion import (  # noqa: E402
     AUDITED_FIELDS,
     DEFAULT_COVERAGE_THRESHOLDS,
-    DEFAULT_MINIMUM_CAMPAIGNS_PER_FIELD,
     DEFAULT_MINIMUM_SAMPLES,
     DEFAULT_PRECISION_THRESHOLDS,
     FAMILY_PRIMARY_SCOPE,
@@ -26,11 +25,14 @@ from netto_shadow_promotion import (  # noqa: E402
     EvidenceStatus,
     FieldMetrics,
     build_shadow_candidate,
-    evaluate_corpus,
     resolve_field_evidence,
     values_equal,
     verify_binding_files,
     _mapping,
+)
+from netto_shadow_gate import (  # noqa: E402
+    DEFAULT_MINIMUM_CAMPAIGNS_PER_FIELD,
+    evaluate_corpus,
 )
 from netto_shadow_weekly import (  # noqa: E402
     MAX_RETRIES,
