@@ -1,0 +1,173 @@
+name: RPi5 approved audit command
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-rpi5-audit
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize owner audit command
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'rozkalnsandris' &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/run ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      audit: ${{ steps.authorize.outputs.audit }}
+      sha: ${{ steps.authorize.outputs.sha }}
+
+    steps:
+      - name: Validate command, merged PR and main ancestry
+        id: authorize
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_OUTPUT_FILE: ${{ github.output }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.request
+
+          event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
+          repo = event["repository"]["full_name"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit(f"unexpected repository: {repo}")
+
+          comment = event["comment"]
+          if comment["user"]["login"] != "rozkalnsandris":
+              raise SystemExit("command author is not the repository owner")
+          if comment.get("author_association") != "OWNER":
+              raise SystemExit("command author association is not OWNER")
+
+          match = re.fullmatch(
+              r"/run (runner-smoke|b15m2-v08) ([0-9a-f]{40})",
+              comment["body"].strip(),
+          )
+          if not match:
+              raise SystemExit("command must exactly match: /run <approved-audit> <40-char-sha>")
+          audit, requested_sha = match.groups()
+
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-rpi5-audit-authorizer",
+          }
+
+          def get_json(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          pr_number = event["issue"]["number"]
+          pr = get_json(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
+          if not pr.get("merged_at"):
+              raise SystemExit("audit commands are accepted only on merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into this repository's main branch")
+          if pr.get("merge_commit_sha") != requested_sha:
+              raise SystemExit("requested SHA is not the merged PR commit SHA")
+
+          comparison = get_json(
+              f"https://api.github.com/repos/{repo}/compare/{requested_sha}...main"
+          )
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("requested merged commit is not reachable from current main")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT_FILE"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"audit={audit}\n")
+              handle.write(f"sha={requested_sha}\n")
+
+          summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary.write_text(
+              "## Authorized RPi5 audit\n\n"
+              f"- Audit: `{audit}`\n"
+              f"- Registered commit request: `{requested_sha}`\n"
+              f"- Merged PR: `#{pr_number}`\n"
+              "- Production deployment: **not authorized**\n",
+              encoding="utf-8",
+          )
+          PY
+
+  rpi5-audit:
+    name: Run approved audit on RPi5
+    needs:
+      - authorize
+    if: needs.authorize.result == 'success'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 60
+
+    steps:
+      - name: Run root-owned allowlisted dispatcher
+        id: dispatch
+        env:
+          APPROVED_AUDIT: ${{ needs.authorize.outputs.audit }}
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-audit-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir" >> "$GITHUB_OUTPUT"
+
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-audit-dispatch \
+            "$APPROVED_AUDIT" \
+            "$APPROVED_SHA" \
+            "$export_dir" \
+            2>&1 | tee "$export_dir/runner-dispatch.log"
+          dispatch_rc=${PIPESTATUS[0]}
+          set -e
+
+          printf '%s\n' "$dispatch_rc" > "$export_dir/runner-dispatch-exit-code.txt"
+          printf 'audit=%s\ncommit_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$APPROVED_AUDIT" "$APPROVED_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$export_dir/runner-request.txt"
+          exit "$dispatch_rc"
+
+      - name: Upload sanitized audit evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.authorize.outputs.audit }}-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Record runner result
+        if: always()
+        env:
+          APPROVED_AUDIT: ${{ needs.authorize.outputs.audit }}
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo "## RPi5 audit runner"
+            echo
+            echo "- Audit: \`$APPROVED_AUDIT\`"
+            echo "- Registered commit: \`$APPROVED_SHA\`"
+            echo "- Runner: \`$RUNNER_NAME\`"
+            echo "- Production deployment: **not authorized**"
+          } >> "$GITHUB_STEP_SUMMARY"
