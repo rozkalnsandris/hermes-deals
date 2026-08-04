@@ -15,6 +15,7 @@ if str(TOOLS_DIR) not in sys.path:
 from netto_shadow_promotion import (  # noqa: E402
     AUDITED_FIELDS,
     DEFAULT_COVERAGE_THRESHOLDS,
+    DEFAULT_MINIMUM_CAMPAIGNS_PER_FIELD,
     DEFAULT_MINIMUM_SAMPLES,
     DEFAULT_PRECISION_THRESHOLDS,
     FAMILY_PRIMARY_SCOPE,
@@ -67,6 +68,11 @@ def main() -> int:
     audit.add_argument("--input", type=Path, required=True)
     audit.add_argument("--output", type=Path)
     audit.add_argument("--minimum-samples", type=int, default=DEFAULT_MINIMUM_SAMPLES)
+    audit.add_argument(
+        "--minimum-campaigns-per-field",
+        type=int,
+        default=DEFAULT_MINIMUM_CAMPAIGNS_PER_FIELD,
+    )
 
     decide = subparsers.add_parser("decide")
     decide.add_argument("--input", type=Path, required=True)
@@ -78,7 +84,11 @@ def main() -> int:
             payload = _load_json(args.input)
             if not isinstance(payload, list):
                 raise ValueError("audit input must be a JSON array")
-            result = evaluate_corpus(payload, minimum_samples=args.minimum_samples)
+            result = evaluate_corpus(
+                payload,
+                minimum_samples=args.minimum_samples,
+                minimum_campaigns_per_field=args.minimum_campaigns_per_field,
+            )
             _write_json(args.output, result)
             return 0
         if args.command == "decide":
