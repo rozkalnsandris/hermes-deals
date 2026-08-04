@@ -28,6 +28,7 @@ from netto_shadow_promotion import (  # noqa: E402
     evaluate_corpus,
     resolve_field_evidence,
     values_equal,
+    verify_binding_files,
     _mapping,
 )
 from netto_shadow_weekly import (  # noqa: E402
@@ -37,6 +38,7 @@ from netto_shadow_weekly import (  # noqa: E402
     WeeklyInput,
     build_write_plan,
     decide_weekly_action,
+    verify_weekly_input,
 )
 
 
@@ -80,8 +82,14 @@ def main() -> int:
             _write_json(args.output, result)
             return 0
         if args.command == "decide":
-            result = decide_weekly_action(_mapping(_load_json(args.input), "input"))
-            _write_json(args.output, asdict(result))
+            verified_input, verification_reason = verify_weekly_input(
+                _mapping(_load_json(args.input), "input")
+            )
+            result = decide_weekly_action(verified_input)
+            payload = asdict(result)
+            payload["evidence_status"] = verified_input.binding.evidence_status.value
+            payload["evidence_verification_reason"] = verification_reason
+            _write_json(args.output, payload)
             return 2 if result.severity == "error" else 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR|{exc}", flush=True)
