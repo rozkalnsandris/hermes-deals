@@ -122,11 +122,18 @@ class ReviewScopeFastPathTest(unittest.TestCase):
             'method:"POST"',
             '$("fast_scope_approve").onclick=approveScopeOnlyFast',
             'if(await save(false)===false)return;',
-            'const preferredNextId=currentIndex>=0',
-            'const nextRow=preferred||document.querySelector(".row[data-id]")',
-            'await openItem(nextRow.dataset.id);',
+            'const body=await call(',
+            '{advance:true,successMessage:"Piedāvājums publicēts."}',
+            'if(body)notifyDealsRefresh(body);',
         ):
             self.assertIn(marker, html)
+
+        fast_path = html[
+            html.index("async function approveScopeOnlyFast(){"):
+            html.index("// fast_scope_approve is created dynamically")
+        ]
+        self.assertNotIn("selected=null;", fast_path)
+        self.assertNotIn("await load();", fast_path)
 
 
 if __name__ == "__main__":
