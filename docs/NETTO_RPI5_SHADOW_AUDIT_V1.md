@@ -24,8 +24,7 @@ The registered audit reads only these bounded locations:
   commit.
 
 It does not read `.env`, database credentials or PostgreSQL data. It never calls
-Docker, Compose, `psql`, the API mutation routes or systemd installation
-commands.
+Docker, Compose, `psql`, API mutation routes or systemd installation commands.
 
 ## Evidence outputs
 
@@ -43,10 +42,11 @@ The dispatcher rejects symlinks, unexpected filenames, files larger than 32 MiB
 and common credential/private-key patterns. Raw HTML, PDFs, database dumps and
 source snapshots are never uploaded.
 
-A technically successful audit may report `result=blocked`. That is the correct
-result when the real immutable corpus is incomplete, evidence hashes do not
-verify, or two actual unattended transition records do not yet exist. A blocked
-gate never enables automatic selection or a production write.
+A technically successful execution reports `result=pass`. Acceptance remains
+`acceptance_status=blocked` when the real immutable corpus is incomplete,
+evidence hashes do not verify, or two timestamped unattended transition records
+do not yet exist. A blocked gate never enables automatic selection or a
+production write.
 
 ## Installation after merge
 
@@ -74,17 +74,18 @@ login and numeric GitHub ID, confirms the PR is merged into `main`, and confirms
 the merge SHA remains reachable from current `main` before queuing the RPi5
 runner.
 
-The workflow checks out no pull-request code. It uploads the sanitized evidence,
-posts a machine-readable result comment to the merged PR, and removes the label.
+The workflow checks out no pull-request code. It uploads only the sanitized
+`audit-evidence` directory, posts a machine-readable result comment to the merged
+PR, and removes the label.
 
 ## Issue interpretation
 
 Issue #27 evidence is ready only when a real immutable AuditRow corpus is
-successfully evaluated across at least two campaign families. Fields may still
-remain Review-only when their independent precision, coverage, sample or
-campaign-diversity gate fails.
+successfully evaluated across at least two campaign families for every audited
+field. Fields may still remain Review-only when their independent precision,
+coverage or sample gate fails.
 
 Issue #28 is not considered complete from simulated decisions alone. The audit
-requires two distinct timestamped real transition-history campaign keys with safe
-shadow actions and no production-write authorization before setting
+requires two distinct timestamped real transition-history campaign keys with
+safe shadow actions and no production-write authorization before setting
 `issue_28_two_real_transitions_ready=true`.
