@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 import re
 import unittest
 from pathlib import Path
@@ -5,7 +6,7 @@ from pathlib import Path
 class UiReferenceRebuildV7Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.html = (Path(__file__).resolve().parents[1] / "app" / "ui" / "index.html").read_text(encoding="utf-8")
+        cls.html = read_family_ui_contract()
         match = re.search(r'<style id="ui-reference-v7-stable-sidebar-anchor">(.*?)</style>', cls.html, re.S)
         if not match:
             raise AssertionError("V7 stable-sidebar style block is missing")

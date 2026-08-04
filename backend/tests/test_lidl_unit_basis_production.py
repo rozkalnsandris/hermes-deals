@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -122,7 +123,7 @@ class LidlUnitBasisProductionTest(unittest.TestCase):
     def test_review_and_family_ui_expose_unit_basis_controls(self):
         ui = Path(__file__).resolve().parents[1] / "app" / "ui"
         review = (ui / "review.html").read_text(encoding="utf-8")
-        family = (ui / "index.html").read_text(encoding="utf-8")
+        family = read_family_ui_contract()
         for token in (
             'id="f_pricing_mode"',
             'id="f_requires_app"',

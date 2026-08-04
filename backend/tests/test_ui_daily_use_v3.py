@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from pathlib import Path
 import unittest
 
@@ -8,7 +9,7 @@ FAMILY = ROOT / "app" / "ui" / "index.html"
 
 class UiDailyUseV3Test(unittest.TestCase):
     def test_raw_retailer_deals_can_join_family_list(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'function dealListId(d)',
             'function addDealToList(d)',
@@ -19,7 +20,7 @@ class UiDailyUseV3Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_legacy_list_entries_are_migrated_without_data_loss(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'function normalizeListItem(key,item)',
             'kind=item.kind==="deal"?"deal":"canonical"',
@@ -29,7 +30,7 @@ class UiDailyUseV3Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_family_list_supports_done_copy_and_cleanup_actions(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="copyList"',
             'id="clearDone"',
@@ -42,7 +43,7 @@ class UiDailyUseV3Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_basket_compare_uses_only_active_canonical_entries(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'function activeCanonicalEntries()',
             'const entries=activeCanonicalEntries()',
@@ -52,7 +53,7 @@ class UiDailyUseV3Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_list_badge_and_summary_count_remaining_items(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="listSummary"',
             '$("listCount").textContent=remaining',
@@ -63,7 +64,7 @@ class UiDailyUseV3Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_clear_all_uses_hermes_confirmation_dialog(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="clearListConfirm"',
             'role="alertdialog"',
@@ -77,7 +78,7 @@ class UiDailyUseV3Test(unittest.TestCase):
         self.assertNotIn('window.confirm(', html)
 
     def test_mobile_drawer_actions_are_safe_and_readable(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'padding:14px 18px max(18px,calc(env(safe-area-inset-bottom) + 12px))',
             '@media(max-width:420px){.drawer-footer{grid-template-columns:1fr}',
@@ -87,7 +88,7 @@ class UiDailyUseV3Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_danger_action_uses_theme_aware_contrast(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         self.assertIn(
             '.btn.danger{background:var(--danger);color:var(--surface);border-color:var(--danger)}',
             html,

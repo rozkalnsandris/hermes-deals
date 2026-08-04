@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 import unittest
 from pathlib import Path
 
@@ -5,7 +6,7 @@ from pathlib import Path
 class UiReferenceRebuildV5Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.html = Path("app/ui/index.html").read_text(encoding='utf-8')
+        cls.html = read_family_ui_contract()
 
     def test_release_marker_and_style_are_present(self):
         self.assertIn('content="reference-v5-details-restoration"', self.html)

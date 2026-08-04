@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 import re
 import unittest
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 class UiReferenceRebuildV1Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.html = Path("app/ui/index.html").read_text(encoding="utf-8")
+        cls.html = read_family_ui_contract()
 
     def test_release_identity_and_reference_scope_are_explicit(self) -> None:
         self.assertIn('content="reference-v1"', self.html)

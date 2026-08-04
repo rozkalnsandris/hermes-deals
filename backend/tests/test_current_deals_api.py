@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import unittest
@@ -493,7 +494,7 @@ class CurrentDealsApiTest(unittest.TestCase):
             "Tikai retailer deal",
             "Canonical salīdzināms",
         ):
-            self.assertIn(marker, response.text)
+            self.assertIn(marker, ui_response_contract(response))
 
 
     def test_phase5e_feature_counts(self) -> None:
@@ -568,7 +569,7 @@ class CurrentDealsApiTest(unittest.TestCase):
         response=self.client.get("/ui")
         self.assertEqual(response.status_code,200)
         for marker in ('data-feature="app"','data-feature="coupon"','data-feature="discount"','data-feature="image"',"discount_desc","quickDates","restoreUrl","syncUrl","Piedāvājuma detaļas"):
-            self.assertIn(marker,response.text)
+            self.assertIn(marker,ui_response_contract(response))
 
 
     def test_phase5f_latest_snapshot_availability_is_separate_from_current_deals(self) -> None:
@@ -616,7 +617,7 @@ class CurrentDealsApiTest(unittest.TestCase):
             "offset:String((currentPage-1)*PAGE_SIZE)",
             "await loadGrid(false)",
         ):
-            self.assertIn(marker,response.text)
+            self.assertIn(marker,ui_response_contract(response))
 
     def test_phase5g_app_validity_extends_currentness(self) -> None:
         at = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
@@ -713,7 +714,7 @@ class CurrentDealsApiTest(unittest.TestCase):
             'dealView==="upcoming"',
             "Šim filtram nav drīzumā gaidāmu piedāvājumu.",
         ):
-            self.assertIn(marker,response.text)
+            self.assertIn(marker,ui_response_contract(response))
 
     def test_offset_pagination_has_no_overlap_and_reports_total(self) -> None:
         at = datetime(2026, 7, 30, 8, 0, tzinfo=timezone.utc)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -24,12 +25,7 @@ class _IdCollector(HTMLParser):
 class UiWeeklyOverviewV3Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.html = (
-            Path(__file__).resolve().parents[1]
-            / "app"
-            / "ui"
-            / "index.html"
-        ).read_text(encoding="utf-8")
+        cls.html = read_family_ui_contract()
         cls.active = re.sub(r"<!--.*?-->", "", cls.html, flags=re.S)
 
     def test_release_markers_and_top_navigation_are_present(self) -> None:

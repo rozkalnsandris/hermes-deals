@@ -168,7 +168,10 @@ def latest_offers(
 
 
 
-UI_INDEX_PATH = Path(__file__).resolve().parent / "ui" / "index.html"
+UI_DIR = Path(__file__).resolve().parent / "ui"
+UI_INDEX_PATH = UI_DIR / "index.html"
+UI_STYLE_PATH = UI_DIR / "styles.css"
+UI_APP_PATH = UI_DIR / "app.js"
 
 
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
@@ -176,6 +179,20 @@ def family_ui() -> HTMLResponse:
     if not UI_INDEX_PATH.exists():
         raise HTTPException(status_code=503, detail="UI bundle is not available")
     return HTMLResponse(UI_INDEX_PATH.read_text(encoding="utf-8"))
+
+
+@app.get("/ui/styles.css", include_in_schema=False)
+def family_ui_styles() -> FileResponse:
+    if not UI_STYLE_PATH.exists():
+        raise HTTPException(status_code=503, detail="UI stylesheet is not available")
+    return FileResponse(UI_STYLE_PATH, media_type="text/css")
+
+
+@app.get("/ui/app.js", include_in_schema=False)
+def family_ui_app() -> FileResponse:
+    if not UI_APP_PATH.exists():
+        raise HTTPException(status_code=503, detail="UI application bundle is not available")
+    return FileResponse(UI_APP_PATH, media_type="application/javascript")
 
 
 @app.get(

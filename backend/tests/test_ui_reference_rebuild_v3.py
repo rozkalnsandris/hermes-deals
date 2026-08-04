@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from pathlib import Path
 import unittest
 
@@ -5,7 +6,7 @@ import unittest
 class UiReferenceRebuildV3Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.html = Path("app/ui/index.html").read_text(encoding="utf-8")
+        cls.html = read_family_ui_contract()
 
     def test_release_fix_identity_is_explicit(self):
         self.assertIn('content="reference-v3-hover"', self.html)

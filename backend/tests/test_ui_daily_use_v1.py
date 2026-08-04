@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from pathlib import Path
 import unittest
 
@@ -24,7 +25,7 @@ class UiDailyUseV1Test(unittest.TestCase):
 
     def test_review_publish_notifies_open_family_ui(self) -> None:
         review = REVIEW.read_text(encoding="utf-8")
-        family = FAMILY.read_text(encoding="utf-8")
+        family = read_family_ui_contract()
         for html in (review, family):
             self.assertIn('hermesDealsReviewRefresh', html)
             self.assertIn('BroadcastChannel', html)
