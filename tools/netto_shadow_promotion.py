@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
+from hashlib import sha256
+from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
 
@@ -56,8 +58,9 @@ class EvidenceStatus(StrEnum):
 class EvidenceBinding:
     manifest_path: str
     manifest_sha256: str
+    html_path: str
     html_sha256: str
-    pdf_status: EvidenceStatus
+    evidence_status: EvidenceStatus
     pdf_path: str | None
     pdf_sha256: str | None
     parser_identity: str
@@ -72,8 +75,11 @@ class EvidenceBinding:
         return cls(
             manifest_path=str(raw.get("manifest_path") or ""),
             manifest_sha256=str(raw.get("manifest_sha256") or ""),
+            html_path=str(raw.get("html_path") or ""),
             html_sha256=str(raw.get("html_sha256") or ""),
-            pdf_status=EvidenceStatus(str(raw.get("pdf_status") or "missing")),
+            evidence_status=EvidenceStatus(
+                str(raw.get("evidence_status") or raw.get("pdf_status") or "missing")
+            ),
             pdf_path=_optional_text(raw.get("pdf_path")),
             pdf_sha256=_optional_text(raw.get("pdf_sha256")),
             parser_identity=str(raw.get("parser_identity") or ""),
@@ -97,29 +103,97 @@ class EvidenceBinding:
         if not self.manifest_path:
             raise ValueError("manifest_path is required")
         _require_sha(self.manifest_sha256, "manifest_sha256")
+        if not self.html_path:
+            raise ValueError("html_path is required")
         _require_sha(self.html_sha256, "html_sha256")
         if not self.parser_identity.strip():
             raise ValueError("parser_identity is required")
         if self.valid_from > self.valid_until:
             raise ValueError("campaign validity window is reversed")
 
-        if self.pdf_status is EvidenceStatus.PDF_BOUND:
+        if self.evidence_status is EvidenceStatus.PDF_BOUND:
             if not self.pdf_path:
                 raise ValueError("pdf_bound evidence requires pdf_path")
             _require_sha(self.pdf_sha256 or "", "pdf_sha256")
             if self.no_pdf_reason:
                 raise ValueError("pdf_bound evidence cannot carry no_pdf_reason")
-        elif self.pdf_status is EvidenceStatus.VERIFIED_NO_PDF:
+        elif self.evidence_status is EvidenceStatus.VERIFIED_NO_PDF:
             if self.pdf_path or self.pdf_sha256:
                 raise ValueError("verified_no_pdf requires null PDF path and SHA")
             if not self.no_pdf_reason:
                 raise ValueError("verified_no_pdf requires an explicit reason")
-        elif self.pdf_status in {EvidenceStatus.MISSING, EvidenceStatus.CORRUPT}:
-            # These states are valid controller inputs but are always fail-closed.
+        elif self.evidence_status in {EvidenceStatus.MISSING, EvidenceStatus.CORRUPT}:
             return
 
     def covers(self, requested_date: date) -> bool:
         return self.valid_from <= requested_date <= self.valid_until
+
+    def identity_sha256(self) -> str:
+        self.validate()
+        return sha256(
+            "|".join(
+                (
+                    self.store_external_id,
+                    self.scope,
+                    self.valid_from.isoformat(),
+                    self.valid_until.isoformat(),
+                    self.manifest_sha256,
+                    self.html_sha256,
+                    self.evidence_status.value,
+                    self.pdf_sha256 or "",
+                    self.parser_identity,
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+
+
+@dataclass(frozen=True)
+class EvidenceVerification:
+    status: EvidenceStatus
+    reason: str
+
+
+def _verify_file(path_text: str, expected_sha256: str, label: str) -> EvidenceVerification | None:
+    path = Path(path_text)
+    if path.is_symlink():
+        return EvidenceVerification(EvidenceStatus.CORRUPT, f"{label} must not be a symlink")
+    try:
+        if not path.exists():
+            return EvidenceVerification(EvidenceStatus.MISSING, f"{label} is missing")
+        if not path.is_file():
+            return EvidenceVerification(EvidenceStatus.CORRUPT, f"{label} is not a regular file")
+        digest = sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        return EvidenceVerification(EvidenceStatus.CORRUPT, f"{label} cannot be read: {exc}")
+    if digest.hexdigest() != expected_sha256:
+        return EvidenceVerification(EvidenceStatus.CORRUPT, f"{label} SHA-256 mismatch")
+    return None
+
+
+def verify_binding_files(binding: EvidenceBinding) -> EvidenceVerification:
+    binding.validate()
+    for path_text, expected_sha, label in (
+        (binding.manifest_path, binding.manifest_sha256, "manifest"),
+        (binding.html_path, binding.html_sha256, "HTML evidence"),
+    ):
+        failure = _verify_file(path_text, expected_sha, label)
+        if failure:
+            return failure
+
+    if binding.pdf_path and binding.pdf_sha256:
+        failure = _verify_file(binding.pdf_path, binding.pdf_sha256, "PDF evidence")
+        if failure:
+            return failure
+        return EvidenceVerification(EvidenceStatus.PDF_BOUND, "manifest, HTML and PDF hashes verified")
+    if binding.no_pdf_reason and not binding.pdf_path and not binding.pdf_sha256:
+        return EvidenceVerification(
+            EvidenceStatus.VERIFIED_NO_PDF,
+            "manifest and HTML hashes verified; explicit no-PDF reason retained",
+        )
+    return EvidenceVerification(EvidenceStatus.MISSING, "PDF evidence and explicit no-PDF reason are absent")
 
 
 @dataclass(frozen=True)
@@ -368,10 +442,9 @@ def resolve_field_evidence(
         and html_value is not None
         and not values_equal(field, pdf_value, html_value)
     )
-    # HTML is supplementary evidence only. It can never replace contradictory
-    # immutable PDF evidence. Conflicting title/package data is always reviewed.
     forced_review = conflict and field in {"title", "package"}
-    selected = pdf_value if field_promoted and not forced_review else None
+    automatic_candidate = field_promoted and pdf_value is not None and not forced_review
+    selected = pdf_value if automatic_candidate else None
     return {
         "field": field,
         "selected": selected,
@@ -379,7 +452,7 @@ def resolve_field_evidence(
         "candidate_html": html_value,
         "source_of_truth": "pdf" if pdf_value is not None else "html_candidate_only",
         "conflict": conflict,
-        "route": "review_required" if (not field_promoted or forced_review) else "automatic_candidate",
+        "route": "automatic_candidate" if automatic_candidate else "review_required",
     }
 
 
@@ -393,7 +466,7 @@ def build_shadow_candidate(
     promotion_report: Mapping[str, Any],
 ) -> dict[str, Any]:
     binding.validate()
-    if binding.pdf_status is not EvidenceStatus.PDF_BOUND:
+    if binding.evidence_status is not EvidenceStatus.PDF_BOUND:
         raise ValueError("shadow candidates require bound immutable PDF evidence")
     if page_number < 1 or not card_id:
         raise ValueError("page/card provenance is required")
@@ -421,6 +494,7 @@ def build_shadow_candidate(
             "scope": binding.scope,
             "manifest_path": binding.manifest_path,
             "manifest_sha256": binding.manifest_sha256,
+            "html_path": binding.html_path,
             "html_sha256": binding.html_sha256,
             "pdf_path": binding.pdf_path,
             "pdf_sha256": binding.pdf_sha256,
