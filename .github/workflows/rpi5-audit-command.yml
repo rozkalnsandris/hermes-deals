@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
   pull-requests: read
 
 concurrency:
@@ -138,6 +139,7 @@ jobs:
         env:
           EVENT_PATH: ${{ github.event_path }}
           EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: "277435981"
@@ -165,6 +167,9 @@ jobs:
           }
 
           event_name = os.environ["EVENT_NAME"]
+          workflow_ref = os.environ["WORKFLOW_REF"]
+          if workflow_ref != "refs/heads/main":
+              raise SystemExit(f"audit workflow must run from main, not {workflow_ref}")
           event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
           repo = event["repository"]["full_name"]
           if repo != expected_repo:
