@@ -11,9 +11,13 @@ class ReviewUiAuthoritativeStateContractTest(unittest.TestCase):
         cls.ui = UI_REVIEW_PATH.read_text(encoding="utf-8")
 
     def test_mutation_response_is_applied_before_full_refresh(self) -> None:
-        replace_index = self.ui.index("replaceAuthoritativeItem(d);")
-        local_render_index = self.ui.index("await renderList(preferredId);")
-        refresh_index = self.ui.index(
+        call_start = self.ui.index("async function call(url,opt,options={}){")
+        call_end = self.ui.index("async function save(needs){", call_start)
+        call_path = self.ui[call_start:call_end]
+
+        replace_index = call_path.index("replaceAuthoritativeItem(d);")
+        local_render_index = call_path.index("await renderList(preferredId);")
+        refresh_index = call_path.index(
             "await load(preferredId,{preserveOnError:true});"
         )
         self.assertLess(replace_index, local_render_index)
