@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from enum import StrEnum
 from hashlib import sha256
@@ -13,6 +13,7 @@ from netto_shadow_promotion import (
     _optional_text,
     _parse_date,
     _require_sha,
+    verify_binding_files,
 )
 
 
@@ -47,7 +48,7 @@ class WeeklyInput:
     binding: EvidenceBinding
     campaign_key: str
     previous_campaign_key: str | None
-    previous_manifest_sha256: str | None
+    previous_evidence_identity: str | None
     shadow_passed: bool | None
     retry_count: int
     last_success_valid_until: date | None
@@ -59,7 +60,7 @@ class WeeklyInput:
             binding=EvidenceBinding.from_mapping(_mapping(raw.get("binding"), "binding")),
             campaign_key=str(raw.get("campaign_key") or ""),
             previous_campaign_key=_optional_text(raw.get("previous_campaign_key")),
-            previous_manifest_sha256=_optional_text(raw.get("previous_manifest_sha256")),
+            previous_evidence_identity=_optional_text(raw.get("previous_evidence_identity")),
             shadow_passed=_optional_bool(raw.get("shadow_passed")),
             retry_count=int(raw.get("retry_count") or 0),
             last_success_valid_until=(
@@ -75,8 +76,8 @@ class WeeklyInput:
             raise ValueError("campaign_key is required")
         if self.retry_count < 0:
             raise ValueError("retry_count cannot be negative")
-        if self.previous_manifest_sha256:
-            _require_sha(self.previous_manifest_sha256, "previous_manifest_sha256")
+        if self.previous_evidence_identity:
+            _require_sha(self.previous_evidence_identity, "previous_evidence_identity")
 
 
 def _optional_bool(value: Any) -> bool | None:
@@ -85,6 +86,16 @@ def _optional_bool(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
     raise ValueError("shadow_passed must be true, false or null")
+
+
+def verify_weekly_input(value: WeeklyInput | Mapping[str, Any]) -> tuple[WeeklyInput, str]:
+    item = value if isinstance(value, WeeklyInput) else WeeklyInput.from_mapping(value)
+    item.validate()
+    verification = verify_binding_files(item.binding)
+    normalized = replace(item.binding, evidence_status=verification.status)
+    verified_item = replace(item, binding=normalized)
+    verified_item.validate()
+    return verified_item, verification.reason
 
 
 def decide_weekly_action(value: WeeklyInput | Mapping[str, Any]) -> WeeklyDecision:
@@ -114,15 +125,13 @@ def decide_weekly_action(value: WeeklyInput | Mapping[str, Any]) -> WeeklyDecisi
             daily_specials_mode="existing_verified_window_only",
         )
 
-    # Evidence health outranks campaign identity. A previously seen campaign
-    # must fail closed if its currently bound PDF is missing or corrupt.
-    if binding.pdf_status in {EvidenceStatus.MISSING, EvidenceStatus.CORRUPT}:
+    if binding.evidence_status in {EvidenceStatus.MISSING, EvidenceStatus.CORRUPT}:
         if item.retry_count >= MAX_RETRIES:
             return WeeklyDecision(
                 action=WeeklyAction.ALERT_RETRY_EXHAUSTED,
                 severity="error",
-                reason=f"{binding.pdf_status.value} evidence remained unresolved after bounded retries.",
-                alert_key=f"netto-evidence-{binding.pdf_status.value}-{item.campaign_key}",
+                reason=f"{binding.evidence_status.value} evidence remained unresolved after bounded retries.",
+                alert_key=f"netto-evidence-{binding.evidence_status.value}-{item.campaign_key}",
                 retry_after_seconds=None,
                 production_write_authorized=False,
                 daily_specials_mode="fail_closed",
@@ -130,7 +139,7 @@ def decide_weekly_action(value: WeeklyInput | Mapping[str, Any]) -> WeeklyDecisi
         return WeeklyDecision(
             action=WeeklyAction.RETRY_FAIL_CLOSED,
             severity="warning",
-            reason=f"{binding.pdf_status.value} evidence is not safe for parsing or writes.",
+            reason=f"{binding.evidence_status.value} evidence is not safe for parsing or writes.",
             alert_key=None,
             retry_after_seconds=15 * 60 * (item.retry_count + 1),
             production_write_authorized=False,
@@ -139,24 +148,24 @@ def decide_weekly_action(value: WeeklyInput | Mapping[str, Any]) -> WeeklyDecisi
 
     unchanged = (
         item.previous_campaign_key == item.campaign_key
-        and item.previous_manifest_sha256 == binding.manifest_sha256
+        and item.previous_evidence_identity == binding.identity_sha256()
     )
     if unchanged:
         return WeeklyDecision(
             action=WeeklyAction.UNCHANGED_NOOP,
             severity="info",
-            reason="Campaign key and immutable manifest SHA are unchanged.",
+            reason="Campaign key and complete immutable evidence identity are unchanged.",
             alert_key=None,
             retry_after_seconds=None,
             production_write_authorized=False,
             daily_specials_mode=(
                 "safe_empty_verified_no_pdf"
-                if binding.pdf_status is EvidenceStatus.VERIFIED_NO_PDF
+                if binding.evidence_status is EvidenceStatus.VERIFIED_NO_PDF
                 else "bound_pdf"
             ),
         )
 
-    if binding.pdf_status is EvidenceStatus.VERIFIED_NO_PDF:
+    if binding.evidence_status is EvidenceStatus.VERIFIED_NO_PDF:
         return WeeklyDecision(
             action=WeeklyAction.SAFE_EMPTY_NO_PDF,
             severity="info",
@@ -219,20 +228,13 @@ def build_write_plan(
     existing_snapshot_ids: Iterable[str],
 ) -> dict[str, Any]:
     binding.validate()
-    if binding.pdf_status is not EvidenceStatus.PDF_BOUND:
+    if binding.evidence_status is not EvidenceStatus.PDF_BOUND:
         raise ValueError("write plans require bound PDF evidence")
     _require_sha(shadow_report_sha256, "shadow_report_sha256")
     if candidate_count < 0:
         raise ValueError("candidate_count cannot be negative")
     snapshot_identity = sha256(
-        "|".join(
-            (
-                campaign_key,
-                binding.manifest_sha256,
-                binding.pdf_sha256 or "",
-                binding.parser_identity,
-            )
-        ).encode("utf-8")
+        f"{campaign_key}|{binding.identity_sha256()}".encode("utf-8")
     ).hexdigest()
     return {
         "schema_version": 1,
@@ -243,8 +245,11 @@ def build_write_plan(
         "scope": binding.scope,
         "valid_from": binding.valid_from.isoformat(),
         "valid_until": binding.valid_until.isoformat(),
+        "evidence_identity": binding.identity_sha256(),
         "manifest_path": binding.manifest_path,
         "manifest_sha256": binding.manifest_sha256,
+        "html_path": binding.html_path,
+        "html_sha256": binding.html_sha256,
         "pdf_path": binding.pdf_path,
         "pdf_sha256": binding.pdf_sha256,
         "parser_identity": binding.parser_identity,
