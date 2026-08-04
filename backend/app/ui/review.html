@@ -71,12 +71,43 @@
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const OPEN_STATUSES=new Set(["pending","draft","needs_followup"]);
+const TERMINAL_STATUSES=new Set(["approved","rejected"]);
 const REVIEW_REFRESH_KEY="hermesDealsReviewRefresh";
 const dealsRefreshChannel="BroadcastChannel" in window?new BroadcastChannel("hermes-deals-review"):null;
 let selected=null,busy=false,toastTimer=null,allItems=[],dirty=false,initialFormState="",searchTimer=null,lastStatus="open";
 function val(o,...keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null)return o[k]}return""}
 function statusLabel(status){return {pending:"Gaida pārbaudi",draft:"Labots",needs_followup:"Jāpārbauda vēl",approved:"Publicēts",rejected:"Noraidīts"}[status]||status;}
 function canReopenStatus(status){return ["draft","needs_followup","rejected"].includes(status);}
+function pageAlertChildParentId(item){return String(item?.provenance?.parent_page_alert_id||item?.original_payload?.weekly_page_alert_parent_id||"");}
+function pageAlertAggregate(alert){
+  const payload=alert?.original_payload||{},hints=Array.isArray(payload.hints)?payload.hints:[];
+  const declared=Number(payload.hint_count);
+  const hintCount=Math.max(Number.isInteger(declared)&&declared>=0?declared:0,hints.length);
+  const childGroups=new Map();
+  for(const item of allItems){
+    if(item?.review_kind==="page_alert"||pageAlertChildParentId(item)!==String(alert?.id||""))continue;
+    const hintIndex=Number(item?.provenance?.hint_index);
+    if(!Number.isInteger(hintIndex)||hintIndex<0||hintIndex>=hintCount)continue;
+    if(!childGroups.has(hintIndex))childGroups.set(hintIndex,[]);
+    childGroups.get(hintIndex).push(item);
+  }
+  const children=[...childGroups.values()].flat();
+  const linkedCount=childGroups.size;
+  const openCount=children.filter(item=>OPEN_STATUSES.has(item.status)).length;
+  const terminalCount=children.filter(item=>TERMINAL_STATUSES.has(item.status)).length;
+  const unresolvedChildCount=children.length-terminalCount;
+  const allHintsLinked=hintCount>0&&linkedCount===hintCount;
+  const resolvedByChildren=allHintsLinked&&unresolvedChildCount===0;
+  const manuallyResolved=alert?.status==="rejected"&&unresolvedChildCount===0;
+  return {hintCount,linkedCount,openCount,terminalCount,unresolvedChildCount,allHintsLinked,resolvedByChildren,manuallyResolved,resolved:resolvedByChildren||manuallyResolved,childGroups};
+}
+function effectiveReviewStatus(item){
+  if(item?.review_kind!=="page_alert")return item?.status;
+  const aggregate=pageAlertAggregate(item);
+  if(aggregate.resolved)return "rejected";
+  return item?.status==="rejected"?"pending":item?.status;
+}
+function reviewStatusLabel(item,status=effectiveReviewStatus(item)){return item?.review_kind==="page_alert"&&status==="rejected"?"Pārbaudīts":statusLabel(status);}
 function detailMessage(detail,fallback){if(typeof detail==="string"&&detail.trim())return detail;if(Array.isArray(detail)){const text=detail.map(item=>item?.msg||item?.message||"").filter(Boolean).join("; ");if(text)return text;}if(detail&&typeof detail==="object"){if(typeof detail.message==="string")return detail.message;try{return JSON.stringify(detail);}catch{}}return fallback;}
 function showToast(message,error=false){const node=$("toast");node.textContent=message;node.classList.toggle("error",error);node.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove("show"),3200);}
 function updateProductActionAvailability(){
@@ -93,10 +124,10 @@ function updateProductActionAvailability(){
 }
 function setBusy(next){busy=Boolean(next);document.querySelectorAll("#detail button,#reload,#status,#reviewSearch,#statusCounts button").forEach(node=>node.disabled=busy);updateProductActionAvailability();updateDetailNav();}
 function searchNeedle(){return $("reviewSearch").value.trim().toLocaleLowerCase("de-DE");}
-function statusFilteredItems(){const status=$("status").value;return status==="open"?allItems.filter(item=>OPEN_STATUSES.has(item.status)):status?allItems.filter(item=>item.status===status):allItems.slice();}
-function itemSearchText(item){const p=item.effective_payload||{},o=item.original_payload||{};return [p.product_name,p.product_name_raw,p.brand,p.brand_raw,p.package_text,p.package_text_raw,p.price_eur,item.page_number,statusLabel(item.status),...(item.reason_codes||[]),o.hint_count].filter(v=>v!==null&&v!==undefined).join(" ").toLocaleLowerCase("de-DE");}
+function statusFilteredItems(){const status=$("status").value;return status==="open"?allItems.filter(item=>OPEN_STATUSES.has(effectiveReviewStatus(item))):status?allItems.filter(item=>effectiveReviewStatus(item)===status):allItems.slice();}
+function itemSearchText(item){const p=item.effective_payload||{},o=item.original_payload||{};return [p.product_name,p.product_name_raw,p.brand,p.brand_raw,p.package_text,p.package_text_raw,p.price_eur,item.page_number,reviewStatusLabel(item),...(item.reason_codes||[]),o.hint_count].filter(v=>v!==null&&v!==undefined).join(" ").toLocaleLowerCase("de-DE");}
 function filteredItems(){const base=statusFilteredItems(),needle=searchNeedle();return needle?base.filter(item=>itemSearchText(item).includes(needle)):base;}
-function renderStatusCounts(){const counts={pending:0,draft:0,needs_followup:0,approved:0,rejected:0};for(const item of allItems)if(item.status in counts)counts[item.status]++;const open=counts.pending+counts.draft+counts.needs_followup,current=$("status").value;const chips=[["open",`Atvērtie ${open}`],["pending",`Gaida ${counts.pending}`],["draft",`Laboti ${counts.draft}`],["needs_followup",`Jāpārbauda ${counts.needs_followup}`],["approved",`Publicēti ${counts.approved}`],["rejected",`Noraidīti ${counts.rejected}`],["",`Visi ${allItems.length}`]];$("statusCounts").innerHTML=chips.map(([value,label])=>`<button type="button" class="status-chip${value===current?" active":""}" data-status-value="${esc(value)}" ${busy?"disabled":""}>${esc(label)}</button>`).join("");$("statusCounts").querySelectorAll("[data-status-value]").forEach(button=>button.onclick=()=>changeStatus(button.dataset.statusValue));}
+function renderStatusCounts(){const counts={pending:0,draft:0,needs_followup:0,approved:0,rejected:0};for(const item of allItems){const status=effectiveReviewStatus(item);if(status in counts)counts[status]++;}const open=counts.pending+counts.draft+counts.needs_followup,current=$("status").value;const chips=[["open",`Atvērtie ${open}`],["pending",`Gaida ${counts.pending}`],["draft",`Laboti ${counts.draft}`],["needs_followup",`Jāpārbauda ${counts.needs_followup}`],["approved",`Publicēti ${counts.approved}`],["rejected",`Noraidīti ${counts.rejected}`],["",`Visi ${allItems.length}`]];$("statusCounts").innerHTML=chips.map(([value,label])=>`<button type="button" class="status-chip${value===current?" active":""}" data-status-value="${esc(value)}" ${busy?"disabled":""}>${esc(label)}</button>`).join("");$("statusCounts").querySelectorAll("[data-status-value]").forEach(button=>button.onclick=()=>changeStatus(button.dataset.statusValue));}
 function editableFormState(){return JSON.stringify([...document.querySelectorAll("#detail .grid input,#detail .grid select,#detail .grid textarea")].filter(node=>!node.disabled).map(node=>[node.id,node.value]));}
 function setDirty(next){dirty=Boolean(next);const node=$("dirtyState");if(node)node.hidden=!dirty;}
 function captureFormState(){initialFormState=editableFormState();setDirty(false);document.querySelectorAll("#detail .grid input,#detail .grid select,#detail .grid textarea").forEach(node=>{node.addEventListener("input",()=>setDirty(editableFormState()!==initialFormState));node.addEventListener("change",()=>setDirty(editableFormState()!==initialFormState));});}
@@ -120,10 +151,16 @@ async function renderList(preferredId=null){
   const statusItems=statusFilteredItems(),items=filteredItems(),needle=searchNeedle();
   $("queueCount").textContent=needle?`${items.length} no ${statusItems.length}`:`${items.length} ${items.length===1?"ieraksts":"ieraksti"}`;
   $("list").innerHTML=items.length?items.map(x=>{
-    const statusBadge=`<span class="badge ${esc(x.status)}">${esc(statusLabel(x.status))}</span>`;
+    const status=effectiveReviewStatus(x);
+    const statusBadge=`<span class="badge ${esc(status)}">${esc(reviewStatusLabel(x,status))}</span>`;
     if(x.review_kind==="page_alert"){
-      const p=x.original_payload||{},n=p.hint_count??(p.hints||[]).length;
-      return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong>${statusBadge}<span class="badge">lapas pārbaude</span><span class="muted">Iespējami ${esc(n)} neapstrādāti produkti</span></button>`;
+      const aggregate=pageAlertAggregate(x);
+      const progress=aggregate.resolvedByChildren
+        ?`Visi ${aggregate.hintCount} hinti ir pabeigti`
+        :(aggregate.manuallyResolved
+          ?"Lapa ir manuāli pārbaudīta"
+          :`${aggregate.linkedCount}/${aggregate.hintCount} hinti izveidoti · ${aggregate.terminalCount} pabeigti`);
+      return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>⚠ Lidl lapa ${esc(x.page_number??"—")}</strong>${statusBadge}<span class="badge">lapas pārbaude</span><span class="muted">${esc(progress)}</span></button>`;
     }
     return `<button type="button" class="row" data-id="${esc(x.id)}"><strong>${esc(val(x.effective_payload,"product_name","product_name_raw")||"Bez nosaukuma")}</strong>${statusBadge}<span class="badge">lapa ${esc(x.page_number??"—")}</span><span class="muted">${esc(val(x.effective_payload,"price_eur"))} € · ${esc(val(x.effective_payload,"package_text","package_text_raw"))}</span></button>`;
   }).join(""):'<div class="row muted">Šim filtram nekas nav atrasts.</div>';
@@ -161,16 +198,18 @@ function fmtDate(v){if(!v)return"";const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(Stri
 function parseLvDate(v){const m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).trim());if(!m)return null;const iso=`${m[3]}-${m[2]}-${m[1]}`,d=new Date(`${iso}T00:00:00Z`);return Number.isNaN(d.getTime())||d.toISOString().slice(0,10)!==iso?null:iso;}
 function field(id,label,value,type="text"){if(type==="date")return `<div><label for="${id}">${label}</label><div class="date-entry"><input id="${id}" type="text" inputmode="numeric" autocomplete="off" placeholder="DD.MM.GGGG" value="${esc(fmtDate(value))}"><button type="button" class="date-picker-button" data-date-target="${id}" aria-label="${esc(label)}: atvērt kalendāru" title="Atvērt kalendāru">📅</button><input id="${id}_picker" class="native-date-proxy" type="date" tabindex="-1" aria-label="${esc(label)} kalendārs" value="${esc(value||"")}"></div></div>`;const step=type==="number"?' step="0.01"':"";return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}"${step} value="${esc(value)}"></div>`}
 async function createReviewFromHint(index){
+  const parentId=selected.id;
   const r=await fetch(
-    "/api/v1/review-items/"+encodeURIComponent(selected.id)+
+    "/api/v1/review-items/"+encodeURIComponent(parentId)+
     "/page-alert/hints/"+encodeURIComponent(index)+"/create",
     {method:"POST"}
   );
   const d=await r.json().catch(()=>({}));
   if(!r.ok){showToast(detailMessage(d.detail,"Neizdevās izveidot Review produktu"),true);return;}
   replaceAuthoritativeItem(d);
-  await load(d.id,{preserveOnError:true});
-  showToast("Review produkts izveidots.");
+  await renderList(d.id);
+  const refreshed=await load(d.id,{preserveOnError:true});
+  if(refreshed)showToast("Review produkts izveidots.");
 }
 async function markPageAlertChecked(){
   await call(
@@ -184,30 +223,47 @@ async function markPageAlertChecked(){
   );
 }
 function renderPageAlert(){
-  const p=selected.original_payload||{},hints=p.hints||[];
-  const open=["pending","draft","needs_followup"].includes(selected.status);
+  const p=selected.original_payload||{},hints=Array.isArray(p.hints)?p.hints:[];
+  const aggregate=pageAlertAggregate(selected);
+  const effectiveStatus=effectiveReviewStatus(selected);
+  const backendOpen=OPEN_STATUSES.has(selected.status);
   const hintHtml=hints.map((hint,index)=>{
     const bandUrl=previewUrl(selected.id,"band",index);
+    const children=aggregate.childGroups.get(index)||[];
+    const child=children[0]||null;
+    const childStatus=child?effectiveReviewStatus(child):null;
+    const childAction=child
+      ?`<div class="actions"><span class="badge ${esc(childStatus)}">${esc(reviewStatusLabel(child,childStatus))}</span><button type="button" data-open-child="${esc(child.id)}">Atvērt Review produktu</button></div>`
+      :(backendOpen?`<div class="actions"><button type="button" data-create-hint="${index}">Izveidot Review produktu</button></div>`:"");
     return `<div class="source">
       <strong>${esc(hint.product_name_hint||hint.native_title||"Iespējams produkts")}</strong><br>
       <span class="muted">Native: ${esc(hint.native_title||"—")}</span><br>
       <span class="muted">Scope: ${esc(hint.scope||"review")} · bbox ${esc(JSON.stringify(hint.title_bbox||[]))}</span>
       <div class="hint-preview"><a href="${esc(bandUrl)}" target="_blank" rel="noopener">Atvērt produkta apkārtni</a><img class="preview" data-preview loading="lazy" src="${esc(bandUrl)}" alt="Bukleta fragments ap ${esc(hint.product_name_hint||hint.native_title||"produktu")}"><div class="preview-note muted" data-preview-error hidden>Produkta apkārtnes priekšskatījums nav pieejams.</div></div>
-      ${open?`<div class="actions"><button type="button" data-create-hint="${index}">Izveidot Review produktu</button></div>`:""}
+      ${childAction}
     </div>`;}).join("");
   const pageUrl=previewUrl(selected.id,"page");
+  const aggregateMessage=aggregate.resolvedByChildren
+    ?`Visi ${aggregate.hintCount} hinti ir izveidoti, un visi saistītie Review produkti ir pabeigti. Lapas marķieris ir automātiski pārbaudīts.`
+    :(aggregate.manuallyResolved
+      ?"Šī lapa ir manuāli atzīmēta kā pārbaudīta."
+      :`${aggregate.linkedCount}/${aggregate.hintCount} hinti ir izveidoti; ${aggregate.terminalCount} saistītie Review produkti ir pabeigti.`);
   $("detail").innerHTML=`
     <h2>⚠ Lidl bukleta lapa ${esc(selected.page_number??"—")}</h2>
-    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>${esc(selected.parser_version)}<br><span class="badge">lapas pārbaude</span><span class="badge ${esc(selected.status)}">${esc(statusLabel(selected.status))}</span></div>
+    <div class="source"><strong>${esc(selected.source_flyer_key)}</strong><br>${esc(selected.parser_version)}<br><span class="badge">lapas pārbaude</span><span class="badge ${esc(effectiveStatus)}">${esc(reviewStatusLabel(selected,effectiveStatus))}</span></div>
     <p>Šeit parseris nav droši rekonstruējis visus produktus. Zemāk ir tikai nosaukuma/pozīcijas hinti — cena un produkta dati netiek izdomāti automātiski.</p>
+    <div class="source"><strong>Lapas progress</strong><br><span class="muted">${esc(aggregateMessage)}</span></div>
     <div class="preview-block"><div class="preview-head"><strong>Bukleta lapas priekšskatījums</strong><a href="${esc(pageUrl)}" target="_blank" rel="noopener">Atvērt pilnā izmērā</a></div><img class="preview" data-preview src="${esc(pageUrl)}" alt="Lidl bukleta lapa ${esc(selected.page_number??"—")}"><div class="preview-note muted" data-preview-error hidden>PDF lapas priekšskatījums nav pieejams. Produktu nepublicē, kamēr avota lapa nav apskatāma.</div></div>
     ${hintHtml||'<div class="muted">Hintu nav.</div>'}
-    ${open?'<div class="actions"><button class="primary" id="page_checked" type="button">Atzīmēt lapu pārbaudītu</button></div>':""}
-    ${selected.status==="rejected"?'<div class="muted">Šī lapa ir atzīmēta kā pārbaudīta.</div><div class="actions"><button id="page_reopen" type="button">Atgriezt lapu pārbaudei</button></div>':""}
+    ${backendOpen&&!aggregate.resolved?'<div class="actions"><button class="primary" id="page_checked" type="button">Atzīmēt lapu pārbaudītu</button></div>':""}
+    ${selected.status==="rejected"?'<div class="actions"><button id="page_reopen" type="button">Atgriezt lapu pārbaudei</button></div>':""}
     <details><summary>Page alert evidence</summary><pre>${esc(JSON.stringify(selected.original_payload,null,2))}</pre></details>
     <details><summary>Audit trail</summary><pre>${esc(JSON.stringify(selected.revisions||[],null,2))}</pre></details>`;
   document.querySelectorAll("[data-create-hint]").forEach(button=>{
     button.onclick=()=>createReviewFromHint(Number(button.dataset.createHint));
+  });
+  document.querySelectorAll("[data-open-child]").forEach(button=>{
+    button.onclick=()=>openItem(button.dataset.openChild);
   });
   const checked=$("page_checked");
   if(checked)checked.onclick=markPageAlertChecked;
