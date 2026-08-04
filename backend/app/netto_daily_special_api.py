@@ -312,8 +312,52 @@ def _assert_read_only_session(db: Session) -> None:
         )
 
 
-def _latest_snapshot(db: Session) -> SourceSnapshot:
-    snapshot = db.scalar(
+def _snapshot_manifest_window(
+    snapshot: SourceSnapshot,
+) -> tuple[date, date]:
+    if not snapshot.snapshot_path or not snapshot.sha256:
+        raise HTTPException(
+            status_code=503,
+            detail="Immutable Netto snapshot binding is unavailable",
+        )
+    try:
+        manifest_path = _verify_file(
+            snapshot.snapshot_path,
+            snapshot.sha256,
+            "Netto manifest",
+        )
+        if manifest_path is None:
+            raise RuntimeError("Netto manifest path is missing")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            raise RuntimeError("Netto manifest must be a JSON object")
+        if str(manifest.get("store_external_id")) != _SOURCE_STORE_EXTERNAL_ID:
+            raise RuntimeError("Netto daily-special manifest store mismatch")
+        if manifest.get("scope") != "family_primary_netto":
+            raise RuntimeError("Netto daily-special manifest scope mismatch")
+        raw_from = manifest.get("valid_from")
+        raw_until = manifest.get("valid_until")
+        if not isinstance(raw_from, str) or not isinstance(raw_until, str):
+            raise RuntimeError("Netto manifest validity window is missing")
+        valid_from = date.fromisoformat(raw_from)
+        valid_until = date.fromisoformat(raw_until)
+        if valid_from > valid_until:
+            raise RuntimeError("Netto manifest validity window is reversed")
+        return valid_from, valid_until
+    except HTTPException:
+        raise
+    except (RuntimeError, OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Netto snapshot manifest unavailable: {exc}",
+        ) from exc
+
+
+def _latest_snapshot(
+    db: Session,
+    effective_date: date,
+) -> SourceSnapshot | None:
+    snapshots = db.scalars(
         select(SourceSnapshot)
         .where(
             SourceSnapshot.source_chain == "netto",
@@ -321,14 +365,17 @@ def _latest_snapshot(db: Session) -> SourceSnapshot:
             SourceSnapshot.success.is_(True),
         )
         .order_by(SourceSnapshot.collected_at.desc())
-        .limit(1)
-    )
-    if snapshot is None or not snapshot.snapshot_path or not snapshot.sha256:
+    ).all()
+    if not snapshots:
         raise HTTPException(
             status_code=503,
-            detail="Latest immutable Netto snapshot is unavailable",
+            detail="Immutable Netto snapshots are unavailable",
         )
-    return snapshot
+    for snapshot in snapshots:
+        valid_from, valid_until = _snapshot_manifest_window(snapshot)
+        if valid_from <= effective_date <= valid_until:
+            return snapshot
+    return None
 
 
 def _latest_aldi_nord_snapshot(db: Session) -> SourceSnapshot | None:
@@ -439,33 +486,35 @@ def daily_specials(
         if as_of is not None
         else datetime.now(ZoneInfo("Europe/Berlin")).date()
     )
-    snapshot = _latest_snapshot(db)
-    try:
-        netto_offers = _cached_snapshot_offers(
-            str(snapshot.id),
-            snapshot.snapshot_path or "",
-            snapshot.sha256 or "",
-            snapshot.source_url,
-            snapshot.final_url or "",
-            snapshot.collected_at.isoformat(),
-        )
-    except RuntimeError as exc:
-        if str(exc) == "Netto prospect PDF path is missing":
-            # No PDF means there is no explicit daily-special evidence for
-            # this snapshot. Preserve the explicit-evidence-only contract:
-            # return an empty result instead of inferring from ordinary HTML
-            # offers. All other evidence failures remain fail-closed.
-            netto_offers = ()
-        else:
+    snapshot = _latest_snapshot(db, effective_date)
+    netto_offers: tuple[OfferCandidate, ...] = ()
+    if snapshot is not None:
+        try:
+            netto_offers = _cached_snapshot_offers(
+                str(snapshot.id),
+                snapshot.snapshot_path or "",
+                snapshot.sha256 or "",
+                snapshot.source_url,
+                snapshot.final_url or "",
+                snapshot.collected_at.isoformat(),
+            )
+        except RuntimeError as exc:
+            if str(exc) == "Netto prospect PDF path is missing":
+                # No PDF means there is no explicit daily-special evidence for
+                # this snapshot. Preserve the explicit-evidence-only contract:
+                # return an empty result instead of inferring from ordinary HTML
+                # offers. All other evidence failures remain fail-closed.
+                netto_offers = ()
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Netto daily-special evidence unavailable: {exc}",
+                ) from exc
+        except (OSError, ValueError, json.JSONDecodeError, ImportError) as exc:
             raise HTTPException(
                 status_code=503,
                 detail=f"Netto daily-special evidence unavailable: {exc}",
             ) from exc
-    except (OSError, ValueError, json.JSONDecodeError, ImportError) as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Netto daily-special evidence unavailable: {exc}",
-        ) from exc
 
     aldi_offers: tuple[OfferCandidate, ...] = ()
     aldi_snapshot = _latest_aldi_nord_snapshot(db)
