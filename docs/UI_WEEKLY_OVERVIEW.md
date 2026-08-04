@@ -1,36 +1,46 @@
-# Hermes Deals nedēļas pārskata UI V1
+# Hermes Deals nedēļas pārskata UI V2
 
 ## Mērķis
 
-9190 priekšskatījuma sākuma daļa rāda vienas nedēļas akciju sākuma dienas no
-pirmdienas līdz svētdienai. Lietotājs uzreiz redz, kurā dienā katram veikalam
-sākas jauni piedāvājumi, un var atvērt izvēlētās dienas produktu detaļas.
+9190 priekšskatījuma sākuma daļa rāda tikai īstermiņa īpašo akciju sākuma
+dienas no pirmdienas līdz svētdienai. Parastie pilnas nedēļas katalogi netiek
+uzrādīti kā dienas īpašie piedāvājumi.
 
 ## Vizuālā struktūra
 
-- horizontāla Hermes Deals galvene ar sadaļām **Nedēļas pārskats**, **Šodien**,
-  **Visi piedāvājumi** un **Pārskatīšana**;
-- veikala filtrs un nedēļas datuma izvēle galvenes labajā pusē;
-- septiņu dienu josla ar jauno piedāvājumu skaitu katram veikalam;
-- izvēlētās dienas grupas Lidl, ALDI Nord, Netto un EDEKA;
-- atsevišķa sadaļa piedāvājumiem, kas turpinās no iepriekšējām dienām;
-- nedēļas kopsavilkums ar aktīvāko dienu, vienas dienas akciju skaitu,
-  iesaistīto veikalu skaitu un nākamo aktivitāti;
-- esošais pilnais katalogs un tā filtri paliek pieejami zem nedēļas pārskata.
+V2 saglabā V1 izkārtojumu: horizontālo galveni, septiņu dienu joslu, veikalu
+kartītes, turpinošos piedāvājumus, nedēļas kopsavilkumu un pilno katalogu zem
+pārskata.
 
-## Datu līgums
+## Īstermiņa akcijas atlases līgums
 
-V1 neveido jaunu Python maršrutu un nemaina datubāzi. Tas atkārtoti izmanto
-esošo lapoto `GET /api/v1/deals/current` līgumu katrai nedēļas dienai.
-`available_count` paliek autoritatīvais lapošanas kopskaits.
+Nedēļas pārskats apvieno divus jau esošus read-only API līgumus:
 
-Akcijas sākuma diena tiek noteikta tikai no API atdotajiem laukiem:
+- `GET /api/v1/deals/daily-specials` — pierādīti vienas dienas piedāvājumi ar
+  `is_daily_special=true`, `special_confidence=high` un `special_valid_on`;
+- lapotais `GET /api/v1/deals/current` — citu veikalu piedāvājumi, kuru bāzes
+  vai lietotnes cenas periods ir ne garāks par trim kalendāra dienām.
 
-- `valid_from` / `valid_until`;
-- `app_valid_from` / `app_valid_until`, ja ir atsevišķs lietotnes cenas logs.
+Trīs dienu robeža ietver tipiskos ceturtdienas–sestdienas piedāvājumus un
+vienas dienas sestdienas akcijas, bet izslēdz pirmdienas–sestdienas pilnos
+katalogus.
 
-UI neizdomā veikala grafikus un nekodē pieņēmumu, ka konkrēts veikals vienmēr
-sāk akcijas noteiktā nedēļas dienā.
+Netto nedēļas pārskatā netiek klasificēts tikai pēc datumu īsuma. Netto rindai
+vajadzīgs eksplicītais augstas pārliecības vienas dienas pierādījums no
+`/api/v1/deals/daily-specials`. Tas saglabā iepriekš ieviesto precizitātes
+robežu un nepieņem par īpašu akciju nejaušu vienas dienas datuma rindu.
+
+## Periodu interpretācija
+
+- bāzes logs: `valid_from` / `valid_until`;
+- lietotnes cenas logs: `app_valid_from` / `app_valid_until`;
+- eksplicītais vienas dienas logs: `special_valid_on`;
+- sākuma sadaļā parādās tikai logs, kas sākas izvēlētajā datumā;
+- sadaļā **Turpinās no iepriekšējām dienām** parādās tikai kvalificēts īsais
+  logs, kas konkrētajā datumā vēl ir aktīvs.
+
+UI nekodē konkrētu veikalu nedēļas dienas un neizdomā piedāvājumus. Atlase
+balstās tikai API atdotajos periodos un eksplicītajos pierādījuma laukos.
 
 ## Laiks un nedēļas robeža
 
@@ -42,5 +52,5 @@ sāk akcijas noteiktā nedēļas dienā.
 
 - izmaiņas atrodas tikai 9190 integrācijas worktree;
 - produkcijas `main`, ports 9128 un produkcijas datubāze netiek mainīti;
-- 9190 API turpina izmantot piespiedu read-only datubāzes transakcijas;
+- Python API un datubāzes shēma netiek mainīta;
 - mainīti tikai `backend/app/ui/index.html`, šis dokuments un fokusētais tests.

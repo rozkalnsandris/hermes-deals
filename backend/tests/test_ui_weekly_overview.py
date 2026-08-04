@@ -21,7 +21,7 @@ class _IdCollector(HTMLParser):
                 self.ids.append(value)
 
 
-class UiWeeklyOverviewV1Test(unittest.TestCase):
+class UiWeeklyOverviewV2Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.html = (
@@ -32,8 +32,12 @@ class UiWeeklyOverviewV1Test(unittest.TestCase):
         ).read_text(encoding="utf-8")
         cls.active = re.sub(r"<!--.*?-->", "", cls.html, flags=re.S)
 
-    def test_release_marker_and_top_navigation_are_present(self) -> None:
+    def test_release_markers_and_top_navigation_are_present(self) -> None:
         self.assertIn('content="weekly-overview-v1"', self.html)
+        self.assertIn(
+            'content="weekly-overview-v2-short-period-filter"',
+            self.html,
+        )
         for marker in (
             "Nedēļas pārskats",
             "Šodien",
@@ -48,11 +52,13 @@ class UiWeeklyOverviewV1Test(unittest.TestCase):
         self.assertIn('<section class="weekly-calendar-shell"', self.active)
         self.assertIn('<aside class="weekly-summary-panel"', self.active)
 
-    def test_week_loader_reuses_existing_paginated_get_contract(self) -> None:
+    def test_week_loader_combines_explicit_and_current_contracts(self) -> None:
         self.assertIn(
-            "async function weeklyFetchDay(iso){return fetchAllDailyDeals(iso);}",
+            "Promise.all([fetchExplicitDailySpecials(iso),"
+            "fetchAllDailyDeals(iso)])",
             self.active,
         )
+        self.assertIn("weeklyUnique([...explicit,...current])", self.active)
         self.assertIn(
             "Promise.allSettled(dates.map(weeklyFetchDay))",
             self.active,
@@ -62,10 +68,40 @@ class UiWeeklyOverviewV1Test(unittest.TestCase):
             self.active,
         )
 
-    def test_start_day_is_derived_from_explicit_validity_fields(self) -> None:
-        self.assertIn("deal.valid_from,deal.app_valid_from", self.active)
-        self.assertIn("weeklyStartDate(deal)===iso", self.active)
-        self.assertIn("deal.valid_from===deal.valid_until", self.active)
+    def test_full_week_catalog_rows_are_excluded(self) -> None:
+        self.assertIn("WEEKLY_SPECIAL_MAX_DAYS=3", self.active)
+        self.assertIn(
+            "span&&span<=WEEKLY_SPECIAL_MAX_DAYS",
+            self.active,
+        )
+        self.assertIn(
+            'if(deal.source_chain!=="netto")',
+            self.active,
+        )
+        self.assertIn(
+            "add(deal.valid_from,deal.valid_until,\"base\")",
+            self.active,
+        )
+        self.assertIn(
+            "add(deal.app_valid_from,deal.app_valid_until,\"app\")",
+            self.active,
+        )
+
+    def test_netto_requires_explicit_high_confidence_evidence(self) -> None:
+        self.assertIn("deal.is_daily_special===true", self.active)
+        self.assertIn("deal.special_valid_on", self.active)
+        self.assertIn('deal.special_confidence==="high"', self.active)
+        self.assertIn(
+            'add(deal.special_valid_on,deal.special_valid_on,"explicit")',
+            self.active,
+        )
+
+    def test_start_and_continuing_sections_use_qualifying_windows(self) -> None:
+        self.assertIn("weeklyWindowForStart(deal,iso)", self.active)
+        self.assertIn("weeklyWindowForActive(deal,iso)", self.active)
+        self.assertIn("window&&window.start<iso", self.active)
+        self.assertIn("weeklyValidity(deal,iso)", self.active)
+        self.assertIn("weeklyIsSingleDay(deal,iso)", self.active)
 
     def test_week_is_monday_to_sunday_and_berlin_aware(self) -> None:
         self.assertIn('timeZone:"Europe/Berlin"', self.active)
