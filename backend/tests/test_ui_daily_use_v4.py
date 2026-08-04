@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from pathlib import Path
 import unittest
 
@@ -8,7 +9,7 @@ FAMILY = ROOT / "app" / "ui" / "index.html"
 
 class UiDailyUseV4Test(unittest.TestCase):
     def test_compact_home_mode_is_persistent_and_accessible(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="toggleCompact"',
             'UI_PREFS_KEY="hermesDeals.uiPreferences.v4"',
@@ -20,7 +21,7 @@ class UiDailyUseV4Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_card_density_mode_is_persistent_and_responsive(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="toggleDensity"',
             'function toggleCardDensity()',
@@ -32,7 +33,7 @@ class UiDailyUseV4Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_daily_action_header_stays_available_on_desktop(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             '@media(min-width:621px){.topbar{position:sticky',
             'top:8px;z-index:35',
@@ -42,7 +43,7 @@ class UiDailyUseV4Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_active_filters_are_summarized_and_resettable(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="filterSummary"',
             'function activeFilterLabels()',
@@ -55,7 +56,7 @@ class UiDailyUseV4Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_family_list_supports_notes_and_known_total(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'note=String(item.note||"").slice(0,160)',
             'function setNote(id,value)',
@@ -68,7 +69,7 @@ class UiDailyUseV4Test(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_desktop_scale_matches_eighty_percent_reference(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         self.assertIn(
             "@media(min-width:1000px){body{zoom:.8}}",
             html,

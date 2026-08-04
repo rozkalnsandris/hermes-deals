@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import unittest
@@ -82,7 +83,7 @@ class CatalogUiApiTest(unittest.TestCase):
         p=self.client.get("/api/v1/catalog?as_of=2026-07-25").json()["products"][0]; self.assertEqual(p["comparison_status"],"multi_store_comparison"); self.assertTrue(p["comparison_available"]); self.assertEqual(p["retailer_count"],2); self.assertEqual(p["lowest_price_eur"],"1.79"); self.assertEqual(len(p["current_offers"]),2)
 
     def test_ui_route_returns_family_interface(self) -> None:
-        r=self.client.get("/ui"); self.assertEqual(r.status_code,200); self.assertIn("text/html",r.headers["content-type"]); self.assertIn("Ģimenes cenu skats",r.text); self.assertIn("/api/v1/catalog",r.text); self.assertIn("Cenu vēsture",r.text)
+        r=self.client.get("/ui"); self.assertEqual(r.status_code,200); self.assertIn("text/html",r.headers["content-type"]); self.assertIn("Ģimenes cenu skats",ui_response_contract(r)); self.assertIn("/api/v1/catalog",ui_response_contract(r)); self.assertIn("Cenu vēsture",ui_response_contract(r))
 
     def test_openapi_contains_catalog_but_ui_is_hidden(self) -> None:
         schema=self.client.get("/api/openapi.json").json(); self.assertIn("/api/v1/catalog",schema["paths"]); self.assertNotIn("/ui",schema["paths"])

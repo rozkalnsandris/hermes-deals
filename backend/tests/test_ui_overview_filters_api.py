@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import unittest
@@ -103,11 +104,11 @@ class UiOverviewFiltersApiTest(unittest.TestCase):
     def test_ui_contains_phase5b_family_features(self) -> None:
         response = self.client.get("/ui")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Cenas bez minējumiem.", response.text)
-        self.assertIn("/api/v1/ui/overview", response.text)
-        self.assertIn("comparison_only", response.text)
-        self.assertIn("Cenu vēstures grafiks", response.text)
-        self.assertIn("bottom-nav", response.text)
+        self.assertIn("Cenas bez minējumiem.", ui_response_contract(response))
+        self.assertIn("/api/v1/ui/overview", ui_response_contract(response))
+        self.assertIn("comparison_only", ui_response_contract(response))
+        self.assertIn("Cenu vēstures grafiks", ui_response_contract(response))
+        self.assertIn("bottom-nav", ui_response_contract(response))
 
 
 if __name__ == "__main__":

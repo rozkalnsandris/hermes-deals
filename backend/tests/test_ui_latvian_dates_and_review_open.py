@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from pathlib import Path
 import unittest
 
@@ -9,7 +10,7 @@ REVIEW = ROOT / "app" / "ui" / "review.html"
 
 class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
     def test_family_ui_uses_deterministic_latvian_date_display(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="asOf" type="hidden"',
             'id="asOfDisplay"',
@@ -77,7 +78,7 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_family_and_review_keep_visible_latvian_date_with_native_picker(self) -> None:
-        family = FAMILY.read_text(encoding="utf-8")
+        family = read_family_ui_contract()
         review = REVIEW.read_text(encoding="utf-8")
         self.assertIn('placeholder="DD.MM.GGGG"', family)
         self.assertIn('placeholder="DD.MM.GGGG"', review)
@@ -87,7 +88,7 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         self.assertIn("showPicker()", review)
 
     def test_native_date_picker_anchor_stays_on_calendar_button(self) -> None:
-        family = FAMILY.read_text(encoding="utf-8")
+        family = read_family_ui_contract()
         review = REVIEW.read_text(encoding="utf-8")
         for html in (family, review):
             self.assertIn(".date-entry{position:relative;", html)
@@ -108,7 +109,7 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_empty_family_search_explains_matching_review_state(self) -> None:
-        html = FAMILY.read_text(encoding="utf-8")
+        html = read_family_ui_contract()
         for marker in (
             'id="reviewSearchHint"',
             "async function updateReviewSearchHint(d)",

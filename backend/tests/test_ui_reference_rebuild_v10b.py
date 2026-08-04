@@ -1,3 +1,4 @@
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 import re
 import unittest
 from pathlib import Path
@@ -6,9 +7,7 @@ from pathlib import Path
 class UiReferenceRebuildV10bTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.html = (
-            Path(__file__).resolve().parents[1] / "app" / "ui" / "index.html"
-        ).read_text(encoding="utf-8")
+        cls.html = read_family_ui_contract()
 
     def test_release_marker_is_present(self):
         self.assertIn("reference-v10-complete-daily-special-pagination", self.html)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import unittest
@@ -112,7 +113,7 @@ class UiBasketApiTest(unittest.TestCase):
     def test_ui_contains_shopping_list_detail_and_basket_features(self):
         response=self.client.get("/ui"); self.assertEqual(response.status_code,200)
         for marker in ("hermesDeals.shoppingList.v1","/api/v1/ui/basket/compare","Produkta detaļas","Pievienot sarakstam","best_complete_total_eur","Cenu vēstures grafiks"):
-            self.assertIn(marker,response.text)
+            self.assertIn(marker,ui_response_contract(response))
 
 
 if __name__ == "__main__":
