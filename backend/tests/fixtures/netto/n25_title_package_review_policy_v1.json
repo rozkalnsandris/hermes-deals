@@ -1,0 +1,48 @@
+{
+  "basis": {
+    "automatic_package_selection_count": 0,
+    "combined_full_title_count": 46,
+    "combined_full_title_rate": 0.754098,
+    "combined_partial_or_full_title_count": 56,
+    "combined_partial_or_full_title_rate": 0.918033,
+    "evaluated_true_prediction_count": 61,
+    "n24_visual_truth_fixture_sha256": "b81c5733a10ce574d927f00697371edf1277da6566c0e223264497ff8c427dd0"
+  },
+  "card_and_normal_price_policy": {
+    "automatic_publish_enabled": false,
+    "blind_gate": "pass",
+    "reason": "Card and normal-price evidence passed, but the offer is not publishable without reviewed title/package fields."
+  },
+  "package_policy": {
+    "automatic_selection_enabled": false,
+    "candidate_evidence_allowed": true,
+    "reason": "No automatic package value was selected in the blind N24 evaluation.",
+    "route": "review_required",
+    "selected_package_must_be_null": true
+  },
+  "production_write_performed": false,
+  "promotion_policy": {
+    "automatic_approval_enabled": false,
+    "automatic_publish_enabled": false,
+    "overall_promotion": "blocked",
+    "production_integration_allowed": false,
+    "required_next_gates": [
+      "store-aware truth-pack regression pass",
+      "review-only title/package contract pass",
+      "new Dortmund store 5659 weekly canary"
+    ]
+  },
+  "schema_version": 1,
+  "strategy": "netto_n25_title_package_review_policy_v1",
+  "thresholds": {
+    "automatic_package_selection_minimum": 0.9,
+    "automatic_title_full_coverage_minimum": 0.9
+  },
+  "title_policy": {
+    "automatic_selection_enabled": false,
+    "candidate_evidence_allowed": true,
+    "reason": "N24 combined full title coverage is below the 90% promotion threshold.",
+    "route": "review_required",
+    "selected_title_must_be_null": true
+  }
+}
