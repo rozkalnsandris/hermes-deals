@@ -137,7 +137,6 @@ jobs:
       - name: Resolve trigger and validate merged PR
         id: authorize
         env:
-          EVENT_PATH: ${{ github.event_path }}
           EVENT_NAME: ${{ github.event_name }}
           WORKFLOW_REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
@@ -170,7 +169,7 @@ jobs:
           workflow_ref = os.environ["WORKFLOW_REF"]
           if workflow_ref != "refs/heads/main":
               raise SystemExit(f"audit workflow must run from main, not {workflow_ref}")
-          event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
           repo = event["repository"]["full_name"]
           if repo != expected_repo:
               raise SystemExit(f"unexpected repository: {repo}")
@@ -237,7 +236,6 @@ jobs:
           trigger_kind = event_name
           trigger_label = ""
           trigger_actor = ""
-
           if event_name == "workflow_dispatch":
               trigger_actor = require_actor(
                   event.get("sender") or {},
