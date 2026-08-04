@@ -21,7 +21,7 @@ class _IdCollector(HTMLParser):
                 self.ids.append(value)
 
 
-class UiWeeklyOverviewV2Test(unittest.TestCase):
+class UiWeeklyOverviewV3Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.html = (
@@ -36,6 +36,10 @@ class UiWeeklyOverviewV2Test(unittest.TestCase):
         self.assertIn('content="weekly-overview-v1"', self.html)
         self.assertIn(
             'content="weekly-overview-v2-short-period-filter"',
+            self.html,
+        )
+        self.assertIn(
+            'content="weekly-overview-v3-empty-day-polish"',
             self.html,
         )
         for marker in (
@@ -123,6 +127,18 @@ class UiWeeklyOverviewV2Test(unittest.TestCase):
             self.active,
         )
         self.assertIn("@media(max-width:760px)", self.active)
+
+    def test_week_strip_hides_cross_axis_scrollbar(self) -> None:
+        self.assertIn("overflow-x:auto", self.active)
+        self.assertIn("overflow-y:hidden", self.active)
+
+    def test_empty_selected_day_uses_one_compact_state(self) -> None:
+        self.assertIn("function weeklyNextActiveDate(iso)", self.active)
+        self.assertIn("function weeklyEmptyDayHtml(iso)", self.active)
+        self.assertIn('weeklyStoreGroups.classList.toggle("is-empty",!rows.length)', self.active)
+        self.assertIn('weeklyStoreGroups.innerHTML=weeklyEmptyDayHtml(iso)', self.active)
+        self.assertIn("data-weekly-empty-next", self.active)
+        self.assertIn("weekly-empty-day-action", self.active)
 
     def test_new_dom_ids_are_unique(self) -> None:
         parser = _IdCollector()

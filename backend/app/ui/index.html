@@ -44,6 +44,7 @@ renderBestToday();bindCanonicalCards()
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23171914'/%3E%3Ctext x='32' y='44' font-size='38' text-anchor='middle' fill='white'%3EH%3C/text%3E%3C/svg%3E">
   <meta name="hermes-ui-fix" content="weekly-overview-v1">
   <meta name="hermes-ui-fix" content="weekly-overview-v2-short-period-filter">
+  <meta name="hermes-ui-fix" content="weekly-overview-v3-empty-day-polish">
   <title>Hermes Deals</title>
   <style>
     :root{--bg:#f3f5f1;--surface:#fff;--surface-2:#eef1eb;--text:#171914;--muted:#697066;--border:#d8ddd3;--accent:#246b45;--accent-soft:#dcecdf;--warning:#8a6500;--warning-soft:#fff3c4;--danger:#9b3f37;--shadow:0 10px 32px rgba(23,25,20,.075);--overlay:rgba(10,12,9,.48);--max:1260px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -2087,6 +2088,7 @@ renderBestToday();bindCanonicalCards()
     body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend .single{background:var(--weekly-blue)}
     body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-calendar-scroll{
       overflow-x:auto;
+      overflow-y:hidden;
       border-top:1px solid var(--weekly-line);
       scrollbar-width:thin;
     }
@@ -2349,6 +2351,61 @@ renderBestToday();bindCanonicalCards()
       line-height:1.45;
       text-align:center;
     }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-groups.is-empty{
+      grid-template-columns:1fr;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day{
+      min-height:138px;
+      display:grid;
+      grid-template-columns:48px minmax(0,1fr) auto;
+      gap:14px;
+      align-items:center;
+      padding:20px;
+      border:1px dashed #cfdbd4;
+      border-radius:10px;
+      background:linear-gradient(180deg,#fbfdfb,#f7faf8);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-icon{
+      width:48px;
+      height:48px;
+      display:grid;
+      place-items:center;
+      border-radius:14px;
+      background:var(--weekly-green-soft);
+      color:var(--weekly-green);
+      font-size:1.25rem;
+      font-weight:950;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-copy{
+      min-width:0;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-title{
+      color:#172019;
+      font-size:.82rem;
+      font-weight:950;
+      line-height:1.25;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-text{
+      margin-top:5px;
+      color:#6d7971;
+      font-size:.7rem;
+      font-weight:700;
+      line-height:1.45;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-action{
+      min-height:38px;
+      padding:0 13px;
+      border:1px solid #cfe1d6;
+      border-radius:8px;
+      background:#fff;
+      color:var(--weekly-green-dark);
+      font-size:.68rem;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-action:hover{
+      background:var(--weekly-green-soft);
+    }
     body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing{
       margin-top:14px;
       padding-top:13px;
@@ -2546,6 +2603,15 @@ renderBestToday();bindCanonicalCards()
       body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-list{grid-template-columns:1fr}
       body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-detail-panel,
       body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-panel{padding:12px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day{
+        grid-template-columns:42px minmax(0,1fr);
+        padding:16px;
+      }
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-icon{width:42px;height:42px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day-action{
+        grid-column:1/-1;
+        width:100%;
+      }
     }
     @media(max-width:520px){
       body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item span{display:none}
@@ -2824,7 +2890,41 @@ renderBestToday();bindCanonicalCards()
       function weeklyProductHtml(deal,iso){weeklyState.dealById.set(String(deal.offer_candidate_id),deal);const image=deal.source_image_url?`<img src="${esc(deal.source_image_url)}" alt="${esc(deal.product_name_raw)}" loading="lazy">`:`<span class="weekly-product-placeholder">Nav attēla</span>`,brand=deal.brand_raw||retailerName(deal.source_chain),single=weeklyIsSingleDay(deal,iso),startTag=iso===weeklyBerlinToday()?"Sākas šodien":"Sākas šajā dienā";return `<button class="weekly-product" data-weekly-deal-id="${esc(deal.offer_candidate_id)}" type="button"><span class="weekly-product-media">${image}</span><span class="weekly-product-copy"><span class="weekly-product-brand">${esc(brand)}</span><span class="weekly-product-name">${esc(deal.product_name_raw)}${deal.package_text_raw?` · ${esc(deal.package_text_raw)}`:""}</span><span class="weekly-product-tags"><span class="weekly-product-tag ${single?"single":"start"}">${single?"Tikai šo dienu":startTag}</span><span class="weekly-product-tag">${esc(weeklyValidity(deal,iso))}</span></span></span><span class="weekly-product-price">${weeklyPrice(deal,iso)}</span></button>`;}
       function weeklyStoreCard(retailer,rows,iso){const sorted=weeklySort(rows),preview=sorted.slice(0,WEEKLY_PREVIEW_LIMIT),content=preview.length?`<div class="weekly-products">${preview.map(deal=>weeklyProductHtml(deal,iso)).join("")}</div>`:`<div class="weekly-store-empty">Šajā dienā nav jaunu ${esc(retailerName(retailer))} akciju.</div>`;return `<article class="weekly-store-card"><div class="weekly-store-head"><span><i class="weekly-store-dot ${esc(retailer)}"></i>${esc(retailerName(retailer))}</span><span class="weekly-store-count">${rows.length}</span></div>${content}<button class="weekly-store-footer" data-weekly-open-retailer="${esc(retailer)}" type="button" ${rows.length?"":"disabled"}>${rows.length?`Skatīt visus ${rows.length} piedāvājumus →`:"Nav jaunu piedāvājumu"}</button></article>`;}
       function bindWeeklyProducts(){document.querySelectorAll("[data-weekly-deal-id]").forEach(button=>button.addEventListener("click",()=>{const deal=weeklyState.dealById.get(String(button.dataset.weeklyDealId));if(deal)openRawDealDetail(deal);}));document.querySelectorAll("[data-weekly-open-retailer]").forEach(button=>button.addEventListener("click",()=>openWeeklyRetailer(button.dataset.weeklyOpenRetailer)));}
-      function renderWeeklyDetail(){const iso=weeklyState.selectedDate;if(weeklyState.failedDates.has(iso)){$("weeklyDetailTitle").textContent=`${weeklyLongDate(iso)} dati nav pieejami`;weeklyStoreGroups.innerHTML=`<div class="weekly-error">Šīs dienas piedāvājumus neizdevās ielādēt. Pārējās nedēļas dienas paliek pieejamas.</div>`;weeklyContinuing.hidden=true;return;}const rows=weeklyStartsFor(iso),groups=new Map();for(const deal of rows){if(!groups.has(deal.source_chain))groups.set(deal.source_chain,[]);groups.get(deal.source_chain).push(deal);}const retailersToShow=selectedRetailer?[selectedRetailer]:WEEKLY_RETAILER_ORDER;$("weeklyDetailTitle").textContent=`Sākas ${weeklyLongDate(iso)}`;weeklyStoreGroups.innerHTML=retailersToShow.map(retailer=>weeklyStoreCard(retailer,groups.get(retailer)||[],iso)).join("");const continuing=weeklySort(weeklyContinuingFor(iso)).slice(0,4);weeklyContinuing.hidden=!continuing.length;weeklyContinuingList.innerHTML=continuing.map(deal=>{weeklyState.dealById.set(String(deal.offer_candidate_id),deal);const image=deal.source_image_url?`<img src="${esc(deal.source_image_url)}" alt="${esc(deal.product_name_raw)}" loading="lazy">`:`<span></span>`;return `<button class="weekly-continuing-item" data-weekly-deal-id="${esc(deal.offer_candidate_id)}" type="button">${image}<span><span class="weekly-continuing-name">${esc(deal.product_name_raw)}</span><span class="weekly-continuing-meta">${esc(retailerName(deal.source_chain))} · līdz ${esc(weeklyShortDate(weeklyEndDate(deal,iso)||iso))}</span></span><span class="weekly-continuing-price">${weeklyPrice(deal,iso)}</span></button>`;}).join("");bindWeeklyProducts();}
+      function weeklyNextActiveDate(iso){return weeklyDates(weeklyState.weekStart).find(candidate=>candidate>iso&&weeklyStartsFor(candidate).length);}
+      function weeklyEmptyDayHtml(iso){const nextIso=weeklyNextActiveDate(iso),subject=selectedRetailer?`${retailerName(selectedRetailer)} īstermiņa akcijas`:"Īstermiņa akcijas",nextCopy=nextIso?`Nākamās sākas ${weeklyLongDate(nextIso)}.`:"Šajā nedēļā vēlāk jaunu akciju sākumu nav.",action=nextIso?`<button class="weekly-empty-day-action" data-weekly-empty-next="${esc(nextIso)}" type="button">Skatīt ${esc(weeklyShortDate(nextIso))} piedāvājumus →</button>`:"";return `<div class="weekly-empty-day"><div class="weekly-empty-day-icon" aria-hidden="true">✓</div><div class="weekly-empty-day-copy"><div class="weekly-empty-day-title">${esc(subject)} šajā dienā nesākas</div><div class="weekly-empty-day-text">${esc(nextCopy)}</div></div>${action}</div>`;}
+      function renderWeeklyDetail(){
+        const iso=weeklyState.selectedDate;
+        if(weeklyState.failedDates.has(iso)){
+          $("weeklyDetailTitle").textContent=`${weeklyLongDate(iso)} dati nav pieejami`;
+          weeklyStoreGroups.classList.remove("is-empty");
+          weeklyStoreGroups.innerHTML=`<div class="weekly-error">Šīs dienas piedāvājumus neizdevās ielādēt. Pārējās nedēļas dienas paliek pieejamas.</div>`;
+          weeklyContinuing.hidden=true;
+          return;
+        }
+        const rows=weeklyStartsFor(iso),groups=new Map();
+        for(const deal of rows){
+          if(!groups.has(deal.source_chain))groups.set(deal.source_chain,[]);
+          groups.get(deal.source_chain).push(deal);
+        }
+        $("weeklyDetailTitle").textContent=rows.length?`Sākas ${weeklyLongDate(iso)}`:`${weeklyCap(weeklyWeekday(iso))}, ${weeklyShortDate(iso)}`;
+        weeklyStoreGroups.classList.toggle("is-empty",!rows.length);
+        if(rows.length){
+          const retailersToShow=selectedRetailer?[selectedRetailer]:WEEKLY_RETAILER_ORDER;
+          weeklyStoreGroups.innerHTML=retailersToShow.map(retailer=>weeklyStoreCard(retailer,groups.get(retailer)||[],iso)).join("");
+        }else{
+          weeklyStoreGroups.innerHTML=weeklyEmptyDayHtml(iso);
+        }
+        const continuing=weeklySort(weeklyContinuingFor(iso)).slice(0,4);
+        weeklyContinuing.hidden=!continuing.length;
+        weeklyContinuingList.innerHTML=continuing.map(deal=>{
+          weeklyState.dealById.set(String(deal.offer_candidate_id),deal);
+          const image=deal.source_image_url?`<img src="${esc(deal.source_image_url)}" alt="${esc(deal.product_name_raw)}" loading="lazy">`:`<span></span>`;
+          return `<button class="weekly-continuing-item" data-weekly-deal-id="${esc(deal.offer_candidate_id)}" type="button">${image}<span><span class="weekly-continuing-name">${esc(deal.product_name_raw)}</span><span class="weekly-continuing-meta">${esc(retailerName(deal.source_chain))} · līdz ${esc(weeklyShortDate(weeklyEndDate(deal,iso)||iso))}</span></span><span class="weekly-continuing-price">${weeklyPrice(deal,iso)}</span></button>`;
+        }).join("");
+        const nextButton=weeklyStoreGroups.querySelector("[data-weekly-empty-next]");
+        if(nextButton)nextButton.addEventListener("click",()=>selectWeeklyDate(nextButton.dataset.weeklyEmptyNext));
+        bindWeeklyProducts();
+      }
       function renderWeeklySummary(){const dates=weeklyDates(weeklyState.weekStart),counts=dates.map(iso=>[iso,weeklyStartsFor(iso).length]),busiest=counts.slice().sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0],allStarts=dates.flatMap(iso=>weeklyStartsFor(iso).map(deal=>({deal,iso}))),singleCount=allStarts.filter(entry=>weeklyIsSingleDay(entry.deal,entry.iso)).length,retailerCount=new Set(allStarts.map(entry=>entry.deal.source_chain)).size,next=counts.find(([iso,count])=>iso>weeklyState.selectedDate&&count>0);$("weeklyBusiest").textContent=busiest&&busiest[1]?weeklyCap(weeklyWeekday(busiest[0])):"Nav jaunu akciju";$("weeklySingleDay").textContent=String(singleCount);$("weeklyRetailerCount").textContent=String(retailerCount);$("weeklyNextActivity").textContent=next?weeklyCap(weeklyWeekday(next[0])):"Šonedēļ nav";}
       function renderWeeklyOverview(){weeklyState.dealById.clear();weeklyRetailer.value=selectedRetailer;renderWeeklyDays();renderWeeklyDetail();renderWeeklySummary();}
       function syncWeeklyRetailer(value){selectedRetailer=value||"";weeklyRetailer.value=selectedRetailer;if($("retailerSelect"))$("retailerSelect").value=selectedRetailer;retailers.querySelectorAll(".chip").forEach(chip=>chip.classList.toggle("active",(chip.dataset.retailer||"")===selectedRetailer));saveViewPrefs();syncUrl();renderWeeklyOverview();loadGrid();}

@@ -1,4 +1,4 @@
-# Hermes Deals nedēļas pārskata UI V2
+# Hermes Deals nedēļas pārskata UI V3
 
 ## Mērķis
 
@@ -8,7 +8,7 @@ uzrādīti kā dienas īpašie piedāvājumi.
 
 ## Vizuālā struktūra
 
-V2 saglabā V1 izkārtojumu: horizontālo galveni, septiņu dienu joslu, veikalu
+V3 saglabā V1/V2 izkārtojumu: horizontālo galveni, septiņu dienu joslu, veikalu
 kartītes, turpinošos piedāvājumus, nedēļas kopsavilkumu un pilno katalogu zem
 pārskata.
 
@@ -41,6 +41,21 @@ robežu un nepieņem par īpašu akciju nejaušu vienas dienas datuma rindu.
 
 UI nekodē konkrētu veikalu nedēļas dienas un neizdomā piedāvājumus. Atlase
 balstās tikai API atdotajos periodos un eksplicītajos pierādījuma laukos.
+
+
+## Tukšo dienu un nedēļas joslas uzvedība
+
+Ja izvēlētajā dienā neviena kvalificēta īstermiņa akcija nesākas, veikalu četru
+tukšo kartīšu režģa vietā tiek rādīts viens kompakts stāvoklis. Tas paskaidro,
+ka šajā dienā jaunu akciju sākumu nav, un, ja tajā pašā nedēļā ir nākamā aktīvā
+diena, piedāvā vienu pogu pāriet uz tās piedāvājumiem.
+
+Nedēļas josla darbvirsmā neiegūst nevajadzīgu vertikālo ritjoslu. Horizontālā
+ritināšana paliek pieejama šaurākiem ekrāniem, bet šķērsass pārplūde tiek
+paslēpta.
+
+Šis ir tikai vizuāls un navigācijas uzlabojums. Īstermiņa periodu atlases
+līgums, API pieprasījumi un piedāvājumu skaitīšana netiek mainīti.
 
 ## Laiks un nedēļas robeža
 
