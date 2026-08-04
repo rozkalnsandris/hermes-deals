@@ -170,3 +170,77 @@ jobs:
             echo "- Runner: \`$RUNNER_NAME\`"
             echo "- Production deployment: **not authorized**"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: Report audit run metadata to PR
+    needs:
+      - authorize
+      - rpi5-audit
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Post machine-readable result comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          AUDIT: ${{ needs.authorize.outputs.audit }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          RPI5_RESULT: ${{ needs.rpi5-audit.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          issue_number = int(os.environ["ISSUE_NUMBER"])
+          audit = os.environ["AUDIT"]
+          commit_sha = os.environ["REGISTERED_SHA"]
+          result = os.environ["RPI5_RESULT"]
+          run_id = os.environ["RUN_ID"]
+          run_attempt = os.environ["RUN_ATTEMPT"]
+          server_url = os.environ["SERVER_URL"]
+          artifact_name = f"{audit}-{commit_sha}-run-{run_id}"
+          actions_url = f"{server_url}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}"
+
+          body = (
+              f"<!-- hermes-deals-rpi5-audit-result:{run_id}:{run_attempt} -->\n"
+              "## RPi5 audit result\n\n"
+              f"- Audit: `{audit}`\n"
+              f"- Registered commit: `{commit_sha}`\n"
+              f"- RPi5 job result: **{result}**\n"
+              f"- Workflow run ID: `{run_id}`\n"
+              f"- Run attempt: `{run_attempt}`\n"
+              f"- Artifact: `{artifact_name}`\n"
+              f"- Actions run: {actions_url}\n"
+              "- Production deployment: **not authorized**\n"
+          )
+
+          payload = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-rpi5-audit-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment response: {response.status}")
+          PY
