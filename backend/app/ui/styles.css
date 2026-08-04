@@ -2581,4 +2581,57 @@
       body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product{grid-template-columns:48px minmax(0,1fr) auto}
       body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-media{width:48px;height:48px}
     }
+
+    /* Issue #32 mobile and date regression contract. */
+    html,body{max-width:100%;overflow-x:hidden;overflow-x:clip}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-overview,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-appbar,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-main-nav,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-title-row,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-content-grid,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-detail-panel,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-panel,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-card,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] #deals,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .toolbar,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .filter-panel,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .filter-summary,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .card,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .daily-special-card{min-width:0;max-width:100%}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-date-control,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .date-entry{max-width:100%}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-date-input,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .native-date-proxy{max-width:100%}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-copy,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-name,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-name,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .product-name,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .brand-name,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .package,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .filter-token{min-width:0;overflow-wrap:anywhere}
+    @media(max-width:760px){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-appbar{width:auto;min-width:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);width:100%;min-width:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-select,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-date-control,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date{width:100%;min-width:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .filter-summary .reset-filters{width:100%;margin-left:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .retailers{max-width:100%}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .bottom-nav{left:0;right:0;max-width:100%}
+    }
+    @media(max-width:520px){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product{grid-template-columns:48px minmax(0,1fr)}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-price{grid-column:2;justify-self:start;padding-top:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+    }
+    @media(pointer:coarse){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-control-button,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .date-picker-button,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .reset-filters{min-height:44px}
+    }
   /*HERMES_UI_STYLE_CLOSE:PC9zdHlsZT4=*/
