@@ -1,0 +1,62 @@
+[
+  {
+    "campaign_id": "n25",
+    "field": "card_ownership",
+    "expected": "page-12-card-2",
+    "predicted": "page-12-card-1",
+    "classification": "parser_defect",
+    "page_number": 12,
+    "card_id": "page-12-card-2",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pdf_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "parser_identity": "netto-parser@abc123",
+    "store_external_id": "5659",
+    "scope": "family_primary_netto",
+    "case": "adjacent_card_leakage"
+  },
+  {
+    "campaign_id": "n25",
+    "field": "price",
+    "expected": "1.99",
+    "predicted": "2.99",
+    "classification": "parser_defect",
+    "page_number": 18,
+    "card_id": "page-18-card-4",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pdf_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "parser_identity": "netto-parser@abc123",
+    "store_external_id": "5659",
+    "scope": "family_primary_netto",
+    "case": "reference_price_selected_as_offer_price"
+  },
+  {
+    "campaign_id": "n26",
+    "field": "package",
+    "expected": null,
+    "predicted": "1 kg",
+    "classification": "parser_defect",
+    "page_number": 7,
+    "card_id": "page-7-card-3",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pdf_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "parser_identity": "netto-parser@abc123",
+    "store_external_id": "5659",
+    "scope": "family_primary_netto",
+    "case": "variable_weight_invented_package"
+  },
+  {
+    "campaign_id": "n26",
+    "field": "package",
+    "expected": "500 g",
+    "predicted": null,
+    "classification": "parser_defect",
+    "page_number": 21,
+    "card_id": "page-21-card-1",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pdf_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "parser_identity": "netto-parser@abc123",
+    "store_external_id": "5659",
+    "scope": "family_primary_netto",
+    "case": "missing_package_text"
+  }
+]

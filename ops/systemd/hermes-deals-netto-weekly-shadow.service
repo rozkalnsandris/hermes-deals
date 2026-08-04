@@ -1,0 +1,19 @@
+[Unit]
+Description=Hermes Deals Netto weekly shadow decision
+Wants=network-online.target
+After=network-online.target
+OnFailure=hermes-deals-netto-weekly-shadow-alert.service
+
+[Service]
+Type=oneshot
+User=andris
+Group=andris
+WorkingDirectory=/home/andris/hermes-deals
+ExecStart=/usr/bin/python3 /home/andris/hermes-deals/tools/netto_weekly_shadow.py decide --input /var/lib/hermes-deals/netto-weekly-shadow/input.json --output /var/lib/hermes-deals/netto-weekly-shadow/decision.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hermes-deals/netto-weekly-shadow
+UMask=0077
+SyslogIdentifier=hermes-deals-netto-weekly-shadow
