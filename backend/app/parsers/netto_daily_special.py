@@ -106,6 +106,8 @@ class NettoDailySpecialCandidate:
     source_geometry: tuple[dict[str, object], ...] = ()
     unit_label: str | None = None
     pricing_mode: str = "fixed_package"
+    app_price_eur: Decimal | None = None
+    deposit_eur: Decimal | None = None
 
 
 def _normalise_line(value: str) -> str:
@@ -405,6 +407,7 @@ def extract_food_milk_candidates(
 _PACKAGE_MARKER_RE = re.compile(
     r"(?i)(?:"
     r"(?:\d+\s*x\s*)?\d+(?:[.,]\d+)?\s*(?:kg|g|ml|liter|l)"
+    r"(?:\s*[–-]\s*\d+(?:[.,]\d+)?\s*(?:kg|g|ml|liter|l))?"
     r"|stück"
     r")"
 )
@@ -421,6 +424,10 @@ _PRIMARY_PRICE_RE = re.compile(
     r"^\s*(\d+(?:[.,](?:\d{1,2}|[–-]))?)\s*\*?\s*$"
 )
 _DISCOUNT_RE = re.compile(r"[–-]\s*\d{1,3}%")
+_DEPOSIT_RE = re.compile(
+    r"(?:zzgl\.?\s*)?Pfand\s*(\d+(?:[,.]\d{1,2})?)",
+    re.IGNORECASE,
+)
 
 
 def _clean_pdf_text(value: str) -> str:
@@ -459,12 +466,11 @@ def _product_name_and_package(
             index
             for index, line in enumerate(lines)
             if (
-                re.search(
-                    r"(?i)(?:\d+\s*x\s*)?\d+(?:[.,]\d+)?\s*"
-                    r"(?:kg|g|ml|liter|l)\b",
-                    line,
+                (match := _PACKAGE_MARKER_RE.search(line)) is not None
+                and (
+                    match.group(0).casefold() != "stück"
+                    or re.fullmatch(r"(?i)stück", line) is not None
                 )
-                or re.fullmatch(r"(?i)stück", line)
             )
         ),
         None,
@@ -492,7 +498,11 @@ def _product_name_and_package(
         else:
             name += " " + line
     name = _clean_pdf_text(name)
-    package_match = _PACKAGE_MARKER_RE.search(lines[package_index])
+    # FitZ may split a package range between adjacent lines, for example
+    # ``0,65 Liter – 1`` and ``Liter``.  Search the cleaned tail instead of
+    # only the first package line so the exact source range is preserved.
+    package_source = _clean_pdf_text(" ".join(lines[package_index:]))
+    package_match = _PACKAGE_MARKER_RE.search(package_source)
     if package_match is None:
         return None
     package = _clean_pdf_text(package_match.group(0))
@@ -579,6 +589,171 @@ def _unit_price(
     return value, match.group(2).casefold()
 
 
+def _deposit_price(block: NettoPdfTextBlock) -> Decimal | None:
+    match = _DEPOSIT_RE.search(block.text)
+    return _decimal(match.group(1)) if match else None
+
+
+def _standalone_prices(block: NettoPdfTextBlock) -> list[Decimal]:
+    values: list[Decimal] = []
+    for raw_line in block.text.splitlines():
+        line = _clean_pdf_text(raw_line)
+        value = _primary_price(
+            NettoPdfTextBlock(line, block.x0, block.y0, block.x1, block.y1)
+        )
+        if value is not None:
+            values.append(value)
+    return values
+
+
+_APP_UNIT_PRICE_RE = re.compile(
+    r"\((\d+(?:[.,]\d+)?)"
+    r"(?:\s*[–-]\s*(\d+(?:[.,]\d+)?))?"
+    r"\s*/\s*(kg|g|l|ml|liter|stück)\)",
+    re.IGNORECASE,
+)
+_PACKAGE_VALUE_RE = re.compile(
+    r"(?i)(?:\d+\s*x\s*)?"
+    r"(\d+(?:[.,]\d+)?)\s*(kg|g|ml|liter|l)"
+    r"(?:\s*[–-]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|ml|liter|l))?"
+)
+
+
+def _normalised_amount(value: Decimal, unit: str) -> tuple[Decimal, str]:
+    key = unit.casefold()
+    if key == "kg":
+        return value, "kg"
+    if key == "g":
+        return value / Decimal("1000"), "kg"
+    if key in {"liter", "l"}:
+        return value, "l"
+    if key == "ml":
+        return value / Decimal("1000"), "l"
+    return value, key
+
+
+def _package_amounts(package_text: str) -> tuple[list[Decimal], str | None]:
+    match = _PACKAGE_VALUE_RE.search(package_text)
+    if match is None:
+        return [], None
+    first, unit = _normalised_amount(_decimal(match.group(1)), match.group(2))
+    amounts = [first]
+    if match.group(3) is not None and match.group(4) is not None:
+        second, second_unit = _normalised_amount(
+            _decimal(match.group(3)),
+            match.group(4),
+        )
+        if second_unit != unit:
+            return [], None
+        amounts.append(second)
+    return amounts, unit
+
+
+def _app_unit_prices(block: NettoPdfTextBlock) -> tuple[list[Decimal], str | None]:
+    match = _APP_UNIT_PRICE_RE.search(_clean_pdf_text(block.text))
+    if match is None:
+        return [], None
+    values = [_decimal(match.group(1))]
+    if match.group(2) is not None:
+        values.append(_decimal(match.group(2)))
+    unit = match.group(3).casefold()
+    if unit == "liter":
+        unit = "l"
+    return values, unit
+
+
+def _app_price_math_matches(
+    package_text: str,
+    app_price: Decimal,
+    support_block: NettoPdfTextBlock,
+) -> bool:
+    amounts, package_unit = _package_amounts(package_text)
+    unit_prices, unit = _app_unit_prices(support_block)
+    if not amounts or not unit_prices or package_unit != unit:
+        return False
+    expected = sorted(app_price / amount for amount in amounts if amount > 0)
+    observed = sorted(unit_prices)
+    if len(expected) != len(observed):
+        return False
+    tolerance = Decimal("0.02")
+    return all(abs(left - right) <= tolerance for left, right in zip(expected, observed))
+
+
+def _netto_plus_price(
+    product_block: NettoPdfTextBlock,
+    primary_block: NettoPdfTextBlock,
+    package_text: str,
+    base_price: Decimal,
+    blocks: Sequence[NettoPdfTextBlock],
+) -> tuple[Decimal | None, tuple[NettoPdfTextBlock, ...]]:
+    """Bind a Netto-plus price to the exact product card.
+
+    On the immutable real PDF the yellow ``Netto plus`` label is artwork and
+    is absent from FitZ text.  The price itself is a right-hand companion tile.
+    We therefore require all of the following source-backed signals:
+
+    * the candidate price is lower than the base price;
+    * it sits immediately to the right of and vertically overlaps the base
+      price tile; and
+    * a same-tile unit-price line exactly agrees with the product package math.
+
+    This binds Lillet 9.99 and Softlan 1.00 without leaking either value to a
+    neighbouring card.
+    """
+    candidates: list[
+        tuple[float, Decimal, NettoPdfTextBlock, NettoPdfTextBlock]
+    ] = []
+    for price_block in blocks:
+        horizontal_gap = price_block.x0 - primary_block.x1
+        if horizontal_gap < -5 or horizontal_gap > 80:
+            continue
+        vertical_overlap = min(primary_block.y1, price_block.y1) - max(
+            primary_block.y0,
+            price_block.y0,
+        )
+        if vertical_overlap < 5:
+            continue
+        if price_block.x0 < product_block.x0 + 35:
+            continue
+        for value in _standalone_prices(price_block):
+            if value >= base_price:
+                continue
+            support_blocks = [price_block]
+            support_blocks.extend(
+                block
+                for block in blocks
+                if block is not price_block
+                and block.x0 >= price_block.x0 - 15
+                and block.x1 <= price_block.x1 + 35
+                and _block_distance(price_block, block) <= 45
+            )
+            for support_block in support_blocks:
+                if not _app_price_math_matches(
+                    package_text,
+                    value,
+                    support_block,
+                ):
+                    continue
+                score = horizontal_gap + abs(
+                    (price_block.y0 + price_block.y1)
+                    - (primary_block.y0 + primary_block.y1)
+                ) / 2
+                candidates.append(
+                    (score, value, price_block, support_block)
+                )
+
+    if not candidates:
+        return None, ()
+    _, value, price_block, support_block = min(
+        candidates,
+        key=lambda row: (row[0], row[1]),
+    )
+    geometry = [price_block]
+    if support_block is not price_block:
+        geometry.append(support_block)
+    return value, tuple(geometry)
+
+
 def _geometry(role: str, block: NettoPdfTextBlock) -> dict[str, object]:
     return {
         "role": role,
@@ -654,9 +829,24 @@ def extract_geometry_candidates(
             unit_label = "kg"
             pricing_mode = "unit_price_only"
 
+        app_price, app_geometry = _netto_plus_price(
+            product_block,
+            primary_block,
+            package_text,
+            price,
+            blocks,
+        )
+        deposit_price = _deposit_price(product_block)
+
         geometry = [_geometry("product", product_block)]
         geometry.append(_geometry("sale_price", primary_block))
         geometry.extend(_geometry("discount_or_regular", block) for block in confirmations)
+        if app_geometry:
+            geometry.append(_geometry("netto_plus_price", app_geometry[0]))
+            geometry.extend(
+                _geometry("netto_plus_unit_support", block)
+                for block in app_geometry[1:]
+            )
         source_excerpt = " | ".join(
             entry["text"] for entry in geometry
         )[:1000]
@@ -694,6 +884,8 @@ def extract_geometry_candidates(
                 source_geometry=tuple(geometry),
                 unit_label=unit_label,
                 pricing_mode=pricing_mode,
+                app_price_eur=app_price,
+                deposit_eur=deposit_price,
             )
         )
     return candidates

@@ -33,7 +33,7 @@ from app.schemas import OfferCandidate, SourceChain
 
 router = APIRouter()
 
-_PARSER_VERSION = "netto-daily-special-v4-geometry"
+_PARSER_VERSION = "netto-daily-v6-real-pdf-quality"
 _SOURCE_STORE_EXTERNAL_ID = "5659"
 _SOURCE_STORE_NAME = (
     "Netto Marken-Discount — Dortmund, Rauschenbuschstr. 1"
@@ -78,6 +78,7 @@ class DailySpecialDealOut(BaseModel):
     special_confidence: str
     bundle_quantity: int | None
     single_price_eur: Decimal | None
+    deposit_eur: Decimal | None
     shadow_only: bool
     source_snapshot_id: UUID
     source_snapshot_sha256: str
@@ -213,6 +214,16 @@ def _cached_snapshot_offers(
                     if candidate.single_price_eur is not None
                     else None
                 ),
+                "app_price_eur": (
+                    str(candidate.app_price_eur)
+                    if candidate.app_price_eur is not None
+                    else None
+                ),
+                "deposit_eur": (
+                    str(candidate.deposit_eur)
+                    if candidate.deposit_eur is not None
+                    else None
+                ),
                 "source_text_excerpt": candidate.source_text_excerpt,
                 "source_geometry": list(candidate.source_geometry),
                 "source_page_text_sha256": page_text_sha,
@@ -245,10 +256,21 @@ def _cached_snapshot_offers(
                         candidate.price_eur,
                         regular_price,
                     ),
-                    requires_app=False,
+                    app_price_eur=candidate.app_price_eur,
+                    requires_app=candidate.app_price_eur is not None,
                     coupon_required=False,
                     valid_from=candidate.valid_from,
                     valid_until=candidate.valid_until,
+                    app_valid_from=(
+                        candidate.valid_from
+                        if candidate.app_price_eur is not None
+                        else None
+                    ),
+                    app_valid_until=(
+                        candidate.valid_until
+                        if candidate.app_price_eur is not None
+                        else None
+                    ),
                     source_url=final_url or source_url,
                     source_image_url=image_by_page.get(
                         candidate.special_source_page
@@ -364,7 +386,12 @@ def _to_output(
         app_valid_from=offer.app_valid_from,
         app_valid_until=offer.app_valid_until,
         base_price_current=(special_valid_on == effective_date),
-        app_price_current=False,
+        app_price_current=(
+            offer.app_price_eur is not None
+            and offer.app_valid_from is not None
+            and offer.app_valid_until is not None
+            and offer.app_valid_from <= effective_date <= offer.app_valid_until
+        ),
         source_url=str(offer.source_url),
         source_image_url=(
             str(offer.source_image_url)
@@ -385,6 +412,11 @@ def _to_output(
         single_price_eur=(
             Decimal(raw["single_price_eur"])
             if raw.get("single_price_eur") is not None
+            else None
+        ),
+        deposit_eur=(
+            Decimal(raw["deposit_eur"])
+            if raw.get("deposit_eur") is not None
             else None
         ),
         shadow_only=True,
