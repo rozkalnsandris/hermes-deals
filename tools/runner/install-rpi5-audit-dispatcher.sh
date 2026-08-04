@@ -65,7 +65,7 @@ EXPORT_DIR="$(readlink -f -- "$EXPORT_DIR")"
 [[ -d "$EXPORT_DIR" ]] || fail "artifact directory does not exist"
 [[ "$EXPORT_DIR" == /home/github-runner/_work/_temp/hermes-deals-audit-* ]] || fail "artifact directory is outside the runner temp allowlist"
 [[ "$(stat -c '%U' "$EXPORT_DIR")" == 'github-runner' ]] || fail "artifact directory is not owned by github-runner"
-[[ "$(stat -c '%a' "$EXPORT_DIR")" =~ ^7[0-7]0$ ]] || fail "artifact directory permissions are not private enough"
+[[ "$(stat -c '%a' "$EXPORT_DIR")" == '700' ]] || fail "artifact directory permissions must be 0700"
 
 RUN_KEY="$(basename -- "$EXPORT_DIR")"
 [[ "$RUN_KEY" =~ ^hermes-deals-audit-[0-9]+-[0-9]+$ ]] || fail "unexpected runner artifact directory name"
@@ -150,7 +150,8 @@ PY
       HERMES_AUDIT_EXPECTED_BRANCH=main \
       HERMES_AUDIT_EXPECTED_HEAD="$EXPECTED_SHA" \
       HERMES_AUDIT_EXPORT_DIR="$STAGING_DIR" \
-      /bin/bash --noprofile --norc "$script_path"
+      /bin/bash --noprofile --norc "$script_path" \
+      > "$STAGING_DIR/audit-execution.log" 2>&1
     AUDIT_RC=$?
     set -e
     ;;
