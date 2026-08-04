@@ -411,7 +411,7 @@ jobs:
 
       - name: Upload sanitized audit evidence
         if: always() && steps.dispatch.outputs.artifact_dir != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ needs.authorize.outputs.audit }}-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.dispatch.outputs.artifact_dir }}
@@ -448,6 +448,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
 
     steps:
       - name: Post result comment and clear polling label
@@ -521,9 +522,17 @@ jobs:
               method="POST",
               headers=headers,
           )
-          with urllib.request.urlopen(comment_request, timeout=20) as response:
-              if response.status != 201:
-                  raise SystemExit(f"unexpected comment response: {response.status}")
+          try:
+              with urllib.request.urlopen(comment_request, timeout=20) as response:
+                  if response.status != 201:
+                      raise SystemExit(f"unexpected comment response: {response.status}")
+          except urllib.error.HTTPError as error:
+              detail = error.read().decode("utf-8", "replace")[:1000]
+              accepted = error.headers.get("X-Accepted-GitHub-Permissions", "unknown")
+              raise SystemExit(
+                  f"comment request failed: HTTP {error.code}; "
+                  f"accepted_permissions={accepted}; detail={detail}"
+              ) from error
 
           if trigger_label:
               encoded_label = urllib.parse.quote(trigger_label, safe="")
