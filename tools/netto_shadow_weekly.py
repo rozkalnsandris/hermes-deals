@@ -114,6 +114,29 @@ def decide_weekly_action(value: WeeklyInput | Mapping[str, Any]) -> WeeklyDecisi
             daily_specials_mode="existing_verified_window_only",
         )
 
+    # Evidence health outranks campaign identity. A previously seen campaign
+    # must fail closed if its currently bound PDF is missing or corrupt.
+    if binding.pdf_status in {EvidenceStatus.MISSING, EvidenceStatus.CORRUPT}:
+        if item.retry_count >= MAX_RETRIES:
+            return WeeklyDecision(
+                action=WeeklyAction.ALERT_RETRY_EXHAUSTED,
+                severity="error",
+                reason=f"{binding.pdf_status.value} evidence remained unresolved after bounded retries.",
+                alert_key=f"netto-evidence-{binding.pdf_status.value}-{item.campaign_key}",
+                retry_after_seconds=None,
+                production_write_authorized=False,
+                daily_specials_mode="fail_closed",
+            )
+        return WeeklyDecision(
+            action=WeeklyAction.RETRY_FAIL_CLOSED,
+            severity="warning",
+            reason=f"{binding.pdf_status.value} evidence is not safe for parsing or writes.",
+            alert_key=None,
+            retry_after_seconds=15 * 60 * (item.retry_count + 1),
+            production_write_authorized=False,
+            daily_specials_mode="fail_closed",
+        )
+
     unchanged = (
         item.previous_campaign_key == item.campaign_key
         and item.previous_manifest_sha256 == binding.manifest_sha256
@@ -142,27 +165,6 @@ def decide_weekly_action(value: WeeklyInput | Mapping[str, Any]) -> WeeklyDecisi
             retry_after_seconds=None,
             production_write_authorized=False,
             daily_specials_mode="safe_empty_verified_no_pdf",
-        )
-
-    if binding.pdf_status in {EvidenceStatus.MISSING, EvidenceStatus.CORRUPT}:
-        if item.retry_count >= MAX_RETRIES:
-            return WeeklyDecision(
-                action=WeeklyAction.ALERT_RETRY_EXHAUSTED,
-                severity="error",
-                reason=f"{binding.pdf_status.value} evidence remained unresolved after bounded retries.",
-                alert_key=f"netto-evidence-{binding.pdf_status.value}-{item.campaign_key}",
-                retry_after_seconds=None,
-                production_write_authorized=False,
-                daily_specials_mode="fail_closed",
-            )
-        return WeeklyDecision(
-            action=WeeklyAction.RETRY_FAIL_CLOSED,
-            severity="warning",
-            reason=f"{binding.pdf_status.value} evidence is not safe for parsing or writes.",
-            alert_key=None,
-            retry_after_seconds=15 * 60 * (item.retry_count + 1),
-            production_write_authorized=False,
-            daily_specials_mode="fail_closed",
         )
 
     if item.shadow_passed is None:
