@@ -1,0 +1,11 @@
+[Unit]
+Description=Record Hermes Deals Netto weekly shadow failure
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/bin/systemd-cat -t hermes-deals-netto-weekly-shadow -p err /bin/echo "Netto weekly shadow controller failed; inspect systemctl status and journalctl"; /usr/bin/install -d -m 0755 /run/hermes-deals; /usr/bin/touch /run/hermes-deals/netto-weekly-shadow.failed'
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/hermes-deals
