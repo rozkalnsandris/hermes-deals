@@ -19,11 +19,13 @@ on:
       - rpi5-audit
   schedule:
     - cron: "2-57/5 * * * *"
+    - cron: "19 4 * * *"
   push:
     branches:
       - main
     paths:
       - .github/workflows/rpi5-audit-command.yml
+      - tools/install-hermes-deals-audit-runner.sh
 
 permissions:
   contents: read
@@ -121,7 +123,6 @@ jobs:
 
   authorize:
     name: Resolve and authorize audit request
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -164,6 +165,9 @@ jobs:
               "audit:runner-smoke": "runner-smoke",
               "audit:b15m2-v08": "b15m2-v08",
           }
+          polling_schedule = "2-57/5 * * * *"
+          smoke_schedule = "19 4 * * *"
+          smoke_pr_number = 3
 
           event_name = os.environ["EVENT_NAME"]
           workflow_ref = os.environ["WORKFLOW_REF"]
@@ -236,6 +240,7 @@ jobs:
           trigger_kind = event_name
           trigger_label = ""
           trigger_actor = ""
+
           if event_name == "workflow_dispatch":
               trigger_actor = require_actor(
                   event.get("sender") or {},
@@ -265,59 +270,76 @@ jobs:
                   raise SystemExit("repository_dispatch pr_number must be numeric")
               pr_number = int(raw_pr)
 
+          elif event_name == "push":
+              if event.get("ref") != "refs/heads/main":
+                  raise SystemExit("post-change smoke accepts only main pushes")
+              audit = "runner-smoke"
+              pr_number = smoke_pr_number
+              trigger_kind = "post-change-smoke"
+              trigger_actor = str((event.get("sender") or {}).get("login") or "github-push")
+
           elif event_name == "schedule":
-              trigger_kind = "schedule-poll"
-              candidates = {}
-              for label_name, label_audit in approved_labels.items():
-                  encoded = urllib.parse.quote(label_name, safe="")
-                  issues = get_all(
-                      f"https://api.github.com/repos/{repo}/issues"
-                      f"?state=all&labels={encoded}&sort=updated&direction=asc&per_page=100"
-                  )
-                  for issue in issues:
-                      if "pull_request" not in issue:
-                          continue
-                      number = int(issue["number"])
-                      current_approved = {
-                          item.get("name")
-                          for item in issue.get("labels", [])
-                          if item.get("name") in approved_labels
-                      }
-                      if current_approved != {label_name}:
-                          continue
-                      actor = latest_label_actor(number, label_name)
-                      if not actor:
-                          continue
-                      if actor.get("login") != owner_login or actor.get("id") != owner_id:
-                          continue
-                      candidates[number] = {
-                          "audit": label_audit,
-                          "label": label_name,
-                          "actor": actor["login"],
-                          "updated_at": issue.get("updated_at", ""),
-                      }
+              schedule = str(event.get("schedule", "")).strip()
+              if schedule == smoke_schedule:
+                  audit = "runner-smoke"
+                  pr_number = smoke_pr_number
+                  trigger_kind = "scheduled-smoke"
+                  trigger_actor = "github-actions-schedule"
+              elif schedule == polling_schedule:
+                  trigger_kind = "schedule-poll"
+                  candidates = {}
+                  for label_name, label_audit in approved_labels.items():
+                      encoded = urllib.parse.quote(label_name, safe="")
+                      issues = get_all(
+                          f"https://api.github.com/repos/{repo}/issues"
+                          f"?state=all&labels={encoded}&sort=updated&direction=asc&per_page=100"
+                      )
+                      for issue in issues:
+                          if "pull_request" not in issue:
+                              continue
+                          number = int(issue["number"])
+                          current_approved = {
+                              item.get("name")
+                              for item in issue.get("labels", [])
+                              if item.get("name") in approved_labels
+                          }
+                          if current_approved != {label_name}:
+                              continue
+                          actor = latest_label_actor(number, label_name)
+                          if not actor:
+                              continue
+                          if actor.get("login") != owner_login or actor.get("id") != owner_id:
+                              continue
+                          candidates[number] = {
+                              "audit": label_audit,
+                              "label": label_name,
+                              "actor": actor["login"],
+                              "updated_at": issue.get("updated_at", ""),
+                          }
 
-              if not candidates:
-                  output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
-                  with output.open("a", encoding="utf-8") as handle:
-                      handle.write("should_run=false\n")
-                      handle.write("trigger_kind=schedule-poll\n")
-                  summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
-                  summary.write_text(
-                      "## RPi5 audit poll\n\n"
-                      "- No owner-applied approved audit label is pending.\n"
-                      "- Production deployment: **not authorized**\n",
-                      encoding="utf-8",
-                  )
-                  raise SystemExit(0)
+                  if not candidates:
+                      output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+                      with output.open("a", encoding="utf-8") as handle:
+                          handle.write("should_run=false\n")
+                          handle.write("trigger_kind=schedule-poll\n")
+                      summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+                      summary.write_text(
+                          "## RPi5 audit poll\n\n"
+                          "- No owner-applied approved audit label is pending.\n"
+                          "- Production deployment: **not authorized**\n",
+                          encoding="utf-8",
+                      )
+                      raise SystemExit(0)
 
-              pr_number, selected = sorted(
-                  candidates.items(),
-                  key=lambda item: (item[1]["updated_at"], item[0]),
-              )[0]
-              audit = selected["audit"]
-              trigger_label = selected["label"]
-              trigger_actor = selected["actor"]
+                  pr_number, selected = sorted(
+                      candidates.items(),
+                      key=lambda item: (item[1]["updated_at"], item[0]),
+                  )[0]
+                  audit = selected["audit"]
+                  trigger_label = selected["label"]
+                  trigger_actor = selected["actor"]
+              else:
+                  raise SystemExit(f"unexpected schedule: {schedule}")
 
           else:
               raise SystemExit(f"unsupported event: {event_name}")
@@ -442,7 +464,9 @@ jobs:
     if: >-
       always() &&
       needs.authorize.result == 'success' &&
-      needs.authorize.outputs.should_run == 'true'
+      needs.authorize.outputs.should_run == 'true' &&
+      needs.authorize.outputs.trigger_kind != 'scheduled-smoke' &&
+      needs.authorize.outputs.trigger_kind != 'post-change-smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -550,4 +574,183 @@ jobs:
               except urllib.error.HTTPError as error:
                   if error.code != 404:
                       raise
+          PY
+
+  smoke-health:
+    name: Maintain automated smoke health issue
+    needs:
+      - authorize
+      - rpi5-audit
+    if: >-
+      always() &&
+      (
+        github.event_name == 'push' ||
+        (github.event_name == 'schedule' && github.event.schedule == '19 4 * * *')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Open or resolve persistent smoke failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_KIND: ${{ needs.authorize.outputs.trigger_kind }}
+          AUTHORIZE_RESULT: ${{ needs.authorize.result }}
+          RPI5_RESULT: ${{ needs.rpi5-audit.result }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          MAIN_SHA: ${{ github.sha }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          event_name = os.environ["EVENT_NAME"]
+          trigger_kind = os.environ.get("TRIGGER_KIND", "").strip() or event_name
+          authorize_result = os.environ["AUTHORIZE_RESULT"]
+          rpi5_result = os.environ["RPI5_RESULT"]
+          registered_sha = os.environ.get("REGISTERED_SHA", "").strip() or "unavailable"
+          run_id = os.environ["RUN_ID"]
+          run_attempt = os.environ["RUN_ATTEMPT"]
+          main_sha = os.environ["MAIN_SHA"]
+          actions_url = (
+              f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}"
+          )
+          issue_title = "[automation] RPi5 runner smoke failure"
+          healthy = authorize_result == "success" and rpi5_result == "success"
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-rpi5-smoke-health",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def request_json(url: str, method: str = "GET", payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers=headers,
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      body = response.read()
+                      return response.status, json.loads(body) if body else None
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode("utf-8", "replace")[:1000]
+                  raise SystemExit(
+                      f"GitHub issue request failed: {method} {url}; "
+                      f"HTTP {error.code}; detail={detail}"
+                  ) from error
+
+          def get_all_issues():
+              items = []
+              next_url = (
+                  f"https://api.github.com/repos/{repo}/issues"
+                  "?state=all&sort=updated&direction=desc&per_page=100"
+              )
+              pages = 0
+              while next_url:
+                  pages += 1
+                  if pages > 20:
+                      raise SystemExit("GitHub issue pagination exceeded safety limit")
+                  request = urllib.request.Request(next_url, headers=headers)
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      page = json.load(response)
+                      items.extend(page)
+                      next_url = None
+                      for part in response.headers.get("Link", "").split(","):
+                          if 'rel="next"' in part:
+                              next_url = part[part.index("<") + 1 : part.index(">")]
+                              break
+              return items
+
+          matching = [
+              issue
+              for issue in get_all_issues()
+              if "pull_request" not in issue and issue.get("title") == issue_title
+          ]
+          issue = matching[0] if matching else None
+
+          summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          if healthy:
+              if issue and issue.get("state") == "open":
+                  number = int(issue["number"])
+                  recovery = (
+                      "Automated RPi5 runner smoke recovered.\n\n"
+                      f"- Trigger: `{trigger_kind}`\n"
+                      f"- Workflow run: {actions_url}\n"
+                      f"- Main SHA: `{main_sha}`\n"
+                      "- Production deployment: **not authorized**\n"
+                  )
+                  request_json(
+                      f"https://api.github.com/repos/{repo}/issues/{number}/comments",
+                      "POST",
+                      {"body": recovery},
+                  )
+                  request_json(
+                      f"https://api.github.com/repos/{repo}/issues/{number}",
+                      "PATCH",
+                      {"state": "closed", "state_reason": "completed"},
+                  )
+                  result = f"Closed recovered smoke issue #{number}."
+              else:
+                  result = "Automated smoke is healthy; no open failure issue exists."
+          else:
+              body = (
+                  "<!-- hermes-deals-rpi5-smoke-health -->\n"
+                  "## Automated RPi5 runner smoke failure\n\n"
+                  f"- Trigger: `{trigger_kind}`\n"
+                  f"- Authorization job: **{authorize_result}**\n"
+                  f"- RPi5 job: **{rpi5_result}**\n"
+                  f"- Registered smoke commit: `{registered_sha}`\n"
+                  f"- Main SHA: `{main_sha}`\n"
+                  f"- Workflow run: {actions_url}\n"
+                  "- Production deployment: **not authorized**\n\n"
+                  "This issue is maintained automatically and will close after a successful "
+                  "scheduled or post-change smoke run.\n"
+              )
+              payload = {"title": issue_title, "body": body, "state": "open"}
+              if issue:
+                  number = int(issue["number"])
+                  request_json(
+                      f"https://api.github.com/repos/{repo}/issues/{number}",
+                      "PATCH",
+                      payload,
+                  )
+                  result = f"Updated persistent smoke failure issue #{number}."
+              else:
+                  _, created = request_json(
+                      f"https://api.github.com/repos/{repo}/issues",
+                      "POST",
+                      {"title": issue_title, "body": body},
+                  )
+                  result = f"Created persistent smoke failure issue #{created['number']}."
+
+          summary.write_text(
+              "## Automated RPi5 smoke health\n\n"
+              f"- Healthy: **{str(healthy).lower()}**\n"
+              f"- Authorization job: `{authorize_result}`\n"
+              f"- RPi5 job: `{rpi5_result}`\n"
+              f"- Result: {result}\n"
+              "- Production deployment: **not authorized**\n",
+              encoding="utf-8",
+          )
           PY
