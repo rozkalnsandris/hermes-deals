@@ -39,11 +39,16 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
 
     def test_review_ui_supports_page_alert_manual_completion(self) -> None:
         html = REVIEW.read_text(encoding="utf-8")
-        self.assertIn("lapas pārbaude", html)
-        self.assertIn("neapstrādāti produkti", html)
-        self.assertIn("Izveidot Review produktu", html)
-        self.assertIn("Atzīmēt lapu pārbaudītu", html)
-        self.assertIn("/page-alert/hints/", html)
+        for marker in (
+            "lapas pārbaude",
+            "Lapas progress",
+            "Izveidot Review produktu",
+            "Atvērt Review produktu",
+            "Atzīmēt lapu pārbaudītu",
+            "function pageAlertAggregate(alert)",
+            "/page-alert/hints/",
+        ):
+            self.assertIn(marker, html)
         for marker in (
             'function previewUrl(id,mode="page",hintIndex=null)',
             'Bukleta lapas priekšskatījums',
