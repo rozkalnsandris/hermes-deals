@@ -1,9 +1,14 @@
 name: RPi5 approved audit command
 
 on:
-  issue_comment:
+  pull_request_target:
     types:
-      - created
+      - labeled
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rpi5-audit-command.yml
 
 permissions:
   contents: read
@@ -14,19 +19,106 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ensure-labels:
+    name: Ensure approved audit labels
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Create or reconcile audit labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          labels = (
+              {
+                  "name": "audit:runner-smoke",
+                  "color": "1d76db",
+                  "description": "Run the approved RPi5 runner smoke audit on this merged PR",
+              },
+              {
+                  "name": "audit:b15m2-v08",
+                  "color": "5319e7",
+                  "description": "Run the registered B15M2 V08 audit on this merged PR",
+              },
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-rpi5-audit-label-bootstrap",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def request_json(url: str, method: str, payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers=headers,
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  body = response.read()
+                  return response.status, json.loads(body) if body else None
+
+          results = []
+          for label in labels:
+              encoded = urllib.parse.quote(label["name"], safe="")
+              label_url = f"https://api.github.com/repos/{repo}/labels/{encoded}"
+              try:
+                  status, _ = request_json(label_url, "PATCH", label)
+                  action = "reconciled"
+              except urllib.error.HTTPError as error:
+                  if error.code != 404:
+                      raise
+                  status, _ = request_json(
+                      f"https://api.github.com/repos/{repo}/labels",
+                      "POST",
+                      label,
+                  )
+                  action = "created"
+              results.append((label["name"], action, status))
+
+          summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as handle:
+              handle.write("## RPi5 audit labels\n\n")
+              for name, action, status in results:
+                  handle.write(f"- `{name}`: {action} (HTTP {status})\n")
+          PY
+
   authorize:
-    name: Authorize owner audit command
+    name: Authorize owner audit label
     if: >-
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/run ')
+      github.event_name == 'pull_request_target' &&
+      (github.event.label.name == 'audit:runner-smoke' ||
+       github.event.label.name == 'audit:b15m2-v08')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       audit: ${{ steps.authorize.outputs.audit }}
       sha: ${{ steps.authorize.outputs.sha }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      trigger_label: ${{ steps.authorize.outputs.trigger_label }}
 
     steps:
-      - name: Validate command, owner identity, merged PR and main ancestry
+      - name: Validate label, owner identity, merged PR and main ancestry
         id: authorize
         env:
           EVENT_PATH: ${{ github.event_path }}
@@ -38,32 +130,33 @@ jobs:
           import json
           import os
           import pathlib
-          import re
           import urllib.request
 
           expected_repo = "rozkalnsandris/hermes-deals"
           expected_owner_login = "rozkalnsandris"
           expected_owner_id = 277435981
+          approved_labels = {
+              "audit:runner-smoke": "runner-smoke",
+              "audit:b15m2-v08": "b15m2-v08",
+          }
 
           event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
           repo = event["repository"]["full_name"]
           if repo != expected_repo:
               raise SystemExit(f"unexpected repository: {repo}")
+          if event.get("action") != "labeled":
+              raise SystemExit("unexpected pull request action")
 
-          comment = event["comment"]
-          comment_user = comment.get("user") or {}
-          if comment_user.get("login") != expected_owner_login:
-              raise SystemExit("command author login is not the repository owner")
-          if comment_user.get("id") != expected_owner_id:
-              raise SystemExit("command author numeric identity does not match the repository owner")
+          sender = event.get("sender") or {}
+          if sender.get("login") != expected_owner_login:
+              raise SystemExit("label actor login is not the repository owner")
+          if sender.get("id") != expected_owner_id:
+              raise SystemExit("label actor numeric identity does not match the repository owner")
 
-          match = re.fullmatch(
-              r"/run (runner-smoke|b15m2-v08) ([0-9a-f]{40})",
-              comment["body"].strip(),
-          )
-          if not match:
-              raise SystemExit("command must exactly match: /run <approved-audit> <40-char-sha>")
-          audit, requested_sha = match.groups()
+          trigger_label = (event.get("label") or {}).get("name", "")
+          audit = approved_labels.get(trigger_label)
+          if not audit:
+              raise SystemExit("label is not an approved audit trigger")
 
           token = os.environ["GH_TOKEN"]
           headers = {
@@ -78,14 +171,16 @@ jobs:
               with urllib.request.urlopen(request, timeout=20) as response:
                   return json.load(response)
 
-          pr_number = event["issue"]["number"]
+          pr_number = int(event["number"])
           pr = get_json(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
-          if not pr.get("merged_at"):
-              raise SystemExit("audit commands are accepted only on merged pull requests")
+          if not pr.get("merged_at") or not pr.get("merged"):
+              raise SystemExit("audit labels are accepted only on merged pull requests")
           if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
               raise SystemExit("pull request was not merged into this repository's main branch")
-          if pr.get("merge_commit_sha") != requested_sha:
-              raise SystemExit("requested SHA is not the merged PR commit SHA")
+
+          requested_sha = pr.get("merge_commit_sha", "")
+          if len(requested_sha) != 40:
+              raise SystemExit("merged pull request does not expose a valid merge commit SHA")
 
           comparison = get_json(
               f"https://api.github.com/repos/{repo}/compare/{requested_sha}...main"
@@ -97,10 +192,13 @@ jobs:
           with output.open("a", encoding="utf-8") as handle:
               handle.write(f"audit={audit}\n")
               handle.write(f"sha={requested_sha}\n")
+              handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"trigger_label={trigger_label}\n")
 
           summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
           summary.write_text(
               "## Authorized RPi5 audit\n\n"
+              f"- Trigger label: `{trigger_label}`\n"
               f"- Audit: `{audit}`\n"
               f"- Registered commit request: `{requested_sha}`\n"
               f"- Merged PR: `#{pr_number}`\n"
@@ -182,8 +280,9 @@ jobs:
       - rpi5-audit
     if: >-
       always() &&
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/run ')
+      github.event_name == 'pull_request_target' &&
+      (github.event.label.name == 'audit:runner-smoke' ||
+       github.event.label.name == 'audit:b15m2-v08')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -191,12 +290,13 @@ jobs:
       issues: write
 
     steps:
-      - name: Post machine-readable pipeline result comment
+      - name: Post result comment and remove trigger label
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          COMMAND_BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TRIGGER_LABEL: ${{ github.event.label.name }}
+          TRIGGER_ACTOR: ${{ github.event.sender.login }}
           AUDIT: ${{ needs.authorize.outputs.audit }}
           REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
           AUTHORIZE_RESULT: ${{ needs.authorize.result }}
@@ -210,11 +310,14 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import urllib.error
+          import urllib.parse
           import urllib.request
 
           repo = os.environ["REPOSITORY"]
-          issue_number = int(os.environ["ISSUE_NUMBER"])
-          command_body = os.environ["COMMAND_BODY"].strip()
+          pr_number = int(os.environ["PR_NUMBER"])
+          trigger_label = os.environ["TRIGGER_LABEL"]
+          trigger_actor = os.environ["TRIGGER_ACTOR"]
           audit = os.environ.get("AUDIT", "").strip()
           commit_sha = os.environ.get("REGISTERED_SHA", "").strip()
           authorize_result = os.environ["AUTHORIZE_RESULT"]
@@ -232,7 +335,8 @@ jobs:
           body = (
               f"<!-- hermes-deals-rpi5-audit-result:{run_id}:{run_attempt} -->\n"
               "## RPi5 audit pipeline result\n\n"
-              f"- Command: `{command_body}`\n"
+              f"- Trigger label: `{trigger_label}`\n"
+              f"- Trigger actor: `{trigger_actor}`\n"
               f"- Authorization job: **{authorize_result}**\n"
               f"- RPi5 job: **{rpi5_result}**\n"
               f"- Audit: `{audit or 'not-authorized'}`\n"
@@ -244,20 +348,35 @@ jobs:
               "- Production deployment: **not authorized**\n"
           )
 
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-rpi5-audit-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
           payload = json.dumps({"body": body}).encode("utf-8")
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments",
+          comment_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
               data=payload,
               method="POST",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Content-Type": "application/json",
-                  "User-Agent": "hermes-deals-rpi5-audit-reporter",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
+              headers=headers,
           )
-          with urllib.request.urlopen(request, timeout=20) as response:
+          with urllib.request.urlopen(comment_request, timeout=20) as response:
               if response.status != 201:
                   raise SystemExit(f"unexpected comment response: {response.status}")
+
+          encoded_label = urllib.parse.quote(trigger_label, safe="")
+          remove_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels/{encoded_label}",
+              method="DELETE",
+              headers=headers,
+          )
+          try:
+              with urllib.request.urlopen(remove_request, timeout=20) as response:
+                  if response.status != 200:
+                      raise SystemExit(f"unexpected label removal response: {response.status}")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
           PY
