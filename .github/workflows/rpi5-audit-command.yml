@@ -1,9 +1,24 @@
 name: RPi5 approved audit command
 
 on:
-  pull_request_target:
+  workflow_dispatch:
+    inputs:
+      audit:
+        description: Approved audit name
+        required: true
+        type: choice
+        options:
+          - runner-smoke
+          - b15m2-v08
+      pr_number:
+        description: Merged pull request number
+        required: true
+        type: string
+  repository_dispatch:
     types:
-      - labeled
+      - rpi5-audit
+  schedule:
+    - cron: "2-57/5 * * * *"
   push:
     branches:
       - main
@@ -12,6 +27,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
   pull-requests: read
 
 concurrency:
@@ -104,25 +120,31 @@ jobs:
           PY
 
   authorize:
-    name: Authorize owner audit label
-    if: >-
-      github.event_name == 'pull_request_target' &&
-      (github.event.label.name == 'audit:runner-smoke' ||
-       github.event.label.name == 'audit:b15m2-v08')
+    name: Resolve and authorize audit request
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      should_run: ${{ steps.authorize.outputs.should_run }}
       audit: ${{ steps.authorize.outputs.audit }}
       sha: ${{ steps.authorize.outputs.sha }}
       pr_number: ${{ steps.authorize.outputs.pr_number }}
+      trigger_kind: ${{ steps.authorize.outputs.trigger_kind }}
       trigger_label: ${{ steps.authorize.outputs.trigger_label }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
 
     steps:
-      - name: Validate label, owner identity, merged PR and main ancestry
+      - name: Resolve trigger and validate merged PR
         id: authorize
         env:
           EVENT_PATH: ${{ github.event_path }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+          EXPECTED_DISPATCH_LOGIN: ${{ vars.HERMES_AUDIT_DISPATCH_LOGIN || 'rozkalnsandris' }}
+          EXPECTED_DISPATCH_ID: ${{ vars.HERMES_AUDIT_DISPATCH_ID || '277435981' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -130,33 +152,28 @@ jobs:
           import json
           import os
           import pathlib
+          import urllib.parse
           import urllib.request
 
           expected_repo = "rozkalnsandris/hermes-deals"
-          expected_owner_login = "rozkalnsandris"
-          expected_owner_id = 277435981
+          owner_login = os.environ["EXPECTED_OWNER_LOGIN"]
+          owner_id = int(os.environ["EXPECTED_OWNER_ID"])
+          dispatch_login = os.environ["EXPECTED_DISPATCH_LOGIN"]
+          dispatch_id = int(os.environ["EXPECTED_DISPATCH_ID"])
+          approved_audits = {"runner-smoke", "b15m2-v08"}
           approved_labels = {
               "audit:runner-smoke": "runner-smoke",
               "audit:b15m2-v08": "b15m2-v08",
           }
 
+          event_name = os.environ["EVENT_NAME"]
+          workflow_ref = os.environ["WORKFLOW_REF"]
+          if workflow_ref != "refs/heads/main":
+              raise SystemExit(f"audit workflow must run from main, not {workflow_ref}")
           event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
           repo = event["repository"]["full_name"]
           if repo != expected_repo:
               raise SystemExit(f"unexpected repository: {repo}")
-          if event.get("action") != "labeled":
-              raise SystemExit("unexpected pull request action")
-
-          sender = event.get("sender") or {}
-          if sender.get("login") != expected_owner_login:
-              raise SystemExit("label actor login is not the repository owner")
-          if sender.get("id") != expected_owner_id:
-              raise SystemExit("label actor numeric identity does not match the repository owner")
-
-          trigger_label = (event.get("label") or {}).get("name", "")
-          audit = approved_labels.get(trigger_label)
-          if not audit:
-              raise SystemExit("label is not an approved audit trigger")
 
           token = os.environ["GH_TOKEN"]
           headers = {
@@ -171,10 +188,150 @@ jobs:
               with urllib.request.urlopen(request, timeout=20) as response:
                   return json.load(response)
 
-          pr_number = int(event["number"])
+          def get_all(url: str):
+              items = []
+              next_url = url
+              pages = 0
+              while next_url:
+                  pages += 1
+                  if pages > 20:
+                      raise SystemExit("GitHub pagination exceeded safety limit")
+                  request = urllib.request.Request(next_url, headers=headers)
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      page = json.load(response)
+                      if not isinstance(page, list):
+                          raise SystemExit("expected a paginated GitHub list")
+                      items.extend(page)
+                      next_url = None
+                      for part in response.headers.get("Link", "").split(","):
+                          if 'rel="next"' in part:
+                              next_url = part[part.index("<") + 1 : part.index(">")]
+                              break
+              return items
+
+          def require_actor(sender, expected_login: str, expected_id: int, context: str):
+              if sender.get("login") != expected_login:
+                  raise SystemExit(f"{context} actor login is not allowlisted")
+              if sender.get("id") != expected_id:
+                  raise SystemExit(f"{context} actor numeric identity is not allowlisted")
+              return sender["login"]
+
+          def latest_label_actor(pr_number: int, label_name: str):
+              events = get_all(
+                  f"https://api.github.com/repos/{repo}/issues/{pr_number}/events"
+                  "?per_page=100"
+              )
+              latest = None
+              for item in events:
+                  if item.get("event") not in {"labeled", "unlabeled"}:
+                      continue
+                  if (item.get("label") or {}).get("name") != label_name:
+                      continue
+                  latest = item
+              if not latest or latest.get("event") != "labeled":
+                  return None
+              return latest.get("actor") or {}
+
+          audit = ""
+          pr_number = 0
+          trigger_kind = event_name
+          trigger_label = ""
+          trigger_actor = ""
+
+          if event_name == "workflow_dispatch":
+              trigger_actor = require_actor(
+                  event.get("sender") or {},
+                  owner_login,
+                  owner_id,
+                  "workflow_dispatch",
+              )
+              audit = str((event.get("inputs") or {}).get("audit", "")).strip()
+              raw_pr = str((event.get("inputs") or {}).get("pr_number", "")).strip()
+              if not raw_pr.isdigit():
+                  raise SystemExit("workflow_dispatch pr_number must be numeric")
+              pr_number = int(raw_pr)
+
+          elif event_name == "repository_dispatch":
+              if event.get("action") != "rpi5-audit":
+                  raise SystemExit("unexpected repository_dispatch event type")
+              trigger_actor = require_actor(
+                  event.get("sender") or {},
+                  dispatch_login,
+                  dispatch_id,
+                  "repository_dispatch",
+              )
+              payload = event.get("client_payload") or {}
+              audit = str(payload.get("audit", "")).strip()
+              raw_pr = str(payload.get("pr_number", "")).strip()
+              if not raw_pr.isdigit():
+                  raise SystemExit("repository_dispatch pr_number must be numeric")
+              pr_number = int(raw_pr)
+
+          elif event_name == "schedule":
+              trigger_kind = "schedule-poll"
+              candidates = {}
+              for label_name, label_audit in approved_labels.items():
+                  encoded = urllib.parse.quote(label_name, safe="")
+                  issues = get_all(
+                      f"https://api.github.com/repos/{repo}/issues"
+                      f"?state=all&labels={encoded}&sort=updated&direction=asc&per_page=100"
+                  )
+                  for issue in issues:
+                      if "pull_request" not in issue:
+                          continue
+                      number = int(issue["number"])
+                      current_approved = {
+                          item.get("name")
+                          for item in issue.get("labels", [])
+                          if item.get("name") in approved_labels
+                      }
+                      if current_approved != {label_name}:
+                          continue
+                      actor = latest_label_actor(number, label_name)
+                      if not actor:
+                          continue
+                      if actor.get("login") != owner_login or actor.get("id") != owner_id:
+                          continue
+                      candidates[number] = {
+                          "audit": label_audit,
+                          "label": label_name,
+                          "actor": actor["login"],
+                          "updated_at": issue.get("updated_at", ""),
+                      }
+
+              if not candidates:
+                  output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+                  with output.open("a", encoding="utf-8") as handle:
+                      handle.write("should_run=false\n")
+                      handle.write("trigger_kind=schedule-poll\n")
+                  summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+                  summary.write_text(
+                      "## RPi5 audit poll\n\n"
+                      "- No owner-applied approved audit label is pending.\n"
+                      "- Production deployment: **not authorized**\n",
+                      encoding="utf-8",
+                  )
+                  raise SystemExit(0)
+
+              pr_number, selected = sorted(
+                  candidates.items(),
+                  key=lambda item: (item[1]["updated_at"], item[0]),
+              )[0]
+              audit = selected["audit"]
+              trigger_label = selected["label"]
+              trigger_actor = selected["actor"]
+
+          else:
+              raise SystemExit(f"unsupported event: {event_name}")
+
+          if audit not in approved_audits:
+              raise SystemExit("audit is not allowlisted")
+          if pr_number <= 0:
+              raise SystemExit("pull request number must be positive")
+
           pr = get_json(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
           if not pr.get("merged_at") or not pr.get("merged"):
-              raise SystemExit("audit labels are accepted only on merged pull requests")
+              raise SystemExit("audits are accepted only for merged pull requests")
           if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
               raise SystemExit("pull request was not merged into this repository's main branch")
 
@@ -186,23 +343,27 @@ jobs:
               f"https://api.github.com/repos/{repo}/compare/{requested_sha}...main"
           )
           if comparison.get("status") not in {"ahead", "identical"}:
-              raise SystemExit("requested merged commit is not reachable from current main")
+              raise SystemExit("merged commit is not reachable from current main")
 
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
+              handle.write("should_run=true\n")
               handle.write(f"audit={audit}\n")
               handle.write(f"sha={requested_sha}\n")
               handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"trigger_kind={trigger_kind}\n")
               handle.write(f"trigger_label={trigger_label}\n")
+              handle.write(f"trigger_actor={trigger_actor}\n")
 
           summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
           summary.write_text(
               "## Authorized RPi5 audit\n\n"
-              f"- Trigger label: `{trigger_label}`\n"
+              f"- Trigger: `{trigger_kind}`\n"
+              f"- Trigger actor: `{trigger_actor}`\n"
+              f"- Trigger label: `{trigger_label or 'not-applicable'}`\n"
               f"- Audit: `{audit}`\n"
               f"- Registered commit request: `{requested_sha}`\n"
               f"- Merged PR: `#{pr_number}`\n"
-              f"- Owner identity: `{expected_owner_login}` / `{expected_owner_id}`\n"
               "- Production deployment: **not authorized**\n",
               encoding="utf-8",
           )
@@ -212,7 +373,9 @@ jobs:
     name: Run approved audit on RPi5
     needs:
       - authorize
-    if: needs.authorize.result == 'success'
+    if: >-
+      needs.authorize.result == 'success' &&
+      needs.authorize.outputs.should_run == 'true'
     runs-on:
       - self-hosted
       - Linux
@@ -280,9 +443,8 @@ jobs:
       - rpi5-audit
     if: >-
       always() &&
-      github.event_name == 'pull_request_target' &&
-      (github.event.label.name == 'audit:runner-smoke' ||
-       github.event.label.name == 'audit:b15m2-v08')
+      needs.authorize.result == 'success' &&
+      needs.authorize.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -290,13 +452,14 @@ jobs:
       issues: write
 
     steps:
-      - name: Post result comment and remove trigger label
+      - name: Post result comment and clear polling label
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          TRIGGER_LABEL: ${{ github.event.label.name }}
-          TRIGGER_ACTOR: ${{ github.event.sender.login }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          TRIGGER_KIND: ${{ needs.authorize.outputs.trigger_kind }}
+          TRIGGER_LABEL: ${{ needs.authorize.outputs.trigger_label }}
+          TRIGGER_ACTOR: ${{ needs.authorize.outputs.trigger_actor }}
           AUDIT: ${{ needs.authorize.outputs.audit }}
           REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
           AUTHORIZE_RESULT: ${{ needs.authorize.result }}
@@ -316,31 +479,29 @@ jobs:
 
           repo = os.environ["REPOSITORY"]
           pr_number = int(os.environ["PR_NUMBER"])
-          trigger_label = os.environ["TRIGGER_LABEL"]
+          trigger_kind = os.environ["TRIGGER_KIND"]
+          trigger_label = os.environ.get("TRIGGER_LABEL", "").strip()
           trigger_actor = os.environ["TRIGGER_ACTOR"]
-          audit = os.environ.get("AUDIT", "").strip()
-          commit_sha = os.environ.get("REGISTERED_SHA", "").strip()
+          audit = os.environ["AUDIT"]
+          commit_sha = os.environ["REGISTERED_SHA"]
           authorize_result = os.environ["AUTHORIZE_RESULT"]
           rpi5_result = os.environ["RPI5_RESULT"]
           run_id = os.environ["RUN_ID"]
           run_attempt = os.environ["RUN_ATTEMPT"]
           server_url = os.environ["SERVER_URL"]
           actions_url = f"{server_url}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}"
-
-          if audit and commit_sha:
-              artifact_name = f"{audit}-{commit_sha}-run-{run_id}"
-          else:
-              artifact_name = "not-created"
+          artifact_name = f"{audit}-{commit_sha}-run-{run_id}"
 
           body = (
               f"<!-- hermes-deals-rpi5-audit-result:{run_id}:{run_attempt} -->\n"
               "## RPi5 audit pipeline result\n\n"
-              f"- Trigger label: `{trigger_label}`\n"
+              f"- Trigger: `{trigger_kind}`\n"
               f"- Trigger actor: `{trigger_actor}`\n"
+              f"- Trigger label: `{trigger_label or 'not-applicable'}`\n"
               f"- Authorization job: **{authorize_result}**\n"
               f"- RPi5 job: **{rpi5_result}**\n"
-              f"- Audit: `{audit or 'not-authorized'}`\n"
-              f"- Registered commit: `{commit_sha or 'not-authorized'}`\n"
+              f"- Audit: `{audit}`\n"
+              f"- Registered commit: `{commit_sha}`\n"
               f"- Workflow run ID: `{run_id}`\n"
               f"- Run attempt: `{run_attempt}`\n"
               f"- Artifact: `{artifact_name}`\n"
@@ -366,17 +527,20 @@ jobs:
               if response.status != 201:
                   raise SystemExit(f"unexpected comment response: {response.status}")
 
-          encoded_label = urllib.parse.quote(trigger_label, safe="")
-          remove_request = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels/{encoded_label}",
-              method="DELETE",
-              headers=headers,
-          )
-          try:
-              with urllib.request.urlopen(remove_request, timeout=20) as response:
-                  if response.status != 200:
-                      raise SystemExit(f"unexpected label removal response: {response.status}")
-          except urllib.error.HTTPError as error:
-              if error.code != 404:
-                  raise
+          if trigger_label:
+              encoded_label = urllib.parse.quote(trigger_label, safe="")
+              remove_request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels/{encoded_label}",
+                  method="DELETE",
+                  headers=headers,
+              )
+              try:
+                  with urllib.request.urlopen(remove_request, timeout=20) as response:
+                      if response.status != 200:
+                          raise SystemExit(
+                              f"unexpected label removal response: {response.status}"
+                          )
+              except urllib.error.HTTPError as error:
+                  if error.code != 404:
+                      raise
           PY
