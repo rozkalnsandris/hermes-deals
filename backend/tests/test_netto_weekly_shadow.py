@@ -201,7 +201,7 @@ class EvidenceBindingTest(unittest.TestCase):
     def test_requested_date_must_be_inside_verified_window(self):
         binding = _binding()
         self.assertTrue(binding.covers(date(2026, 8, 4)))
-        self.assertFalse(binding.covers(date(2026, 8, 9)))
+        self.assertFalse(binding.covers(date(2026, 8, 9))
 
 
 class WeeklyStateMachineTest(unittest.TestCase):
@@ -244,6 +244,17 @@ class WeeklyStateMachineTest(unittest.TestCase):
         )
         decision = MODULE.decide_weekly_action(payload)
         self.assertEqual(decision.action, MODULE.WeeklyAction.UNCHANGED_NOOP)
+
+    def test_unchanged_campaign_with_corrupt_pdf_still_fails_closed(self):
+        payload = self._input(
+            previous_campaign_key="week-32",
+            previous_manifest_sha256=_sha("a"),
+        )
+        payload["binding"]["pdf_status"] = "corrupt"
+        decision = MODULE.decide_weekly_action(payload)
+        self.assertEqual(decision.action, MODULE.WeeklyAction.RETRY_FAIL_CLOSED)
+        self.assertEqual(decision.daily_specials_mode, "fail_closed")
+        self.assertFalse(decision.production_write_authorized)
 
     def test_verified_no_pdf_returns_safe_empty(self):
         payload = self._input()
