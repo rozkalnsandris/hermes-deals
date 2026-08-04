@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Hermes Deals Netto weekly shadow decisions
+
+[Timer]
+OnCalendar=Sun *-*-* *:20:00
+OnCalendar=Mon..Sat *-*-* 05:20:00
+Persistent=true
+RandomizedDelaySec=120
+Unit=hermes-deals-netto-weekly-shadow.service
+
+[Install]
+WantedBy=timers.target
