@@ -37,6 +37,9 @@ class _FakeDb:
     def get_bind(self):
         return _FakeBind()
 
+    def scalar(self, statement):
+        return None
+
 
 class _PostgresDb:
     class _Bind:

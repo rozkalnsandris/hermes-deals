@@ -15,6 +15,10 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.aldi_nord_daily_special import (
+    AldiNordDailySpecialError,
+    cached_aldi_nord_daily_specials,
+)
 from app.db import get_db
 from app.models import SourceSnapshot
 from app.parsers.netto_daily_special import (
@@ -305,6 +309,27 @@ def _latest_snapshot(db: Session) -> SourceSnapshot:
     return snapshot
 
 
+def _latest_aldi_nord_snapshot(db: Session) -> SourceSnapshot | None:
+    snapshot = db.scalar(
+        select(SourceSnapshot)
+        .where(
+            SourceSnapshot.source_chain == "aldi_nord",
+            SourceSnapshot.scope == "national_offers",
+            SourceSnapshot.success.is_(True),
+        )
+        .order_by(SourceSnapshot.collected_at.desc())
+        .limit(1)
+    )
+    if snapshot is None:
+        return None
+    if not snapshot.snapshot_path or not snapshot.sha256:
+        raise HTTPException(
+            status_code=503,
+            detail="Latest immutable ALDI Nord snapshot is unavailable",
+        )
+    return snapshot
+
+
 def _to_output(
     offer: OfferCandidate,
     effective_date: date,
@@ -384,7 +409,7 @@ def daily_specials(
     )
     snapshot = _latest_snapshot(db)
     try:
-        offers = _cached_snapshot_offers(
+        netto_offers = _cached_snapshot_offers(
             str(snapshot.id),
             snapshot.snapshot_path or "",
             snapshot.sha256 or "",
@@ -398,7 +423,7 @@ def daily_specials(
             # this snapshot. Preserve the explicit-evidence-only contract:
             # return an empty result instead of inferring from ordinary HTML
             # offers. All other evidence failures remain fail-closed.
-            offers = ()
+            netto_offers = ()
         else:
             raise HTTPException(
                 status_code=503,
@@ -409,6 +434,40 @@ def daily_specials(
             status_code=503,
             detail=f"Netto daily-special evidence unavailable: {exc}",
         ) from exc
+
+    aldi_offers: tuple[OfferCandidate, ...] = ()
+    aldi_snapshot = _latest_aldi_nord_snapshot(db)
+    if aldi_snapshot is not None:
+        try:
+            aldi_offers = cached_aldi_nord_daily_specials(
+                str(aldi_snapshot.id),
+                aldi_snapshot.snapshot_path or "",
+                aldi_snapshot.sha256 or "",
+                aldi_snapshot.source_url,
+                aldi_snapshot.final_url or "",
+                aldi_snapshot.collected_at.isoformat(),
+            )
+        except AldiNordDailySpecialError as exc:
+            # A known retailer snapshot with corrupt or mismatched evidence
+            # must fail the whole endpoint. Returning only Netto would make an
+            # ALDI evidence failure indistinguishable from no ALDI offers.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ALDI Nord daily-special evidence unavailable: "
+                    f"{exc}"
+                ),
+            ) from exc
+        except (OSError, ValueError, json.JSONDecodeError, ImportError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ALDI Nord daily-special evidence unavailable: "
+                    f"{exc}"
+                ),
+            ) from exc
+
+    offers = (*netto_offers, *aldi_offers)
 
     selected = [
         _to_output(offer, effective_date)

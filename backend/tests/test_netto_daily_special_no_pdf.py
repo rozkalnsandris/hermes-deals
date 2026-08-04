@@ -26,6 +26,9 @@ class _FakeDb:
     def get_bind(self) -> _Bind:
         return _Bind()
 
+    def scalar(self, statement):
+        return None
+
 
 def _snapshot() -> SimpleNamespace:
     return SimpleNamespace(
