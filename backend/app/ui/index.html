@@ -42,6 +42,7 @@ renderBestToday();bindCanonicalCards()
   <meta name="hermes-ui-base-label" content="Control Room 2.0">
   <meta name="hermes-ui-base-copy" content="Ikdienas vadības panelis">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23171914'/%3E%3Ctext x='32' y='44' font-size='38' text-anchor='middle' fill='white'%3EH%3C/text%3E%3C/svg%3E">
+  <meta name="hermes-ui-fix" content="weekly-overview-v1">
   <title>Hermes Deals</title>
   <style>
     :root{--bg:#f3f5f1;--surface:#fff;--surface-2:#eef1eb;--text:#171914;--muted:#697066;--border:#d8ddd3;--accent:#246b45;--accent-soft:#dcecdf;--warning:#8a6500;--warning-soft:#fff3c4;--danger:#9b3f37;--shadow:0 10px 32px rgba(23,25,20,.075);--overlay:rgba(10,12,9,.48);--max:1260px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -1821,6 +1822,741 @@ renderBestToday();bindCanonicalCards()
     }
   </style>
 
+
+  <style id="ui-weekly-overview-v1">
+    body.ui-minimal-v2[data-ui-release="reference-v1"]{
+      --weekly-green:#139447;
+      --weekly-green-dark:#087532;
+      --weekly-green-soft:#edf9f1;
+      --weekly-blue:#1670c5;
+      --weekly-blue-soft:#eef6ff;
+      --weekly-navy:#143d94;
+      --weekly-yellow:#f2b500;
+      --weekly-yellow-soft:#fff9e8;
+      --weekly-orange:#f06d2f;
+      --weekly-line:#e4e9e6;
+      --weekly-text:#111814;
+      --weekly-muted:#66716a;
+      --weekly-panel:#ffffff;
+      --weekly-shadow:0 8px 24px rgba(20,35,27,.065);
+      background:#f8faf8!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .ui2-shell.reference-app{
+      display:block!important;
+      width:100%!important;
+      max-width:none!important;
+      margin:0!important;
+      padding:0!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .reference-sidebar{
+      display:none!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .reference-workspace{
+      width:100%!important;
+      min-width:0!important;
+      border-radius:0!important;
+      background:transparent!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] main.shell{
+      width:min(1640px,calc(100% - 32px))!important;
+      max-width:none!important;
+      margin:0 auto!important;
+      padding:0 0 88px!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] main.shell>.topbar,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] #legacyHome,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] main.shell>.modebar,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] main.shell>.modehint,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] main.shell>.stats,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] #dailySpecialsSection{
+      display:none!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-overview{
+      color:var(--weekly-text);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-appbar{
+      position:sticky;
+      top:0;
+      z-index:45;
+      display:grid;
+      grid-template-columns:auto minmax(0,1fr) auto;
+      align-items:center;
+      gap:28px;
+      min-height:68px;
+      margin:0 -16px 26px;
+      padding:0 16px;
+      border-bottom:1px solid var(--weekly-line);
+      background:rgba(255,255,255,.96);
+      box-shadow:0 3px 14px rgba(20,35,27,.035);
+      backdrop-filter:blur(16px);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-brand{
+      display:flex;
+      align-items:center;
+      gap:11px;
+      min-width:max-content;
+      color:var(--weekly-text);
+      font-size:1.22rem;
+      font-weight:950;
+      letter-spacing:-.035em;
+      text-decoration:none;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-brand-mark{
+      width:25px;
+      height:25px;
+      color:var(--weekly-green);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-main-nav{
+      display:flex;
+      align-items:stretch;
+      gap:8px;
+      min-width:0;
+      min-height:68px;
+      overflow-x:auto;
+      scrollbar-width:none;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-main-nav::-webkit-scrollbar{display:none}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item{
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      flex:0 0 auto;
+      min-height:68px;
+      padding:0 14px;
+      border:0;
+      background:transparent;
+      color:#344039;
+      font-size:.86rem;
+      font-weight:800;
+      text-decoration:none;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item svg{
+      width:19px;
+      height:19px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:1.8;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item.active{
+      color:var(--weekly-green-dark);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item.active::after{
+      content:"";
+      position:absolute;
+      left:12px;
+      right:12px;
+      bottom:0;
+      height:3px;
+      border-radius:3px 3px 0 0;
+      background:var(--weekly-green);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:9px;
+      min-width:max-content;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-select,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-control-button{
+      min-height:42px;
+      border:1px solid #dce3df;
+      border-radius:9px;
+      background:#fff;
+      color:#26312b;
+      font-size:.78rem;
+      font-weight:800;
+      box-shadow:0 2px 8px rgba(20,35,27,.025);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-select{
+      min-width:126px;
+      padding:0 34px 0 12px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-date-control{
+      position:relative;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:0 12px;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date svg,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-control-button svg{
+      width:18px;
+      height:18px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:1.8;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-date-input{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      opacity:.001;
+      pointer-events:none;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-title-row{
+      display:grid;
+      grid-template-columns:minmax(260px,1fr) auto minmax(180px,1fr);
+      gap:24px;
+      align-items:center;
+      margin:0 0 22px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-title-copy h1{
+      max-width:none!important;
+      margin:0 0 7px!important;
+      color:var(--weekly-text)!important;
+      font-size:clamp(2rem,3vw,3rem)!important;
+      line-height:1.02!important;
+      letter-spacing:-.045em!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-title-copy p{
+      margin:0;
+      color:var(--weekly-muted);
+      font-size:.9rem;
+      line-height:1.45;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-range-controls{
+      display:grid;
+      grid-template-columns:auto minmax(160px,auto) auto;
+      align-items:center;
+      gap:14px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-range-label{
+      min-width:180px;
+      color:#111814;
+      font-size:1.04rem;
+      font-weight:950;
+      letter-spacing:-.02em;
+      text-align:center;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-control-button{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      padding:0 14px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-current-wrap{
+      display:flex;
+      justify-content:flex-end;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-calendar-shell,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-detail-panel,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-panel{
+      border:1px solid var(--weekly-line);
+      border-radius:12px;
+      background:var(--weekly-panel);
+      box-shadow:var(--weekly-shadow);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:22px;
+      min-height:36px;
+      padding:0 16px;
+      color:#5c6861;
+      font-size:.71rem;
+      font-weight:750;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend span{
+      display:inline-flex;
+      align-items:center;
+      gap:7px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend i{
+      width:9px;
+      height:9px;
+      border-radius:2px;
+      background:var(--weekly-green);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend .soon{background:var(--weekly-yellow)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend .single{background:var(--weekly-blue)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-calendar-scroll{
+      overflow-x:auto;
+      border-top:1px solid var(--weekly-line);
+      scrollbar-width:thin;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-days{
+      display:grid;
+      grid-template-columns:repeat(7,minmax(150px,1fr));
+      min-width:1050px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day{
+      position:relative;
+      min-height:184px;
+      padding:15px 14px 13px;
+      border:0;
+      border-right:1px solid var(--weekly-line);
+      background:#fff;
+      color:var(--weekly-text);
+      text-align:left;
+      transition:background .15s ease,box-shadow .15s ease;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day:last-child{border-right:0}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day:hover{background:#fbfdfb}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day.selected{
+      z-index:1;
+      margin:-1px;
+      border:2px solid var(--weekly-green);
+      border-radius:10px;
+      background:linear-gradient(180deg,#f7fff9,#f0faf3);
+      box-shadow:0 5px 14px rgba(19,148,71,.11);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day.today:not(.selected){background:#fbfefc}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day-name{
+      display:block;
+      font-size:.86rem;
+      font-weight:900;
+      text-align:center;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day.selected .weekly-day-name{color:var(--weekly-green-dark)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day-date{
+      display:block;
+      margin-top:2px;
+      color:#4e5b54;
+      font-size:.78rem;
+      font-weight:700;
+      text-align:center;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-day-chips{
+      display:grid;
+      gap:6px;
+      margin-top:17px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-chip{
+      display:flex;
+      align-items:center;
+      gap:7px;
+      min-height:29px;
+      padding:4px 9px;
+      border:1px solid #e1e8e4;
+      border-radius:7px;
+      background:#f9fbfa;
+      color:#24302a;
+      font-size:.7rem;
+      font-weight:850;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-chip::before,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-dot{
+      content:"";
+      width:8px;
+      height:8px;
+      flex:0 0 8px;
+      border-radius:2px;
+      background:var(--weekly-yellow);
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] [data-retailer-color="lidl"]::before,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-dot.lidl{background:var(--weekly-blue)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] [data-retailer-color="aldi_nord"]::before,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-dot.aldi_nord{background:var(--weekly-navy)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] [data-retailer-color="edeka"]::before,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-dot.edeka{background:#1b78bd}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-no-deals{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:7px;
+      margin-top:22px;
+      min-height:30px;
+      padding:6px 9px;
+      border:1px solid #e1e6e3;
+      border-radius:8px;
+      background:#fafbfa;
+      color:#657069;
+      font-size:.69rem;
+      font-weight:750;
+      text-align:center;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-content-grid{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 320px;
+      gap:18px;
+      align-items:start;
+      margin-top:18px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-detail-panel,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-panel{
+      padding:16px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-section-title{
+      margin:0 0 12px;
+      color:#121914;
+      font-size:1.02rem;
+      font-weight:950;
+      letter-spacing:-.025em;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-groups{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:12px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-card{
+      min-width:0;
+      overflow:hidden;
+      border:1px solid #e1e7e3;
+      border-radius:9px;
+      background:#fff;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      min-height:38px;
+      padding:0 10px;
+      border-bottom:1px solid #e8ece9;
+      color:#171e19;
+      font-size:.74rem;
+      font-weight:950;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-head span:first-child{
+      display:flex;
+      align-items:center;
+      gap:7px;
+      min-width:0;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-count{
+      display:grid;
+      place-items:center;
+      min-width:22px;
+      height:22px;
+      padding:0 6px;
+      border-radius:999px;
+      background:#f1f4f2;
+      color:#455149;
+      font-size:.66rem;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-products{
+      display:grid;
+      padding:0 9px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product{
+      display:grid;
+      grid-template-columns:52px minmax(0,1fr) auto;
+      gap:8px;
+      align-items:center;
+      min-height:82px;
+      padding:8px 0;
+      border:0;
+      border-bottom:1px solid #edf0ee;
+      background:#fff;
+      color:inherit;
+      text-align:left;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product:last-child{border-bottom:0}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product:hover .weekly-product-name{color:var(--weekly-green-dark)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-media{
+      width:52px;
+      height:52px;
+      display:grid;
+      place-items:center;
+      overflow:hidden;
+      border-radius:7px;
+      background:#f5f7f5;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-media img{
+      width:100%;
+      height:100%;
+      object-fit:contain;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-placeholder{
+      color:#97a19b;
+      font-size:.58rem;
+      font-weight:850;
+      text-align:center;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-copy{min-width:0}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-brand{
+      overflow:hidden;
+      color:#68736c;
+      font-size:.61rem;
+      font-weight:850;
+      text-overflow:ellipsis;
+      text-transform:uppercase;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-name{
+      overflow:hidden;
+      margin-top:2px;
+      color:#172019;
+      font-size:.69rem;
+      font-weight:850;
+      line-height:1.2;
+      display:-webkit-box;
+      -webkit-box-orient:vertical;
+      -webkit-line-clamp:2;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-tags{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:4px;
+      margin-top:5px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-tag{
+      display:inline-flex;
+      align-items:center;
+      min-height:18px;
+      padding:2px 5px;
+      border-radius:5px;
+      background:#f1f4f2;
+      color:#56625b;
+      font-size:.55rem;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-tag.start{background:#e9f7ee;color:#087532}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-tag.single{background:#eaf3ff;color:#135da4}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-price{
+      align-self:start;
+      padding-top:7px;
+      color:#101713;
+      font-size:.75rem;
+      font-weight:950;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-footer{
+      width:100%;
+      min-height:34px;
+      border:0;
+      border-top:1px solid #edf0ee;
+      background:#fff;
+      color:var(--weekly-green-dark);
+      font-size:.65rem;
+      font-weight:900;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-empty{
+      display:grid;
+      place-items:center;
+      min-height:120px;
+      padding:16px;
+      color:#7b857f;
+      font-size:.67rem;
+      line-height:1.45;
+      text-align:center;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing{
+      margin-top:14px;
+      padding-top:13px;
+      border-top:1px solid #e8ece9;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-title{
+      margin:0 0 9px;
+      font-size:.82rem;
+      font-weight:900;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-list{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:8px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-item{
+      display:grid;
+      grid-template-columns:40px minmax(0,1fr) auto;
+      gap:7px;
+      align-items:center;
+      min-width:0;
+      min-height:58px;
+      padding:7px;
+      border:1px solid #e6ebe8;
+      border-radius:8px;
+      background:#fafcfb;
+      color:inherit;
+      text-align:left;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-item img{
+      width:40px;
+      height:40px;
+      object-fit:contain;
+      border-radius:6px;
+      background:#f2f5f3;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-name{
+      overflow:hidden;
+      color:#27312b;
+      font-size:.62rem;
+      font-weight:820;
+      line-height:1.25;
+      display:-webkit-box;
+      -webkit-box-orient:vertical;
+      -webkit-line-clamp:2;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-meta{
+      margin-top:3px;
+      color:#748078;
+      font-size:.55rem;
+      font-weight:750;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-price{
+      align-self:start;
+      color:#1d2721;
+      font-size:.65rem;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-heading{
+      display:flex;
+      align-items:center;
+      gap:9px;
+      margin-bottom:14px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-heading svg{
+      width:27px;
+      height:27px;
+      padding:6px;
+      border-radius:9px;
+      background:var(--weekly-green-soft);
+      color:var(--weekly-green);
+      fill:none;
+      stroke:currentColor;
+      stroke-width:1.8;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-heading h2{
+      margin:0;
+      font-size:.88rem;
+      font-weight:950;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-list{
+      display:grid;
+      gap:8px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-item{
+      display:grid;
+      grid-template-columns:38px minmax(0,1fr);
+      gap:10px;
+      align-items:center;
+      min-height:67px;
+      padding:10px;
+      border:1px solid #e6ebe8;
+      border-radius:9px;
+      background:#fff;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-icon{
+      width:38px;
+      height:38px;
+      display:grid;
+      place-items:center;
+      border-radius:11px;
+      background:var(--weekly-green-soft);
+      color:var(--weekly-green);
+      font-size:1rem;
+      font-weight:950;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-icon.blue{background:var(--weekly-blue-soft);color:var(--weekly-blue)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-icon.orange{background:#fff1e9;color:var(--weekly-orange)}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-label{
+      color:#6a756e;
+      font-size:.66rem;
+      font-weight:750;
+      line-height:1.25;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-value{
+      margin-top:3px;
+      color:#18201b;
+      font-size:.88rem;
+      font-weight:950;
+      line-height:1.2;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-action{
+      width:100%;
+      min-height:44px;
+      margin-top:12px;
+      border:1px solid #dce3df;
+      border-radius:9px;
+      background:#fff;
+      color:#1e2923;
+      font-size:.72rem;
+      font-weight:900;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-loading,
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-error{
+      display:grid;
+      place-items:center;
+      min-height:150px;
+      padding:20px;
+      color:#6f7a73;
+      font-size:.78rem;
+      font-weight:750;
+      text-align:center;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-error{color:#a64035}
+    body.ui-minimal-v2[data-ui-release="reference-v1"] #deals{
+      margin-top:24px!important;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-catalog-heading{
+      display:flex;
+      align-items:end;
+      justify-content:space-between;
+      gap:12px;
+      margin:28px 0 10px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-catalog-heading h2{
+      margin:0;
+      font-size:1.15rem;
+      letter-spacing:-.025em;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-catalog-heading p{
+      margin:0;
+      color:var(--weekly-muted);
+      font-size:.74rem;
+    }
+    @media(max-width:1320px){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-groups{grid-template-columns:repeat(2,minmax(0,1fr))}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    @media(max-width:1080px){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-appbar{grid-template-columns:auto minmax(0,1fr)}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions{grid-column:1/-1;justify-content:flex-end;padding-bottom:10px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-title-row{grid-template-columns:1fr}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-range-controls{justify-self:start}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-current-wrap{justify-content:flex-start}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-content-grid{grid-template-columns:1fr}
+    }
+    @media(max-width:760px){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] main.shell{width:calc(100% - 18px)!important}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-appbar{grid-template-columns:auto minmax(0,1fr);gap:12px;margin:0 -9px 20px;padding:0 9px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-brand span{display:none}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-main-nav{gap:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item{padding:0 10px;font-size:.75rem}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions{justify-content:stretch}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-select{flex:1;min-width:0}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date{min-width:0;padding:0 10px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-title-copy h1{font-size:2rem!important}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-range-controls{grid-template-columns:auto 1fr auto;width:100%;gap:8px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-control-button .weekly-long-label{display:none}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-range-label{min-width:0;font-size:.9rem}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-legend{justify-content:flex-start;gap:12px;overflow-x:auto;white-space:nowrap}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-store-groups,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-continuing-list{grid-template-columns:1fr}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-detail-panel,
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-summary-panel{padding:12px}
+    }
+    @media(max-width:520px){
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item span{display:none}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-nav-item{min-width:44px;justify-content:center;padding:0 9px}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-app-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-header-date{justify-content:center}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-current-wrap .weekly-control-button{width:100%}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product{grid-template-columns:48px minmax(0,1fr) auto}
+      body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-product-media{width:48px;height:48px}
+    }
+  </style>
+
 </head>
 <body class="ui2-control-room ui-minimal-v2" data-ui-release="reference-v1">
   <div class="ui2-shell reference-app">
@@ -1855,7 +2591,76 @@ renderBestToday();bindCanonicalCards()
           <button id="openList" class="avatar-button" type="button" aria-label="Atvērt iepirkumu sarakstu">H<span id="listCount" class="list-count">0</span></button>
         </header>
 
-        <section class="hero" id="home"><div class="hero-copy"><div class="eyebrow">Ģimenes cenu skats · Minimāls ikdienas skats</div><h1>Cenas bez minējumiem.</h1><p class="lead">Drošais salīdzināšanas skats rāda tikai apstiprinātas produktu identitātes.</p><div class="daily-status-copy"><span class="status-orb"></span><span id="dailyStatusText">Ielādēju šodienas situāciju…</span></div></div><div class="hero-actions"><div id="quickDates" class="quick-dates"><button type="button" data-offset="0">Šodien</button><button type="button" data-offset="1">Rīt</button><button type="button" data-offset="2">+2d</button><button type="button" data-offset="5">+5d</button><button type="button" data-offset="7">+7d</button></div></div></section>
+
+        <section class="weekly-overview" id="home" aria-labelledby="weeklyOverviewTitle">
+          <header class="weekly-appbar">
+            <a class="weekly-brand" href="#home" aria-label="Hermes Deals sākums">
+              <svg class="weekly-brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 5h14l10 10-13 13L4 17z" fill="currentColor"/><circle cx="10" cy="11" r="2" fill="#fff"/></svg>
+              <span>Hermes Deals</span>
+            </a>
+            <nav class="weekly-main-nav" aria-label="Galvenā navigācija">
+              <a class="weekly-nav-item active" href="#home" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg><span>Nedēļas pārskats</span></a>
+              <button id="weeklyNavToday" class="weekly-nav-item" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span>Šodien</span></button>
+              <button id="weeklyNavDeals" class="weekly-nav-item" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13 13 20l-9-9V4h7z"/><circle cx="8.5" cy="8.5" r="1"/></svg><span>Visi piedāvājumi</span></button>
+              <a class="weekly-nav-item" href="/ui/review"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5V3h6v1.5M8 9h8M8 13h8M8 17h5"/></svg><span>Pārskatīšana</span></a>
+            </nav>
+            <div class="weekly-app-actions">
+              <label class="sr-only" for="weeklyRetailer">Veikals</label>
+              <select id="weeklyRetailer" class="weekly-select">
+                <option value="">Visi veikali</option>
+                <option value="aldi_nord">ALDI Nord</option>
+                <option value="edeka">EDEKA</option>
+                <option value="lidl">Lidl</option>
+                <option value="netto">Netto</option>
+              </select>
+              <div class="weekly-date-control">
+                <button id="weeklyDateButton" class="weekly-header-date" type="button" aria-label="Izvēlēties nedēļas datumu"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span id="weeklyHeaderRange">—</span></button>
+                <input id="weeklyDateInput" class="weekly-date-input" type="date" tabindex="-1" aria-label="Izvēlēties nedēļas datumu">
+              </div>
+            </div>
+          </header>
+
+          <div class="weekly-title-row">
+            <div class="weekly-title-copy">
+              <h1 id="weeklyOverviewTitle">Nedēļas pārskats</h1>
+              <p>Pārskatāmi redzi, kurā dienā sākas īpašie piedāvājumi visos veikalos.</p>
+            </div>
+            <div class="weekly-range-controls" aria-label="Nedēļas izvēle">
+              <button id="weeklyPrevious" class="weekly-control-button" type="button" aria-label="Iepriekšējā nedēļa">← <span class="weekly-long-label">Iepriekšējā nedēļa</span></button>
+              <div id="weeklyRange" class="weekly-range-label">—</div>
+              <button id="weeklyNext" class="weekly-control-button" type="button" aria-label="Nākamā nedēļa"><span class="weekly-long-label">Nākamā nedēļa</span> →</button>
+            </div>
+            <div class="weekly-current-wrap"><button id="weeklyCurrent" class="weekly-control-button" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg> Šī nedēļa</button></div>
+          </div>
+
+          <section class="weekly-calendar-shell" aria-label="Akciju sākuma dienas">
+            <div class="weekly-legend" aria-label="Apzīmējumi"><span><i></i>Sākas izvēlētajā dienā</span><span><i class="soon"></i>Drīzumā</span><span><i class="single"></i>Tikai vienu dienu</span></div>
+            <div class="weekly-calendar-scroll"><div id="weeklyDays" class="weekly-days" aria-live="polite"><div class="weekly-loading">Ielādēju nedēļas piedāvājumus…</div></div></div>
+          </section>
+
+          <div class="weekly-content-grid">
+            <section class="weekly-detail-panel" aria-labelledby="weeklyDetailTitle">
+              <h2 id="weeklyDetailTitle" class="weekly-section-title">Ielādēju izvēlētās dienas piedāvājumus…</h2>
+              <div id="weeklyStoreGroups" class="weekly-store-groups" aria-live="polite"></div>
+              <section id="weeklyContinuing" class="weekly-continuing" hidden>
+                <h3 class="weekly-continuing-title">Turpinās no iepriekšējām dienām</h3>
+                <div id="weeklyContinuingList" class="weekly-continuing-list"></div>
+              </section>
+            </section>
+            <aside class="weekly-summary-panel" aria-labelledby="weeklySummaryTitle">
+              <div class="weekly-summary-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><h2 id="weeklySummaryTitle">Nedēļas kopsavilkums</h2></div>
+              <div class="weekly-summary-list">
+                <div class="weekly-summary-item"><div class="weekly-summary-icon">★</div><div><div class="weekly-summary-label">Visvairāk jaunu akciju</div><div id="weeklyBusiest" class="weekly-summary-value">—</div></div></div>
+                <div class="weekly-summary-item"><div class="weekly-summary-icon blue">◷</div><div><div class="weekly-summary-label">Tikai vienas dienas akcijas</div><div id="weeklySingleDay" class="weekly-summary-value">—</div></div></div>
+                <div class="weekly-summary-item"><div class="weekly-summary-icon">▣</div><div><div class="weekly-summary-label">Veikali ar jaunām akcijām šonedēļ</div><div id="weeklyRetailerCount" class="weekly-summary-value">—</div></div></div>
+                <div class="weekly-summary-item"><div class="weekly-summary-icon orange">▦</div><div><div class="weekly-summary-label">Nākamā aktivitāte</div><div id="weeklyNextActivity" class="weekly-summary-value">—</div></div></div>
+              </div>
+              <button id="weeklyShowAll" class="weekly-summary-action" type="button">Skatīt visus piedāvājumus →</button>
+            </aside>
+          </div>
+        </section>
+
+        <section class="hero" id="legacyHome" aria-hidden="true"><div class="hero-copy"><div class="eyebrow">Ģimenes cenu skats · Minimāls ikdienas skats</div><h1>Cenas bez minējumiem.</h1><p class="lead">Drošais salīdzināšanas skats rāda tikai apstiprinātas produktu identitātes.</p><div class="daily-status-copy"><span class="status-orb"></span><span id="dailyStatusText">Ielādēju šodienas situāciju…</span></div></div><div class="hero-actions"><div id="quickDates" class="quick-dates"><button type="button" data-offset="0">Šodien</button><button type="button" data-offset="1">Rīt</button><button type="button" data-offset="2">+2d</button><button type="button" data-offset="5">+5d</button><button type="button" data-offset="7">+7d</button></div></div></section>
 
         <section class="modebar" aria-label="Skata režīms"><button class="modebtn active" data-mode="deals">Aktuālie piedāvājumi</button><button class="modebtn" data-mode="canonical">Salīdzināmie produkti</button></section><p id="modeHint" class="modehint">Raw deal nav automātiski tas pats produkts citā veikalā.</p>
 
@@ -1876,6 +2681,9 @@ renderBestToday();bindCanonicalCards()
             <div id="tomorrowSpecials" class="daily-special-list" aria-live="polite"><div class="daily-special-empty">Ielādēju rītdienas īpašos piedāvājumus…</div></div>
           </article>
         </section>
+
+
+        <div class="weekly-catalog-heading"><div><h2>Visi piedāvājumi</h2><p>Izvēlētās dienas pilnais katalogs un esošie filtri.</p></div></div>
 
         <section class="catalog-panel" id="deals">
           <div class="filter-head"><button id="toggleFilters" class="filter-toggle" type="button" aria-expanded="true" aria-controls="filterPanel">Slēpt filtrus⌄</button><div class="filter-title"><span>Filtri aktīvi</span><span id="activeFilterCount" class="filter-count">0 aktīvi</span></div><div class="catalog-summary"><span id="summary">Ielādēju…</span> · <span id="scopeNote">Europe/Berlin</span> <time id="lastUpdated" datetime=""></time></div><label class="catalog-sort"><span class="sr-only">Kārtot</span><select id="sort" class="control"><option value="name">Kārtot: nosaukums</option><option value="price_asc">Cena: zemākā vispirms</option><option value="price_desc">Cena: augstākā vispirms</option><option value="newest">Jaunākie novērojumi</option><option value="discount_desc">Lielākā atlaide vispirms</option><option value="retailers_desc">Vairāk veikalu vispirms</option></select></label></div>
@@ -1969,5 +2777,69 @@ renderBestToday();bindCanonicalCards()
     window.addEventListener("popstate",()=>{restoreUrl();saveViewPrefs();reloadAll();});
     applyUiPrefs();applyFilterPanel();restoreViewPrefs();restoreUrl();renderFilterSummary();$("currentToggle").style.display=mode==="canonical"?"flex":"none";$("comparisonToggle").style.display=mode==="canonical"?"flex":"none";loadHealth();reloadAll();
   </script>
+
+  <script id="ui-weekly-overview-v1-script">
+    (()=>{
+      const WEEKLY_RETAILER_ORDER=["lidl","aldi_nord","netto","edeka"];
+      const WEEKLY_DAY_NAMES=["Svētdiena","Pirmdiena","Otrdiena","Trešdiena","Ceturtdiena","Piektdiena","Sestdiena"];
+      const WEEKLY_DAY_LOCATIVE=["svētdien","pirmdien","otrdien","trešdien","ceturtdien","piektdien","sestdien"];
+      const WEEKLY_PREVIEW_LIMIT=3;
+      const WEEKLY_CACHE_LIMIT=4;
+      const weeklyState={weekStart:"",selectedDate:"",cache:new Map(),rowsByDate:new Map(),dealById:new Map(),failedDates:new Set(),requestToken:0};
+      const weeklyDays=$("weeklyDays"),weeklyRange=$("weeklyRange"),weeklyHeaderRange=$("weeklyHeaderRange"),weeklyDateInput=$("weeklyDateInput"),weeklyRetailer=$("weeklyRetailer"),weeklyStoreGroups=$("weeklyStoreGroups"),weeklyContinuing=$("weeklyContinuing"),weeklyContinuingList=$("weeklyContinuingList");
+      function weeklyIsoFromDate(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;}
+      function weeklyDateFromIso(iso){const [year,month,day]=String(iso).split("-").map(Number);return new Date(year,month-1,day,12,0,0,0);}
+      function weeklyBerlinToday(){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Berlin",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()),values=Object.fromEntries(parts.map(part=>[part.type,part.value]));return `${values.year}-${values.month}-${values.day}`;}
+      function weeklyMonday(iso){const date=weeklyDateFromIso(iso),day=date.getDay()||7;date.setDate(date.getDate()-(day-1));return weeklyIsoFromDate(date);}
+      function weeklyDates(start){return Array.from({length:7},(_,index)=>addDaysIso(start,index));}
+      function weeklyShortDate(iso){const date=weeklyDateFromIso(iso);return `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}.`;}
+      function weeklyLongDate(iso){const date=weeklyDateFromIso(iso);return `${WEEKLY_DAY_LOCATIVE[date.getDay()]}, ${weeklyShortDate(iso)}`;}
+      function weeklyWeekday(iso){return WEEKLY_DAY_NAMES[weeklyDateFromIso(iso).getDay()];}
+      function weeklyCap(value){return value?value.charAt(0).toUpperCase()+value.slice(1):value;}
+      function weeklyRangeText(start){const dates=weeklyDates(start),end=weeklyDateFromIso(dates[6]);return `${weeklyShortDate(dates[0])}–${String(end.getDate()).padStart(2,"0")}.${String(end.getMonth()+1).padStart(2,"0")}.${end.getFullYear()}`;}
+      function weeklyStartDate(deal){const starts=[deal.valid_from,deal.app_valid_from].filter(Boolean).sort();return starts[0]||null;}
+      function weeklyEndDate(deal){const ends=[deal.valid_until,deal.app_valid_until].filter(Boolean).sort();return ends.at(-1)||null;}
+      function weeklyIsSingleDay(deal){return Boolean((deal.valid_from&&deal.valid_from===deal.valid_until)||(!deal.valid_from&&deal.app_valid_from&&deal.app_valid_from===deal.app_valid_until));}
+      function weeklyUnique(rows){const seen=new Set();return rows.filter(deal=>{const key=String(deal.offer_candidate_id||`${deal.source_chain}:${deal.source_store_external_id||""}:${deal.source_offer_id||""}`);if(seen.has(key))return false;seen.add(key);return true;});}
+      function weeklyFilter(rows){return weeklyUnique((rows||[]).filter(deal=>!selectedRetailer||deal.source_chain===selectedRetailer));}
+      function weeklyStartsFor(iso){return weeklyFilter((weeklyState.rowsByDate.get(iso)||[]).filter(deal=>weeklyStartDate(deal)===iso));}
+      function weeklyContinuingFor(iso){return weeklyFilter((weeklyState.rowsByDate.get(iso)||[]).filter(deal=>{const start=weeklyStartDate(deal);return start&&start<iso;}));}
+      function weeklySort(rows){return rows.slice().sort((a,b)=>(Number(b.discount_percent||0)-Number(a.discount_percent||0))||(Number(a.price_eur??Infinity)-Number(b.price_eur??Infinity))||String(a.product_name_raw||"").localeCompare(String(b.product_name_raw||""),"lv"));}
+      function weeklyPrice(deal,iso){const appActive=deal.app_price_eur!=null&&deal.app_valid_from&&deal.app_valid_until&&deal.app_valid_from<=iso&&iso<=deal.app_valid_until;if(appActive&&Number(deal.app_price_eur)<=Number(deal.price_eur??Infinity))return euro.format(Number(deal.app_price_eur));return dealPrimaryPrice(deal)[0];}
+      function weeklyValidity(deal){const start=weeklyStartDate(deal),end=weeklyEndDate(deal);if(!start)return "Datums nav zināms";if(start===end)return weeklyShortDate(start);return `${weeklyShortDate(start)}–${weeklyShortDate(end||start)}`;}
+      function weeklyStoreOrder(keys){return [...WEEKLY_RETAILER_ORDER,...keys.filter(key=>!WEEKLY_RETAILER_ORDER.includes(key)).sort()].filter((key,index,array)=>array.indexOf(key)===index);}
+      async function weeklyFetchDay(iso){return fetchAllDailyDeals(iso);}
+      function weeklyRememberCache(start,rowsByDate){weeklyState.cache.set(start,rowsByDate);while(weeklyState.cache.size>WEEKLY_CACHE_LIMIT)weeklyState.cache.delete(weeklyState.cache.keys().next().value);}
+      function weeklyRenderLoading(start){weeklyRange.textContent=weeklyRangeText(start);weeklyHeaderRange.textContent=weeklyRangeText(start);weeklyDateInput.value=weeklyState.selectedDate;weeklyDays.innerHTML=weeklyDates(start).map(iso=>`<button class="weekly-day${iso===weeklyState.selectedDate?" selected":""}" type="button" disabled><span class="weekly-day-name">${esc(weeklyCap(weeklyWeekday(iso)))}</span><span class="weekly-day-date">${esc(weeklyShortDate(iso))}</span><span class="weekly-no-deals">Ielādēju…</span></button>`).join("");weeklyStoreGroups.innerHTML=`<div class="weekly-loading">Ielādēju izvēlētās dienas piedāvājumus…</div>`;}
+      async function loadWeeklyOverview(targetIso=asOf.value||weeklyBerlinToday(),force=false){const start=weeklyMonday(targetIso),token=++weeklyState.requestToken;weeklyState.weekStart=start;weeklyState.selectedDate=targetIso;weeklyRetailer.value=selectedRetailer;weeklyRenderLoading(start);if(!force&&weeklyState.cache.has(start)){weeklyState.rowsByDate=weeklyState.cache.get(start);renderWeeklyOverview();return;}const dates=weeklyDates(start),settled=await Promise.allSettled(dates.map(weeklyFetchDay));if(token!==weeklyState.requestToken)return;const rowsByDate=new Map();weeklyState.failedDates=new Set();settled.forEach((result,index)=>{rowsByDate.set(dates[index],result.status==="fulfilled"?result.value:[]);if(result.status!=="fulfilled")weeklyState.failedDates.add(dates[index]);});weeklyState.rowsByDate=rowsByDate;weeklyRememberCache(start,rowsByDate);renderWeeklyOverview();}
+      function weeklyDayChip(retailer,count){return `<span class="weekly-store-chip" data-retailer-color="${esc(retailer)}">${esc(retailerName(retailer))} ${count}</span>`;}
+      function renderWeeklyDays(){const today=weeklyBerlinToday();weeklyRange.textContent=weeklyRangeText(weeklyState.weekStart);weeklyHeaderRange.textContent=weeklyRangeText(weeklyState.weekStart);weeklyDateInput.value=weeklyState.selectedDate;weeklyDays.innerHTML=weeklyDates(weeklyState.weekStart).map(iso=>{const rows=weeklyStartsFor(iso),counts={};for(const deal of rows)counts[deal.source_chain]=(counts[deal.source_chain]||0)+1;const chips=weeklyStoreOrder(Object.keys(counts)).filter(key=>counts[key]).map(key=>weeklyDayChip(key,counts[key])).join(""),dayBody=weeklyState.failedDates.has(iso)?`<span class="weekly-no-deals">Neizdevās ielādēt</span>`:(chips||`<span class="weekly-no-deals">⊘ Nav jaunu akciju</span>`);return `<button class="weekly-day${iso===weeklyState.selectedDate?" selected":""}${iso===today?" today":""}" data-weekly-date="${iso}" type="button" aria-pressed="${iso===weeklyState.selectedDate}"><span class="weekly-day-name">${esc(weeklyCap(weeklyWeekday(iso)))}</span><span class="weekly-day-date">${esc(weeklyShortDate(iso))}</span><span class="weekly-day-chips">${dayBody}</span></button>`;}).join("");weeklyDays.querySelectorAll("[data-weekly-date]").forEach(button=>button.addEventListener("click",()=>selectWeeklyDate(button.dataset.weeklyDate)));}
+      function weeklyProductHtml(deal,iso){weeklyState.dealById.set(String(deal.offer_candidate_id),deal);const image=deal.source_image_url?`<img src="${esc(deal.source_image_url)}" alt="${esc(deal.product_name_raw)}" loading="lazy">`:`<span class="weekly-product-placeholder">Nav attēla</span>`,brand=deal.brand_raw||retailerName(deal.source_chain),single=weeklyIsSingleDay(deal),startTag=iso===weeklyBerlinToday()?"Sākas šodien":"Sākas šajā dienā";return `<button class="weekly-product" data-weekly-deal-id="${esc(deal.offer_candidate_id)}" type="button"><span class="weekly-product-media">${image}</span><span class="weekly-product-copy"><span class="weekly-product-brand">${esc(brand)}</span><span class="weekly-product-name">${esc(deal.product_name_raw)}${deal.package_text_raw?` · ${esc(deal.package_text_raw)}`:""}</span><span class="weekly-product-tags"><span class="weekly-product-tag ${single?"single":"start"}">${single?"Tikai šo dienu":startTag}</span><span class="weekly-product-tag">${esc(weeklyValidity(deal))}</span></span></span><span class="weekly-product-price">${weeklyPrice(deal,iso)}</span></button>`;}
+      function weeklyStoreCard(retailer,rows,iso){const sorted=weeklySort(rows),preview=sorted.slice(0,WEEKLY_PREVIEW_LIMIT),content=preview.length?`<div class="weekly-products">${preview.map(deal=>weeklyProductHtml(deal,iso)).join("")}</div>`:`<div class="weekly-store-empty">Šajā dienā nav jaunu ${esc(retailerName(retailer))} akciju.</div>`;return `<article class="weekly-store-card"><div class="weekly-store-head"><span><i class="weekly-store-dot ${esc(retailer)}"></i>${esc(retailerName(retailer))}</span><span class="weekly-store-count">${rows.length}</span></div>${content}<button class="weekly-store-footer" data-weekly-open-retailer="${esc(retailer)}" type="button" ${rows.length?"":"disabled"}>${rows.length?`Skatīt visus ${rows.length} piedāvājumus →`:"Nav jaunu piedāvājumu"}</button></article>`;}
+      function bindWeeklyProducts(){document.querySelectorAll("[data-weekly-deal-id]").forEach(button=>button.addEventListener("click",()=>{const deal=weeklyState.dealById.get(String(button.dataset.weeklyDealId));if(deal)openRawDealDetail(deal);}));document.querySelectorAll("[data-weekly-open-retailer]").forEach(button=>button.addEventListener("click",()=>openWeeklyRetailer(button.dataset.weeklyOpenRetailer)));}
+      function renderWeeklyDetail(){const iso=weeklyState.selectedDate;if(weeklyState.failedDates.has(iso)){$("weeklyDetailTitle").textContent=`${weeklyLongDate(iso)} dati nav pieejami`;weeklyStoreGroups.innerHTML=`<div class="weekly-error">Šīs dienas piedāvājumus neizdevās ielādēt. Pārējās nedēļas dienas paliek pieejamas.</div>`;weeklyContinuing.hidden=true;return;}const rows=weeklyStartsFor(iso),groups=new Map();for(const deal of rows){if(!groups.has(deal.source_chain))groups.set(deal.source_chain,[]);groups.get(deal.source_chain).push(deal);}const retailersToShow=selectedRetailer?[selectedRetailer]:WEEKLY_RETAILER_ORDER;$("weeklyDetailTitle").textContent=`Sākas ${weeklyLongDate(iso)}`;weeklyStoreGroups.innerHTML=retailersToShow.map(retailer=>weeklyStoreCard(retailer,groups.get(retailer)||[],iso)).join("");const continuing=weeklySort(weeklyContinuingFor(iso)).slice(0,4);weeklyContinuing.hidden=!continuing.length;weeklyContinuingList.innerHTML=continuing.map(deal=>{weeklyState.dealById.set(String(deal.offer_candidate_id),deal);const image=deal.source_image_url?`<img src="${esc(deal.source_image_url)}" alt="${esc(deal.product_name_raw)}" loading="lazy">`:`<span></span>`;return `<button class="weekly-continuing-item" data-weekly-deal-id="${esc(deal.offer_candidate_id)}" type="button">${image}<span><span class="weekly-continuing-name">${esc(deal.product_name_raw)}</span><span class="weekly-continuing-meta">${esc(retailerName(deal.source_chain))} · līdz ${esc(weeklyShortDate(weeklyEndDate(deal)||iso))}</span></span><span class="weekly-continuing-price">${weeklyPrice(deal,iso)}</span></button>`;}).join("");bindWeeklyProducts();}
+      function renderWeeklySummary(){const dates=weeklyDates(weeklyState.weekStart),counts=dates.map(iso=>[iso,weeklyStartsFor(iso).length]),busiest=counts.slice().sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0],allStarts=weeklyUnique(dates.flatMap(weeklyStartsFor)),singleCount=allStarts.filter(weeklyIsSingleDay).length,retailerCount=new Set(allStarts.map(deal=>deal.source_chain)).size,next=counts.find(([iso,count])=>iso>weeklyState.selectedDate&&count>0);$("weeklyBusiest").textContent=busiest&&busiest[1]?weeklyCap(weeklyWeekday(busiest[0])):"Nav jaunu akciju";$("weeklySingleDay").textContent=String(singleCount);$("weeklyRetailerCount").textContent=String(retailerCount);$("weeklyNextActivity").textContent=next?weeklyCap(weeklyWeekday(next[0])):"Šonedēļ nav";}
+      function renderWeeklyOverview(){weeklyState.dealById.clear();weeklyRetailer.value=selectedRetailer;renderWeeklyDays();renderWeeklyDetail();renderWeeklySummary();}
+      function syncWeeklyRetailer(value){selectedRetailer=value||"";weeklyRetailer.value=selectedRetailer;if($("retailerSelect"))$("retailerSelect").value=selectedRetailer;retailers.querySelectorAll(".chip").forEach(chip=>chip.classList.toggle("active",(chip.dataset.retailer||"")===selectedRetailer));saveViewPrefs();syncUrl();renderWeeklyOverview();loadGrid();}
+      function selectWeeklyDate(iso){weeklyState.selectedDate=iso;setAsOfIso(iso);syncUrl();renderWeeklyOverview();reloadAll();}
+      function openWeeklyRetailer(retailer){syncWeeklyRetailer(retailer);document.getElementById("deals")?.scrollIntoView({behavior:"smooth",block:"start"});}
+      function moveWeekly(delta){const target=addDaysIso(weeklyState.weekStart,delta*7);setAsOfIso(target);syncUrl();reloadAll();loadWeeklyOverview(target);}
+      function goWeeklyToday(){const today=weeklyBerlinToday();setAsOfIso(today);syncUrl();reloadAll();loadWeeklyOverview(today);document.getElementById("home")?.scrollIntoView({behavior:"smooth",block:"start"});}
+      $("weeklyPrevious").addEventListener("click",()=>moveWeekly(-1));
+      $("weeklyNext").addEventListener("click",()=>moveWeekly(1));
+      $("weeklyCurrent").addEventListener("click",goWeeklyToday);
+      $("weeklyNavToday").addEventListener("click",goWeeklyToday);
+      $("weeklyNavDeals").addEventListener("click",()=>document.getElementById("deals")?.scrollIntoView({behavior:"smooth",block:"start"}));
+      $("weeklyShowAll").addEventListener("click",()=>document.getElementById("deals")?.scrollIntoView({behavior:"smooth",block:"start"}));
+      weeklyRetailer.addEventListener("change",()=>syncWeeklyRetailer(weeklyRetailer.value));
+      $("weeklyDateButton").addEventListener("click",()=>{weeklyDateInput.value=weeklyState.selectedDate;try{weeklyDateInput.showPicker();}catch{weeklyDateInput.focus();weeklyDateInput.click();}});
+      weeklyDateInput.addEventListener("change",()=>{if(!weeklyDateInput.value)return;const target=weeklyDateInput.value;setAsOfIso(target);syncUrl();reloadAll();loadWeeklyOverview(target);});
+      $("retailerSelect")?.addEventListener("change",()=>setTimeout(()=>{weeklyRetailer.value=selectedRetailer;renderWeeklyOverview();},0));
+      retailers.addEventListener("click",event=>{if(!event.target.closest(".chip"))return;setTimeout(()=>{weeklyRetailer.value=selectedRetailer;renderWeeklyOverview();},0);});
+      window.addEventListener("popstate",()=>setTimeout(()=>loadWeeklyOverview(asOf.value||weeklyBerlinToday()),0));
+      loadWeeklyOverview(asOf.value||weeklyBerlinToday());
+    })();
+  </script>
+
 </body>
 </html>
