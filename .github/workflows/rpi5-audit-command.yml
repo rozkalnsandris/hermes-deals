@@ -18,8 +18,6 @@ jobs:
     name: Authorize owner audit command
     if: >-
       github.event.issue.pull_request &&
-      github.event.comment.user.login == 'rozkalnsandris' &&
-      github.event.comment.author_association == 'OWNER' &&
       startsWith(github.event.comment.body, '/run ')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -28,7 +26,7 @@ jobs:
       sha: ${{ steps.authorize.outputs.sha }}
 
     steps:
-      - name: Validate command, merged PR and main ancestry
+      - name: Validate command, owner identity, merged PR and main ancestry
         id: authorize
         env:
           EVENT_PATH: ${{ github.event_path }}
@@ -43,16 +41,21 @@ jobs:
           import re
           import urllib.request
 
+          expected_repo = "rozkalnsandris/hermes-deals"
+          expected_owner_login = "rozkalnsandris"
+          expected_owner_id = 277435981
+
           event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
           repo = event["repository"]["full_name"]
-          if repo != "rozkalnsandris/hermes-deals":
+          if repo != expected_repo:
               raise SystemExit(f"unexpected repository: {repo}")
 
           comment = event["comment"]
-          if comment["user"]["login"] != "rozkalnsandris":
-              raise SystemExit("command author is not the repository owner")
-          if comment.get("author_association") != "OWNER":
-              raise SystemExit("command author association is not OWNER")
+          comment_user = comment.get("user") or {}
+          if comment_user.get("login") != expected_owner_login:
+              raise SystemExit("command author login is not the repository owner")
+          if comment_user.get("id") != expected_owner_id:
+              raise SystemExit("command author numeric identity does not match the repository owner")
 
           match = re.fullmatch(
               r"/run (runner-smoke|b15m2-v08) ([0-9a-f]{40})",
@@ -101,6 +104,7 @@ jobs:
               f"- Audit: `{audit}`\n"
               f"- Registered commit request: `{requested_sha}`\n"
               f"- Merged PR: `#{pr_number}`\n"
+              f"- Owner identity: `{expected_owner_login}` / `{expected_owner_id}`\n"
               "- Production deployment: **not authorized**\n",
               encoding="utf-8",
           )
@@ -172,11 +176,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   report:
-    name: Report audit run metadata to PR
+    name: Report audit pipeline result to PR
     needs:
       - authorize
       - rpi5-audit
-    if: always() && needs.authorize.result == 'success'
+    if: >-
+      always() &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/run ')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -184,13 +191,15 @@ jobs:
       issues: write
 
     steps:
-      - name: Post machine-readable result comment
+      - name: Post machine-readable pipeline result comment
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMAND_BODY: ${{ github.event.comment.body }}
           AUDIT: ${{ needs.authorize.outputs.audit }}
           REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          AUTHORIZE_RESULT: ${{ needs.authorize.result }}
           RPI5_RESULT: ${{ needs.rpi5-audit.result }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -205,21 +214,29 @@ jobs:
 
           repo = os.environ["REPOSITORY"]
           issue_number = int(os.environ["ISSUE_NUMBER"])
-          audit = os.environ["AUDIT"]
-          commit_sha = os.environ["REGISTERED_SHA"]
-          result = os.environ["RPI5_RESULT"]
+          command_body = os.environ["COMMAND_BODY"].strip()
+          audit = os.environ.get("AUDIT", "").strip()
+          commit_sha = os.environ.get("REGISTERED_SHA", "").strip()
+          authorize_result = os.environ["AUTHORIZE_RESULT"]
+          rpi5_result = os.environ["RPI5_RESULT"]
           run_id = os.environ["RUN_ID"]
           run_attempt = os.environ["RUN_ATTEMPT"]
           server_url = os.environ["SERVER_URL"]
-          artifact_name = f"{audit}-{commit_sha}-run-{run_id}"
           actions_url = f"{server_url}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}"
+
+          if audit and commit_sha:
+              artifact_name = f"{audit}-{commit_sha}-run-{run_id}"
+          else:
+              artifact_name = "not-created"
 
           body = (
               f"<!-- hermes-deals-rpi5-audit-result:{run_id}:{run_attempt} -->\n"
-              "## RPi5 audit result\n\n"
-              f"- Audit: `{audit}`\n"
-              f"- Registered commit: `{commit_sha}`\n"
-              f"- RPi5 job result: **{result}**\n"
+              "## RPi5 audit pipeline result\n\n"
+              f"- Command: `{command_body}`\n"
+              f"- Authorization job: **{authorize_result}**\n"
+              f"- RPi5 job: **{rpi5_result}**\n"
+              f"- Audit: `{audit or 'not-authorized'}`\n"
+              f"- Registered commit: `{commit_sha or 'not-authorized'}`\n"
               f"- Workflow run ID: `{run_id}`\n"
               f"- Run attempt: `{run_attempt}`\n"
               f"- Artifact: `{artifact_name}`\n"
