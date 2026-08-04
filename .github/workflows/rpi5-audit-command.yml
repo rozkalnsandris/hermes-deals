@@ -33,7 +33,6 @@ jobs:
         env:
           EVENT_PATH: ${{ github.event_path }}
           GH_TOKEN: ${{ github.token }}
-          GITHUB_OUTPUT_FILE: ${{ github.output }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -91,7 +90,7 @@ jobs:
           if comparison.get("status") not in {"ahead", "identical"}:
               raise SystemExit("requested merged commit is not reachable from current main")
 
-          output = pathlib.Path(os.environ["GITHUB_OUTPUT_FILE"])
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
               handle.write(f"audit={audit}\n")
               handle.write(f"sha={requested_sha}\n")
