@@ -2,6 +2,18 @@
 
 Private, fully custom family shopping-intelligence platform for Andris' household.
 
+<!-- project-progress:start -->
+## Project progress
+
+**Overall:** **56%** `███████████░░░░░░░░░`
+
+**Previous day (04.08.2026):** **+5 percentage points**
+
+**Issues completed:** **3** — [#12](https://github.com/rozkalnsandris/hermes-deals/issues/12), [#13](https://github.com/rozkalnsandris/hermes-deals/issues/13), [#15](https://github.com/rozkalnsandris/hermes-deals/issues/15)
+
+_Last updated automatically: 05.08.2026 19:45 Europe/Berlin. [Measurement rules](docs/PROJECT_PROGRESS.md)._
+<!-- project-progress:end -->
+
 ## Current status — Phase 5G (B15F)
 
 The custom Hermes Deals stack is active across Netto, Lidl, ALDI Nord and the
