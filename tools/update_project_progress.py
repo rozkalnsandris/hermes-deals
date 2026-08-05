@@ -18,6 +18,12 @@ START_MARKER = "<!-- project-progress:start -->"
 END_MARKER = "<!-- project-progress:end -->"
 DEFAULT_API_URL = "https://api.github.com"
 EXCLUDED_STATE_REASONS = frozenset({"not_planned", "duplicate"})
+STORE_CATEGORIES = (
+    ("netto", "Netto"),
+    ("lidl", "Lidl"),
+    ("aldi", "ALDI Nord"),
+    ("edeka", "EDEKA Patzer"),
+)
 
 
 class ProjectProgressError(RuntimeError):
@@ -82,10 +88,7 @@ def validate_manifest(manifest: Mapping[str, Any]) -> None:
             )
             item_ids.add(item_id)
             points = item.get("points")
-            _require(
-                isinstance(points, int) and points > 0,
-                f"invalid points for {item_id}",
-            )
+            _require(isinstance(points, int) and points > 0, f"invalid points for {item_id}")
             completion = item.get("completion")
             _require(isinstance(completion, Mapping), f"completion is required for {item_id}")
             completion_type = completion.get("type")
@@ -102,12 +105,14 @@ def validate_manifest(manifest: Mapping[str, Any]) -> None:
                     f"fixed item {item_id} requires evidence",
                 )
             else:
-                issue = completion.get("issue")
+                issue_number = completion.get("issue")
                 _require(
-                    isinstance(issue, int) and issue > 0 and issue not in issue_numbers,
+                    isinstance(issue_number, int)
+                    and issue_number > 0
+                    and issue_number not in issue_numbers,
                     f"issue items must use unique positive issue numbers: {item_id}",
                 )
-                issue_numbers.add(issue)
+                issue_numbers.add(issue_number)
             category_points += points
 
         _require(
@@ -119,6 +124,14 @@ def validate_manifest(manifest: Mapping[str, Any]) -> None:
 
     _require(total_weight == 100, f"category weights must total 100, got {total_weight}")
     _require(total_points == 100, f"item points must total 100, got {total_points}")
+
+    missing_store_categories = [
+        category_id for category_id, _ in STORE_CATEGORIES if category_id not in category_ids
+    ]
+    _require(
+        not missing_store_categories,
+        f"manifest is missing store categories: {', '.join(missing_store_categories)}",
+    )
 
     excluded = manifest.get("excluded_issue_numbers", [])
     _require(
@@ -213,6 +226,12 @@ def issue_closed_in_window(
     return closed_at is not None and start_utc <= closed_at < end_utc
 
 
+def completion_percent(completed_points: int, weight: int) -> int:
+    _require(weight > 0, "weight must be positive")
+    _require(0 <= completed_points <= weight, "completed points must fit category weight")
+    return (completed_points * 100 + weight // 2) // weight
+
+
 def calculate_snapshot(
     manifest: Mapping[str, Any],
     issues: Iterable[Mapping[str, Any]],
@@ -243,14 +262,14 @@ def calculate_snapshot(
             issue_number = None
             if completion["type"] == "issue":
                 issue_number = int(completion["issue"])
-                issue = issues_by_number.get(issue_number)
-                _require(issue is not None, f"GitHub issue #{issue_number} is missing")
+                issue_payload = issues_by_number.get(issue_number)
+                _require(issue_payload is not None, f"GitHub issue #{issue_number} is missing")
                 completed = issue_is_valid_completion(
-                    issue,
+                    issue_payload,
                     excluded_numbers=excluded_numbers,
                     excluded_prefixes=excluded_prefixes,
                 )
-                if completed and issue_closed_in_window(issue, start_utc, end_utc):
+                if completed and issue_closed_in_window(issue_payload, start_utc, end_utc):
                     previous_day_points += int(item["points"])
 
             if completed:
@@ -267,35 +286,55 @@ def calculate_snapshot(
                 }
             )
 
+        weight = int(category["weight"])
         categories.append(
             {
                 "id": category["id"],
                 "label": category["label"],
                 "completed_points": category_completed,
-                "weight": category["weight"],
+                "weight": weight,
+                "completion_percent": completion_percent(category_completed, weight),
                 "items": rendered_items,
             }
         )
 
-    completed_yesterday = [
-        {
-            "number": int(issue["number"]),
-            "title": str(issue["title"]),
-            "closed_at": str(issue["closed_at"]),
-            "html_url": str(
-                issue.get("html_url")
-                or f"https://github.com/{manifest['repository']}/issues/{issue['number']}"
-            ),
-        }
-        for issue in issue_list
+    completed_issues = [
+        issue_payload
+        for issue_payload in issue_list
         if issue_is_valid_completion(
-            issue,
+            issue_payload,
             excluded_numbers=excluded_numbers,
             excluded_prefixes=excluded_prefixes,
         )
-        and issue_closed_in_window(issue, start_utc, end_utc)
+    ]
+    completed_issue_numbers = {int(issue_payload["number"]) for issue_payload in completed_issues}
+
+    completed_yesterday = [
+        {
+            "number": int(issue_payload["number"]),
+            "title": str(issue_payload["title"]),
+            "closed_at": str(issue_payload["closed_at"]),
+            "html_url": str(
+                issue_payload.get("html_url")
+                or f"https://github.com/{manifest['repository']}/issues/{issue_payload['number']}"
+            ),
+        }
+        for issue_payload in completed_issues
+        if issue_closed_in_window(issue_payload, start_utc, end_utc)
     ]
     completed_yesterday.sort(key=lambda item: item["number"])
+
+    category_by_id = {category["id"]: category for category in categories}
+    store_catalogues = [
+        {
+            "id": category_id,
+            "label": label,
+            "completed_points": category_by_id[category_id]["completed_points"],
+            "weight": category_by_id[category_id]["weight"],
+            "completion_percent": category_by_id[category_id]["completion_percent"],
+        }
+        for category_id, label in STORE_CATEGORIES
+    ]
 
     zone = ZoneInfo(manifest["timezone"])
     generated_local = now.astimezone(zone)
@@ -306,12 +345,14 @@ def calculate_snapshot(
         "repository": manifest["repository"],
         "timezone": manifest["timezone"],
         "overall_percent": completed_points,
+        "completed_issue_count": len(completed_issue_numbers),
         "previous_day": previous_date,
         "previous_day_percentage_points": previous_day_points,
         "previous_day_completed_issue_count": len(completed_yesterday),
         "previous_day_completed_issues": completed_yesterday,
         "generated_at": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "generated_at_local": generated_local.isoformat(),
+        "store_catalogues": store_catalogues,
         "categories": categories,
     }
 
@@ -337,6 +378,14 @@ def render_readme_block(snapshot: Mapping[str, Any]) -> str:
     overall = int(snapshot["overall_percent"])
     bar = render_progress_bar(overall)
 
+    store_lines = []
+    for store in snapshot["store_catalogues"]:
+        percent = int(store["completion_percent"])
+        store_lines.append(
+            f"- **{store['label']}:** **{percent}%** "
+            f"`{render_progress_bar(percent, width=10)}`"
+        )
+
     return "\n".join(
         [
             START_MARKER,
@@ -344,11 +393,16 @@ def render_readme_block(snapshot: Mapping[str, Any]) -> str:
             "",
             f"**Overall:** **{overall}%** `{bar}`",
             "",
+            "**Store catalogues**",
+            *store_lines,
+            "",
             f"**Previous day ({previous_day}):** **{delta_text} percentage points**",
             "",
             (
-                "**Issues completed:** "
-                f"**{snapshot['previous_day_completed_issue_count']}** — {issue_links}"
+                "**Issues fixed:** "
+                f"**{snapshot['completed_issue_count']} total** · "
+                f"**{snapshot['previous_day_completed_issue_count']} during the previous day**"
+                f" — {issue_links}"
             ),
             "",
             (
@@ -416,41 +470,28 @@ def fetch_github_issues(
     api_url: str,
     start_utc: datetime,
 ) -> list[dict[str, Any]]:
+    del start_utc  # Retained in the API for compatibility with older callers/tests.
     repository = manifest["repository"]
-    issue_numbers = configured_issue_numbers(manifest)
     issues: dict[int, dict[str, Any]] = {}
-
-    for number in issue_numbers:
-        payload = _github_json(
-            f"{api_url.rstrip('/')}/repos/{repository}/issues/{number}",
-            token=token,
-        )
-        _require(isinstance(payload, Mapping), f"invalid GitHub issue payload for #{number}")
-        issues[number] = dict(payload)
 
     page = 1
     while True:
-        query = urlencode(
-            {
-                "state": "all",
-                "since": start_utc.isoformat().replace("+00:00", "Z"),
-                "per_page": 100,
-                "page": page,
-            }
-        )
+        query = urlencode({"state": "all", "per_page": 100, "page": page})
         payload = _github_json(
             f"{api_url.rstrip('/')}/repos/{repository}/issues?{query}",
             token=token,
         )
         _require(isinstance(payload, list), "invalid GitHub issue list payload")
-        for issue in payload:
-            if isinstance(issue, Mapping) and isinstance(issue.get("number"), int):
-                issues[int(issue["number"])] = dict(issue)
+        for issue_payload in payload:
+            if isinstance(issue_payload, Mapping) and isinstance(issue_payload.get("number"), int):
+                issues[int(issue_payload["number"])] = dict(issue_payload)
         if len(payload) < 100:
             break
         page += 1
         _require(page <= 20, "GitHub issue pagination exceeded safety limit")
 
+    missing = sorted(set(configured_issue_numbers(manifest)) - set(issues))
+    _require(not missing, f"GitHub issues are missing: {', '.join(f'#{n}' for n in missing)}")
     return [issues[number] for number in sorted(issues)]
 
 
@@ -458,7 +499,7 @@ def load_fixture_issues(path: Path) -> list[dict[str, Any]]:
     payload = load_json(path)
     if isinstance(payload, Mapping):
         payload = payload.get("issues")
-    _require(isinstance(payload, list), "fixture issue JSON must be a list or {issues: [...]}" )
+    _require(isinstance(payload, list), "fixture issue JSON must be a list or {issues: [...]}")
     _require(all(isinstance(issue, Mapping) for issue in payload), "fixture issues must be objects")
     return [dict(issue) for issue in payload]
 
@@ -509,6 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "overall_percent": snapshot["overall_percent"],
+                "completed_issue_count": snapshot["completed_issue_count"],
                 "previous_day": snapshot["previous_day"],
                 "previous_day_percentage_points": snapshot[
                     "previous_day_percentage_points"
@@ -516,6 +558,7 @@ def main(argv: list[str] | None = None) -> int:
                 "previous_day_completed_issue_count": snapshot[
                     "previous_day_completed_issue_count"
                 ],
+                "store_catalogues": snapshot["store_catalogues"],
             },
             sort_keys=True,
         )
