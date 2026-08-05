@@ -1,0 +1,231 @@
+name: Hermes Deals origin path RPi5 audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged PR that registered the origin path audit
+        required: true
+        type: string
+      as_of:
+        description: Probe date in YYYY-MM-DD format
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-rpi5-audit
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize owner and merged PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      sha: ${{ steps.auth.outputs.sha }}
+      actor: ${{ steps.auth.outputs.actor }}
+      as_of: ${{ steps.auth.outputs.as_of }}
+    steps:
+      - name: Verify exact owner-authorized merged PR
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          PR_INPUT: ${{ inputs.pr_number }}
+          AS_OF_INPUT: ${{ inputs.as_of }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit(f"unexpected repository: {repo}")
+          if os.environ["ACTOR"] != "rozkalnsandris" or os.environ["ACTOR_ID"] != "277435981":
+              raise SystemExit("workflow actor is not the allowlisted owner")
+
+          raw_pr = os.environ["PR_INPUT"].strip()
+          if not raw_pr.isdigit():
+              raise SystemExit("pr_number must be numeric")
+          number = int(raw_pr)
+
+          as_of = os.environ["AS_OF_INPUT"].strip()
+          try:
+              parsed_as_of = datetime.date.fromisoformat(as_of)
+          except ValueError as error:
+              raise SystemExit("as_of must be a valid YYYY-MM-DD date") from error
+          if parsed_as_of.isoformat() != as_of:
+              raise SystemExit("as_of must use canonical YYYY-MM-DD format")
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-origin-path-authorizer",
+          }
+
+          def get(url):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("audit accepts only merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("merged pull request SHA is invalid")
+
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged SHA is not reachable from current main")
+
+          tree = get(f"https://api.github.com/repos/{repo}/git/trees/{sha}?recursive=1")
+          paths = {
+              item.get("path")
+              for item in tree.get("tree", [])
+              if item.get("type") == "blob"
+          }
+          required = {
+              "tools/hermes_deals_origin_probe.py",
+              "tools/runner/install-origin-path-rpi5-audit.sh",
+              "tools/runner/origin-path-rpi5-audit-dispatcher.sh",
+              ".github/workflows/origin-path-rpi5-audit.yml",
+              "docs/operations/origin-path-rpi5-audit.md",
+          }
+          missing = sorted(required - paths)
+          if missing:
+              raise SystemExit(f"registered audit files are missing: {missing}")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(
+                  f"pr_number={number}\n"
+                  f"sha={sha}\n"
+                  f"actor={os.environ['ACTOR']}\n"
+                  f"as_of={as_of}\n"
+              )
+          PY
+
+  rpi5-audit:
+    name: Compare public edge and local origin
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 10
+    steps:
+      - name: Run fixed root-owned dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-origin-path-audit-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir/audit-evidence" >> "$GITHUB_OUTPUT"
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-origin-path-audit-dispatch \
+            "$REGISTERED_SHA" "$AS_OF" "$export_dir"
+          rc=$?
+          set -e
+          exit "$rc"
+
+      - name: Upload sanitized evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: origin-path-audit-${{ needs.authorize.outputs.sha }}-${{ needs.authorize.outputs.as_of }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: Report result to registered PR
+    needs:
+      - authorize
+      - rpi5-audit
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment audit result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          TRIGGER_ACTOR: ${{ needs.authorize.outputs.actor }}
+          RPI5_RESULT: ${{ needs.rpi5-audit.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          number = int(os.environ["PR_NUMBER"])
+          artifact = (
+              f"origin-path-audit-{os.environ['REGISTERED_SHA']}-"
+              f"{os.environ['AS_OF']}-run-{os.environ['RUN_ID']}"
+          )
+          body = (
+              f"<!-- origin-path-audit:{os.environ['RUN_ID']}:{os.environ['RUN_ATTEMPT']} -->\n"
+              "## Public edge versus local origin audit\n\n"
+              f"- Trigger actor: `{os.environ['TRIGGER_ACTOR']}`\n"
+              f"- RPi5 result: **{os.environ['RPI5_RESULT']}**\n"
+              f"- Registered commit: `{os.environ['REGISTERED_SHA']}`\n"
+              f"- Probe date: `{os.environ['AS_OF']}`\n"
+              f"- Workflow run: {os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['RUN_ID']}/attempts/{os.environ['RUN_ATTEMPT']}\n"
+              f"- Artifact: `{artifact}`\n"
+              "- Production database write: **false**\n"
+              "- Production deployment: **not authorized**\n"
+              "- Restart or configuration mutation: **false**\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-origin-path-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment response: {response.status}")
+          PY
