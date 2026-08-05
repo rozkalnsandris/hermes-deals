@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 077
 
-AUDIT_VERSION="lidl-semantic-corpus-audit-v02-isolated-source"
+AUDIT_VERSION="lidl-semantic-corpus-audit-v02.1-isolated-source"
 AUDIT_REPO="/home/andris/hermes-deals-audit-source"
 V01_PATH="tools/run-hermes-deals-lidl-semantic-corpus-audit-v01.sh"
 EXPECTED_ORIGIN_HTTPS="https://github.com/rozkalnsandris/hermes-deals"
@@ -12,6 +12,10 @@ EXPECTED_ORIGIN_SSH="git@github.com:rozkalnsandris/hermes-deals.git"
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+git_read() {
+  GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" "$@"
 }
 
 [[ "${HERMES_AUDIT_TRIGGER:-}" == "github-actions" ]] || fail "unexpected audit trigger"
@@ -28,13 +32,21 @@ AUDIT_REPO="$(readlink -f -- "$AUDIT_REPO")"
 [[ "$AUDIT_REPO" == "/home/andris/hermes-deals-audit-source" ]] || fail "isolated audit repository path drift"
 [[ -d "$AUDIT_REPO/.git" && ! -L "$AUDIT_REPO/.git" ]] || fail "isolated audit repository is missing or unsafe"
 [[ "$(stat -c '%U:%G' "$AUDIT_REPO")" == "andris:andris" ]] || fail "isolated audit repository ownership is invalid"
-[[ "$(git -C "$AUDIT_REPO" branch --show-current)" == "main" ]] || fail "isolated audit repository branch is not main"
-[[ -z "$(git -C "$AUDIT_REPO" status --porcelain)" ]] || fail "isolated audit repository is not clean"
-[[ "$(git -C "$AUDIT_REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail "isolated audit repository HEAD mismatch"
-git -C "$AUDIT_REPO" cat-file -e "$EXPECTED_SHA^{commit}" || fail "registered commit is missing"
-git -C "$AUDIT_REPO" merge-base --is-ancestor "$EXPECTED_SHA" main || fail "registered commit is not reachable from isolated main"
+GIT_INDEX="$AUDIT_REPO/.git/index"
+[[ -f "$GIT_INDEX" && ! -L "$GIT_INDEX" ]] || fail "isolated audit repository index is missing or unsafe"
+[[ "$(stat -c '%U:%G' "$GIT_INDEX")" == "andris:andris" ]] || fail "isolated audit repository index ownership is invalid"
+[[ ! -e "$AUDIT_REPO/.git/index.lock" ]] || fail "isolated audit repository has a stale index lock"
 
-origin="$(git -C "$AUDIT_REPO" remote get-url origin)"
+branch="$(git_read branch --show-current)" || fail "cannot read isolated audit repository branch"
+[[ "$branch" == "main" ]] || fail "isolated audit repository branch is not main"
+status="$(git_read status --porcelain)" || fail "cannot read isolated audit repository status"
+[[ -z "$status" ]] || fail "isolated audit repository is not clean"
+head_sha="$(git_read rev-parse HEAD)" || fail "cannot read isolated audit repository HEAD"
+[[ "$head_sha" == "$EXPECTED_SHA" ]] || fail "isolated audit repository HEAD mismatch"
+git_read cat-file -e "$EXPECTED_SHA^{commit}" || fail "registered commit is missing"
+git_read merge-base --is-ancestor "$EXPECTED_SHA" main || fail "registered commit is not reachable from isolated main"
+
+origin="$(git_read remote get-url origin)" || fail "cannot read isolated audit repository origin"
 case "$origin" in
   "$EXPECTED_ORIGIN_HTTPS"|"$EXPECTED_ORIGIN_HTTPS.git"|"$EXPECTED_ORIGIN_SSH") ;;
   *) fail "isolated audit repository origin is not allowlisted" ;;
@@ -48,7 +60,7 @@ trap cleanup EXIT
 source_script="$work_root/v01-source.sh"
 patched_script="$work_root/v02-runtime.sh"
 
-git -C "$AUDIT_REPO" show "$EXPECTED_SHA:$V01_PATH" > "$source_script"
+git_read show "$EXPECTED_SHA:$V01_PATH" > "$source_script"
 [[ -s "$source_script" && ! -L "$source_script" ]] || fail "frozen V01 audit source is missing"
 
 python3 - "$source_script" "$patched_script" "$AUDIT_REPO" "$AUDIT_VERSION" <<'PY'
@@ -63,6 +75,10 @@ text = source.read_text(encoding="utf-8")
 replacements = {
     'AUDIT_VERSION="lidl-semantic-corpus-audit-v01"': f'AUDIT_VERSION="{version}"',
     'REPO="/home/andris/hermes-deals"': f'REPO="{repo}"',
+    '/home/andris/hermes-deals-runner-evidence/hermes-deals-audit-*': (
+        '/home/andris/hermes-deals-runner-evidence/'
+        'hermes-deals-lidl-semantic-audit-*'
+    ),
 }
 for old, new in replacements.items():
     if text.count(old) != 1:
