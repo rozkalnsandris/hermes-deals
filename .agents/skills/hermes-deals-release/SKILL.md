@@ -1,7 +1,7 @@
 ---
 name: hermes-deals-release
 description: Deploy-only Hermes Deals API/UI production operator for exact current main on the RPi5. It may run check or deploy and report PASS, FAIL or BLOCKED. It must never edit code, manage issues or pull requests, run migrations, change Compose, or improvise production commands.
-version: 2.0.0
+version: 2.0.1
 metadata:
   hermes:
     tags: [hermes-deals, release, production]
@@ -10,7 +10,7 @@ metadata:
 
 # Hermes Deals direct main deploy
 
-Follow repository `AGENTS.md` and the `hermes-deals` skill. The production release source is only exact current `origin/main`.
+Follow repository `AGENTS.md` and this release skill only. The production release source is only exact current `origin/main`.
 
 ## Fixed environment
 
@@ -33,6 +33,7 @@ It may:
 
 It must not:
 
+- inspect or summarize pull requests, issues, branches, commits or project history before deploy;
 - edit any file;
 - create or modify an issue;
 - create, switch or delete a branch;
