@@ -1,22 +1,17 @@
 # Hermes Deals no-agent release bridge
 
-This runbook connects the GitHub-first development workflow to the controlled
-RPi5 release path added by issue #21.
+This bridge connects the GitHub-first workflow to the controlled RPi5 API/UI
+release path from issue #21.
 
-The design keeps responsibilities separate:
+- ChatGPT works through GitHub issues, branches, pull requests and CI.
+- GitHub remains the authorization and evidence source of truth.
+- Hermes no-agent cron polls every five minutes and runs one fixed script.
+- The script invokes one root-owned bridge through an exact sudo rule.
+- The existing dedicated release runner performs plan/apply and uploads evidence.
 
-- ChatGPT works through GitHub issues, branches, pull requests and CI;
-- GitHub remains the authorization and evidence source of truth;
-- Hermes no-agent cron polls every five minutes and runs one fixed script;
-- the script invokes one root-owned bridge through an exact sudo rule;
-- the bridge validates a machine-readable owner-authored GitHub request;
-- the existing controlled workflow performs plan/apply through the dedicated
-  `github-release-runner` account;
-- sanitized workflow artifacts and comments return the result to GitHub.
-
-Normal polling makes no model call and uses no tokens. Empty script output is a
-silent Hermes cron tick. Hermes does not diagnose, edit, retry an alternative,
-or construct shell commands.
+Normal polling makes no model call and uses no tokens. Empty stdout is a silent
+Hermes tick. Hermes never diagnoses, edits, invents commands or retries an
+alternative action.
 
 ## Persistent GitHub token
 
@@ -29,19 +24,18 @@ Create one fine-grained personal access token restricted to
 - Contents: read;
 - Metadata: read.
 
-The token is installed as `/etc/hermes-deals-release-bridge/token`, owned by
-`root:root` with mode `0600`. It is never stored in GitHub, Hermes prompts,
-cron definitions, artifacts or command-line arguments.
+It is installed at `/etc/hermes-deals-release-bridge/token` as `root:root` mode
+`0600`. It is never stored in GitHub, Hermes prompts, cron definitions, artifacts
+or command-line arguments.
 
-Runner registration is deliberately separate. The bootstrap uses the existing
-owner-authenticated `gh` installation on the RPi5 to obtain GitHub's temporary
-runner registration token. The persistent bridge token is not granted repository
-administration permission.
+Runner registration is separate. The bootstrap uses the existing owner-authenticated
+`gh` installation on the RPi5 to request GitHub's temporary runner registration
+token. The persistent bridge token does not need repository administration.
 
 ## One-time installation
 
-Run only after the bridge PR is squash-merged and its exact `main` CI is green.
-The primary worktree is fetched but never switched, reset, stashed or cleaned.
+Run only after this bridge PR is squash-merged and exact-main CI is green. The
+primary worktree is fetched but never switched, reset, stashed or cleaned.
 
 ```bash
 PRIMARY=/home/andris/hermes-deals
@@ -63,7 +57,7 @@ unset HERMES_GITHUB_TOKEN
 rm -f /tmp/bootstrap-hermes-deals-release-runtime.sh
 ```
 
-Expected final evidence:
+Expected evidence:
 
 ```text
 BOOTSTRAP_RESULT=PASS
@@ -75,28 +69,18 @@ HERMES_NO_AGENT=true
 DATABASE_WRITES_AUTHORIZED=false
 ```
 
-The bootstrap:
-
-1. validates the persistent token identity and repository access;
-2. creates the five `hermes:deploy-*` labels if missing;
-3. installs a dedicated ARM64 GitHub Actions runner after verifying the release
-   asset's published SHA-256 digest;
-4. keeps `github-release-runner` outside the Docker group;
-5. creates or updates the clean detached `release-control` worktree;
-6. installs the already-reviewed controlled release dispatcher/register tools;
-7. installs the bridge and root-only auto-register helper;
-8. grants `andris` sudo for exactly
-   `/usr/local/sbin/hermes-deals-release-bridge poll`;
-9. creates a Hermes script-only cron job every five minutes with Telegram
-   delivery.
+The bootstrap validates the token, creates the five `hermes:deploy-*` labels,
+installs the SHA-verified ARM64 Actions runner, keeps it outside the Docker group,
+creates the detached `release-control` worktree, installs the existing controlled
+release tools and creates the Hermes script-only cron job.
 
 ## Deploy request contract
 
-ChatGPT creates a separate GitHub issue authored by the repository owner. Its
-title starts with `[Hermes deploy]`, it has label `hermes:deploy-ready`, and its
-body contains exactly one marker and one JSON object:
+ChatGPT creates a separate owner-authored issue. Its title starts with
+`[Hermes deploy]`, it has `hermes:deploy-ready`, and its body contains exactly
+one marker and one JSON object:
 
-```markdown
+````markdown
 <!-- hermes-deals-release-request-v1 -->
 
 ```json
@@ -113,58 +97,45 @@ body contains exactly one marker and one JSON object:
   "database_writes_authorized": false
 }
 ```
-```
+````
 
 Required invariants:
 
 - the source PR must be squash-merged to `main`;
-- `release_sha` must equal both the PR merge SHA and exact current `main`;
+- the SHA must equal the PR merge SHA and exact current `main`;
 - exact-main push CI must be successful;
-- the request author login and immutable numeric GitHub ID must match the owner;
-- the request must contain no extra or missing fields;
+- request author login and immutable numeric ID must match the owner;
+- no extra or missing JSON fields are allowed;
 - only `smoke/plan`, `api-ui/plan` and `api-ui/apply` are accepted;
 - database writes must explicitly remain false;
 - B15M2 issue #20 remains explicitly rejected.
 
 ## Execution
 
-For `api-ui`, the bridge first creates an immutable root registration:
+For `api-ui`, root-only auto-registration updates only the detached worktree,
+verifies PR/main/CI, derives the tracked FastAPI version, binds the current image
+as rollback, creates a root-owned rollback archive, and invokes the existing
+register tool. That tool builds the exact target image, runs its complete test
+suite and creates an immutable release registry entry.
 
-- updates only the detached `release-control` worktree;
-- verifies the source PR, exact current `main` and exact-SHA successful CI;
-- derives the numeric FastAPI version from tracked source;
-- binds the currently running release image as rollback;
-- creates and restore-tests a root-owned rollback archive;
-- calls the existing root-only release register, which builds the target image,
-  runs the complete test suite inside it and writes an immutable registry entry.
+The bridge first dispatches `plan` and requires the expected non-empty sanitized
+artifact. For an apply request, only after plan PASS, it dispatches `apply` with
+the exact authorization phrase. The existing controlled dispatcher changes only
+the API service, verifies image identity, health, UI and unchanged Alembic
+revision, and performs its already-defined automatic rollback if the canary fails.
 
-The bridge then dispatches `plan`. It waits through later polling ticks until the
-workflow finishes and requires the expected non-empty sanitized artifact.
+PASS closes the deploy request with `hermes:deploy-pass`. Workflow failure adds
+`hermes:deploy-fail`. Validation or registration refusal adds
+`hermes:deploy-blocked`. Hermes performs no alternative attempt.
 
-For an `apply` request, only after plan PASS, it dispatches `apply` with the exact
-workflow authorization phrase. The controlled dispatcher recreates only the API
-service, confirms image identity, health, UI and unchanged Alembic revision, and
-performs the already-defined automatic rollback if its canary fails.
-
-On PASS the deploy request receives `hermes:deploy-pass` and is closed. On
-workflow failure it receives `hermes:deploy-fail`. Validation and registration
-refusals receive `hermes:deploy-blocked`. Hermes performs no alternative attempt.
-
-## Operations
+## Checks
 
 ```bash
-# Show the no-agent job and scheduler state
 hermes cron list
 hermes cron status
-
-# Run one bridge poll manually as the normal user
 sudo --non-interactive /usr/local/sbin/hermes-deals-release-bridge poll
-
-# Check the dedicated release runner
 systemctl status \
   actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-release.service
-
-# Verify least privilege
 id -nG github-release-runner
 sudo -l -U github-release-runner
 sudo -l -U andris
@@ -172,24 +143,22 @@ sudo -l -U andris
 
 ## Explicitly blocked work
 
-This bridge does not authorize or implement:
+The bridge does not authorize or implement:
 
 - database migration or production data write;
 - broad Review approval or publication;
 - Compose configuration change;
 - Cloudflare, DNS, token or secret changes;
-- host, systemd or Docker infrastructure changes after installation;
-- destructive deletion;
-- owner-requested rollback as a normal action;
+- later host, systemd or Docker infrastructure changes;
+- destructive deletion or owner-requested rollback;
 - B15M2 issue #20.
 
-Those actions remain separate and require explicit owner approval and their own
-reviewed fail-closed workflow.
+These remain separate, explicitly owner-authorized workflows.
 
 ## Removal
 
-Pause/remove the Hermes cron job, remove the dedicated runner through GitHub's
-official runner removal flow, then remove only the bridge layer:
+Pause/remove the Hermes cron job and use GitHub's official runner removal flow.
+Then remove only the bridge layer:
 
 ```bash
 sudo rm -f /etc/sudoers.d/hermes-deals-release-bridge
@@ -201,5 +170,4 @@ sudo rm -f /home/andris/.hermes/scripts/hermes-deals-release-bridge.sh
 sudo visudo -c
 ```
 
-Do not remove release/rollback archives until their retention has been reviewed
-separately.
+Release and rollback archives require separate retention review.
