@@ -16,10 +16,7 @@ def test_vscode_tasks_expose_check_plan_and_apply() -> None:
         "Hermes Deals: Apply production deploy",
     }
 
-    modes = {
-        tuple(task["args"])
-        for task in tasks["tasks"]
-    }
+    modes = {tuple(task["args"]) for task in tasks["tasks"]}
     assert modes == {
         ("tools/vscode-rpi5-release.sh", "check"),
         ("tools/vscode-rpi5-release.sh", "plan"),
@@ -30,21 +27,35 @@ def test_vscode_tasks_expose_check_plan_and_apply() -> None:
 def test_release_launcher_preserves_fail_closed_boundaries() -> None:
     text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
     required = (
+        'PRIMARY_ROOT="/home/andris/hermes-deals"',
         '[[ "$BRANCH" == "main" ]]',
         "git status --porcelain",
         '[[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]',
         "current main SHA is not bound to exactly one merged PR",
-        "database migration detected",
+        "production API image is not bound to a release SHA",
+        'git diff --name-only "${PRODUCTION_SHA}..${REMOTE_SHA}"',
+        "cumulative database migration change detected",
+        "cumulative Compose change detected",
         "APPLY api-ui ${REMOTE_SHA}",
-        "gh run watch",
-        "rpi5-release-command.yml",
+        "hermes:deploy-ready",
+        "<!-- hermes-deals-release-request-v1 -->",
+        "database_writes_authorized",
+        "/usr/local/sbin/hermes-deals-release-bridge poll",
     )
     for marker in required:
         assert marker in text
 
 
-def test_check_mode_has_no_release_dispatch() -> None:
+def test_launcher_uses_bridge_instead_of_direct_workflow_dispatch() -> None:
+    text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
+    assert "gh workflow run" not in text
+    assert "gh issue create" in text
+    assert '"owner_authorized": True' in text
+    assert '"database_writes_authorized": False' in text
+
+
+def test_check_mode_has_no_release_request() -> None:
     text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
     check_block = text.split("  check)", 1)[1].split("  plan)", 1)[0]
-    assert "gh workflow run" not in check_block
+    assert "create_bridge_request" not in check_block
     assert "No production change was made" in check_block
