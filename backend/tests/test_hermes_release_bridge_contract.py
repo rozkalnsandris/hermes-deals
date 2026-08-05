@@ -69,6 +69,30 @@ def test_bridge_plans_before_apply_and_requires_sanitized_artifact() -> None:
     assert "docker run" not in text
 
 
+def test_dispatch_is_persisted_before_send_and_never_repeated_when_uncertain() -> None:
+    text = read(BRIDGE)
+    for marker in (
+        "DISPATCH_RECOVERY_SECONDS = 600",
+        '"schema_version": 2',
+        '"run_id": None',
+        '"previous_run_ids": previous',
+        '"dispatched_at": dt.datetime.now(dt.timezone.utc).isoformat()',
+        "save_state(state)",
+        "def find_dispatched_run(",
+        "def correlate_dispatch(",
+        "GitHub dispatch outcome could not be correlated within the bounded recovery window.",
+        "The bridge did not dispatch a replacement run.",
+        "workflow correlation is pending and will not be dispatched again.",
+    ):
+        assert marker in text
+    dispatch_body = text.split("def dispatch(", 1)[1].split("def verify_artifact(", 1)[0]
+    assert dispatch_body.index("save_state(state)") < dispatch_body.index("client.post(")
+    reconcile_body = text.split("def reconcile(", 1)[1].split("def block(", 1)[0]
+    assert 'if run_raw is None:' in reconcile_body
+    assert "correlate_dispatch(client, state, 0)" in reconcile_body
+    assert reconcile_body.count("dispatch(client") == 1
+
+
 def test_auto_register_parses_and_preserves_release_safety() -> None:
     subprocess.run(["bash", "-n", str(AUTO_REGISTER)], check=True)
     text = read(AUTO_REGISTER)
