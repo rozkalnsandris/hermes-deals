@@ -87,7 +87,7 @@ class UiReferenceRebuildV10bTest(unittest.TestCase):
         self.assertIn("reference-v9b-exact-legacy-markers", self.html)
         self.assertIn("V9b exact archived static contract markers only; not rendered", self.html)
         self.assertIn(
-            "Promise.all([loadOverview(),loadGrid(),loadDailySpecials()])",
+            "Promise.allSettled([loadOverview(),loadGrid(),loadDailySpecials()])",
             self.html,
         )
 
