@@ -79,6 +79,36 @@ PRIMARY_WORKTREE_MODIFIED=unknown
 
 It must never claim `PRIMARY_WORKTREE_MODIFIED=false` after an unreadable index or another incomplete check.
 
+## Installer index-ownership contract
+
+The authoritative-cycle installer runs as root only to write the registered script, dispatcher, configuration and sudoers rule. It must not run Git directly as root inside `/home/andris/hermes-deals-audit-source`.
+
+All installer Git verification is executed through:
+
+```text
+runuser -u andris
+HOME=/home/andris
+GIT_OPTIONAL_LOCKS=0
+```
+
+The installer captures the audit repository index owner, mode, byte size and SHA256 before Git verification. It checks the same values after Git verification and again after all root-owned installation work.
+
+Installation is blocked when:
+
+- `.git/index` is missing, a symlink or locked;
+- the index owner is not `andris:andris`;
+- the index is not readable and writable by `andris`;
+- a Git command fails or emits stderr;
+- index ownership, mode, size or content changes during installer execution.
+
+A successful installer reports:
+
+```text
+INSTALLER_INDEX_OWNERSHIP_PRESERVED=true
+```
+
+This contract prevents root installer verification from recreating the historical `root:root 0600` audit index and breaking the next owner-run synchronization or RPi5 audit.
+
 ## Registration and execution
 
 After merge, synchronize `/home/andris/hermes-deals-audit-source` to the squash-merge SHA and run:

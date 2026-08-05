@@ -108,6 +108,31 @@ class AldiA30AuthoritativeCycleContractTest(unittest.TestCase):
             text,
         )
 
+    def test_installer_preserves_audit_index_ownership(self) -> None:
+        text = INSTALLER.read_text(encoding="utf-8")
+        for required in (
+            'AUDIT_USER="andris"',
+            '/usr/sbin/runuser -u "$AUDIT_USER"',
+            "GIT_OPTIONAL_LOCKS=0",
+            "audit_git_to_file",
+            "audit repo git command emitted stderr",
+            "INDEX_OWNER_BEFORE",
+            "INDEX_SHA256_BEFORE",
+            "INDEX_OWNER_AFTER_GIT",
+            "INDEX_SHA256_AFTER_GIT",
+            "INDEX_OWNER_AFTER",
+            "INDEX_SHA256_AFTER",
+            "INSTALLER_INDEX_OWNERSHIP_PRESERVED=true",
+        ):
+            self.assertIn(required, text)
+        self.assertEqual(text.count('/usr/bin/git -C "$REPO"'), 1)
+        self.assertNotIn('$(git -C "$REPO"', text)
+        self.assertNotIn('[[ -z "$(git -C "$REPO"', text)
+        self.assertIn(
+            'status "$tmp_dir/status.stdout" status --porcelain=v1 -z --untracked-files=all',
+            text,
+        )
+
     def test_exact_content_classification_detects_moved_pages(self) -> None:
         module = load_review_module()
         with tempfile.TemporaryDirectory() as temporary:
