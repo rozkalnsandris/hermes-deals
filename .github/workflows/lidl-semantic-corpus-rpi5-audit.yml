@@ -1,0 +1,362 @@
+name: Lidl semantic corpus RPi5 audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged pull request number containing the registered audit
+        required: true
+        type: string
+  schedule:
+    - cron: "3-58/5 * * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/lidl-semantic-corpus-rpi5-audit.yml
+      - tools/run-hermes-deals-lidl-semantic-corpus-audit-v01.sh
+      - tools/runner/install-lidl-semantic-corpus-audit-dispatcher.sh
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-lidl-semantic-corpus-audit
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    name: Ensure Lidl semantic audit label
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Create or reconcile label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          label = {
+              "name": "audit:lidl-semantic-corpus",
+              "color": "0e8a16",
+              "description": "Run the registered read-only Lidl frozen semantic corpus audit",
+          }
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-lidl-semantic-audit-label",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          url = f"https://api.github.com/repos/{repo}/labels/{encoded}"
+          request = urllib.request.Request(
+              url,
+              data=json.dumps(label).encode("utf-8"),
+              method="PATCH",
+              headers=headers,
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  if response.status != 200:
+                      raise SystemExit(f"unexpected label update status: {response.status}")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              create = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels",
+                  data=json.dumps(label).encode("utf-8"),
+                  method="POST",
+                  headers=headers,
+              )
+              with urllib.request.urlopen(create, timeout=20) as response:
+                  if response.status != 201:
+                      raise SystemExit(f"unexpected label create status: {response.status}")
+          PY
+
+  authorize:
+    name: Resolve owner-authorized merged PR
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_run: ${{ steps.authorize.outputs.should_run }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      trigger_kind: ${{ steps.authorize.outputs.trigger_kind }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+
+    steps:
+      - name: Authorize exact merged PR and owner trigger
+        id: authorize
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit(f"unexpected repository: {repo}")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          owner_login = os.environ["EXPECTED_OWNER_LOGIN"]
+          owner_id = int(os.environ["EXPECTED_OWNER_ID"])
+          event_name = os.environ["EVENT_NAME"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-lidl-semantic-audit-authorizer",
+          }
+
+          def get_json(url):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          def get_all(url):
+              items = []
+              next_url = url
+              pages = 0
+              while next_url:
+                  pages += 1
+                  if pages > 20:
+                      raise SystemExit("GitHub pagination exceeded safety limit")
+                  request = urllib.request.Request(next_url, headers=headers)
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      page = json.load(response)
+                      if not isinstance(page, list):
+                          raise SystemExit("expected a paginated list")
+                      items.extend(page)
+                      next_url = None
+                      for part in response.headers.get("Link", "").split(","):
+                          if 'rel="next"' in part:
+                              next_url = part[part.index("<") + 1:part.index(">")]
+                              break
+              return items
+
+          def require_owner(sender, context):
+              if sender.get("login") != owner_login or sender.get("id") != owner_id:
+                  raise SystemExit(f"{context} actor is not the allowlisted owner")
+              return sender["login"]
+
+          trigger_kind = event_name
+          trigger_actor = ""
+          pr_number = 0
+          if event_name == "workflow_dispatch":
+              trigger_actor = require_owner(event.get("sender") or {}, "workflow_dispatch")
+              raw = str((event.get("inputs") or {}).get("pr_number") or "").strip()
+              if not raw.isdigit():
+                  raise SystemExit("workflow_dispatch pr_number must be numeric")
+              pr_number = int(raw)
+          elif event_name == "schedule":
+              label_name = "audit:lidl-semantic-corpus"
+              encoded = urllib.parse.quote(label_name, safe="")
+              issues = get_all(
+                  f"https://api.github.com/repos/{repo}/issues"
+                  f"?state=all&labels={encoded}&sort=updated&direction=asc&per_page=100"
+              )
+              candidates = []
+              for issue in issues:
+                  if "pull_request" not in issue:
+                      continue
+                  number = int(issue["number"])
+                  events = get_all(
+                      f"https://api.github.com/repos/{repo}/issues/{number}/events?per_page=100"
+                  )
+                  latest = None
+                  for item in events:
+                      if item.get("event") not in {"labeled", "unlabeled"}:
+                          continue
+                      if (item.get("label") or {}).get("name") == label_name:
+                          latest = item
+                  if not latest or latest.get("event") != "labeled":
+                      continue
+                  actor = latest.get("actor") or {}
+                  if actor.get("login") != owner_login or actor.get("id") != owner_id:
+                      continue
+                  candidates.append((str(issue.get("updated_at") or ""), number, actor["login"]))
+              if not candidates:
+                  output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+                  output.write_text("should_run=false\ntrigger_kind=schedule-poll\n", encoding="utf-8")
+                  raise SystemExit(0)
+              _, pr_number, trigger_actor = sorted(candidates)[0]
+              trigger_kind = "schedule-poll"
+          else:
+              raise SystemExit(f"unsupported event: {event_name}")
+
+          pr = get_json(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("audit accepts only merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("merged pull request SHA is invalid")
+          comparison = get_json(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged SHA is not reachable from current main")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write("should_run=true\n")
+              handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"sha={sha}\n")
+              handle.write(f"trigger_kind={trigger_kind}\n")
+              handle.write(f"trigger_actor={trigger_actor}\n")
+          PY
+
+  rpi5-audit:
+    name: Run registered audit on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.should_run == 'true'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 60
+
+    steps:
+      - name: Run fixed root-owned dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-lidl-semantic-audit-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir" >> "$GITHUB_OUTPUT"
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-semantic-corpus-audit-dispatch \
+            "$REGISTERED_SHA" "$export_dir" \
+            2>&1 | tee "$export_dir/runner-dispatch.log"
+          dispatch_rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$dispatch_rc" > "$export_dir/runner-dispatch-exit-code.txt"
+          printf 'audit=lidl-semantic-corpus\ncommit_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$REGISTERED_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$export_dir/runner-request.txt"
+          exit "$dispatch_rc"
+
+      - name: Upload sanitized evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: lidl-semantic-corpus-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 14
+
+  report:
+    name: Report result to merged PR
+    needs:
+      - authorize
+      - rpi5-audit
+    if: always() && needs.authorize.result == 'success' && needs.authorize.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Comment result and clear label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          TRIGGER_KIND: ${{ needs.authorize.outputs.trigger_kind }}
+          TRIGGER_ACTOR: ${{ needs.authorize.outputs.trigger_actor }}
+          RPI5_RESULT: ${{ needs.rpi5-audit.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          pr_number = int(os.environ["PR_NUMBER"])
+          run_id = os.environ["RUN_ID"]
+          attempt = os.environ["RUN_ATTEMPT"]
+          sha = os.environ["REGISTERED_SHA"]
+          body = (
+              f"<!-- lidl-semantic-corpus-audit:{run_id}:{attempt} -->\n"
+              "## Lidl frozen semantic corpus audit\n\n"
+              f"- Trigger: `{os.environ['TRIGGER_KIND']}`\n"
+              f"- Trigger actor: `{os.environ['TRIGGER_ACTOR']}`\n"
+              f"- RPi5 result: **{os.environ['RPI5_RESULT']}**\n"
+              f"- Registered commit: `{sha}`\n"
+              f"- Workflow run: {os.environ['SERVER_URL']}/{repo}/actions/runs/{run_id}/attempts/{attempt}\n"
+              f"- Artifact: `lidl-semantic-corpus-{sha}-run-{run_id}`\n"
+              "- Database write: **false**\n"
+              "- Production deployment: **not authorized**\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-lidl-semantic-audit-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+              data=json.dumps({"body": body}).encode("utf-8"),
+              method="POST",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment response: {response.status}")
+
+          label = urllib.parse.quote("audit:lidl-semantic-corpus", safe="")
+          remove = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels/{label}",
+              method="DELETE",
+              headers=headers,
+          )
+          try:
+              with urllib.request.urlopen(remove, timeout=20) as response:
+                  if response.status != 200:
+                      raise SystemExit(f"unexpected label removal response: {response.status}")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          PY
