@@ -49,16 +49,27 @@ def _validated_manifest(path: Path) -> Mapping[str, Any] | None:
 
 
 def select_previous_manifest(evidence_root: Path, current_run: Path) -> Path:
-    root = evidence_root.resolve(strict=True)
-    current = current_run.resolve(strict=False)
-    if root.is_symlink() or not root.is_dir():
+    if evidence_root.is_symlink():
         raise PreviousManifestError("evidence root is missing or unsafe")
+    if current_run.is_symlink():
+        raise PreviousManifestError("current run is missing or unsafe")
+    root = evidence_root.resolve(strict=True)
+    current = current_run.resolve(strict=True)
+    if not root.is_dir():
+        raise PreviousManifestError("evidence root is missing or unsafe")
+    if not current.is_dir():
+        raise PreviousManifestError("current run is missing or unsafe")
     if current == root or root not in current.parents:
         raise PreviousManifestError("current run is outside the evidence root")
 
     candidates: list[tuple[int, str, Path]] = []
     for path in root.glob("lidl-gate-a-*/controller/controller-manifest.json"):
-        resolved = path.resolve(strict=False)
+        if path.is_symlink():
+            continue
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            continue
         if current == resolved or current in resolved.parents:
             continue
         if root not in resolved.parents:
