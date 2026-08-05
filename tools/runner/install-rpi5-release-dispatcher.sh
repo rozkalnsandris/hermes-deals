@@ -13,7 +13,7 @@ fail() {
 for user in github-release-runner andris; do
   id "$user" >/dev/null 2>&1 || fail "required local user is missing: $user"
 done
-for command in git install readlink sha256sum systemctl visudo; do
+for command in awk bash chmod curl docker flock git grep gzip id install mktemp pgrep python3 readlink rm sha256sum stat sudo systemctl tar tr visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 
