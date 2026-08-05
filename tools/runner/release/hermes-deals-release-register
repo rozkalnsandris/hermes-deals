@@ -79,8 +79,10 @@ CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
 [[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
 CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
 CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
-[[ "$CURRENT_IMAGE_TAG" == "$ROLLBACK_TAG" ]] || fail "running production tag is not the declared rollback tag"
-[[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] || fail "running production image ID does not match rollback tag"
+[[ "$(docker image inspect "$CURRENT_IMAGE_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
+  || fail "running production tag does not resolve to the container image ID"
+[[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
+  || fail "running production image ID does not match rollback tag"
 ROLLBACK_REVISION_LABEL="$(docker image inspect "$ROLLBACK_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' 2>/dev/null || true)"
 [[ -z "$ROLLBACK_REVISION_LABEL" || "$ROLLBACK_REVISION_LABEL" == "$ROLLBACK_SHA" ]] || fail "rollback image revision label contradicts declared rollback SHA"
 ROLLBACK_REVISION_LABEL_VERIFIED=false
