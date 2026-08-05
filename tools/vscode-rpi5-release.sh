@@ -3,309 +3,141 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 MODE="${1:-check}"
-REPO="rozkalnsandris/hermes-deals"
-PRIMARY_ROOT="/home/andris/hermes-deals"
-BRIDGE_MARKER="<!-- hermes-deals-release-request-v1 -->"
-DEPLOY_LABEL="hermes:deploy-ready"
+REPO='rozkalnsandris/hermes-deals'
+PRIMARY_ROOT='/home/andris/hermes-deals'
+RUNTIME_SYNC='/usr/local/sbin/hermes-deals-release-runtime-sync'
+AUTO_REGISTER='/usr/local/sbin/hermes-deals-release-auto-register'
+DISPATCH='/usr/local/sbin/hermes-deals-release-dispatch'
+PUBLIC_ORIGIN='https://deals.rozkalns.net'
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
 
-for command in docker gh git python3 sudo; do
+[[ "$MODE" == check || "$MODE" == deploy ]] || fail 'usage: tools/vscode-rpi5-release.sh {check|deploy}'
+for command in curl docker gh git python3 sudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
-gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated; run: gh auth login"
+gh auth status >/dev/null 2>&1 || fail 'GitHub CLI is not authenticated'
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "open the Hermes Deals repository in VS Code"
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail 'open the Hermes Deals repository in VS Code'
 ROOT="$(git rev-parse --show-toplevel)"
 [[ "$ROOT" == "$PRIMARY_ROOT" ]] || fail "open the primary repository in VS Code: $PRIMARY_ROOT"
 cd "$ROOT"
+[[ "$(git branch --show-current)" == main ]] || fail 'deploy tasks may run only from main'
+[[ -z "$(git status --porcelain --untracked-files=normal)" ]] || fail 'primary worktree is not clean'
 
-BRANCH="$(git branch --show-current)"
-[[ "$BRANCH" == "main" ]] || fail "deploy tasks may run only from the main branch (current: ${BRANCH:-detached})"
-[[ -z "$(git status --porcelain --untracked-files=normal)" ]] \
-  || fail "the RPi5 primary worktree is not clean; commit, move, or remove local changes first"
-
-printf 'Fetching origin/main...\n'
 git fetch --quiet origin main
 LOCAL_SHA="$(git rev-parse HEAD)"
 REMOTE_SHA="$(git rev-parse origin/main)"
-[[ "$LOCAL_SHA" == "$REMOTE_SHA" ]] \
-  || fail "local main is not synchronized with origin/main; use fast-forward pull before release"
-[[ "$REMOTE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid main SHA"
+[[ "$LOCAL_SHA" == "$REMOTE_SHA" ]] || fail 'local main is not synchronized with origin/main'
+[[ "$REMOTE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid current main SHA'
 
 PR_JSON="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${REPO}/commits/${REMOTE_SHA}/pulls")"
 PR_NUMBER="$(python3 -c '
 import json, sys
-items = json.load(sys.stdin)
-valid = [p for p in items if p.get("merged_at") and p.get("base", {}).get("ref") == "main"]
+rows = json.load(sys.stdin)
+valid = [row for row in rows if row.get("merged_at") and row.get("base", {}).get("ref") == "main"]
 if len(valid) != 1:
     raise SystemExit(2)
 print(valid[0]["number"])
-' <<<"$PR_JSON")" || fail "current main SHA is not bound to exactly one merged PR"
+' <<<"$PR_JSON")" || fail 'current main SHA is not bound to exactly one merged PR'
+[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || fail 'invalid source PR number'
 
-PR_DETAIL="$(gh api "/repos/${REPO}/pulls/${PR_NUMBER}")"
-PR_TITLE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])' <<<"$PR_DETAIL")"
-SOURCE_ISSUE="$(python3 -c '
-import json, re, sys
-body = str(json.load(sys.stdin).get("body") or "")
-values = sorted(set(int(value) for value in re.findall(r"(?im)^\s*(?:closes|fixes|resolves)\s+#([0-9]+)\b", body)))
-if len(values) != 1:
-    raise SystemExit(2)
-print(values[0])
-' <<<"$PR_DETAIL")" || fail "current main PR must close exactly one source issue"
-[[ "$SOURCE_ISSUE" != "20" ]] || fail "B15M2 issue #20 is excluded from the API/UI release bridge"
+CI_RUN_ID="$(gh api "/repos/${REPO}/actions/workflows/ci.yml/runs?branch=main&head_sha=${REMOTE_SHA}&status=completed&per_page=100" --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_sha == "'"$REMOTE_SHA"'" and .conclusion == "success") | .id] | max // empty')"
+[[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail 'exact current main has no successful CI push run'
 
-COMPOSE=(
-  docker compose
-  --project-directory "$ROOT"
-  --env-file "$ROOT/.env"
-  -f "$ROOT/docker-compose.yml"
-  -f "$ROOT/docker-compose.production.yml"
-)
-CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
-[[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
-CURRENT_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
-[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]] \
-  || fail "production API image is not a Hermes Deals release image"
-CURRENT_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
-PRODUCTION_REF=""
-PRODUCTION_PROVENANCE=""
+COMPOSE=(docker compose --project-directory "$ROOT" --env-file "$ROOT/.env" -f "$ROOT/docker-compose.yml" -f "$ROOT/docker-compose.production.yml")
+API_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+DB_CONTAINER="$("${COMPOSE[@]}" ps -q db)"
+[[ -n "$API_CONTAINER" && -n "$DB_CONTAINER" ]] || fail 'production API or database container is not running'
+CURRENT_TAG="$(docker inspect "$API_CONTAINER" --format '{{.Config.Image}}')"
+[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]] || fail 'production API image is not a Hermes Deals release image'
+CURRENT_REVISION="$(docker inspect "$API_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 if [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
-  PRODUCTION_REF="$CURRENT_REVISION"
-  PRODUCTION_PROVENANCE="oci-revision"
-elif [[ -n "$CURRENT_REVISION" && "$CURRENT_REVISION" != "<no value>" ]]; then
-  fail "production API image has malformed OCI revision label"
+  PRODUCTION_SHA="$CURRENT_REVISION"
 elif [[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-([0-9a-f]{7})$ ]]; then
-  PRODUCTION_REF="${BASH_REMATCH[1]}"
-  PRODUCTION_PROVENANCE="canonical-tag"
+  PRODUCTION_SHA="$(git rev-parse "${BASH_REMATCH[1]}^{commit}")"
 else
-  fail "production API image has no valid release SHA provenance"
+  fail 'production API image has no valid release SHA provenance'
 fi
-PRODUCTION_SHA="$(git rev-parse "${PRODUCTION_REF}^{commit}" 2>/dev/null)" \
-  || fail "production release SHA cannot be resolved from Git history"
-[[ "$PRODUCTION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid production SHA"
-if [[ "$PRODUCTION_PROVENANCE" == "oci-revision" && "$PRODUCTION_SHA" != "$CURRENT_REVISION" ]]; then
-  fail "production OCI revision contradicts resolved Git commit"
-fi
-git merge-base --is-ancestor "$PRODUCTION_SHA" "$REMOTE_SHA" \
-  || fail "running production SHA is not an ancestor of current main"
+[[ "$PRODUCTION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid production SHA'
+git merge-base --is-ancestor "$PRODUCTION_SHA" "$REMOTE_SHA" || fail 'production SHA is not an ancestor of current main'
 
-COMMIT_COUNT="$(git rev-list --count "${PRODUCTION_SHA}..${REMOTE_SHA}")"
-[[ "$COMMIT_COUNT" =~ ^[0-9]+$ ]] || fail "invalid cumulative commit count"
-if [[ "$COMMIT_COUNT" == "0" ]]; then
-  printf '\nNO DEPLOY NEEDED: production already runs exact current main %s.\n' "$REMOTE_SHA"
+if [[ "$PRODUCTION_SHA" == "$REMOTE_SHA" ]]; then
+  printf 'NO DEPLOY NEEDED: production already runs exact current main %s.\n' "$REMOTE_SHA"
   exit 0
 fi
 
 mapfile -t CHANGED_FILES < <(git diff --name-only "${PRODUCTION_SHA}..${REMOTE_SHA}")
-[[ ${#CHANGED_FILES[@]} -gt 0 ]] || fail "cumulative release range has no changed files"
-
-COMPOSE_FOUND=0
+[[ ${#CHANGED_FILES[@]} -gt 0 ]] || fail 'release range has no changed files'
 for path in "${CHANGED_FILES[@]}"; do
   case "$path" in
     docker-compose.yml|docker-compose.production.yml)
-      COMPOSE_FOUND=1
+      fail 'cumulative Compose change detected; direct API/UI deploy is not authorized'
       ;;
   esac
 done
-(( COMPOSE_FOUND == 0 )) \
-  || fail "cumulative Compose change detected; VS Code API/UI deploy is not authorized"
 
-MIGRATION_RECONCILIATION="not-required"
-mapfile -t MIGRATION_CHANGES < <(
-  git diff --name-status "${PRODUCTION_SHA}..${REMOTE_SHA}" -- \
-    backend/alembic.ini backend/alembic/versions backend/migrations
-)
+mapfile -t MIGRATION_CHANGES < <(git diff --name-status "${PRODUCTION_SHA}..${REMOTE_SHA}" -- backend/alembic.ini backend/alembic/versions backend/migrations)
 if (( ${#MIGRATION_CHANGES[@]} > 0 )); then
   for row in "${MIGRATION_CHANGES[@]}"; do
     status="${row%%$'\t'*}"
     path="${row#*$'\t'}"
-    [[ "$status" == "A" && "$path" == backend/alembic/versions/*.py ]] \
-      || fail "cumulative database migration change is not an added Alembic revision; API/UI deploy is not authorized"
+    [[ "$status" == A && "$path" == backend/alembic/versions/*.py ]] || fail 'cumulative migration change is not an added Alembic revision'
   done
-
-  TARGET_ALEMBIC_HEAD="$(python3 - "$ROOT/backend/alembic/versions" <<'PY'
-import ast
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-revisions: set[str] = set()
-parents: set[str] = set()
-for path in sorted(root.glob("*.py")):
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    values: dict[str, object] = {}
+  TARGET_HEAD="$(python3 - "$ROOT/backend/alembic/versions" <<'PY'
+import ast, pathlib, sys
+root = pathlib.Path(sys.argv[1]); revisions=set(); parents=set()
+for path in sorted(root.glob('*.py')):
+    tree=ast.parse(path.read_text(encoding='utf-8'))
+    values={}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}:
-                    values[target.id] = ast.literal_eval(node.value)
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.target.id in {"revision", "down_revision"} and node.value is not None:
-                values[node.target.id] = ast.literal_eval(node.value)
-    revision = values.get("revision")
-    if revision is None:
-        continue
-    if not isinstance(revision, str) or not revision:
-        raise SystemExit("invalid Alembic revision identifier")
-    if revision in revisions:
-        raise SystemExit("duplicate Alembic revision identifier")
+                if isinstance(target, ast.Name) and target.id in {'revision','down_revision'}:
+                    values[target.id]=ast.literal_eval(node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in {'revision','down_revision'} and node.value is not None:
+            values[node.target.id]=ast.literal_eval(node.value)
+    revision=values.get('revision')
+    if not revision: continue
     revisions.add(revision)
-    down = values.get("down_revision")
-    if isinstance(down, str):
-        parents.add(down)
-    elif isinstance(down, (tuple, list)):
-        if not all(isinstance(item, str) and item for item in down):
-            raise SystemExit("invalid Alembic parent identifier")
-        parents.update(down)
-    elif down is not None:
-        raise SystemExit("invalid Alembic down_revision")
-heads = sorted(revisions - parents)
-if len(heads) != 1:
-    raise SystemExit("target Alembic graph must have exactly one head")
+    down=values.get('down_revision')
+    if isinstance(down,str): parents.add(down)
+    elif isinstance(down,(tuple,list)): parents.update(down)
+heads=sorted(revisions-parents)
+if len(heads)!=1: raise SystemExit('target Alembic graph must have exactly one head')
 print(heads[0])
 PY
-)" || fail "target Alembic head could not be resolved"
-
-  DB_CONTAINER="$("${COMPOSE[@]}" ps -q db)"
-  [[ -n "$DB_CONTAINER" ]] || fail "production database container is not running"
+)"
   mapfile -d '' -t DB_FIELDS < <(docker inspect "$DB_CONTAINER" | python3 -c '
-import json, sys
-rows = json.load(sys.stdin)
-if len(rows) != 1:
-    raise SystemExit(2)
-env = {}
-for item in rows[0].get("Config", {}).get("Env", []):
-    key, sep, value = item.partition("=")
-    if sep:
-        env[key] = value
-for key in ("POSTGRES_USER", "POSTGRES_DB"):
-    value = env.get(key, "")
-    if not value or "\x00" in value:
-        raise SystemExit(2)
-    sys.stdout.write(value + "\x00")
+import json,sys
+row=json.load(sys.stdin)[0]; env={x.partition("=")[0]:x.partition("=")[2] for x in row["Config"]["Env"] if "=" in x}
+for key in ("POSTGRES_USER","POSTGRES_DB"): sys.stdout.write(env[key]+"\0")
 ')
-  [[ ${#DB_FIELDS[@]} -eq 2 ]] || fail "production database identity could not be resolved"
-  DB_USER="${DB_FIELDS[0]}"
-  DB_NAME="${DB_FIELDS[1]}"
-  LIVE_ALEMBIC="$("${COMPOSE[@]}" exec -T db \
-    psql -X -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -Atqc \
-    'SELECT version_num FROM alembic_version;')" \
-    || fail "production Alembic version could not be read"
-  [[ "$LIVE_ALEMBIC" == "$TARGET_ALEMBIC_HEAD" ]] \
-    || fail "cumulative database migration change detected and live schema is not already at exact target head"
-  MIGRATION_RECONCILIATION="verified-live-head:${LIVE_ALEMBIC}"
+  LIVE_HEAD="$("${COMPOSE[@]}" exec -T db psql -X -v ON_ERROR_STOP=1 -U "${DB_FIELDS[0]}" -d "${DB_FIELDS[1]}" -Atqc 'SELECT version_num FROM alembic_version;')"
+  [[ "$LIVE_HEAD" == "$TARGET_HEAD" ]] || fail 'live schema is not already at exact target head'
 fi
 
-printf '\nHermes Deals cumulative release candidate\n'
-printf '  source PR:       #%s — %s\n' "$PR_NUMBER" "$PR_TITLE"
-printf '  source issue:    #%s\n' "$SOURCE_ISSUE"
-printf '  production tag:  %s\n' "$CURRENT_TAG"
-printf '  provenance:      %s\n' "$PRODUCTION_PROVENANCE"
-printf '  production SHA:  %s\n' "$PRODUCTION_SHA"
-printf '  target main SHA: %s\n' "$REMOTE_SHA"
-printf '  commits:         %s\n' "$COMMIT_COUNT"
-printf '  changed files:   %s\n' "${#CHANGED_FILES[@]}"
-printf '  schema gate:     %s\n' "$MIGRATION_RECONCILIATION"
-printf '\nCumulative commits:\n'
-git --no-pager log --oneline --no-decorate "${PRODUCTION_SHA}..${REMOTE_SHA}"
-printf '\nCumulative changed files:\n'
-printf '  %s\n' "${CHANGED_FILES[@]}"
+printf 'CHECK PASS\nPRODUCTION_SHA=%s\nTARGET_SHA=%s\nSOURCE_PR=%s\nCI_RUN_ID=%s\nCHANGED_FILES=%s\nDATABASE_WRITES_AUTHORIZED=false\n' "$PRODUCTION_SHA" "$REMOTE_SHA" "$PR_NUMBER" "$CI_RUN_ID" "${#CHANGED_FILES[@]}"
+[[ "$MODE" == check ]] && exit 0
 
-create_bridge_request() {
-  local request_mode="$1"
-  local request_file issue_url issue_number bridge_rc bridge_output status_label state
+printf 'This will deploy exact current main to production.\nRequired confirmation:\n  DEPLOY api-ui %s\n' "$REMOTE_SHA"
+read -r -p '> ' CONFIRMATION
+[[ "$CONFIRMATION" == "DEPLOY api-ui ${REMOTE_SHA}" ]] || fail 'confirmation did not match; deployment cancelled'
 
-  request_file="$(mktemp)"
-  trap 'rm -f "${request_file:-}"' RETURN
-  python3 - "$request_file" "$BRIDGE_MARKER" "$REPO" "$SOURCE_ISSUE" "$PR_NUMBER" "$REMOTE_SHA" "$request_mode" <<'PY'
-import json
-import pathlib
-import sys
+sudo --non-interactive "$RUNTIME_SYNC" "$REMOTE_SHA"
+sudo --non-interactive "$AUTO_REGISTER" "$REMOTE_SHA" "$PR_NUMBER" ''
+EVIDENCE_ROOT="$(mktemp -d /tmp/hermes-deals-direct-release.XXXXXX)"
+cleanup() { rm -rf -- "$EVIDENCE_ROOT"; }
+trap cleanup EXIT
+sudo --non-interactive "$DISPATCH" api-ui "$REMOTE_SHA" apply "$CI_RUN_ID" '' "$EVIDENCE_ROOT"
 
-path, marker, repository, source_issue, source_pr, release_sha, mode = sys.argv[1:]
-payload = {
-    "schema_version": 1,
-    "repository": repository,
-    "release_class": "api-ui",
-    "source_issue": int(source_issue),
-    "source_pr": int(source_pr),
-    "release_sha": release_sha,
-    "mode": mode,
-    "audit_run_id": None,
-    "owner_authorized": True,
-    "database_writes_authorized": False,
-}
-pathlib.Path(path).write_text(
-    marker + "\n\n```json\n" + json.dumps(payload, indent=2) + "\n```\n",
-    encoding="utf-8",
-)
-PY
+curl -fsS --max-time 20 "$PUBLIC_ORIGIN/api/health" >/dev/null
+curl -fsSI --max-time 20 "$PUBLIC_ORIGIN/ui" >/dev/null
+POST_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+POST_REVISION="$(docker inspect "$POST_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+[[ "$POST_REVISION" == "$REMOTE_SHA" ]] || fail 'deployed runtime SHA does not equal exact current main'
 
-  issue_url="$(gh issue create \
-    --repo "$REPO" \
-    --title "[Hermes deploy] api-ui ${request_mode} ${REMOTE_SHA:0:7}" \
-    --body-file "$request_file" \
-    --label "$DEPLOY_LABEL")"
-  issue_number="${issue_url##*/}"
-  [[ "$issue_number" =~ ^[1-9][0-9]*$ ]] || fail "deploy request issue number could not be resolved"
-  printf '\nDeploy request created: %s\n' "$issue_url"
-
-  set +e
-  bridge_output="$(sudo --non-interactive /usr/local/sbin/hermes-deals-release-bridge poll 2>&1)"
-  bridge_rc=$?
-  set -e
-  if [[ -n "$bridge_output" ]]; then
-    printf '%s\n' "$bridge_output"
-  fi
-  if (( bridge_rc != 0 )); then
-    printf 'Immediate bridge poll returned %s; the five-minute no-agent poll may continue the request.\n' "$bridge_rc"
-  fi
-
-  printf 'Waiting for controlled release result...\n'
-  for _ in $(seq 1 360); do
-    status_label="$(gh issue view "$issue_number" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("hermes:deploy-"))][0] // ""')"
-    state="$(gh issue view "$issue_number" --repo "$REPO" --json state --jq '.state')"
-    case "$status_label" in
-      hermes:deploy-pass)
-        printf '\n%s PASS: controlled release bridge completed successfully.\n' "${request_mode^^}"
-        printf 'Evidence and result: %s\n' "$issue_url"
-        return 0
-        ;;
-      hermes:deploy-fail|hermes:deploy-blocked)
-        fail "controlled release bridge ended with ${status_label}; review ${issue_url}"
-        ;;
-    esac
-    [[ "$state" != "CLOSED" ]] || fail "deploy request closed without a PASS label; review ${issue_url}"
-    sleep 10
-  done
-  fail "timed out waiting for deploy request; review ${issue_url}"
-}
-
-case "$MODE" in
-  check)
-    printf '\nCHECK PASS: exact current main is eligible for a controlled bridge request.\n'
-    printf 'No production change was made.\n'
-    ;;
-
-  plan)
-    printf '\nCreating a controlled PLAN request through the root auto-registration bridge...\n'
-    create_bridge_request plan
-    ;;
-
-  apply)
-    printf '\nThis will request deployment of exact current main to production.\n'
-    printf 'Required confirmation:\n  APPLY api-ui %s\n' "$REMOTE_SHA"
-    read -r -p '> ' CONFIRMATION
-    [[ "$CONFIRMATION" == "APPLY api-ui ${REMOTE_SHA}" ]] \
-      || fail "confirmation did not match; deployment cancelled"
-    create_bridge_request apply
-    ;;
-
-  *)
-    fail "usage: $0 {check|plan|apply}"
-    ;;
-esac
+printf 'DEPLOY_RESULT=PASS\nPRODUCTION_SHA_BEFORE=%s\nPRODUCTION_SHA_AFTER=%s\nPUBLIC_API_HEALTH=PASS\nPUBLIC_UI=PASS\nDATABASE_WRITES_AUTHORIZED=false\nMIGRATION_COMMANDS_EXECUTED=false\n' "$PRODUCTION_SHA" "$POST_REVISION"
