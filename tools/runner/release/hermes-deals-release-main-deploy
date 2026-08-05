@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'main deploy must run as root through the narrow sudo rule'
+[[ $# -eq 1 ]] || fail 'usage: hermes-deals-release-main-deploy <40-sha>'
+
+TARGET_SHA="$1"
+[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid target SHA'
+
+PRIMARY='/home/andris/hermes-deals'
+REGISTRY="/etc/hermes-deals-releases.d/api-ui-$TARGET_SHA.json"
+MAIN_REGISTER='/usr/local/sbin/hermes-deals-release-main-register'
+DISPATCHER='/usr/local/sbin/hermes-deals-release-dispatch'
+RUNNER_TEMP_ROOT='/home/github-release-runner/actions-runner/_work/_temp'
+
+for command in curl docker find install python3 readlink stat; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+for helper in "$MAIN_REGISTER" "$DISPATCHER"; do
+  [[ -x "$helper" && ! -L "$helper" ]] || fail "release helper is missing or unsafe: $helper"
+done
+[[ -d "$RUNNER_TEMP_ROOT" && ! -L "$RUNNER_TEMP_ROOT" ]] \
+  || fail 'release runner temp root is missing or unsafe'
+
+COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$PRIMARY/.env"
+  -f "$PRIMARY/docker-compose.yml"
+  -f "$PRIMARY/docker-compose.production.yml"
+)
+
+read_live_alembic() {
+  local db_container db_user db_name
+  local -a fields
+  db_container="$("${COMPOSE[@]}" ps -q db)"
+  [[ -n "$db_container" ]] || fail 'production database container is not running'
+  mapfile -d '' -t fields < <(docker inspect "$db_container" | python3 -c '
+import json
+import sys
+
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+env = {}
+for item in rows[0].get("Config", {}).get("Env", []):
+    key, sep, value = item.partition("=")
+    if sep:
+        env[key] = value
+for key in ("POSTGRES_USER", "POSTGRES_DB"):
+    value = env.get(key, "")
+    if not value or "\x00" in value:
+        raise SystemExit(2)
+    sys.stdout.write(value + "\x00")
+')
+  [[ ${#fields[@]} -eq 2 ]] || fail 'production database identity could not be resolved'
+  db_user="${fields[0]}"
+  db_name="${fields[1]}"
+  "${COMPOSE[@]}" exec -T db \
+    psql -X -v ON_ERROR_STOP=1 -U "$db_user" -d "$db_name" -Atqc \
+    'SELECT version_num FROM alembic_version;'
+}
+
+API_BEFORE="$("${COMPOSE[@]}" ps -q api)"
+DB_BEFORE="$("${COMPOSE[@]}" ps -q db)"
+[[ -n "$API_BEFORE" && -n "$DB_BEFORE" ]] || fail 'production containers are not running'
+PRE_ALEMBIC="$(read_live_alembic)"
+PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health)"
+[[ -n "$PRE_HEALTH" ]] || fail 'local API health response is empty before deploy'
+
+REGISTER_OUTPUT="$("$MAIN_REGISTER" "$TARGET_SHA")"
+printf '%s\n' "$REGISTER_OUTPUT"
+grep -Fq 'MAIN_REGISTER_RESULT=PASS' <<<"$REGISTER_OUTPUT" \
+  || fail 'direct main registration did not return PASS'
+grep -Fq "COMMIT_SHA=$TARGET_SHA" <<<"$REGISTER_OUTPUT" \
+  || fail 'direct main registration SHA mismatch'
+grep -Fq 'DATABASE_WRITES_AUTHORIZED=false' <<<"$REGISTER_OUTPUT" \
+  || fail 'direct main registration violated the database-write boundary'
+
+API_AFTER_REGISTER="$("${COMPOSE[@]}" ps -q api)"
+DB_AFTER_REGISTER="$("${COMPOSE[@]}" ps -q db)"
+[[ "$API_AFTER_REGISTER" == "$API_BEFORE" ]] \
+  || fail 'production API container changed during registration'
+[[ "$DB_AFTER_REGISTER" == "$DB_BEFORE" ]] \
+  || fail 'production database container changed during registration'
+
+[[ -f "$REGISTRY" && ! -L "$REGISTRY" ]] || fail 'exact-main registry was not created'
+[[ "$(stat -c '%U:%G' "$REGISTRY")" == 'root:root' ]] \
+  || fail 'exact-main registry ownership is invalid'
+mapfile -d '' -t REGISTRY_FIELDS < <(python3 - "$REGISTRY" "$TARGET_SHA" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+sha = sys.argv[2]
+data = json.loads(path.read_text(encoding="utf-8"))
+if data.get("schema_version") != 2:
+    raise SystemExit("registry schema mismatch")
+if data.get("release_class") != "api-ui":
+    raise SystemExit("registry class mismatch")
+if data.get("commit_sha") != sha:
+    raise SystemExit("registry SHA mismatch")
+if data.get("database_writes_authorized") is not False:
+    raise SystemExit("registry authorizes database writes")
+ci_run_id = str(data.get("required_ci_run_id") or "")
+audit_run_id = str(data.get("required_audit_run_id") or "")
+if not re.fullmatch(r"[1-9][0-9]*", ci_run_id):
+    raise SystemExit("registry CI run ID is invalid")
+if audit_run_id and not re.fullmatch(r"[1-9][0-9]*", audit_run_id):
+    raise SystemExit("registry audit run ID is invalid")
+sys.stdout.write(ci_run_id + "\x00" + audit_run_id + "\x00")
+PY
+)
+[[ ${#REGISTRY_FIELDS[@]} -eq 2 ]] || fail 'registry field count is invalid'
+CI_RUN_ID="${REGISTRY_FIELDS[0]}"
+AUDIT_RUN_ID="${REGISTRY_FIELDS[1]}"
+
+RUN_KEY="hermes-deals-release-$(date +%s)-$$"
+ARTIFACT_DIR="$RUNNER_TEMP_ROOT/$RUN_KEY"
+[[ ! -e "$ARTIFACT_DIR" ]] || fail 'direct deploy artifact directory already exists'
+install -d -o github-release-runner -g github-release-runner -m 0700 "$ARTIFACT_DIR"
+
+set +e
+DISPATCH_OUTPUT="$("$DISPATCHER" \
+  api-ui \
+  "$TARGET_SHA" \
+  apply \
+  "$CI_RUN_ID" \
+  "$AUDIT_RUN_ID" \
+  "$ARTIFACT_DIR" 2>&1)"
+DISPATCH_RC=$?
+set -e
+printf '%s\n' "$DISPATCH_OUTPUT"
+if (( DISPATCH_RC != 0 )); then
+  printf 'MAIN_DEPLOY_RESULT=FAIL\n'
+  printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+  printf 'ARTIFACT_DIR=%s\n' "$ARTIFACT_DIR"
+  printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+  exit "$DISPATCH_RC"
+fi
+
+[[ -n "$(find "$ARTIFACT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]] \
+  || fail 'dispatcher produced no direct-deploy evidence'
+
+API_AFTER="$("${COMPOSE[@]}" ps -q api)"
+DB_AFTER="$("${COMPOSE[@]}" ps -q db)"
+[[ -n "$API_AFTER" ]] || fail 'production API container is missing after deploy'
+[[ "$DB_AFTER" == "$DB_BEFORE" ]] \
+  || fail 'production database container changed during API/UI deploy'
+AFTER_REVISION="$(docker inspect "$API_AFTER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+[[ "$AFTER_REVISION" == "$TARGET_SHA" ]] \
+  || fail 'production API revision is not exact current main'
+POST_ALEMBIC="$(read_live_alembic)"
+[[ "$POST_ALEMBIC" == "$PRE_ALEMBIC" ]] \
+  || fail 'live Alembic revision changed during API/UI deploy'
+curl --fail --silent --show-error --max-time 12 \
+  http://127.0.0.1:9128/api/health >/dev/null
+
+printf 'MAIN_DEPLOY_RESULT=PASS\n'
+printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+printf 'PRODUCTION_SHA=%s\n' "$AFTER_REVISION"
+printf 'CI_RUN_ID=%s\n' "$CI_RUN_ID"
+printf 'ARTIFACT_DIR=%s\n' "$ARTIFACT_DIR"
+printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
+printf 'ALEMBIC_AFTER=%s\n' "$POST_ALEMBIC"
+printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
+printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+printf 'ROLLBACK_PERFORMED=false\n'
