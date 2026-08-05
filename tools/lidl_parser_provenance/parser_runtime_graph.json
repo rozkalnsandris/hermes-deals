@@ -21,7 +21,7 @@
       "role": "canonical_active_runtime_adapter",
       "lifecycle": "active",
       "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
-      "sha256": "9041102b8d2adb2fd9febaadcdf2411c0bbbf7f7430b4b155c2fdca9c6ccf0ce",
+      "sha256": "9972db9e3e98e31a2508dc863b8aed799d586d2b823e06339250130e274b6854",
       "runtime_imported": true
     },
     {
