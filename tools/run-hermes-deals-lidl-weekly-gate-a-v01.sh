@@ -170,7 +170,7 @@ chmod 0600 "$RUN_DIR/controller-exit-code.txt"
 MANIFEST="$RUN_DIR/controller/controller-manifest.json"
 ONE_SHOT="$RUN_DIR/controller/one-shot/one-shot-status.json"
 [[ -f "$MANIFEST" && ! -L "$MANIFEST" ]] || fail 'controller manifest is missing or unsafe'
-[[ -f "$ONE_SHOT" && ! -L "$ONE_SHOT" ]] || fail 'one-shot status is missing or unsafe'
+[[ ! -e "$ONE_SHOT" || ( -f "$ONE_SHOT" && ! -L "$ONE_SHOT" ) ]] || fail 'one-shot status path is unsafe'
 
 python3 - "$MANIFEST" "$ONE_SHOT" "$RUN_DIR/sanitized-summary.json" "$EXPECTED_SHA" "$IMAGE_ID" "$TARGET" "$AS_OF" "$CONTROLLER_RC" <<'PY'
 from __future__ import annotations
@@ -183,9 +183,8 @@ manifest_path, one_shot_path, output_path = map(Path, sys.argv[1:4])
 commit_sha, image_id, target, as_of = sys.argv[4:8]
 controller_rc = int(sys.argv[8])
 manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-one_shot = json.loads(one_shot_path.read_text(encoding='utf-8'))
-if not isinstance(manifest, dict) or not isinstance(one_shot, dict):
-    raise SystemExit('Gate A evidence roots must be objects')
+if not isinstance(manifest, dict):
+    raise SystemExit('Gate A controller manifest must be an object')
 state = manifest.get('result')
 expected_rc = {'READY': 0, 'NO_OP': 0, 'WAIT': 20, 'BLOCKED': 30}
 if state not in expected_rc or controller_rc != expected_rc[state]:
@@ -201,21 +200,32 @@ for key, expected in {
 }.items():
     if manifest.get(key) is not expected:
         raise SystemExit(f'controller safety mismatch: {key}')
-for key, expected in {
-    'dry_run': True,
-    'corpus_write': False,
-    'db_write': False,
-    'review_seed': False,
-    'auto_approve': False,
-    'auto_publish': False,
-    'systemd_change': False,
-}.items():
-    if one_shot.get(key) is not expected:
-        raise SystemExit(f'one-shot safety mismatch: {key}')
 if manifest.get('target') != target or manifest.get('today_berlin') != as_of:
     raise SystemExit('controller request binding mismatch')
-if one_shot.get('target') != target or one_shot.get('today_berlin') != as_of:
-    raise SystemExit('one-shot request binding mismatch')
+
+one_shot_present = one_shot_path.is_file()
+if one_shot_present:
+    one_shot = json.loads(one_shot_path.read_text(encoding='utf-8'))
+    if not isinstance(one_shot, dict):
+        raise SystemExit('one-shot status must be an object')
+    for key, expected in {
+        'dry_run': True,
+        'corpus_write': False,
+        'db_write': False,
+        'review_seed': False,
+        'auto_approve': False,
+        'auto_publish': False,
+        'systemd_change': False,
+    }.items():
+        if one_shot.get(key) is not expected:
+            raise SystemExit(f'one-shot safety mismatch: {key}')
+    if one_shot.get('target') != target or one_shot.get('today_berlin') != as_of:
+        raise SystemExit('one-shot request binding mismatch')
+else:
+    if state != 'BLOCKED' or manifest.get('one_shot_result') is not None:
+        raise SystemExit('one-shot status is missing outside an early controller BLOCKED result')
+    one_shot = {}
+
 fingerprint = manifest.get('execution_fingerprint')
 if state in {'READY', 'NO_OP'}:
     if not isinstance(fingerprint, str) or not re.fullmatch(r'[0-9a-f]{64}', fingerprint):
@@ -240,6 +250,7 @@ summary = {
     'reason': manifest.get('reason'),
     'one_shot_result': manifest.get('one_shot_result'),
     'one_shot_reason': manifest.get('one_shot_reason'),
+    'one_shot_evidence_present': one_shot_present,
     'target': target,
     'as_of': as_of,
     'execution_fingerprint': fingerprint,
