@@ -81,6 +81,10 @@ def test_self_hosted_release_job_never_checks_out_repository_code() -> None:
     assert "inputs.authorization" not in release_job
     assert "needs.authorize.outputs.authorization" not in release_job
     assert "upload-artifact@v4" in release_job
+    assert 'artifact_dir=$export_dir/release-evidence' in release_job
+    assert "runner-dispatch.log" not in release_job
+    assert "runner-request.txt" not in release_job
+    assert "if-no-files-found: warn" in release_job
 
 
 def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
@@ -119,6 +123,7 @@ def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() 
         "registration source branch must be main",
         "registration source HEAD mismatch",
         "registration source worktree is not clean",
+        '[[ -f "$ROLLBACK_ARCHIVE_SOURCE" && ! -L "$ROLLBACK_ARCHIVE_SOURCE" ]]',
         "org.opencontainers.image.revision=$NEW_SHA",
         "docker run --rm",
         "python -m pytest -q",
@@ -154,6 +159,8 @@ def test_release_installer_shell_syntax_and_sudo_scope() -> None:
     assert "hermes-deals-release-register" not in sudoers_source
     assert "tools/runner/release/hermes-deals-release-dispatch" in text
     assert "tools/runner/release/hermes-deals-release-register" in text
+    for command in ("docker", "flock", "pgrep", "python3", "sudo", "tar", "visudo"):
+        assert command in text
 
 
 def test_runbook_keeps_install_apply_and_db_write_as_separate_authorizations() -> None:
