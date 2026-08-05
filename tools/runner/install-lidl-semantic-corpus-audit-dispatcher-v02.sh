@@ -123,5 +123,5 @@ sudo -l -U github-runner | grep -Fq "$DISPATCHER" || fail "github-runner dispatc
 runner_has_docker="$(id -nG github-runner | tr ' ' '\n' | grep -Fxq docker && echo true || echo false)"
 [[ "$runner_has_docker" == false ]] || fail "github-runner must not belong to docker group"
 
-printf 'INSTALL_RESULT=PASS\nAUDIT=lidl-semantic-corpus\nAUDIT_VERSION=lidl-semantic-corpus-audit-v02.1-isolated-source\nREGISTERED_COMMIT=%s\nISOLATED_SOURCE_REPO=%s\nPRIMARY_WORKTREE_MODIFIED=false\nAUDIT_GIT_INDEX_UNCHANGED=true\nSCRIPT_SHA256=%s\nDISPATCHER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nPRODUCTION_APPLY_AUTHORIZED=false\n' \
+printf 'INSTALL_RESULT=PASS\nAUDIT=lidl-semantic-corpus\nAUDIT_VERSION=lidl-semantic-corpus-audit-v02.3-partition-contract\nREGISTERED_COMMIT=%s\nISOLATED_SOURCE_REPO=%s\nPRIMARY_WORKTREE_MODIFIED=false\nAUDIT_GIT_INDEX_UNCHANGED=true\nSCRIPT_SHA256=%s\nDISPATCHER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nPRODUCTION_APPLY_AUTHORIZED=false\n' \
   "$EXPECTED_SHA" "$AUDIT_REPO" "$script_sha" "$(sha256sum "$DISPATCHER" | awk '{print $1}')"

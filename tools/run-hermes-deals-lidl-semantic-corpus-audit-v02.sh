@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 077
 
-AUDIT_VERSION="lidl-semantic-corpus-audit-v02.1-isolated-source"
+AUDIT_VERSION="lidl-semantic-corpus-audit-v02.3-partition-contract"
 AUDIT_REPO="/home/andris/hermes-deals-audit-source"
 V01_PATH="tools/run-hermes-deals-lidl-semantic-corpus-audit-v01.sh"
 EXPECTED_ORIGIN_HTTPS="https://github.com/rozkalnsandris/hermes-deals"
@@ -72,6 +72,81 @@ destination = pathlib.Path(sys.argv[2])
 repo = sys.argv[3]
 version = sys.argv[4]
 text = source.read_text(encoding="utf-8")
+
+old_discovery = r'''find_flyer_dir() {
+  local flyer_key="$1"
+  local scan="$2"
+  local -a matches=()
+  local candidate
+  while IFS= read -r candidate; do
+    [[ -f "$candidate/source.pdf" ]] || continue
+    [[ -f "$candidate/source.json" ]] || continue
+    [[ -f "$candidate/review-profile.json" ]] || continue
+    [[ -d "$candidate/scans/$scan" ]] || continue
+    matches+=("$candidate")
+  done < <(
+    find /home/andris -xdev \
+      \( -path /home/andris/.cache -o -path /home/andris/.local -o -path /home/andris/Downloads -o -path '*/.git' -o -path '*/node_modules' \) -prune -o \
+      -type d -name "$flyer_key" -print 2>/dev/null
+  )
+  [[ ${#matches[@]} -eq 1 ]] || fail "expected exactly one complete corpus directory for $flyer_key; found ${#matches[@]}"
+  printf '%s\n' "${matches[0]}"
+}'''
+
+new_discovery = r'''CORPUS_ROOT="/home/andris/hermes-deals-lidl-corpus/flyers"
+CORPUS_ROOT="$(readlink -f -- "$CORPUS_ROOT")"
+[[ "$CORPUS_ROOT" == "/home/andris/hermes-deals-lidl-corpus/flyers" ]] || fail "authoritative corpus root path drift"
+[[ -d "$CORPUS_ROOT" && ! -L "$CORPUS_ROOT" ]] || fail "authoritative corpus root is missing or unsafe"
+[[ "$(stat -c '%U:%G' "$CORPUS_ROOT")" == "andris:andris" ]] || fail "authoritative corpus root ownership is invalid"
+
+find_flyer_dir() {
+  local flyer_key="$1"
+  local scan="$2"
+  local candidate="$CORPUS_ROOT/$flyer_key"
+  local scan_dir="$candidate/scans/$scan"
+  local resolved
+  local required
+
+  [[ "$flyer_key" != */* && "$flyer_key" != "." && "$flyer_key" != ".." ]] || fail "invalid frozen flyer key"
+  [[ "$scan" != */* && "$scan" != "." && "$scan" != ".." ]] || fail "invalid frozen scan key"
+  [[ -d "$candidate" && ! -L "$candidate" ]] || fail "authoritative corpus directory is missing or unsafe for $flyer_key"
+  resolved="$(readlink -f -- "$candidate")"
+  [[ "$resolved" == "$candidate" ]] || fail "authoritative corpus directory path drift for $flyer_key"
+  [[ "$(stat -c '%U:%G' "$candidate")" == "andris:andris" ]] || fail "authoritative corpus directory ownership is invalid for $flyer_key"
+
+  for required in source.pdf source.json review-profile.json; do
+    [[ -f "$candidate/$required" && ! -L "$candidate/$required" ]] || fail "authoritative corpus file is missing or unsafe for $flyer_key: $required"
+  done
+  [[ -d "$scan_dir" && ! -L "$scan_dir" ]] || fail "authoritative corpus scan is missing or unsafe for $flyer_key/$scan"
+  [[ "$(readlink -f -- "$scan_dir")" == "$scan_dir" ]] || fail "authoritative corpus scan path drift for $flyer_key/$scan"
+
+  printf '%s\n' "$candidate"
+}'''
+
+old_partition_validation = r'''total = int(coverage.get("row_count") or 0)
+parts = sum(
+    int(coverage.get(key) or 0)
+    for key in ("production_ready_count", "review_required_count", "excluded_count")
+)
+if total <= 0 or total != parts:
+    raise SystemExit("semantic row partition is incomplete")'''
+
+new_partition_validation = r'''input_total = int(coverage.get("input_row_count") or 0)
+unique_total = int(coverage.get("unique_row_count") or 0)
+explained_total = int(coverage.get("explained_count") or 0)
+parts = sum(
+    int(coverage.get(key) or 0)
+    for key in ("production_ready_count", "review_required_count", "excluded_count")
+)
+if (
+    input_total <= 0
+    or unique_total != input_total
+    or explained_total != input_total
+    or parts != input_total
+):
+    raise SystemExit("semantic row partition is incomplete")
+total = input_total'''
+
 replacements = {
     'AUDIT_VERSION="lidl-semantic-corpus-audit-v01"': f'AUDIT_VERSION="{version}"',
     'REPO="/home/andris/hermes-deals"': f'REPO="{repo}"',
@@ -79,6 +154,8 @@ replacements = {
         '/home/andris/hermes-deals-runner-evidence/'
         'hermes-deals-lidl-semantic-audit-*'
     ),
+    old_discovery: new_discovery,
+    old_partition_validation: new_partition_validation,
 }
 for old, new in replacements.items():
     if text.count(old) != 1:
