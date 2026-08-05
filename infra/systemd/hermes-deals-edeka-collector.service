@@ -1,5 +1,5 @@
 [Unit]
-Description=Hermes Deals EDEKA Patzer collector
+Description=Hermes Deals EDEKA Patzer immutable manifest collector
 Documentation=https://www.edeka.de/maerkte/071897/angebote/
 Wants=network-online.target
 After=network-online.target docker.service
@@ -13,7 +13,9 @@ WorkingDirectory=/home/andris/hermes-deals
 Environment=HOME=/home/andris
 # Execute inside the running production API container so the collector always
 # uses the exact release image selected by the production deployment.
-ExecStart=/usr/bin/flock -n /home/andris/.local/state/hermes-deals/edeka-collector.lock /usr/bin/docker compose exec -T --user 1000:1000 api python -m app.collector_cli collect --source edeka --min-offers 150
+# The EDEKA-specific entrypoint creates and verifies immutable Patzer source
+# manifests and returns a safe no-op for an unchanged current campaign.
+ExecStart=/usr/bin/flock -n /home/andris/.local/state/hermes-deals/edeka-collector.lock /usr/bin/docker compose exec -T --user 1000:1000 api python -m app.edeka_collector_cli --min-offers 150
 TimeoutStartSec=300
 Nice=10
 UMask=0027
