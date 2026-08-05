@@ -83,7 +83,7 @@ CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Ima
   || fail "running production tag does not resolve to the container image ID"
 [[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
   || fail "running production image ID does not match rollback tag"
-ROLLBACK_REVISION_LABEL="$(docker image inspect "$ROLLBACK_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' 2>/dev/null || true)"
+ROLLBACK_REVISION_LABEL="$(docker image inspect "$ROLLBACK_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
 [[ -z "$ROLLBACK_REVISION_LABEL" || "$ROLLBACK_REVISION_LABEL" == "$ROLLBACK_SHA" ]] || fail "rollback image revision label contradicts declared rollback SHA"
 ROLLBACK_REVISION_LABEL_VERIFIED=false
 [[ "$ROLLBACK_REVISION_LABEL" == "$ROLLBACK_SHA" ]] && ROLLBACK_REVISION_LABEL_VERIFIED=true
@@ -162,7 +162,7 @@ printf '%s\n' "$IMAGE_SMOKE_OUTPUT"
 
 NEW_IMAGE_ID="$(docker image inspect "$NEW_TAG" --format '{{.Id}}')"
 [[ "$NEW_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "new image ID is invalid"
-[[ "$(docker image inspect "$NEW_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}')" == "$NEW_SHA" ]] || fail "new image revision label mismatch"
+[[ "$(docker image inspect "$NEW_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$NEW_SHA" ]] || fail "new image revision label mismatch"
 
 NEW_ARCHIVE="/opt/backups/hermes-deals/releases/${NEW_TAG#hermes-deals-api:}.tar.gz"
 TMP_ARCHIVE="$(mktemp /opt/backups/hermes-deals/releases/.new-image.XXXXXX.tar.gz)"
