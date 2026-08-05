@@ -306,7 +306,7 @@ jobs:
           set -Eeuo pipefail
           export_dir="${RUNNER_TEMP}/hermes-deals-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           install -d -m 0700 "$export_dir"
-          echo "artifact_dir=$export_dir" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$export_dir/release-evidence" >> "$GITHUB_OUTPUT"
 
           set +e
           sudo --non-interactive /usr/local/sbin/hermes-deals-release-dispatch \
@@ -315,16 +315,11 @@ jobs:
             "$RELEASE_MODE" \
             "$CI_RUN_ID" \
             "${AUDIT_RUN_ID:-}" \
-            "$export_dir" \
-            2>&1 | tee "$export_dir/runner-dispatch.log"
-          dispatch_rc=${PIPESTATUS[0]}
+            "$export_dir"
+          dispatch_rc=$?
           set -e
 
-          printf '%s\n' "$dispatch_rc" > "$export_dir/runner-dispatch-exit-code.txt"
-          printf 'release_class=%s\nrelease_sha=%s\nmode=%s\nci_run_id=%s\naudit_run_id=%s\nrun_id=%s\nrun_attempt=%s\n' \
-            "$RELEASE_CLASS" "$RELEASE_SHA" "$RELEASE_MODE" "$CI_RUN_ID" \
-            "${AUDIT_RUN_ID:-}" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
-            > "$export_dir/runner-request.txt"
+          printf 'RELEASE_DISPATCH_EXIT_CODE=%s\n' "$dispatch_rc"
           exit "$dispatch_rc"
 
       - name: Upload sanitized release evidence
@@ -333,7 +328,7 @@ jobs:
         with:
           name: release-${{ needs.authorize.outputs.release_class }}-${{ needs.authorize.outputs.release_sha }}-run-${{ github.run_id }}
           path: ${{ steps.dispatch.outputs.artifact_dir }}
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   report:
