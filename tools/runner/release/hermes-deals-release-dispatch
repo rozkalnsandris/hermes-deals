@@ -1,0 +1,448 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail "dispatcher must run as root through sudo"
+[[ $# -eq 6 ]] || fail "usage: hermes-deals-release-dispatch <class> <sha> <mode> <ci-run-id> <audit-run-id-or-empty> <artifact-dir>"
+
+RELEASE_CLASS="$1"
+EXPECTED_SHA="$2"
+MODE="$3"
+CI_RUN_ID="$4"
+AUDIT_RUN_ID="$5"
+EXPORT_DIR="$6"
+
+[[ "$RELEASE_CLASS" =~ ^(smoke|api-ui)$ ]] || fail "release class is not allowlisted"
+[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid release SHA"
+[[ "$MODE" =~ ^(plan|apply)$ ]] || fail "invalid release mode"
+[[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "invalid CI run ID"
+[[ -z "$AUDIT_RUN_ID" || "$AUDIT_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "invalid audit run ID"
+[[ "$RELEASE_CLASS" != smoke || "$MODE" == plan ]] || fail "smoke cannot apply production"
+
+EXPORT_DIR="$(readlink -f -- "$EXPORT_DIR")"
+[[ -d "$EXPORT_DIR" ]] || fail "artifact directory does not exist"
+[[ "$EXPORT_DIR" =~ ^/home/github-release-runner/actions-runner/_work/_temp/hermes-deals-release-[0-9]+-[0-9]+$ ]] || fail "artifact directory is outside the release runner temp allowlist"
+[[ "$(stat -c '%U:%G' "$EXPORT_DIR")" == 'github-release-runner:github-release-runner' ]] || fail "artifact directory ownership is invalid"
+[[ "$(stat -c '%a' "$EXPORT_DIR")" == '700' ]] || fail "artifact directory permissions must be 0700"
+
+exec 9>/run/lock/hermes-deals-rpi5-privileged.lock
+flock -n 9 || fail "another Hermes Deals release process is already active"
+if pgrep -af '/usr/local/sbin/hermes-deals-(audit-dispatch|netto-shadow-audit-dispatch)' >/dev/null 2>&1; then
+  fail "an existing Hermes Deals audit dispatcher is active"
+fi
+
+RUN_KEY="$(basename -- "$EXPORT_DIR")"
+STAGING_ROOT='/home/andris/hermes-deals-release-evidence'
+STAGING_DIR="$STAGING_ROOT/$RUN_KEY"
+install -d -o andris -g andris -m 0700 "$STAGING_ROOT"
+[[ ! -e "$STAGING_DIR" ]] || fail "release staging directory already exists"
+install -d -o andris -g andris -m 0700 "$STAGING_DIR"
+
+cleanup() {
+  rm -rf -- "$STAGING_DIR"
+}
+trap cleanup EXIT
+
+if [[ "$RELEASE_CLASS" == smoke ]]; then
+  python3 - "$STAGING_DIR/release-report.json" "$EXPECTED_SHA" "$CI_RUN_ID" <<'PY'
+import json
+import pathlib
+import platform
+import socket
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(
+    json.dumps(
+        {
+            "release_class": "smoke",
+            "release_sha": sys.argv[2],
+            "ci_run_id": int(sys.argv[3]),
+            "mode": "plan",
+            "hostname": socket.gethostname(),
+            "machine": platform.machine(),
+            "authorization_chain_passed": True,
+            "database_writes_authorized": False,
+            "production_apply_performed": False,
+            "release_runner_to_dispatcher_contract": True,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+  RESULT_RC=0
+else
+  REGISTRY="/etc/hermes-deals-releases.d/api-ui-$EXPECTED_SHA.json"
+  [[ -f "$REGISTRY" && ! -L "$REGISTRY" ]] || fail "release is not root-registered for exact SHA"
+  [[ "$(stat -c '%U:%G' "$REGISTRY")" == 'root:root' ]] || fail "release registry ownership is invalid"
+  [[ "$(stat -c '%a' "$REGISTRY")" =~ ^(600|640|644)$ ]] || fail "release registry permissions are invalid"
+
+  mapfile -d '' -t FIELDS < <(python3 - "$REGISTRY" "$EXPECTED_SHA" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+expected_sha = sys.argv[2]
+data = json.loads(path.read_text(encoding="utf-8"))
+required = {
+    "schema_version": 1,
+    "release_class": "api-ui",
+    "commit_sha": expected_sha,
+    "database_writes_authorized": False,
+    "rollback_restore_tested": True,
+}
+for key, value in required.items():
+    if data.get(key) != value:
+        raise SystemExit(f"registry mismatch: {key}")
+fields = [
+    data.get("repo_path", ""),
+    data.get("image_tag", ""),
+    data.get("image_id", ""),
+    data.get("image_archive", ""),
+    data.get("image_archive_sha256", ""),
+    data.get("rollback_commit_sha", ""),
+    data.get("rollback_tag", ""),
+    data.get("rollback_image_id", ""),
+    data.get("rollback_archive", ""),
+    data.get("rollback_archive_sha256", ""),
+    str(data.get("required_ci_run_id") or ""),
+    str(data.get("required_audit_run_id") or ""),
+]
+if not re.fullmatch(r"[0-9a-f]{40}", fields[5]):
+    raise SystemExit("rollback SHA is invalid")
+for value in fields:
+    if "\x00" in value:
+        raise SystemExit("registry contains NUL")
+    sys.stdout.write(value + "\x00")
+PY
+  )
+  [[ ${#FIELDS[@]} -eq 12 ]] || fail "release registry field count is invalid"
+
+  REPO="${FIELDS[0]}"
+  IMAGE_TAG="${FIELDS[1]}"
+  IMAGE_ID="${FIELDS[2]}"
+  IMAGE_ARCHIVE="${FIELDS[3]}"
+  IMAGE_ARCHIVE_SHA="${FIELDS[4]}"
+  ROLLBACK_SHA="${FIELDS[5]}"
+  ROLLBACK_TAG="${FIELDS[6]}"
+  ROLLBACK_IMAGE_ID="${FIELDS[7]}"
+  ROLLBACK_ARCHIVE="${FIELDS[8]}"
+  ROLLBACK_ARCHIVE_SHA="${FIELDS[9]}"
+  REQUIRED_CI_RUN_ID="${FIELDS[10]}"
+  REQUIRED_AUDIT_RUN_ID="${FIELDS[11]}"
+
+  [[ "$REPO" == '/home/andris/hermes-deals' ]] || fail "registered repo path is invalid"
+  [[ "$IMAGE_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-${EXPECTED_SHA:0:7}$ ]] || fail "registered image tag is invalid"
+  [[ "$ROLLBACK_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-${ROLLBACK_SHA:0:7}$ ]] || fail "registered rollback tag is invalid"
+  [[ "$IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "registered image ID is invalid"
+  [[ "$ROLLBACK_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "registered rollback image ID is invalid"
+  [[ "$IMAGE_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "registered image archive SHA is invalid"
+  [[ "$ROLLBACK_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "registered rollback archive SHA is invalid"
+  [[ "$REQUIRED_CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "registered CI run ID is invalid"
+  [[ -z "$REQUIRED_AUDIT_RUN_ID" || "$REQUIRED_AUDIT_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "registered audit run ID is invalid"
+  [[ "$CI_RUN_ID" == "$REQUIRED_CI_RUN_ID" ]] || fail "workflow CI run ID does not match root registration"
+  [[ "$AUDIT_RUN_ID" == "$REQUIRED_AUDIT_RUN_ID" ]] || fail "workflow audit run ID does not match root registration"
+
+  for archive in "$IMAGE_ARCHIVE" "$ROLLBACK_ARCHIVE"; do
+    archive="$(readlink -f -- "$archive")"
+    [[ "$archive" == /opt/backups/hermes-deals/releases/* ]] || fail "release archive is outside the root-owned archive directory"
+    [[ -f "$archive" && ! -L "$archive" ]] || fail "release archive is missing or unsafe"
+    [[ "$(stat -c '%U:%G' "$archive")" == 'root:root' ]] || fail "release archive ownership is invalid"
+    [[ "$(stat -c '%a' "$archive")" =~ ^(400|440|600|640|644)$ ]] || fail "release archive permissions are invalid"
+    tar -tzf "$archive" >/dev/null || fail "release archive is not a readable gzip tar"
+  done
+  [[ "$(sha256sum "$IMAGE_ARCHIVE" | awk '{print $1}')" == "$IMAGE_ARCHIVE_SHA" ]] || fail "new image archive hash drift"
+  [[ "$(sha256sum "$ROLLBACK_ARCHIVE" | awk '{print $1}')" == "$ROLLBACK_ARCHIVE_SHA" ]] || fail "rollback archive hash drift"
+
+  [[ -d "$REPO/.git" ]] || fail "production repo is not a Git checkout"
+  [[ "$(git -C "$REPO" branch --show-current)" == main ]] || fail "production repo branch must be main"
+  [[ "$(git -C "$REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail "production repo HEAD is not exact release SHA"
+  [[ -z "$(git -C "$REPO" status --porcelain)" ]] || fail "production repo worktree is not clean"
+  case "$(git -C "$REPO" remote get-url origin)" in
+    https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
+    *) fail "production repo origin is invalid" ;;
+  esac
+  for tracked in docker-compose.yml docker-compose.production.yml; do
+    git -C "$REPO" ls-files --error-unmatch "$tracked" >/dev/null || fail "required compose file is not tracked: $tracked"
+  done
+
+  [[ "$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')" == "$IMAGE_ID" ]] || fail "registered new image ID drift"
+  [[ "$(docker image inspect "$IMAGE_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}')" == "$EXPECTED_SHA" ]] || fail "new image revision label mismatch"
+  [[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$ROLLBACK_IMAGE_ID" ]] || fail "registered rollback image ID drift"
+
+  COMPOSE=(docker compose --project-directory "$REPO" -f "$REPO/docker-compose.yml" -f "$REPO/docker-compose.production.yml")
+  CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+  [[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
+  CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
+  CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
+  [[ "$CURRENT_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" ]] || fail "production image ID does not match registered rollback baseline"
+  [[ "$CURRENT_IMAGE_TAG" == "$ROLLBACK_TAG" ]] || fail "production image tag does not match registered rollback baseline"
+
+  PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health)"
+  PRE_ALEMBIC="$("${COMPOSE[@]}" exec -T api alembic current 2>/dev/null | head -c 512)"
+  PRE_HEALTH_FILE="$STAGING_DIR/pre-health.json"
+  printf '%s\n' "$PRE_HEALTH" > "$PRE_HEALTH_FILE"
+  PRE_ALEMBIC_FILE="$STAGING_DIR/pre-alembic.txt"
+  printf '%s\n' "$PRE_ALEMBIC" > "$PRE_ALEMBIC_FILE"
+  python3 - "$STAGING_DIR/preflight.json" "$PRE_HEALTH_FILE" "$PRE_ALEMBIC_FILE" \
+    "$EXPECTED_SHA" "$MODE" "$CI_RUN_ID" "$AUDIT_RUN_ID" "$ROLLBACK_SHA" \
+    "$CURRENT_IMAGE_TAG" "$CURRENT_IMAGE_ID" "$IMAGE_TAG" "$IMAGE_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+(
+    output,
+    health_path,
+    alembic_path,
+    release_sha,
+    mode,
+    ci_run_id,
+    audit_run_id,
+    rollback_sha,
+    current_tag,
+    current_id,
+    target_tag,
+    target_id,
+) = sys.argv[1:]
+pathlib.Path(output).write_text(
+    json.dumps(
+        {
+            "release_class": "api-ui",
+            "release_sha": release_sha,
+            "mode": mode,
+            "ci_run_id": int(ci_run_id),
+            "audit_run_id": int(audit_run_id) if audit_run_id else None,
+            "current_production_sha": rollback_sha,
+            "current_image_tag": current_tag,
+            "current_image_id": current_id,
+            "target_image_tag": target_tag,
+            "target_image_id": target_id,
+            "health_before": json.loads(pathlib.Path(health_path).read_text()),
+            "alembic_before": pathlib.Path(alembic_path).read_text().strip(),
+            "database_writes_authorized": False,
+            "rollback_archive_verified": True,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+  rm -f -- "$PRE_HEALTH_FILE" "$PRE_ALEMBIC_FILE"
+
+  RESULT_RC=0
+  FINAL_STATUS="planned"
+  ROLLBACK_PERFORMED=false
+  ROLLBACK_SUCCEEDED=false
+  POST_HEALTH="$PRE_HEALTH"
+  POST_ALEMBIC="$PRE_ALEMBIC"
+
+  if [[ "$MODE" == apply ]]; then
+    docker image load --input "$ROLLBACK_ARCHIVE" >/dev/null
+    [[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$ROLLBACK_IMAGE_ID" ]] || fail "rollback archive restore test did not reproduce expected image"
+    docker image load --input "$IMAGE_ARCHIVE" >/dev/null
+    [[ "$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')" == "$IMAGE_ID" ]] || fail "new image archive did not reproduce expected image"
+
+    set +e
+    HERMES_DEALS_API_TAG="${IMAGE_TAG#hermes-deals-api:}" \
+      "${COMPOSE[@]}" up -d --no-deps --no-build --wait api >/dev/null 2>&1
+    APPLY_RC=$?
+    if [[ $APPLY_RC -eq 0 ]]; then
+      NEW_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+      NEW_IMAGE_ID="$(docker inspect "$NEW_CONTAINER" --format '{{.Image}}' 2>/dev/null)"
+      POST_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health 2>/dev/null)"
+      CANARY_RC=$?
+      UI_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 8 http://127.0.0.1:9128/ui)"
+      POST_ALEMBIC="$("${COMPOSE[@]}" exec -T api alembic current 2>/dev/null | head -c 512)"
+      [[ "$NEW_IMAGE_ID" == "$IMAGE_ID" && $CANARY_RC -eq 0 && "$UI_STATUS" =~ ^(200|302)$ && "$POST_ALEMBIC" == "$PRE_ALEMBIC" ]]
+      APPLY_RC=$?
+    fi
+    set -e
+
+    if [[ $APPLY_RC -eq 0 ]]; then
+      FINAL_STATUS="applied"
+    else
+      ROLLBACK_PERFORMED=true
+      set +e
+      HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}" \
+        "${COMPOSE[@]}" up -d --no-deps --no-build --wait api >/dev/null 2>&1
+      ROLLBACK_RC=$?
+      if [[ $ROLLBACK_RC -eq 0 ]]; then
+        RESTORED_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+        RESTORED_IMAGE_ID="$(docker inspect "$RESTORED_CONTAINER" --format '{{.Image}}' 2>/dev/null)"
+        curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health >/dev/null 2>&1
+        HEALTH_RC=$?
+        RESTORED_ALEMBIC="$("${COMPOSE[@]}" exec -T api alembic current 2>/dev/null | head -c 512)"
+        [[ "$RESTORED_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" && $HEALTH_RC -eq 0 && "$RESTORED_ALEMBIC" == "$PRE_ALEMBIC" ]]
+        ROLLBACK_RC=$?
+      fi
+      set -e
+      if [[ $ROLLBACK_RC -eq 0 ]]; then
+        ROLLBACK_SUCCEEDED=true
+        FINAL_STATUS="apply-failed-rollback-succeeded"
+        RESULT_RC=1
+      else
+        FINAL_STATUS="apply-failed-rollback-failed"
+        RESULT_RC=2
+      fi
+    fi
+  fi
+
+  POST_HEALTH_FILE="$STAGING_DIR/post-health.json"
+  printf '%s\n' "$POST_HEALTH" > "$POST_HEALTH_FILE"
+  POST_ALEMBIC_FILE="$STAGING_DIR/post-alembic.txt"
+  printf '%s\n' "$POST_ALEMBIC" > "$POST_ALEMBIC_FILE"
+  python3 - "$STAGING_DIR/release-report.json" "$POST_HEALTH_FILE" "$POST_ALEMBIC_FILE" \
+    "$EXPECTED_SHA" "$MODE" "$FINAL_STATUS" "$CI_RUN_ID" "$AUDIT_RUN_ID" \
+    "$ROLLBACK_SHA" "$ROLLBACK_TAG" "$ROLLBACK_IMAGE_ID" "$IMAGE_TAG" "$IMAGE_ID" \
+    "$ROLLBACK_PERFORMED" "$ROLLBACK_SUCCEEDED" <<'PY'
+import json
+import pathlib
+import sys
+
+(
+    output,
+    post_health_path,
+    post_alembic_path,
+    release_sha,
+    mode,
+    status,
+    ci_run_id,
+    audit_run_id,
+    rollback_sha,
+    rollback_tag,
+    rollback_id,
+    target_tag,
+    target_id,
+    rollback_performed,
+    rollback_succeeded,
+) = sys.argv[1:]
+try:
+    post_health = json.loads(pathlib.Path(post_health_path).read_text())
+except Exception:
+    post_health = None
+pathlib.Path(output).write_text(
+    json.dumps(
+        {
+            "release_class": "api-ui",
+            "release_sha": release_sha,
+            "mode": mode,
+            "status": status,
+            "ci_run_id": int(ci_run_id),
+            "audit_run_id": int(audit_run_id) if audit_run_id else None,
+            "production_sha_before": rollback_sha,
+            "image_tag_before": rollback_tag,
+            "image_id_before": rollback_id,
+            "target_image_tag": target_tag,
+            "target_image_id": target_id,
+            "health_after": post_health,
+            "alembic_after": pathlib.Path(post_alembic_path).read_text().strip(),
+            "rollback_restore_tested": True,
+            "rollback_performed": rollback_performed == "true",
+            "rollback_succeeded": rollback_succeeded == "true",
+            "database_writes_authorized": False,
+            "migration_commands_executed": False,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+  rm -f -- "$POST_HEALTH_FILE" "$POST_ALEMBIC_FILE"
+fi
+
+python3 - "$STAGING_DIR" "$EXPORT_DIR/release-evidence" "$RELEASE_CLASS" "$EXPECTED_SHA" "$MODE" "$RESULT_RC" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import stat
+import sys
+
+source = pathlib.Path(sys.argv[1])
+destination = pathlib.Path(sys.argv[2])
+release_class = sys.argv[3]
+release_sha = sys.argv[4]
+mode = sys.argv[5]
+result_rc = int(sys.argv[6])
+secret = re.compile(
+    rb"(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{20,}|PGPASSWORD=|postgresql(?:\+[^:]+)?://[^\s:/]+:[^\s@]+@)",
+    re.IGNORECASE,
+)
+files = []
+total = 0
+for path in sorted(source.rglob("*")):
+    info = path.lstat()
+    relative = path.relative_to(source)
+    if stat.S_ISLNK(info.st_mode) or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+        raise SystemExit(f"unsafe evidence member: {relative}")
+    if stat.S_ISREG(info.st_mode):
+        data = path.read_bytes()
+        total += len(data)
+        if total > 8 * 1024 * 1024:
+            raise SystemExit("release evidence exceeds 8 MiB")
+        if secret.search(data):
+            raise SystemExit(f"sensitive content rejected: {relative}")
+        files.append((path, relative, data))
+
+if not files:
+    raise SystemExit("release dispatcher produced no evidence")
+
+destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+manifest = []
+for path, relative, data in files:
+    target = destination / relative
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    shutil.copy2(path, target, follow_symlinks=False)
+    os.chmod(target, 0o600)
+    manifest.append(
+        {
+            "path": relative.as_posix(),
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    )
+
+(destination / "dispatcher-release-manifest.json").write_text(
+    json.dumps(
+        {
+            "release_class": release_class,
+            "release_sha": release_sha,
+            "mode": mode,
+            "dispatcher_exit_code": result_rc,
+            "database_writes_authorized": False,
+            "sanitization_passed": True,
+            "files": manifest,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+os.chmod(destination / "dispatcher-release-manifest.json", 0o600)
+PY
+
+chown -R github-release-runner:github-release-runner "$EXPORT_DIR/release-evidence"
+printf 'RELEASE_CLASS=%s\nRELEASE_SHA=%s\nMODE=%s\nRESULT_RC=%s\nDATABASE_WRITES_AUTHORIZED=false\n' \
+  "$RELEASE_CLASS" "$EXPECTED_SHA" "$MODE" "$RESULT_RC"
+exit "$RESULT_RC"
