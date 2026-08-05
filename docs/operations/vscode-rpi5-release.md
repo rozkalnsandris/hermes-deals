@@ -8,7 +8,9 @@ Use these tasks only from the RPi5 Remote SSH window with the primary repository
 4. Review the GitHub issue, workflow result and sanitized evidence.
 5. Run `Hermes Deals: Apply production deploy` only after explicit owner approval and type the exact SHA-bound confirmation shown in the terminal.
 
-The launcher derives the current production SHA from the release-bound API image and checks the complete cumulative diff to current `main`, not only the latest PR. It refuses dirty worktrees, non-main branches, another repository path, unsynchronized local/remote main, a current main commit not bound to exactly one merged PR, unresolved source issues, cumulative database migration changes and cumulative Compose changes.
+The launcher derives the current production SHA from the release-bound API image and checks the complete cumulative diff to current `main`, not only the latest PR. It prefers the exact 40-character `org.opencontainers.image.revision` label, which also supports previously verified legacy release tag names. Only when that label is absent may it fall back to the canonical `hermes-deals-api:release-<semver>-<sha7>` tag. Malformed, contradictory or unresolved provenance fails closed.
+
+It also refuses dirty worktrees, non-main branches, another repository path, unsynchronized local/remote main, a current main commit not bound to exactly one merged PR, unresolved source issues, cumulative database migration changes and cumulative Compose changes.
 
 Plan and apply create owner-authored `hermes:deploy-ready` requests for the existing no-agent release bridge. The bridge performs root auto-registration, exact-main CI verification, immutable image build and testing, plan evidence, apply authorization, API-only recreation, health/UI checks and automatic rollback. VS Code does not dispatch the release workflow directly and never authorizes database writes.
 
