@@ -68,10 +68,13 @@ def test_bundle_installer_is_user_scoped_and_non_production() -> None:
         "/home/andris/hermes-deals",
         "hermes bundles reload",
         "hermes bundles show hermes-deals-operator",
+        'SKILLS_OUTPUT="$(hermes skills list)"',
+        'grep -Fq -- "$skill" <<<"$SKILLS_OUTPUT"',
         "BUNDLE_INSTALL_RESULT=PASS",
         "PRODUCTION_CHANGED=false",
     ):
         assert marker in text
+    assert 'hermes skills list | grep -Fq' not in text
     assert "sudo " not in text
     assert "docker " not in text
 
