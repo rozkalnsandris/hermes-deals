@@ -132,7 +132,12 @@ function effectiveReviewStatus(item){
   return item?.status==="rejected"?"pending":item?.status;
 }
 function reviewStatusLabel(item,status=effectiveReviewStatus(item)){return item?.review_kind==="page_alert"&&status==="rejected"?"Pārbaudīts":statusLabel(status);}
-function detailMessage(detail,fallback){if(typeof detail==="string"&&detail.trim())return detail;if(Array.isArray(detail)){const text=detail.map(item=>item?.msg||item?.message||"").filter(Boolean).join("; ");if(text)return text;}if(detail&&typeof detail==="object"){if(typeof detail.message==="string")return detail.message;try{return JSON.stringify(detail);}catch{}}return fallback;}
+class ReviewApiError extends Error{constructor(message,{status=null,errorCode="",rayId="",retryable=false}={}){super(message);this.name="ReviewApiError";this.status=status;this.errorCode=errorCode;this.rayId=rayId;this.retryable=retryable;}}
+function temporaryReviewApiFailure(status,errorCode,retryable=false){return retryable===true||[502,503,504].includes(Number(status))||["origin_bad_gateway","bad_gateway","service_unavailable","gateway_timeout"].includes(String(errorCode||"").toLowerCase());}
+function reviewApiError(body,status,headers,fallback){const root=body&&typeof body==="object"&&!Array.isArray(body)?body:{},detail=root.detail&&typeof root.detail==="object"&&!Array.isArray(root.detail)?root.detail:{},resolvedStatus=Number(root.status||detail.status||status)||status||null,errorCode=String(root.error_code||detail.error_code||root.error_name||detail.error_name||""),rayId=String(headers?.get?.("cf-ray")||root.ray_id||detail.ray_id||""),retryable=root.retryable===true||detail.retryable===true||temporaryReviewApiFailure(resolvedStatus,errorCode);let message=fallback;if(temporaryReviewApiFailure(resolvedStatus,errorCode,retryable))message="Serveris īslaicīgi nav sasniedzams. Mēģini vēlreiz pēc brīža.";else if(Number(resolvedStatus)===429)message="Pieprasījumu ir par daudz. Mēģini vēlreiz pēc brīža.";return new ReviewApiError(message,{status:resolvedStatus,errorCode,rayId,retryable});}
+function reviewErrorMessage(error,fallback){return error instanceof ReviewApiError?error.message:fallback;}
+function reviewErrorReference(error){const parts=[];if(Number.isFinite(Number(error?.status))&&Number(error.status)>0)parts.push(`HTTP ${Number(error.status)}`);if(error?.rayId)parts.push(`Ray ID ${String(error.rayId)}`);return parts.join(" · ");}
+async function reviewRequest(url,options,fallback){let response;try{response=await fetch(url,options);}catch{throw new ReviewApiError("Serveris īslaicīgi nav sasniedzams. Mēģini vēlreiz pēc brīža.",{retryable:true});}const body=await response.json().catch(()=>({}));if(!response.ok)throw reviewApiError(body,response.status,response.headers,fallback);return body;}
 function showToast(message,error=false){const node=$("toast");node.textContent=message;node.classList.toggle("error",error);node.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove("show"),3200);}
 function updateProductActionAvailability(){
   const approveButton=$("approve");
@@ -200,18 +205,18 @@ async function renderList(preferredId=null){
 }
 async function load(preferredId=null,{preserveOnError=false}={}){
   try{
-    const r=await fetch("/api/v1/review-items?source_chain=lidl&limit=500",{headers:{Accept:"application/json"}});
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(detailMessage(d.detail,`HTTP ${r.status}`));
+    const d=await reviewRequest("/api/v1/review-items?source_chain=lidl&limit=500",{headers:{Accept:"application/json"}},"Pārskatīšanas rindu neizdevās ielādēt.");
     allItems=d.items||[];
     await renderList(preferredId);
     return true;
   }catch(error){
     if(!preserveOnError){
+      const message=reviewErrorMessage(error,"Pārskatīšanas rindu neizdevās ielādēt."),reference=reviewErrorReference(error);
       $("queueCount").textContent="";
       $("statusCounts").innerHTML="";
-      $("list").innerHTML=`<div class="row muted">Neizdevās ielādēt: ${esc(error?.message||String(error))}</div>`;
-      showToast("Pārskatīšanas rindu neizdevās ielādēt.",true);
+      $("list").innerHTML=`<div class="row muted" role="alert"><div>${esc(message)}</div>${reference?`<div class="muted">${esc(reference)}</div>`:""}<div class="actions"><button type="button" data-review-retry>Mēģināt vēlreiz</button></div></div>`;
+      $("list").querySelector("[data-review-retry]")?.addEventListener("click",()=>load());
+      showToast(message,true);
     }else{
       showToast("Darbība pabeigta, bet sarakstu neizdevās pilnībā atjaunot.",true);
     }
@@ -223,13 +228,15 @@ function parseLvDate(v){const m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).tri
 function field(id,label,value,type="text"){if(type==="date")return `<div><label for="${id}">${label}</label><div class="date-entry"><input id="${id}" type="text" inputmode="numeric" autocomplete="off" placeholder="DD.MM.GGGG" value="${esc(fmtDate(value))}"><button type="button" class="date-picker-button" data-date-target="${id}" aria-label="${esc(label)}: atvērt kalendāru" title="Atvērt kalendāru">📅</button><input id="${id}_picker" class="native-date-proxy" type="date" tabindex="-1" aria-label="${esc(label)} kalendārs" value="${esc(value||"")}"></div></div>`;const step=type==="number"?' step="0.01"':"";return `<div><label for="${id}">${label}</label><input id="${id}" type="${type}"${step} value="${esc(value)}"></div>`}
 async function createReviewFromHint(index){
   const parentId=selected.id;
-  const r=await fetch(
-    "/api/v1/review-items/"+encodeURIComponent(parentId)+
-    "/page-alert/hints/"+encodeURIComponent(index)+"/create",
-    {method:"POST"}
-  );
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok){showToast(detailMessage(d.detail,"Neizdevās izveidot Review produktu"),true);return;}
+  let d;
+  try{
+    d=await reviewRequest(
+      "/api/v1/review-items/"+encodeURIComponent(parentId)+
+      "/page-alert/hints/"+encodeURIComponent(index)+"/create",
+      {method:"POST"},
+      "Neizdevās izveidot Review produktu."
+    );
+  }catch(error){showToast(reviewErrorMessage(error,"Neizdevās izveidot Review produktu."),true);return;}
   replaceAuthoritativeItem(d);
   await renderList(d.id);
   const refreshed=await load(d.id,{preserveOnError:true});
@@ -296,9 +303,9 @@ function renderPageAlert(){
   wirePreviewErrors();
 }
 async function openItem(id){
-  const r=await fetch("/api/v1/review-items/"+encodeURIComponent(id),{headers:{Accept:"application/json"}});
-  const body=await r.json().catch(()=>({}));
-  if(!r.ok){showToast(detailMessage(body.detail,"Ierakstu neizdevās atvērt."),true);return;}
+  let body;
+  try{body=await reviewRequest("/api/v1/review-items/"+encodeURIComponent(id),{headers:{Accept:"application/json"}},"Ierakstu neizdevās atvērt.");}
+  catch(error){showToast(reviewErrorMessage(error,"Ierakstu neizdevās atvērt."),true);return;}
   selected=body;
   replaceAuthoritativeItem(body);
   document.querySelectorAll(".row").forEach(n=>n.classList.toggle("active",n.dataset.id===id));
@@ -386,9 +393,7 @@ async function call(url,opt,options={}){
   const nextId=options.advance?preferredNextRowId(itemId):itemId;
   setBusy(true);
   try{
-    const r=await fetch(url,opt);
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(detailMessage(d.detail,`HTTP ${r.status}`));
+    const d=await reviewRequest(url,opt,"Darbība neizdevās.");
     replaceAuthoritativeItem(d);
     const preferredId=options.advance?nextId:itemId;
     await renderList(preferredId);
@@ -396,7 +401,7 @@ async function call(url,opt,options={}){
     if(refreshed&&options.successMessage)showToast(options.successMessage);
     return d;
   }catch(error){
-    showToast(error?.message||"Darbība neizdevās",true);
+    showToast(reviewErrorMessage(error,"Darbība neizdevās."),true);
     return null;
   }finally{
     setBusy(false);
