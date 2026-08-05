@@ -53,7 +53,6 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: "277435981"
-          EVENT_PATH: ${{ github.event_path }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -67,7 +66,7 @@ jobs:
           repo = os.environ["REPOSITORY"]
           if repo != "rozkalnsandris/hermes-deals":
               raise SystemExit(f"unexpected repository: {repo}")
-          event_path = Path(os.environ["EVENT_PATH"])
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
           event = json.loads(event_path.read_text(encoding="utf-8"))
           sender = event.get("sender") or {}
           if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"]:
