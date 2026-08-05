@@ -61,6 +61,24 @@
       "runtime_imported": false
     },
     {
+      "id": "v631-reconstruction-tool",
+      "path": "tools/lidl_parser_provenance/v631/apply-v631.py",
+      "role": "historical_provenance_reconstruction_tool",
+      "lifecycle": "evidence",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "parser-graph-verifier",
+      "path": "tools/lidl_parser_provenance/verify_parser_runtime_graph.py",
+      "role": "identity_and_import_guard",
+      "lifecycle": "active",
+      "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
       "id": "family-source-discovery",
       "path": "backend/app/lidl_family_source_discovery.py",
       "role": "selected_store_source_discovery",
@@ -129,6 +147,24 @@
       "role": "legacy_multi_retailer_shadow_discovery",
       "lifecycle": "compatibility",
       "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "legacy-offer-candidate-shadow",
+      "path": "backend/app/lidl_offer_candidate_shadow.py",
+      "role": "legacy_ocr_offer_candidate_adapter",
+      "lifecycle": "compatibility",
+      "parser_version": "lidl-ocr-shadow-2b17",
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "legacy-offer-persistence",
+      "path": "backend/app/lidl_offer_persistence.py",
+      "role": "legacy_strict_ready_persistence_adapter",
+      "lifecycle": "compatibility",
+      "parser_version": "lidl-ocr-2b19",
       "sha256": "AUTO",
       "runtime_imported": false
     }
