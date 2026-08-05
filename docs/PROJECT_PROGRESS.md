@@ -4,11 +4,13 @@ Issue: #116
 
 ## Purpose
 
-The README progress block answers three narrow questions:
+The README progress block answers five narrow questions:
 
 1. How much of the defined Hermes Deals product roadmap is complete?
-2. How many weighted roadmap percentage points were completed during the previous `Europe/Berlin` calendar day?
-3. How many real GitHub issues were completed during that day?
+2. How complete is each retailer catalogue pipeline: Netto, Lidl, ALDI Nord and EDEKA Patzer?
+3. How many weighted roadmap percentage points were completed during the previous `Europe/Berlin` calendar day?
+4. How many real GitHub issues have been completed in total?
+5. How many real GitHub issues were completed during the previous day?
 
 It is not a line-count, commit-count, test-count or raw closed-issue ratio.
 
@@ -27,13 +29,30 @@ Issue-backed points count only while the issue is currently closed and is not cl
 
 Creating an unrelated issue does not reduce the project percentage.
 
-## Previous-day statistics
+## Store catalogue percentages
 
-The generator calculates the previous complete calendar day in `Europe/Berlin`, including 23-hour and 25-hour daylight-saving transition days.
+Each retailer percentage is calculated independently from its reviewed roadmap category:
 
-`Previous day` percentage points are the sum of configured weighted items whose valid issue completion timestamp falls inside that calendar day.
+```text
+completed category points / category weight × 100
+```
 
-`Issues completed` counts all valid repository issues completed in the same window, not only weighted roadmap issues. It excludes:
+The result is rounded to the nearest whole percentage. The current category bindings are:
+
+- `netto` → Netto store `5659` trusted weekly pipeline;
+- `lidl` → Lidl physical-store trusted weekly pipeline;
+- `aldi` → ALDI Nord frozen-evidence and weekly pipeline;
+- `edeka` → EDEKA Patzer trusted regional weekly pipeline.
+
+These values measure how complete and production-trustworthy each catalogue pipeline is. They do not measure how many offers happened to be extracted in one week.
+
+## Issue statistics
+
+`Issues fixed — total` counts valid completed repository issues across the complete GitHub issue inventory. It is separate from the weighted 100-point calculation.
+
+`Issues fixed — previous day` counts valid issues whose completion timestamp falls inside the previous complete `Europe/Berlin` calendar day, including 23-hour and 25-hour daylight-saving transition days.
+
+Both counts exclude:
 
 - pull requests;
 - open or reopened issues;
@@ -42,6 +61,8 @@ The generator calculates the previous complete calendar day in `Europe/Berlin`, 
 - generated `[Hermes deploy]` operational request issues.
 
 The excluded numbers and title prefixes are versioned in the manifest.
+
+`Previous day` percentage points are the sum of configured weighted items whose valid issue completion timestamp falls inside the same calendar-day window.
 
 ## Generated files
 
@@ -59,7 +80,7 @@ The README must contain exactly one pair of these markers:
 
 The generator fails closed if either marker is missing, duplicated or out of order.
 
-The JSON snapshot includes the category breakdown, item completion state, previous-day issue list and generation timestamps.
+The JSON snapshot includes the overall percentage, all category states, the four retailer percentages, total valid issue count, previous-day issue list and generation timestamps.
 
 ## Automation
 
@@ -73,7 +94,7 @@ permissions:
   issues: read
 ```
 
-It runs on a GitHub-hosted runner, reads GitHub issue metadata, and commits only the two generated files when their contents differ. It performs no RPi5 execution, production deployment, service restart, retailer processing or database access.
+It runs on a GitHub-hosted runner, reads the complete GitHub issue inventory, and commits only the two generated files when their contents differ. It performs no RPi5 execution, production deployment, service restart, retailer processing or database access.
 
 Before committing, the workflow verifies that its checkout still matches current `origin/main`. A concurrent main update causes the run to stop rather than overwrite newer work.
 
