@@ -10,7 +10,7 @@ UI_DIR = Path(__file__).resolve().parents[1] / "app" / "ui"
 UI_INDEX_PATH = UI_DIR / "index.html"
 UI_STYLE_PATH = UI_DIR / "styles.css"
 UI_APP_PATH = UI_DIR / "app.js"
-ORIGINAL_INDEX_SHA256 = "2a3e0c19167312ae31d8060c53cb0970499be8df9d73883b5e58c1e58a2c2e47"
+ORIGINAL_INDEX_SHA256 = "ea21b6a5d1577edba743f2c38aaa20133a571bd8719ed0f663e9eea6ba408fbf"
 CSS_TRAILING_WS_PATCHES = [(19626, 'ICA=')]
 JS_TRAILING_WS_PATCHES = []
 
