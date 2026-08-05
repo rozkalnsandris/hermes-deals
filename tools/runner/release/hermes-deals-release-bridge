@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import datetime as dt
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+from typing import Any
+import urllib.error
+import urllib.parse
+import urllib.request
+
+REPOSITORY = "rozkalnsandris/hermes-deals"
+OWNER_LOGIN = "rozkalnsandris"
+OWNER_ID = 277435981
+WORKFLOW = "rpi5-release-command.yml"
+WORKFLOW_NAME = "RPi5 controlled API/UI release"
+TOKEN_PATH = Path("/etc/hermes-deals-release-bridge/token")
+STATE_DIR = Path("/var/lib/hermes-deals-release-bridge")
+STATE_PATH = STATE_DIR / "state.json"
+LOCK_PATH = Path("/run/lock/hermes-deals-release-bridge.lock")
+AUTO_REGISTER = Path("/usr/local/sbin/hermes-deals-release-auto-register")
+REQUEST_MARKER = "<!-- hermes-deals-release-request-v1 -->"
+READY = "hermes:deploy-ready"
+RUNNING = "hermes:deploy-running"
+PASS = "hermes:deploy-pass"
+FAIL = "hermes:deploy-fail"
+BLOCKED = "hermes:deploy-blocked"
+STATE_LABELS = {READY, RUNNING, PASS, FAIL, BLOCKED}
+ALLOWED_FIELDS = {
+    "schema_version",
+    "repository",
+    "release_class",
+    "source_issue",
+    "source_pr",
+    "release_sha",
+    "mode",
+    "audit_run_id",
+    "owner_authorized",
+    "database_writes_authorized",
+}
+
+
+class BridgeError(RuntimeError):
+    pass
+
+
+class BridgeBlocked(BridgeError):
+    pass
+
+
+class GitHub:
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        expected: tuple[int, ...] = (200,),
+    ) -> Any:
+        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            f"https://api.github.com{path}",
+            data=data,
+            method=method,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+                "User-Agent": "hermes-deals-release-bridge",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.status not in expected:
+                    raise BridgeError(
+                        f"unexpected GitHub HTTP {response.status}: {method} {path}"
+                    )
+                body = response.read()
+        except urllib.error.HTTPError as exc:
+            raise BridgeError(
+                f"GitHub HTTP {exc.code}: {method} {path}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise BridgeError(f"GitHub unavailable: {method} {path}") from exc
+        return None if not body else json.loads(body)
+
+    def get(self, path: str) -> Any:
+        return self.request("GET", path)
+
+    def post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        expected: tuple[int, ...] = (200, 201),
+    ) -> Any:
+        return self.request("POST", path, payload, expected)
+
+    def patch(self, path: str, payload: dict[str, Any]) -> Any:
+        return self.request("PATCH", path, payload, (200,))
+
+
+def fail(message: str) -> None:
+    raise BridgeError(message)
+
+
+def acquire_lock() -> int | None:
+    fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+    os.fchmod(fd, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def load_token() -> str:
+    try:
+        metadata = TOKEN_PATH.lstat()
+    except FileNotFoundError as exc:
+        raise BridgeError("bridge token is not installed") from exc
+    if TOKEN_PATH.is_symlink() or not TOKEN_PATH.is_file():
+        fail("bridge token path is unsafe")
+    if metadata.st_uid != 0 or metadata.st_gid != 0 or metadata.st_mode & 0o077:
+        fail("bridge token must be root:root mode 0600")
+    token = TOKEN_PATH.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(
+        r"(?:github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,})", token
+    ):
+        fail("bridge token format is invalid")
+    return token
+
+
+def verify_token(client: GitHub) -> None:
+    user = client.get("/user")
+    if user.get("login") != OWNER_LOGIN or int(user.get("id") or 0) != OWNER_ID:
+        fail("bridge token owner is not allowlisted")
+
+
+def labels(issue: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("name"))
+        for item in issue.get("labels", [])
+        if isinstance(item, dict) and item.get("name")
+    }
+
+
+def open_issues(client: GitHub, label: str) -> list[dict[str, Any]]:
+    encoded = urllib.parse.quote(label, safe="")
+    rows = client.get(
+        f"/repos/{REPOSITORY}/issues?state=open&labels={encoded}"
+        "&sort=created&direction=asc&per_page=100"
+    )
+    return [row for row in rows if "pull_request" not in row]
+
+
+def set_label(client: GitHub, issue: dict[str, Any], target: str) -> None:
+    current = labels(issue) - STATE_LABELS
+    current.add(target)
+    client.patch(
+        f"/repos/{REPOSITORY}/issues/{issue['number']}",
+        {"labels": sorted(current)},
+    )
+
+
+def comment(client: GitHub, issue_number: int, body: str) -> None:
+    client.post(
+        f"/repos/{REPOSITORY}/issues/{issue_number}/comments", {"body": body}
+    )
+
+
+def close_issue(client: GitHub, issue_number: int) -> None:
+    client.patch(
+        f"/repos/{REPOSITORY}/issues/{issue_number}",
+        {"state": "closed", "state_reason": "completed"},
+    )
+
+
+def parse_request(issue: dict[str, Any]) -> dict[str, Any]:
+    author = issue.get("user") or {}
+    if author.get("login") != OWNER_LOGIN or int(author.get("id") or 0) != OWNER_ID:
+        raise BridgeBlocked("request author is not the allowlisted owner")
+    if not str(issue.get("title") or "").startswith("[Hermes deploy]"):
+        raise BridgeBlocked("request title prefix is invalid")
+    body = str(issue.get("body") or "")
+    if body.count(REQUEST_MARKER) != 1:
+        raise BridgeBlocked("request marker is missing or duplicated")
+    blocks = re.findall(r"```json\s*(\{.*?\})\s*```", body, re.DOTALL)
+    if len(blocks) != 1:
+        raise BridgeBlocked("request must contain exactly one JSON object")
+    try:
+        request = json.loads(blocks[0])
+    except json.JSONDecodeError as exc:
+        raise BridgeBlocked("request JSON is invalid") from exc
+    if not isinstance(request, dict) or set(request) != ALLOWED_FIELDS:
+        raise BridgeBlocked("request fields do not match schema version 1")
+    if request.get("schema_version") != 1:
+        raise BridgeBlocked("unsupported request schema")
+    if request.get("repository") != REPOSITORY:
+        raise BridgeBlocked("request repository mismatch")
+    if request.get("release_class") not in {"smoke", "api-ui"}:
+        raise BridgeBlocked("release class is not allowlisted")
+    if request.get("mode") not in {"plan", "apply"}:
+        raise BridgeBlocked("release mode is invalid")
+    if request["release_class"] == "smoke" and request["mode"] != "plan":
+        raise BridgeBlocked("smoke can run only in plan mode")
+    if request["mode"] == "apply" and request["release_class"] != "api-ui":
+        raise BridgeBlocked("only api-ui may apply production")
+    if request.get("owner_authorized") is not True:
+        raise BridgeBlocked("request is not owner-authorized")
+    if request.get("database_writes_authorized") is not False:
+        raise BridgeBlocked("database writes must remain unauthorized")
+    if not isinstance(request.get("source_issue"), int) or request["source_issue"] <= 0:
+        raise BridgeBlocked("source issue must be a positive integer")
+    if request["source_issue"] == 20:
+        raise BridgeBlocked("B15M2 issue #20 remains explicitly excluded")
+    if not isinstance(request.get("source_pr"), int) or request["source_pr"] <= 0:
+        raise BridgeBlocked("source PR must be a positive integer")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(request.get("release_sha") or "")):
+        raise BridgeBlocked("release SHA must be exact lowercase 40-character hex")
+    audit = request.get("audit_run_id")
+    if audit is not None and (not isinstance(audit, int) or audit <= 0):
+        raise BridgeBlocked("audit run ID must be null or a positive integer")
+    return request
+
+
+def validate_source(client: GitHub, request: dict[str, Any]) -> None:
+    pr = client.get(f"/repos/{REPOSITORY}/pulls/{request['source_pr']}")
+    if not pr.get("merged") or pr.get("base", {}).get("ref") != "main":
+        raise BridgeBlocked("source PR is not merged into main")
+    if pr.get("base", {}).get("repo", {}).get("full_name") != REPOSITORY:
+        raise BridgeBlocked("source PR targets another repository")
+    if pr.get("merge_commit_sha") != request["release_sha"]:
+        raise BridgeBlocked("source PR merge SHA does not match request")
+    main = client.get(f"/repos/{REPOSITORY}/branches/main")
+    if main.get("commit", {}).get("sha") != request["release_sha"]:
+        raise BridgeBlocked("request is stale because main has advanced")
+
+
+def load_state() -> dict[str, Any] | None:
+    try:
+        metadata = STATE_PATH.lstat()
+    except FileNotFoundError:
+        return None
+    if STATE_PATH.is_symlink() or not STATE_PATH.is_file():
+        fail("bridge state path is unsafe")
+    if metadata.st_uid != 0 or metadata.st_gid != 0 or metadata.st_mode & 0o077:
+        fail("bridge state must be root:root mode 0600")
+    try:
+        value = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BridgeError("bridge state cannot be read safely") from exc
+    if not isinstance(value, dict):
+        fail("bridge state is invalid")
+    return value
+
+
+def save_state(value: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if STATE_DIR.is_symlink() or not STATE_DIR.is_dir():
+        fail("bridge state directory is unsafe")
+    metadata = STATE_DIR.stat()
+    if metadata.st_uid != 0 or metadata.st_gid != 0:
+        fail("bridge state directory must be root-owned")
+    os.chmod(STATE_DIR, 0o700)
+    temporary = STATE_DIR / f".state.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+    os.chown(temporary, 0, 0)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, STATE_PATH)
+
+
+def clear_state() -> None:
+    try:
+        STATE_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def workflow_runs(client: GitHub) -> list[dict[str, Any]]:
+    result = client.get(
+        f"/repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs"
+        "?event=workflow_dispatch&branch=main&per_page=50"
+    )
+    return result.get("workflow_runs", [])
+
+
+def inputs(request: dict[str, Any], phase: str) -> dict[str, str]:
+    return {
+        "release_class": str(request["release_class"]),
+        "pr_number": str(request["source_pr"]),
+        "release_sha": str(request["release_sha"]),
+        "mode": phase,
+        "audit_run_id": "" if request.get("audit_run_id") is None else str(request["audit_run_id"]),
+        "authorization": "" if phase == "plan" else f"APPLY api-ui {request['release_sha']}",
+    }
+
+
+def dispatch(client: GitHub, issue_number: int, request: dict[str, Any], phase: str) -> int:
+    previous = {
+        int(run["id"])
+        for run in workflow_runs(client)
+        if isinstance(run.get("id"), int)
+    }
+    started = dt.datetime.now(dt.timezone.utc)
+    client.post(
+        f"/repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/dispatches",
+        {"ref": "main", "inputs": inputs(request, phase)},
+        (204,),
+    )
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        matches = []
+        for run in workflow_runs(client):
+            run_id = run.get("id")
+            actor = run.get("actor") or {}
+            if not isinstance(run_id, int) or run_id in previous:
+                continue
+            if run.get("name") != WORKFLOW_NAME or run.get("event") != "workflow_dispatch":
+                continue
+            if actor.get("login") != OWNER_LOGIN or int(actor.get("id") or 0) != OWNER_ID:
+                continue
+            if run.get("head_branch") != "main" or run.get("head_sha") != request["release_sha"]:
+                continue
+            try:
+                created = dt.datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if created >= started - dt.timedelta(seconds=10):
+                matches.append(run)
+        if len(matches) == 1:
+            run_id = int(matches[0]["id"])
+            save_state(
+                {
+                    "schema_version": 1,
+                    "issue_number": issue_number,
+                    "phase": phase,
+                    "run_id": run_id,
+                    "request": request,
+                }
+            )
+            return run_id
+        if len(matches) > 1:
+            fail("workflow dispatch correlation became ambiguous")
+        time.sleep(5)
+    fail("workflow dispatch could not be correlated")
+
+
+def verify_artifact(client: GitHub, run_id: int, request: dict[str, Any]) -> None:
+    rows = client.get(
+        f"/repos/{REPOSITORY}/actions/runs/{run_id}/artifacts?per_page=100"
+    ).get("artifacts", [])
+    expected = f"release-{request['release_class']}-{request['release_sha']}-run-{run_id}"
+    matches = [
+        row
+        for row in rows
+        if row.get("name") == expected
+        and row.get("expired") is False
+        and int(row.get("size_in_bytes") or 0) > 0
+    ]
+    if len(matches) != 1:
+        fail("successful workflow has no unique non-empty release artifact")
+
+
+def auto_register(request: dict[str, Any]) -> None:
+    if request["release_class"] != "api-ui":
+        return
+    if not AUTO_REGISTER.is_file() or AUTO_REGISTER.is_symlink():
+        fail("root auto-register tool is missing or unsafe")
+    result = subprocess.run(
+        [
+            str(AUTO_REGISTER),
+            request["release_sha"],
+            str(request["source_pr"]),
+            "" if request.get("audit_run_id") is None else str(request["audit_run_id"]),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=3600,
+        env={"HOME": "/root", "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+    )
+    if result.returncode != 0:
+        raise BridgeBlocked("release auto-registration failed closed")
+
+
+def start(client: GitHub, issue: dict[str, Any], request: dict[str, Any]) -> str:
+    validate_source(client, request)
+    auto_register(request)
+    run_id = dispatch(client, int(issue["number"]), request, "plan")
+    set_label(client, issue, RUNNING)
+    comment(
+        client,
+        int(issue["number"]),
+        "<!-- hermes-deals-release-bridge -->\n## Hermes release started\n\n"
+        f"- Plan run: `{run_id}`\n- Exact SHA: `{request['release_sha']}`\n"
+        "- Database writes authorized: **false**\n",
+    )
+    return f"Hermes Deals release started: plan run {run_id} for PR #{request['source_pr']}."
+
+
+def finish(client: GitHub, issue: dict[str, Any], state: dict[str, Any], success: bool, conclusion: str) -> str:
+    request = state["request"]
+    run_id = int(state["run_id"])
+    target = PASS if success else FAIL
+    set_label(client, issue, target)
+    comment(
+        client,
+        int(issue["number"]),
+        f"<!-- hermes-deals-release-bridge-{target.rsplit(':', 1)[-1]} -->\n"
+        f"## Hermes release {'PASS' if success else 'FAIL'}\n\n"
+        f"- Phase: `{state['phase']}`\n- Workflow run: `{run_id}`\n"
+        f"- Conclusion: `{conclusion}`\n- Exact SHA: `{request['release_sha']}`\n"
+        "- Hermes made no alternative attempt.\n- Database writes authorized: **false**\n",
+    )
+    if success:
+        close_issue(client, int(issue["number"]))
+    clear_state()
+    return f"Hermes Deals release {'PASS' if success else 'FAIL'}: {state['phase']} run {run_id} for PR #{request['source_pr']}."
+
+
+def reconcile(client: GitHub, issue: dict[str, Any], state: dict[str, Any]) -> str:
+    if int(state.get("issue_number") or 0) != int(issue["number"]):
+        fail("running issue and root state disagree")
+    request = state.get("request")
+    run_id = int(state.get("run_id") or 0)
+    if not isinstance(request, dict) or run_id <= 0:
+        fail("root bridge state is invalid")
+    run = client.get(f"/repos/{REPOSITORY}/actions/runs/{run_id}")
+    if run.get("name") != WORKFLOW_NAME or run.get("head_sha") != request.get("release_sha"):
+        fail("root bridge state points to another workflow or SHA")
+    if run.get("status") != "completed":
+        return ""
+    conclusion = str(run.get("conclusion") or "unknown")
+    if conclusion != "success":
+        return finish(client, issue, state, False, conclusion)
+    verify_artifact(client, run_id, request)
+    if state.get("phase") == "plan" and request.get("mode") == "apply":
+        apply_id = dispatch(client, int(issue["number"]), request, "apply")
+        comment(
+            client,
+            int(issue["number"]),
+            "<!-- hermes-deals-release-bridge-apply -->\n## Plan PASS; apply started\n\n"
+            f"- Plan run: `{run_id}`\n- Apply run: `{apply_id}`\n"
+            f"- Exact SHA: `{request['release_sha']}`\n- Database writes authorized: **false**\n",
+        )
+        return f"Hermes Deals plan PASS; apply run {apply_id} started for PR #{request['source_pr']}."
+    return finish(client, issue, state, True, conclusion)
+
+
+def block(client: GitHub, issue: dict[str, Any], reason: str) -> str:
+    set_label(client, issue, BLOCKED)
+    comment(
+        client,
+        int(issue["number"]),
+        "<!-- hermes-deals-release-bridge-blocked -->\n## Hermes release blocked\n\n"
+        f"- Reason: {reason}\n- No deployment was attempted.\n"
+        "- Database writes authorized: **false**\n",
+    )
+    return f"Hermes Deals release blocked for request #{issue['number']}: {reason}"
+
+
+def poll(client: GitHub) -> str:
+    running = open_issues(client, RUNNING)
+    state = load_state()
+    if len(running) > 1:
+        fail("more than one running release request exists")
+    if running:
+        if state is None:
+            fail("running request exists without root state")
+        return reconcile(client, running[0], state)
+    if state is not None:
+        fail("root state exists without a running request")
+    ready = open_issues(client, READY)
+    if not ready:
+        return ""
+    issue = ready[0]
+    try:
+        return start(client, issue, parse_request(issue))
+    except BridgeBlocked as exc:
+        return block(client, issue, str(exc))
+
+
+def main() -> int:
+    if os.geteuid() != 0:
+        fail("bridge must run as root through the exact sudo allowlist")
+    if sys.argv != [sys.argv[0], "poll"]:
+        print("usage: hermes-deals-release-bridge poll", file=sys.stderr)
+        return 2
+    lock_fd = acquire_lock()
+    if lock_fd is None:
+        return 0
+    client = GitHub(load_token())
+    verify_token(client)
+    message = poll(client)
+    if message:
+        print(message)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except BridgeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1)
