@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Hermes Deals: Check deploy",
+      "type": "shell",
+      "command": "bash",
+      "args": ["tools/vscode-rpi5-release.sh", "check"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": [],
+      "presentation": {"reveal": "always", "panel": "dedicated", "clear": true}
+    },
+    {
+      "label": "Hermes Deals: Plan production deploy",
+      "type": "shell",
+      "command": "bash",
+      "args": ["tools/vscode-rpi5-release.sh", "plan"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": [],
+      "presentation": {"reveal": "always", "panel": "dedicated", "clear": true}
+    },
+    {
+      "label": "Hermes Deals: Apply production deploy",
+      "type": "shell",
+      "command": "bash",
+      "args": ["tools/vscode-rpi5-release.sh", "apply"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": [],
+      "presentation": {"reveal": "always", "panel": "dedicated", "clear": true}
+    }
+  ]
+}
