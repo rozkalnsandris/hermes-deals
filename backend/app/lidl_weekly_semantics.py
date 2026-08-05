@@ -18,6 +18,34 @@ SEMANTIC_GATE_VERSION = "lidl-weekly-semantics-v1"
 _ALLOWED_REFERENCE_SOURCES = frozenset(
     {"normalpreis", "uvp", "uvp_inline", "strikethrough"}
 )
+_HARD_EXCLUSION_REASONS = frozenset(
+    {
+        "outside_reviewed_weekly_target_pages",
+        "not_physical_store",
+        "online_only",
+        "outside_hermes_deals_scope",
+        "product_title_missing_or_promotional",
+    }
+)
+_SEMANTIC_GENERATED_FIELDS = frozenset(
+    {
+        "semantic_gate_version",
+        "semantic_gate_reasons",
+        "weekly_eligibility_state",
+        "weekly_partition",
+        "semantic_row_key",
+        "comparison_eligible_shadow",
+        "pricing_mode",
+        "unit_price_eur",
+        "unit_label",
+        "basis_quantity",
+        "basis_unit",
+        "example_price_eur",
+        "example_weight_g",
+        "variable_weight_complete",
+        "variable_weight_reason",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -261,6 +289,30 @@ def classify_known_false_negative(
     }
 
 
+def semantic_row_key(row: Mapping[str, Any]) -> str:
+    """Return a stable identity for the immutable parser row before semantics."""
+
+    material = {
+        key: value
+        for key, value in row.items()
+        if key not in _SEMANTIC_GENERATED_FIELDS
+        and key != "parser_production_ready_shadow"
+    }
+    material["production_ready_shadow"] = _truth(
+        row.get(
+            "parser_production_ready_shadow",
+            row.get("production_ready_shadow"),
+        )
+    )
+    encoded = json.dumps(
+        material,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def apply_reviewed_weekly_eligibility(
     row: Mapping[str, Any],
     *,
@@ -271,7 +323,12 @@ def apply_reviewed_weekly_eligibility(
     """Apply the final weekly physical-store gate to one frozen-parser row."""
 
     output = dict(row)
-    parser_ready = _truth(row.get("production_ready_shadow"))
+    parser_ready = _truth(
+        row.get(
+            "parser_production_ready_shadow",
+            row.get("production_ready_shadow"),
+        )
+    )
     output["parser_production_ready_shadow"] = parser_ready
     output.update(variable_weight_fields(row))
 
@@ -341,6 +398,83 @@ def apply_reviewed_weekly_eligibility(
         reasons=tuple(reasons),
         row=output,
     )
+
+
+def partition_weekly_rows(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    target_pages: Iterable[int],
+    page_role_reviewed: bool,
+    product_reviewed_row_keys: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Account for every parser row in one deterministic weekly partition."""
+
+    target_set = {int(value) for value in target_pages}
+    reviewed = set(product_reviewed_row_keys)
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for source in rows:
+        key = semantic_row_key(source)
+        if key in seen:
+            raise ValueError(f"duplicate semantic row identity: {key}")
+        seen.add(key)
+        decision = apply_reviewed_weekly_eligibility(
+            source,
+            target_pages=target_set,
+            page_role_reviewed=page_role_reviewed,
+            product_reviewed=key in reviewed,
+        )
+        row = dict(decision.row)
+        if decision.production_ready:
+            partition = "production_ready"
+        elif _HARD_EXCLUSION_REASONS.intersection(decision.reasons):
+            partition = "excluded"
+        else:
+            partition = "review_required"
+        row["semantic_row_key"] = key
+        row["weekly_partition"] = partition
+        output.append(row)
+
+    output.sort(
+        key=lambda row: (
+            _page(row.get("page")) or 0,
+            normalize_text(row.get("product_name") or ""),
+            row["semantic_row_key"],
+        )
+    )
+    partitions = {
+        name: [row for row in output if row["weekly_partition"] == name]
+        for name in ("production_ready", "review_required", "excluded")
+    }
+    explained_count = sum(len(value) for value in partitions.values())
+    unexplained_count = len(output) - explained_count
+    if unexplained_count != 0:
+        raise RuntimeError("weekly semantic partition left unexplained rows")
+
+    target_row_count = sum(
+        _page(row.get("page")) in target_set for row in output
+    )
+    return {
+        "rows": output,
+        "partitions": partitions,
+        "coverage": {
+            "schema_version": 1,
+            "semantic_gate_version": SEMANTIC_GATE_VERSION,
+            "input_row_count": len(output),
+            "unique_row_count": len(seen),
+            "target_page_row_count": target_row_count,
+            "out_of_target_page_row_count": len(output) - target_row_count,
+            "production_ready_count": len(partitions["production_ready"]),
+            "review_required_count": len(partitions["review_required"]),
+            "excluded_count": len(partitions["excluded"]),
+            "explained_count": explained_count,
+            "unexplained_count": unexplained_count,
+            "page_role_reviewed": page_role_reviewed,
+            "target_pages": sorted(target_set),
+            "product_reviewed_row_count": len(reviewed & seen),
+        },
+    }
 
 
 def gate_parser_report(report: Mapping[str, Any]) -> dict[str, Any]:
