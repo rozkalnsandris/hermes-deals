@@ -115,6 +115,24 @@
       "runtime_imported": true
     },
     {
+      "id": "weekly-semantics",
+      "path": "backend/app/lidl_weekly_semantics.py",
+      "role": "post_parser_weekly_semantic_gate",
+      "lifecycle": "active",
+      "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": true
+    },
+    {
+      "id": "weekly-semantic-view",
+      "path": "tools/lidl_weekly_semantic_view.py",
+      "role": "reviewed_profile_semantic_partition_entrypoint",
+      "lifecycle": "active",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
       "id": "weekly-completeness-contract",
       "path": "backend/app/lidl_weekly_completeness_contract.py",
       "role": "review_and_eligibility_contract",
@@ -199,6 +217,24 @@
       "to": "v631-shadow-parser",
       "kind": "content_addressed_load",
       "evidence_token": "shadow_path = root / \"r61_shadow.py\""
+    },
+    {
+      "from": "v631-runtime-loader",
+      "to": "weekly-semantics",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_weekly_semantics import gate_parser_report"
+    },
+    {
+      "from": "weekly-semantic-view",
+      "to": "weekly-semantics",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_weekly_semantics import"
+    },
+    {
+      "from": "weekly-semantic-view",
+      "to": "weekly-completeness-contract",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_weekly_completeness_contract import"
     },
     {
       "from": "weekly-one-shot",
