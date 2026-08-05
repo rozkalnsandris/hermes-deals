@@ -39,6 +39,41 @@ COMPOSE=(
   -f "$PRIMARY/docker-compose.production.yml"
 )
 
+resolve_web_health_url() {
+  local web_container="$1"
+  docker inspect "$web_container" | python3 -c '
+import ipaddress
+import json
+import sys
+
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+ports = rows[0].get("NetworkSettings", {}).get("Ports", {})
+bindings = ports.get("80/tcp")
+if not isinstance(bindings, list) or len(bindings) != 1:
+    raise SystemExit(2)
+binding = bindings[0]
+if not isinstance(binding, dict):
+    raise SystemExit(2)
+host_ip = str(binding.get("HostIp") or "")
+host_port = str(binding.get("HostPort") or "")
+if host_ip in {"", "0.0.0.0", "::"}:
+    raise SystemExit(2)
+try:
+    parsed_ip = ipaddress.ip_address(host_ip)
+except ValueError:
+    raise SystemExit(2)
+if not host_port.isdigit():
+    raise SystemExit(2)
+port = int(host_port)
+if not 1 <= port <= 65535:
+    raise SystemExit(2)
+host = f"[{parsed_ip.compressed}]" if parsed_ip.version == 6 else parsed_ip.compressed
+print(f"http://{host}:{port}/api/health")
+'
+}
+
 read_live_alembic() {
   local db_container db_user db_name
   local -a fields
@@ -72,9 +107,13 @@ for key in ("POSTGRES_USER", "POSTGRES_DB"):
 
 API_BEFORE="$("${COMPOSE[@]}" ps -q api)"
 DB_BEFORE="$("${COMPOSE[@]}" ps -q db)"
-[[ -n "$API_BEFORE" && -n "$DB_BEFORE" ]] || fail 'production containers are not running'
+WEB_BEFORE="$("${COMPOSE[@]}" ps -q web)"
+[[ -n "$API_BEFORE" && -n "$DB_BEFORE" && -n "$WEB_BEFORE" ]] \
+  || fail 'production containers are not running'
 PRE_ALEMBIC="$(read_live_alembic)"
-PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health)"
+LOCAL_HEALTH_URL="$(resolve_web_health_url "$WEB_BEFORE")" \
+  || fail 'production web published health endpoint could not be resolved'
+PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 "$LOCAL_HEALTH_URL")"
 [[ -n "$PRE_HEALTH" ]] || fail 'local API health response is empty before deploy'
 
 REGISTER_OUTPUT="$("$MAIN_REGISTER" "$TARGET_SHA")"
@@ -88,10 +127,13 @@ grep -Fq 'DATABASE_WRITES_AUTHORIZED=false' <<<"$REGISTER_OUTPUT" \
 
 API_AFTER_REGISTER="$("${COMPOSE[@]}" ps -q api)"
 DB_AFTER_REGISTER="$("${COMPOSE[@]}" ps -q db)"
+WEB_AFTER_REGISTER="$("${COMPOSE[@]}" ps -q web)"
 [[ "$API_AFTER_REGISTER" == "$API_BEFORE" ]] \
   || fail 'production API container changed during registration'
 [[ "$DB_AFTER_REGISTER" == "$DB_BEFORE" ]] \
   || fail 'production database container changed during registration'
+[[ "$WEB_AFTER_REGISTER" == "$WEB_BEFORE" ]] \
+  || fail 'production web container changed during registration'
 
 [[ -f "$REGISTRY" && ! -L "$REGISTRY" ]] || fail 'exact-main registry was not created'
 [[ "$(stat -c '%U:%G' "$REGISTRY")" == 'root:root' ]] \
@@ -155,23 +197,30 @@ fi
 
 API_AFTER="$("${COMPOSE[@]}" ps -q api)"
 DB_AFTER="$("${COMPOSE[@]}" ps -q db)"
+WEB_AFTER="$("${COMPOSE[@]}" ps -q web)"
 [[ -n "$API_AFTER" ]] || fail 'production API container is missing after deploy'
 [[ "$DB_AFTER" == "$DB_BEFORE" ]] \
   || fail 'production database container changed during API/UI deploy'
+[[ "$WEB_AFTER" == "$WEB_BEFORE" ]] \
+  || fail 'production web container changed during API/UI deploy'
 AFTER_REVISION="$(docker inspect "$API_AFTER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 [[ "$AFTER_REVISION" == "$TARGET_SHA" ]] \
   || fail 'production API revision is not exact current main'
 POST_ALEMBIC="$(read_live_alembic)"
 [[ "$POST_ALEMBIC" == "$PRE_ALEMBIC" ]] \
   || fail 'live Alembic revision changed during API/UI deploy'
-curl --fail --silent --show-error --max-time 12 \
-  http://127.0.0.1:9128/api/health >/dev/null
+POST_HEALTH_URL="$(resolve_web_health_url "$WEB_AFTER")" \
+  || fail 'production web published health endpoint could not be resolved after deploy'
+[[ "$POST_HEALTH_URL" == "$LOCAL_HEALTH_URL" ]] \
+  || fail 'production web published health endpoint changed during API/UI deploy'
+curl --fail --silent --show-error --max-time 12 "$POST_HEALTH_URL" >/dev/null
 
 printf 'MAIN_DEPLOY_RESULT=PASS\n'
 printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
 printf 'PRODUCTION_SHA=%s\n' "$AFTER_REVISION"
 printf 'CI_RUN_ID=%s\n' "$CI_RUN_ID"
 printf 'ARTIFACT_DIR=%s\n' "$ARTIFACT_DIR"
+printf 'LOCAL_HEALTH_URL=%s\n' "$LOCAL_HEALTH_URL"
 printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
 printf 'ALEMBIC_AFTER=%s\n' "$POST_ALEMBIC"
 printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
