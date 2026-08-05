@@ -46,7 +46,7 @@ if value.isoformat() != sys.argv[1]:
     raise SystemExit('non-canonical as-of date')
 PY
 
-for command in date docker find install python3 readlink runuser sha256sum sort stat; do
+for command in awk cat chmod chown date docker find id install python3 readlink runuser sha256sum sort stat xargs; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 for repo in "$AUDIT_REPO" "$PRIMARY_REPO"; do
@@ -78,6 +78,7 @@ esac
 for path in \
   backend/Dockerfile \
   backend/requirements.txt \
+  tools/lidl_gate_a_previous_manifest.py \
   tools/lidl_weekly_shadow_controller.py \
   tools/lidl_weekly_one_shot.py \
   tools/lidl-weekly-completeness.py; do
@@ -99,8 +100,9 @@ install -d -o andris -g andris -m 0700 "$EVIDENCE_ROOT" "$RUN_DIR" "$RUN_DIR/con
 
 PREVIOUS_MANIFEST=''
 if [[ "$USE_PREVIOUS" == true ]]; then
-  PREVIOUS_MANIFEST="$(find "$EVIDENCE_ROOT" -mindepth 3 -maxdepth 3 -type f -path '*/controller/controller-manifest.json' ! -path "$RUN_DIR/*" -printf '%T@ %p\n' | sort -nr | awk 'NR==1{sub(/^[^ ]+ /, ""); print; exit}')"
-  [[ -n "$PREVIOUS_MANIFEST" ]] || fail 'use-previous requested but no prior Gate A manifest exists'
+  PREVIOUS_MANIFEST="$(runuser -u andris -- env HOME=/home/andris \
+    python3 "$AUDIT_REPO/tools/lidl_gate_a_previous_manifest.py" \
+    "$EVIDENCE_ROOT" "$RUN_DIR")" || fail 'no completed safe previous Gate A manifest exists'
   PREVIOUS_MANIFEST="$(readlink -f -- "$PREVIOUS_MANIFEST")"
   [[ "$PREVIOUS_MANIFEST" == "$EVIDENCE_ROOT"/lidl-gate-a-*/controller/controller-manifest.json ]] || fail 'previous manifest path is outside evidence root'
   [[ -f "$PREVIOUS_MANIFEST" && ! -L "$PREVIOUS_MANIFEST" ]] || fail 'previous manifest is missing or unsafe'
