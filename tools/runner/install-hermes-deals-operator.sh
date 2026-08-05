@@ -50,9 +50,13 @@ visudo -cf "$TMPDIR_INSTALL/sudoers" >/dev/null
 install -o root -g root -m 0755 "$SOURCE" "$DEST"
 install -o root -g root -m 0440 "$TMPDIR_INSTALL/sudoers" "$SUDOERS"
 visudo -cf "$SUDOERS" >/dev/null
-sudo -l -U "$OWNER" | grep -Fq '/usr/local/sbin/hermes-deals-release-runtime-sync' \
+
+# Query the exact command and representative argument. The full output of
+# `sudo -l -U USER` also contains command-specific Defaults entries, so grepping
+# that human-readable listing is not a valid authorization check.
+sudo -n -l -U "$OWNER" -- "$DEST" "$HEAD_SHA" >/dev/null 2>&1 \
   || fail 'narrow runtime-sync sudo rule is not visible to andris'
-sudo -l -U "$OWNER" | grep -Fq "$MAIN_DEPLOY" \
+sudo -n -l -U "$OWNER" -- "$MAIN_DEPLOY" "$HEAD_SHA" >/dev/null 2>&1 \
   || fail 'narrow direct-main deploy sudo rule is not visible to andris'
 
 printf 'OPERATOR_RUNTIME_INSTALL_RESULT=PASS\n'

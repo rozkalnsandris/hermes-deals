@@ -140,14 +140,18 @@ systemctl is-active --quiet "$RUNNER_SERVICE" \
 if id -nG github-release-runner | tr ' ' '\n' | grep -Fxq docker; then
   fail 'github-release-runner must not belong to docker group'
 fi
-sudo -l -U github-release-runner | grep -Fq '/usr/local/sbin/hermes-deals-release-dispatch' \
+
+# Ask sudo about the exact command. The unqualified `sudo -l -U USER` listing
+# also contains command-specific Defaults entries, whose paths are settings,
+# not executable grants; grepping that listing creates false positives.
+sudo -n -l -U github-release-runner -- "$DISPATCHER" >/dev/null 2>&1 \
   || fail 'release dispatcher sudo rule was not installed'
 for root_only in \
-  /usr/local/sbin/hermes-deals-release-register \
-  /usr/local/sbin/hermes-deals-release-auto-register \
-  /usr/local/sbin/hermes-deals-release-main-register \
-  /usr/local/sbin/hermes-deals-release-main-deploy; do
-  if sudo -l -U github-release-runner | grep -Fq "$root_only"; then
+  "$REGISTER" \
+  "$AUTO_REGISTER" \
+  "$MAIN_REGISTER" \
+  "$MAIN_DEPLOY"; do
+  if sudo -n -l -U github-release-runner -- "$root_only" >/dev/null 2>&1; then
     fail "root-only release tool leaked into runner sudo rules: $root_only"
   fi
 done
