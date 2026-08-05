@@ -37,6 +37,29 @@ row may become production-ready:
 Page consensus and broad classifiers remain review hints. They cannot
 independently release a row.
 
+## Immutable profile-gated view
+
+The raw parser scan remains immutable and fail-closed. After a complete reviewed
+`review-profile.json` exists, `tools/lidl_weekly_semantic_view.py` creates a
+separate content-addressable view. It never rewrites the parser scan.
+
+The view emits:
+
+- `semantic-rows.json` with the original parser readiness preserved;
+- `accepted-physical.tsv` containing only fully eligible target-page rows;
+- `review-required.tsv` for ambiguous scope, parser rejection, price ambiguity
+  and unapproved unit-basis rows;
+- `excluded.tsv` for out-of-target, online-only, nonphysical or explicit
+  out-of-scope rows;
+- `coverage-report.json` proving every input row has exactly one partition;
+- `profile-binding.json` binding the view to the parser rows, summary, source
+  hashes and reviewed profile;
+- `manifest.json` with sorted file paths, byte counts and SHA-256 values.
+
+The coverage contract requires `explained_count == input_row_count` and
+`unexplained_count == 0`. Duplicate row identities, incomplete page partitions,
+unknown review approvals or a nonempty output directory fail closed.
+
 ## Price ownership
 
 The regression contract binds prices by card geometry. A price observation is
@@ -61,6 +84,11 @@ A `variable_weight_example` row retains:
 Zero or multiple unit-price candidates remain review-only. These fields match
 the existing `OfferCandidate` unit-basis API contract.
 
+A variable-weight approval in `unit_basis_reviews` is bound to the exact
+`semantic_row_key` SHA-256 and requires the decision
+`approve_unit_basis_semantics`, reviewer, timestamp and note. Unknown or
+reused identities are rejected.
+
 ## Known false negatives
 
 The frozen fixture
@@ -79,7 +107,9 @@ classified in scope or explicitly routed to Review with a documented reason.
 
 The semantic module builds evidence manifests from normalized safe paths,
 sorts entries by path, rejects duplicate and case-colliding paths, and emits
-canonical JSON with a deterministic SHA-256.
+canonical JSON with a deterministic SHA-256. Repeating the semantic-view build
+with byte-identical inputs produces byte-identical output files and the same
+manifest digest.
 
 ## Safety boundary
 
