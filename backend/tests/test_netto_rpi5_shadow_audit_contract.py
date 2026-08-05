@@ -90,6 +90,36 @@ class NettoRpi5ShadowAuditUnitTest(unittest.TestCase):
             )
         )
 
+    def test_reference_maps_only_legacy_container_raw_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw_root = root / "host-raw"
+            target = raw_root / "netto" / "store.html"
+            target.parent.mkdir(parents=True)
+            target.write_text("<html>immutable</html>", encoding="utf-8")
+            manifest = raw_root / "netto" / "manifest.json"
+
+            self.assertEqual(
+                MODULE.reference(
+                    manifest,
+                    raw_root,
+                    "/data/raw/netto/store.html",
+                ),
+                target.absolute(),
+            )
+
+            arbitrary = Path("/srv/raw/netto/store.html")
+            self.assertEqual(
+                MODULE.reference(manifest, raw_root, str(arbitrary)),
+                arbitrary.absolute(),
+            )
+
+            traversal = Path("/data/raw/../etc/passwd")
+            self.assertEqual(
+                MODULE.reference(manifest, raw_root, str(traversal)),
+                traversal.absolute(),
+            )
+
     def test_symlinks_are_not_scanned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -160,9 +190,9 @@ class NettoRpi5ShadowAuditIntegrationTest(unittest.TestCase):
                 "valid_from": "2026-08-03",
                 "valid_until": "2026-08-08",
                 "prospect_slug": "hz32_hasb",
-                "store_path": str(html),
+                "store_path": "/data/raw/store.html",
                 "store_sha256": _sha(html.read_bytes()),
-                "prospect_pdf_path": str(pdf),
+                "prospect_pdf_path": "/data/raw/prospect.pdf",
                 "prospect_pdf_sha256": _sha(pdf.read_bytes()),
                 "parser_version": "netto-parser@test",
             }
