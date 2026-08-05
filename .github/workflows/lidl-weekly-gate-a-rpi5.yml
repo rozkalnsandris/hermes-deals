@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: hermes-deals-lidl-weekly-gate-a
