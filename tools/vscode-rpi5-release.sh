@@ -68,12 +68,28 @@ COMPOSE=(
 CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
 [[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
 CURRENT_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
-[[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-([0-9a-f]{7})$ ]] \
-  || fail "production API image is not bound to a release SHA"
-PRODUCTION_SHORT_SHA="${BASH_REMATCH[1]}"
-PRODUCTION_SHA="$(git rev-parse "${PRODUCTION_SHORT_SHA}^{commit}" 2>/dev/null)" \
+[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]] \
+  || fail "production API image is not a Hermes Deals release image"
+CURRENT_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+PRODUCTION_REF=""
+PRODUCTION_PROVENANCE=""
+if [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  PRODUCTION_REF="$CURRENT_REVISION"
+  PRODUCTION_PROVENANCE="oci-revision"
+elif [[ -n "$CURRENT_REVISION" && "$CURRENT_REVISION" != "<no value>" ]]; then
+  fail "production API image has malformed OCI revision label"
+elif [[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-([0-9a-f]{7})$ ]]; then
+  PRODUCTION_REF="${BASH_REMATCH[1]}"
+  PRODUCTION_PROVENANCE="canonical-tag"
+else
+  fail "production API image has no valid release SHA provenance"
+fi
+PRODUCTION_SHA="$(git rev-parse "${PRODUCTION_REF}^{commit}" 2>/dev/null)" \
   || fail "production release SHA cannot be resolved from Git history"
 [[ "$PRODUCTION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid production SHA"
+if [[ "$PRODUCTION_PROVENANCE" == "oci-revision" && "$PRODUCTION_SHA" != "$CURRENT_REVISION" ]]; then
+  fail "production OCI revision contradicts resolved Git commit"
+fi
 git merge-base --is-ancestor "$PRODUCTION_SHA" "$REMOTE_SHA" \
   || fail "running production SHA is not an ancestor of current main"
 
@@ -107,6 +123,8 @@ done
 printf '\nHermes Deals cumulative release candidate\n'
 printf '  source PR:       #%s — %s\n' "$PR_NUMBER" "$PR_TITLE"
 printf '  source issue:    #%s\n' "$SOURCE_ISSUE"
+printf '  production tag:  %s\n' "$CURRENT_TAG"
+printf '  provenance:      %s\n' "$PRODUCTION_PROVENANCE"
 printf '  production SHA:  %s\n' "$PRODUCTION_SHA"
 printf '  target main SHA: %s\n' "$REMOTE_SHA"
 printf '  commits:         %s\n' "$COMMIT_COUNT"
