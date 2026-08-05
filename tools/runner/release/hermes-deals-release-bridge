@@ -32,6 +32,7 @@ PASS = "hermes:deploy-pass"
 FAIL = "hermes:deploy-fail"
 BLOCKED = "hermes:deploy-blocked"
 STATE_LABELS = {READY, RUNNING, PASS, FAIL, BLOCKED}
+DISPATCH_RECOVERY_SECONDS = 600
 ALLOWED_FIELDS = {
     "schema_version",
     "repository",
@@ -305,54 +306,95 @@ def inputs(request: dict[str, Any], phase: str) -> dict[str, str]:
     }
 
 
-def dispatch(client: GitHub, issue_number: int, request: dict[str, Any], phase: str) -> int:
-    previous = {
+def parse_timestamp(value: Any) -> dt.datetime:
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise BridgeError("dispatch state timestamp is invalid") from exc
+    if parsed.tzinfo is None:
+        fail("dispatch state timestamp has no timezone")
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def find_dispatched_run(client: GitHub, state: dict[str, Any]) -> int | None:
+    request = state.get("request")
+    if not isinstance(request, dict):
+        fail("dispatch state request is invalid")
+    started = parse_timestamp(state.get("dispatched_at"))
+    previous_raw = state.get("previous_run_ids")
+    if not isinstance(previous_raw, list) or any(
+        not isinstance(value, int) or value <= 0 for value in previous_raw
+    ):
+        fail("dispatch state previous run set is invalid")
+    previous = set(previous_raw)
+    matches: list[int] = []
+    for run in workflow_runs(client):
+        run_id = run.get("id")
+        actor = run.get("actor") or {}
+        if not isinstance(run_id, int) or run_id in previous:
+            continue
+        if run.get("name") != WORKFLOW_NAME or run.get("event") != "workflow_dispatch":
+            continue
+        if actor.get("login") != OWNER_LOGIN or int(actor.get("id") or 0) != OWNER_ID:
+            continue
+        if run.get("head_branch") != "main" or run.get("head_sha") != request.get("release_sha"):
+            continue
+        try:
+            created = parse_timestamp(run.get("created_at"))
+        except BridgeError:
+            continue
+        if created >= started - dt.timedelta(seconds=10):
+            matches.append(run_id)
+    if len(matches) > 1:
+        fail("workflow dispatch correlation became ambiguous")
+    return matches[0] if matches else None
+
+
+def correlate_dispatch(
+    client: GitHub,
+    state: dict[str, Any],
+    wait_seconds: int,
+) -> int | None:
+    deadline = time.monotonic() + max(wait_seconds, 0)
+    while True:
+        run_id = find_dispatched_run(client, state)
+        if run_id is not None:
+            state = dict(state)
+            state["run_id"] = run_id
+            save_state(state)
+            return run_id
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(5)
+
+
+def dispatch(
+    client: GitHub,
+    issue_number: int,
+    request: dict[str, Any],
+    phase: str,
+) -> int | None:
+    previous = sorted(
         int(run["id"])
         for run in workflow_runs(client)
         if isinstance(run.get("id"), int)
+    )
+    state = {
+        "schema_version": 2,
+        "issue_number": issue_number,
+        "phase": phase,
+        "run_id": None,
+        "previous_run_ids": previous,
+        "dispatched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "request": request,
     }
-    started = dt.datetime.now(dt.timezone.utc)
+    save_state(state)
     client.post(
         f"/repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/dispatches",
         {"ref": "main", "inputs": inputs(request, phase)},
         (204,),
     )
-    deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        matches = []
-        for run in workflow_runs(client):
-            run_id = run.get("id")
-            actor = run.get("actor") or {}
-            if not isinstance(run_id, int) or run_id in previous:
-                continue
-            if run.get("name") != WORKFLOW_NAME or run.get("event") != "workflow_dispatch":
-                continue
-            if actor.get("login") != OWNER_LOGIN or int(actor.get("id") or 0) != OWNER_ID:
-                continue
-            if run.get("head_branch") != "main" or run.get("head_sha") != request["release_sha"]:
-                continue
-            try:
-                created = dt.datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            if created >= started - dt.timedelta(seconds=10):
-                matches.append(run)
-        if len(matches) == 1:
-            run_id = int(matches[0]["id"])
-            save_state(
-                {
-                    "schema_version": 1,
-                    "issue_number": issue_number,
-                    "phase": phase,
-                    "run_id": run_id,
-                    "request": request,
-                }
-            )
-            return run_id
-        if len(matches) > 1:
-            fail("workflow dispatch correlation became ambiguous")
-        time.sleep(5)
-    fail("workflow dispatch could not be correlated")
+    return correlate_dispatch(client, state, 90)
 
 
 def verify_artifact(client: GitHub, run_id: int, request: dict[str, Any]) -> None:
@@ -393,11 +435,20 @@ def auto_register(request: dict[str, Any]) -> None:
         raise BridgeBlocked("release auto-registration failed closed")
 
 
+def pending_message(request: dict[str, Any], phase: str) -> str:
+    return (
+        f"Hermes Deals {phase} dispatch accepted for PR #{request['source_pr']}; "
+        "workflow correlation is pending and will not be dispatched again."
+    )
+
+
 def start(client: GitHub, issue: dict[str, Any], request: dict[str, Any]) -> str:
     validate_source(client, request)
     auto_register(request)
-    run_id = dispatch(client, int(issue["number"]), request, "plan")
     set_label(client, issue, RUNNING)
+    run_id = dispatch(client, int(issue["number"]), request, "plan")
+    if run_id is None:
+        return pending_message(request, "plan")
     comment(
         client,
         int(issue["number"]),
@@ -428,13 +479,53 @@ def finish(client: GitHub, issue: dict[str, Any], state: dict[str, Any], success
     return f"Hermes Deals release {'PASS' if success else 'FAIL'}: {state['phase']} run {run_id} for PR #{request['source_pr']}."
 
 
+def block_pending_dispatch(
+    client: GitHub,
+    issue: dict[str, Any],
+    state: dict[str, Any],
+) -> str:
+    request = state.get("request") or {}
+    phase = str(state.get("phase") or "unknown")
+    set_label(client, issue, BLOCKED)
+    comment(
+        client,
+        int(issue["number"]),
+        "<!-- hermes-deals-release-bridge-dispatch-uncertain -->\n"
+        "## Hermes release blocked\n\n"
+        f"- Phase: `{phase}`\n"
+        "- Reason: GitHub dispatch outcome could not be correlated within the bounded recovery window.\n"
+        "- The bridge did not dispatch a replacement run.\n"
+        f"- Exact SHA: `{request.get('release_sha', 'unknown')}`\n"
+        "- Database writes authorized: **false**\n",
+    )
+    clear_state()
+    return (
+        f"Hermes Deals release blocked for request #{issue['number']}: "
+        f"{phase} dispatch correlation remained uncertain; no retry was sent."
+    )
+
+
 def reconcile(client: GitHub, issue: dict[str, Any], state: dict[str, Any]) -> str:
     if int(state.get("issue_number") or 0) != int(issue["number"]):
         fail("running issue and root state disagree")
     request = state.get("request")
-    run_id = int(state.get("run_id") or 0)
-    if not isinstance(request, dict) or run_id <= 0:
-        fail("root bridge state is invalid")
+    if not isinstance(request, dict):
+        fail("root bridge request state is invalid")
+    run_raw = state.get("run_id")
+    if run_raw is None:
+        run_id = correlate_dispatch(client, state, 0)
+        if run_id is None:
+            age = dt.datetime.now(dt.timezone.utc) - parse_timestamp(
+                state.get("dispatched_at")
+            )
+            if age.total_seconds() >= DISPATCH_RECOVERY_SECONDS:
+                return block_pending_dispatch(client, issue, state)
+            return ""
+        state = load_state() or {}
+    else:
+        if not isinstance(run_raw, int) or run_raw <= 0:
+            fail("root bridge run ID is invalid")
+        run_id = run_raw
     run = client.get(f"/repos/{REPOSITORY}/actions/runs/{run_id}")
     if run.get("name") != WORKFLOW_NAME or run.get("head_sha") != request.get("release_sha"):
         fail("root bridge state points to another workflow or SHA")
@@ -446,6 +537,8 @@ def reconcile(client: GitHub, issue: dict[str, Any], state: dict[str, Any]) -> s
     verify_artifact(client, run_id, request)
     if state.get("phase") == "plan" and request.get("mode") == "apply":
         apply_id = dispatch(client, int(issue["number"]), request, "apply")
+        if apply_id is None:
+            return pending_message(request, "apply")
         comment(
             client,
             int(issue["number"]),
