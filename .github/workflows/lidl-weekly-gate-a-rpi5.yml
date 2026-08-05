@@ -1,0 +1,330 @@
+name: Lidl weekly Gate A RPi5 audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged pull request that registered the exact Gate A runtime
+        required: true
+        type: string
+      target:
+        description: Selected-store flyer target
+        required: true
+        default: current
+        type: choice
+        options:
+          - current
+          - next
+      as_of:
+        description: Canonical Berlin date in YYYY-MM-DD form
+        required: true
+        type: string
+      use_previous:
+        description: Compare with the latest completed Gate A manifest
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-lidl-weekly-gate-a
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Resolve owner-authorized merged PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      target: ${{ steps.authorize.outputs.target }}
+      as_of: ${{ steps.authorize.outputs.as_of }}
+      use_previous: ${{ steps.authorize.outputs.use_previous }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+
+    steps:
+      - name: Authorize exact request
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+          EVENT_PATH: ${{ github.event_path }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from datetime import date
+          import json
+          import os
+          from pathlib import Path
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit(f"unexpected repository: {repo}")
+          event_path = Path(os.environ["EVENT_PATH"])
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"]:
+              raise SystemExit("workflow actor login is not the allowlisted owner")
+          if sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("workflow actor numeric ID is not the allowlisted owner")
+
+          inputs = event.get("inputs") or {}
+          raw_pr = str(inputs.get("pr_number") or "").strip()
+          if not raw_pr.isdigit() or int(raw_pr) <= 0:
+              raise SystemExit("pr_number must be a positive integer")
+          pr_number = int(raw_pr)
+          target = str(inputs.get("target") or "").strip()
+          if target not in {"current", "next"}:
+              raise SystemExit("target must be current or next")
+          as_of = str(inputs.get("as_of") or "").strip()
+          try:
+              parsed_date = date.fromisoformat(as_of)
+          except ValueError as exc:
+              raise SystemExit("as_of must be a valid YYYY-MM-DD date") from exc
+          if parsed_date.isoformat() != as_of:
+              raise SystemExit("as_of must use canonical YYYY-MM-DD form")
+          raw_previous = inputs.get("use_previous")
+          if isinstance(raw_previous, bool):
+              use_previous = "true" if raw_previous else "false"
+          else:
+              text = str(raw_previous or "").strip().lower()
+              if text not in {"true", "false"}:
+                  raise SystemExit("use_previous must be true or false")
+              use_previous = text
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-lidl-gate-a-authorizer",
+          }
+
+          def get_json(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          pr = get_json(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("Gate A accepts only merged pull requests")
+          base = pr.get("base") or {}
+          base_repo = base.get("repo") or {}
+          if base.get("ref") != "main" or base_repo.get("full_name") != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40 or any(char not in "0123456789abcdef" for char in sha):
+              raise SystemExit("merged pull request SHA is invalid")
+          comparison = get_json(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged SHA is not reachable from current main")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"sha={sha}\n")
+              handle.write(f"target={target}\n")
+              handle.write(f"as_of={as_of}\n")
+              handle.write(f"use_previous={use_previous}\n")
+              handle.write(f"trigger_actor={sender['login']}\n")
+          PY
+
+  rpi5-audit:
+    name: Run registered Gate A audit on RPi5
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 60
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      reason: ${{ steps.inspect.outputs.reason }}
+      fingerprint: ${{ steps.inspect.outputs.fingerprint }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+
+    steps:
+      - name: Create private artifact directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-lidl-gate-a-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run fixed root-owned dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          TARGET: ${{ needs.authorize.outputs.target }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          USE_PREVIOUS: ${{ needs.authorize.outputs.use_previous }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-weekly-gate-a-dispatch \
+            "$REGISTERED_SHA" "$TARGET" "$AS_OF" "$USE_PREVIOUS" "$ARTIFACT_DIR"
+          runner_rc=$?
+          set -e
+          echo "runner_rc=$runner_rc" >> "$GITHUB_OUTPUT"
+          if [[ "$runner_rc" -ne 0 && "$runner_rc" -ne 30 ]]; then
+            echo "unexpected dispatcher exit code: $runner_rc" >&2
+          fi
+
+      - name: Inspect sanitized Gate A evidence
+        id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          EXPECTED_TARGET: ${{ needs.authorize.outputs.target }}
+          EXPECTED_AS_OF: ${{ needs.authorize.outputs.as_of }}
+          EXPECTED_PREVIOUS: ${{ needs.authorize.outputs.use_previous }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["ARTIFACT_DIR"]) / "audit-evidence"
+          manifest = json.loads((root / "dispatcher-evidence-manifest.json").read_text(encoding="utf-8"))
+          summary = json.loads((root / "gate-a-summary.json").read_text(encoding="utf-8"))
+          expected = {
+              "audit": "lidl-weekly-gate-a",
+              "commit_sha": os.environ["EXPECTED_SHA"],
+              "target": os.environ["EXPECTED_TARGET"],
+              "as_of": os.environ["EXPECTED_AS_OF"],
+              "use_previous": os.environ["EXPECTED_PREVIOUS"] == "true",
+              "sanitization_passed": True,
+              "production_apply_authorized": False,
+          }
+          for key, value in expected.items():
+              if manifest.get(key) != value:
+                  raise SystemExit(f"dispatcher manifest mismatch: {key}")
+          state = str(summary.get("result") or "")
+          if state not in {"READY", "NO_OP", "WAIT", "BLOCKED"}:
+              raise SystemExit("unsupported Gate A result")
+          runner_rc = int(os.environ["RUNNER_RC"])
+          if state == "BLOCKED" and runner_rc != 30:
+              raise SystemExit("BLOCKED result/exit mismatch")
+          if state != "BLOCKED" and runner_rc != 0:
+              raise SystemExit("non-BLOCKED result/exit mismatch")
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          fingerprint = summary.get("execution_fingerprint") or ""
+          reason = str(summary.get("reason") or "").replace("\n", " ")[:240]
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"result={state}\n")
+              handle.write(f"reason={reason}\n")
+              handle.write(f"fingerprint={fingerprint}\n")
+          PY
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidl-weekly-gate-a-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/audit-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Enforce Gate A blocker
+        if: always()
+        env:
+          RESULT: ${{ steps.inspect.outputs.result }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RESULT" != "BLOCKED" ]] || {
+            echo "Gate A failed closed with BLOCKED." >&2
+            exit 1
+          }
+          [[ "$RUNNER_RC" == "0" ]] || {
+            echo "Gate A dispatcher failed with exit $RUNNER_RC." >&2
+            exit 1
+          }
+
+  report:
+    name: Report Gate A result to merged PR
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - rpi5-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Comment sanitized result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          TARGET: ${{ needs.authorize.outputs.target }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          USE_PREVIOUS: ${{ needs.authorize.outputs.use_previous }}
+          RESULT: ${{ needs.rpi5-audit.outputs.result }}
+          REASON: ${{ needs.rpi5-audit.outputs.reason }}
+          FINGERPRINT: ${{ needs.rpi5-audit.outputs.fingerprint }}
+          RUNNER_RC: ${{ needs.rpi5-audit.outputs.runner_rc }}
+          AUDIT_JOB_RESULT: ${{ needs.rpi5-audit.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ.get("RESULT") or "UNAVAILABLE"
+          reason = os.environ.get("REASON") or "evidence inspection did not complete"
+          fingerprint = os.environ.get("FINGERPRINT") or "none"
+          body = (
+              "## Lidl weekly Gate A RPi5 result\n\n"
+              f"- workflow job: `{os.environ['AUDIT_JOB_RESULT']}`\n"
+              f"- Gate A state: `{result}`\n"
+              f"- reason: `{reason}`\n"
+              f"- registered commit: `{os.environ['REGISTERED_SHA']}`\n"
+              f"- target / as-of: `{os.environ['TARGET']}` / `{os.environ['AS_OF']}`\n"
+              f"- previous manifest requested: `{os.environ['USE_PREVIOUS']}`\n"
+              f"- execution fingerprint: `{fingerprint}`\n"
+              f"- dispatcher exit code: `{os.environ.get('RUNNER_RC') or 'unknown'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              "Safety: no production DB write, Review write, publication, deploy, "
+              "systemd change or automatic retry was authorized."
+          )
+          payload = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['PR_NUMBER']}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-lidl-gate-a-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
