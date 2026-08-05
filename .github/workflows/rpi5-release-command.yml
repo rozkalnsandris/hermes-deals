@@ -67,7 +67,6 @@ jobs:
         id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_PATH: ${{ github.event_path }}
           WORKFLOW_REF: ${{ github.ref }}
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: "277435981"
@@ -83,7 +82,7 @@ jobs:
           import urllib.request
 
           expected_repo = "rozkalnsandris/hermes-deals"
-          event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
           if event.get("repository", {}).get("full_name") != expected_repo:
               raise SystemExit("unexpected repository")
           if os.environ["WORKFLOW_REF"] != "refs/heads/main":
