@@ -51,8 +51,8 @@ for tracked in backend/Dockerfile backend/requirements.txt docker-compose.yml do
   git -C "$REPO" ls-files --error-unmatch "$tracked" >/dev/null || fail "required release input is not tracked: $tracked"
 done
 
-ROLLBACK_ARCHIVE_SOURCE="$(readlink -f -- "$ROLLBACK_ARCHIVE_SOURCE")"
 [[ -f "$ROLLBACK_ARCHIVE_SOURCE" && ! -L "$ROLLBACK_ARCHIVE_SOURCE" ]] || fail "rollback archive is missing or unsafe"
+ROLLBACK_ARCHIVE_SOURCE="$(readlink -f -- "$ROLLBACK_ARCHIVE_SOURCE")"
 tar -tzf "$ROLLBACK_ARCHIVE_SOURCE" >/dev/null || fail "rollback archive is not a readable gzip tar"
 
 COMPOSE=(docker compose --project-directory "$REPO" -f "$REPO/docker-compose.yml" -f "$REPO/docker-compose.production.yml")
@@ -112,6 +112,8 @@ NEW_ARCHIVE_SHA="$(sha256sum "$NEW_ARCHIVE" | awk '{print $1}')"
 
 REGISTRY="/etc/hermes-deals-releases.d/api-ui-$NEW_SHA.json"
 TMP_REGISTRY="$(mktemp /etc/hermes-deals-releases.d/.api-ui.XXXXXX.json)"
+cleanup_registry() { rm -f -- "$TMP_REGISTRY"; }
+trap cleanup_registry EXIT
 python3 - "$TMP_REGISTRY" "$NEW_SHA" "$REPO" "$NEW_TAG" "$NEW_IMAGE_ID" \
   "$NEW_ARCHIVE" "$NEW_ARCHIVE_SHA" "$ROLLBACK_SHA" "$ROLLBACK_TAG" \
   "$CURRENT_IMAGE_ID" "$ROLLBACK_ARCHIVE" "$ROLLBACK_ARCHIVE_SHA" \
@@ -171,6 +173,7 @@ PY
 chown root:root "$TMP_REGISTRY"
 chmod 0644 "$TMP_REGISTRY"
 mv -f -- "$TMP_REGISTRY" "$REGISTRY"
+trap - EXIT
 
 printf 'REGISTER_RESULT=PASS\nRELEASE_CLASS=api-ui\nCOMMIT_SHA=%s\nIMAGE_TAG=%s\nIMAGE_ID=%s\nIMAGE_ARCHIVE_SHA256=%s\nROLLBACK_SHA=%s\nROLLBACK_RESTORE_TESTED=true\nROLLBACK_REVISION_LABEL_VERIFIED=%s\nREQUIRED_CI_RUN_ID=%s\nREQUIRED_AUDIT_RUN_ID=%s\nDATABASE_WRITES_AUTHORIZED=false\nPRODUCTION_APPLY_PERFORMED=false\n' \
   "$NEW_SHA" "$NEW_TAG" "$NEW_IMAGE_ID" "$NEW_ARCHIVE_SHA" "$ROLLBACK_SHA" "$ROLLBACK_REVISION_LABEL_VERIFIED" "$REQUIRED_CI_RUN_ID" "${REQUIRED_AUDIT_RUN_ID:-none}"
