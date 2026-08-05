@@ -14,6 +14,7 @@ SOURCE_WORKTREE='/home/andris/hermes-deals-worktrees/release-control'
 SOURCE_REL='tools/runner/release/hermes-deals-release-runtime-sync'
 SOURCE="$SOURCE_WORKTREE/$SOURCE_REL"
 DEST='/usr/local/sbin/hermes-deals-release-runtime-sync'
+MAIN_DEPLOY='/usr/local/sbin/hermes-deals-release-main-deploy'
 SUDOERS='/etc/sudoers.d/hermes-deals-operator'
 OWNER='andris'
 
@@ -30,14 +31,19 @@ runuser -u "$OWNER" -- git -C "$SOURCE_WORKTREE" ls-files --error-unmatch "$SOUR
 /bin/bash -n "$SOURCE"
 
 TMPDIR_INSTALL="$(mktemp -d /tmp/hermes-deals-operator-installer.XXXXXX)"
-cleanup() { rm -rf -- "$TMPDIR_INSTALL"; }
+cleanup() {
+  rm -rf -- "$TMPDIR_INSTALL"
+}
 trap cleanup EXIT
 
-cat >"$TMPDIR_INSTALL/sudoers" <<'EOF'
+cat >"$TMPDIR_INSTALL/sudoers" <<'SUDOERS'
 Defaults!/usr/local/sbin/hermes-deals-release-runtime-sync env_reset
 Defaults!/usr/local/sbin/hermes-deals-release-runtime-sync secure_path=/home/andris/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Defaults!/usr/local/sbin/hermes-deals-release-main-deploy env_reset
+Defaults!/usr/local/sbin/hermes-deals-release-main-deploy secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 andris ALL=(root) NOPASSWD: /usr/local/sbin/hermes-deals-release-runtime-sync *
-EOF
+andris ALL=(root) NOPASSWD: /usr/local/sbin/hermes-deals-release-main-deploy *
+SUDOERS
 chmod 0440 "$TMPDIR_INSTALL/sudoers"
 visudo -cf "$TMPDIR_INSTALL/sudoers" >/dev/null
 
@@ -46,10 +52,13 @@ install -o root -g root -m 0440 "$TMPDIR_INSTALL/sudoers" "$SUDOERS"
 visudo -cf "$SUDOERS" >/dev/null
 sudo -l -U "$OWNER" | grep -Fq '/usr/local/sbin/hermes-deals-release-runtime-sync' \
   || fail 'narrow runtime-sync sudo rule is not visible to andris'
+sudo -l -U "$OWNER" | grep -Fq "$MAIN_DEPLOY" \
+  || fail 'narrow direct-main deploy sudo rule is not visible to andris'
 
 printf 'OPERATOR_RUNTIME_INSTALL_RESULT=PASS\n'
 printf 'SOURCE_SHA=%s\n' "$HEAD_SHA"
 printf 'RUNTIME_SYNC_SHA256=%s\n' "$(sha256sum "$DEST" | awk '{print $1}')"
+printf 'DIRECT_MAIN_DEPLOY_AUTHORIZED=true\n'
 printf 'SUDOERS_VALID=true\n'
 printf 'DATABASE_WRITES_AUTHORIZED=false\n'
 printf 'PRODUCTION_CHANGED=false\n'
