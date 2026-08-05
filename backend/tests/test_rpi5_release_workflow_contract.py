@@ -96,7 +96,12 @@ def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
         "/run/lock/hermes-deals-rpi5-privileged.lock",
         "an existing Hermes Deals audit dispatcher is active",
         "release is not root-registered for exact SHA",
-        "production repo HEAD is not exact release SHA",
+        "registered production root is invalid",
+        "registered base Compose path is invalid",
+        "base Compose content drift",
+        'export HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}"',
+        '--project-directory "$PRODUCTION_ROOT"',
+        '--env-file "$PRODUCTION_ROOT/.env"',
         "production image ID does not match registered rollback baseline",
         'docker image load --input "$ROLLBACK_ARCHIVE"',
         'docker image load --input "$IMAGE_ARCHIVE"',
@@ -113,6 +118,7 @@ def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
     assert "docker compose down" not in dispatch
     assert "git checkout" not in dispatch
     assert "git switch" not in dispatch
+    assert "git -C" not in dispatch
 
 
 def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() -> None:
@@ -120,9 +126,17 @@ def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() 
 
     for marker in (
         "register tool must run as root",
-        "registration source branch must be main",
+        "registration source must be the isolated release-control worktree",
+        "release source worktree must remain detached",
         "registration source HEAD mismatch",
+        "registration source is not exact origin/main",
         "registration source worktree is not clean",
+        "release source is not linked to the Hermes Deals primary Git directory",
+        "api-ui release cannot change Compose configuration",
+        'export HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}"',
+        '"compose_change_authorized": False',
+        '"schema_version": 2',
+        '"compose_base_sha256": compose_base_sha',
         '[[ -f "$ROLLBACK_ARCHIVE_SOURCE" && ! -L "$ROLLBACK_ARCHIVE_SOURCE" ]]',
         "org.opencontainers.image.revision=$NEW_SHA",
         "docker run --rm",
@@ -159,7 +173,10 @@ def test_release_installer_shell_syntax_and_sudo_scope() -> None:
     assert "hermes-deals-release-register" not in sudoers_source
     assert "tools/runner/release/hermes-deals-release-dispatch" in text
     assert "tools/runner/release/hermes-deals-release-register" in text
-    for command in ("docker", "flock", "pgrep", "python3", "sudo", "tar", "visudo"):
+    assert "/home/andris/hermes-deals-worktrees/release-control" in text
+    assert "release source worktree must remain detached" in text
+    assert "release source is not linked to the Hermes Deals primary Git directory" in text
+    for command in ("cmp", "docker", "flock", "pgrep", "python3", "sudo", "tar", "visudo"):
         assert command in text
 
 
@@ -173,5 +190,9 @@ def test_runbook_keeps_install_apply_and_db_write_as_separate_authorizations() -
         "ROLLBACK_RESTORE_TESTED=true",
         "database_writes_authorized=false",
         "migration_commands_executed=false",
+        "/home/andris/hermes-deals-worktrees/release-control",
+        "switch or modify the primary",
+        "COMPOSE_CHANGE_AUTHORIZED=false",
+        "root-owned, SHA-addressed bundle",
     ):
         assert marker in text
