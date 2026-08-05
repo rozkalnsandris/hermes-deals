@@ -1,9 +1,11 @@
 name: Apply issue 46 UI error fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/ui-temporary-api-errors
+      - main
+    types:
+      - opened
 
 permissions:
   contents: write
@@ -16,7 +18,8 @@ jobs:
   apply-and-validate:
     if: >-
       github.actor == 'rozkalnsandris' &&
-      github.event.head_commit.message == 'chore: bootstrap issue 46 ui fix'
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/ui-temporary-api-errors'
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
