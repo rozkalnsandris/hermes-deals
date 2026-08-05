@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail 'runtime sync must run as root through the narrow sudo rule'
+[[ "$#" -eq 1 ]] || fail 'usage: hermes-deals-release-runtime-sync <40-sha>'
+
+TARGET_SHA="$1"
+[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'target SHA is malformed'
+
+OWNER='andris'
+OWNER_HOME='/home/andris'
+REPOSITORY='rozkalnsandris/hermes-deals'
+PRIMARY='/home/andris/hermes-deals'
+SOURCE_WORKTREE='/home/andris/hermes-deals-worktrees/release-control'
+INSTALLER_REL='tools/runner/install-rpi5-release-dispatcher.sh'
+INSTALLER="$SOURCE_WORKTREE/$INSTALLER_REL"
+
+run_owner() {
+  runuser -u "$OWNER" -- env \
+    HOME="$OWNER_HOME" \
+    PATH='/home/andris/.local/bin:/usr/local/bin:/usr/bin:/bin' \
+    "$@"
+}
+
+for command in git gh python3 runuser sha256sum docker; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+[[ -d "$PRIMARY/.git" || -f "$PRIMARY/.git" ]] || fail 'primary repository is missing'
+[[ -d "$SOURCE_WORKTREE" ]] || fail 'release-control worktree is missing'
+[[ "$(run_owner git -C "$PRIMARY" remote get-url origin)" == "https://github.com/${REPOSITORY}.git" ]] \
+  || fail 'primary origin URL is unexpected'
+
+run_owner gh auth status >/dev/null 2>&1 || fail 'owner GitHub CLI is not authenticated'
+run_owner git -C "$PRIMARY" fetch --quiet origin main
+REMOTE_SHA="$(run_owner git -C "$PRIMARY" rev-parse refs/remotes/origin/main)"
+[[ "$REMOTE_SHA" == "$TARGET_SHA" ]] || fail 'requested SHA is not exact current origin/main'
+
+[[ -z "$(run_owner git -C "$SOURCE_WORKTREE" status --porcelain=v1 --untracked-files=all)" ]] \
+  || fail 'release-control worktree is not clean'
+
+CI_JSON="$(run_owner gh api \
+  "/repos/${REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=100")"
+python3 - "$TARGET_SHA" <<'PY' <<<"$CI_JSON"
+import json
+import sys
+
+sha = sys.argv[1]
+rows = json.load(sys.stdin).get("workflow_runs", [])
+matches = [
+    row for row in rows
+    if row.get("head_sha") == sha and row.get("conclusion") == "success"
+]
+if not matches:
+    raise SystemExit("exact current main has no successful CI push run")
+PY
+
+run_owner git -C "$SOURCE_WORKTREE" checkout --quiet --detach "$TARGET_SHA"
+[[ "$(run_owner git -C "$SOURCE_WORKTREE" rev-parse HEAD)" == "$TARGET_SHA" ]] \
+  || fail 'release-control HEAD is not the requested SHA'
+[[ -z "$(run_owner git -C "$SOURCE_WORKTREE" status --porcelain=v1 --untracked-files=all)" ]] \
+  || fail 'release-control worktree became dirty'
+run_owner git -C "$SOURCE_WORKTREE" ls-files --error-unmatch "$INSTALLER_REL" >/dev/null \
+  || fail 'runtime installer is not tracked at exact main'
+[[ -f "$INSTALLER" && ! -L "$INSTALLER" ]] || fail 'runtime installer is missing or unsafe'
+/bin/bash -n "$INSTALLER"
+
+COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$PRIMARY/.env"
+  -f "$PRIMARY/docker-compose.yml"
+  -f "$PRIMARY/docker-compose.production.yml"
+)
+API_BEFORE="$("${COMPOSE[@]}" ps -q api)"
+DB_BEFORE="$("${COMPOSE[@]}" ps -q db)"
+[[ -n "$API_BEFORE" && -n "$DB_BEFORE" ]] || fail 'production containers are not running'
+
+/bin/bash "$INSTALLER"
+
+API_AFTER="$("${COMPOSE[@]}" ps -q api)"
+DB_AFTER="$("${COMPOSE[@]}" ps -q db)"
+[[ "$API_AFTER" == "$API_BEFORE" ]] || fail 'production API container changed during runtime sync'
+[[ "$DB_AFTER" == "$DB_BEFORE" ]] || fail 'production database container changed during runtime sync'
+
+for name in \
+  hermes-deals-release-dispatch \
+  hermes-deals-release-register \
+  hermes-deals-release-bridge \
+  hermes-deals-release-auto-register; do
+  source="$SOURCE_WORKTREE/tools/runner/release/$name"
+  installed="/usr/local/sbin/$name"
+  [[ -f "$source" && -f "$installed" && ! -L "$installed" ]] \
+    || fail "release component is missing or unsafe: $name"
+  [[ "$(sha256sum "$source" | awk '{print $1}')" == "$(sha256sum "$installed" | awk '{print $1}')" ]] \
+    || fail "installed release component does not match exact main: $name"
+done
+
+printf 'RUNTIME_SYNC_RESULT=PASS\n'
+printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+printf 'SOURCE_WORKTREE=%s\n' "$SOURCE_WORKTREE"
+printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+printf 'PRODUCTION_CHANGED=false\n'
