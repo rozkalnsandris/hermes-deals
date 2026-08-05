@@ -98,9 +98,10 @@ path = pathlib.Path(sys.argv[1])
 expected_sha = sys.argv[2]
 data = json.loads(path.read_text(encoding="utf-8"))
 required = {
-    "schema_version": 1,
+    "schema_version": 2,
     "release_class": "api-ui",
     "commit_sha": expected_sha,
+    "compose_change_authorized": False,
     "database_writes_authorized": False,
     "rollback_restore_tested": True,
 }
@@ -108,7 +109,11 @@ for key, value in required.items():
     if data.get(key) != value:
         raise SystemExit(f"registry mismatch: {key}")
 fields = [
-    data.get("repo_path", ""),
+    data.get("production_root", ""),
+    data.get("compose_base_path", ""),
+    data.get("compose_base_sha256", ""),
+    data.get("compose_production_path", ""),
+    data.get("compose_production_sha256", ""),
     data.get("image_tag", ""),
     data.get("image_id", ""),
     data.get("image_archive", ""),
@@ -121,7 +126,7 @@ fields = [
     str(data.get("required_ci_run_id") or ""),
     str(data.get("required_audit_run_id") or ""),
 ]
-if not re.fullmatch(r"[0-9a-f]{40}", fields[5]):
+if not re.fullmatch(r"[0-9a-f]{40}", fields[9]):
     raise SystemExit("rollback SHA is invalid")
 for value in fields:
     if "\x00" in value:
@@ -129,22 +134,40 @@ for value in fields:
     sys.stdout.write(value + "\x00")
 PY
   )
-  [[ ${#FIELDS[@]} -eq 12 ]] || fail "release registry field count is invalid"
+  [[ ${#FIELDS[@]} -eq 16 ]] || fail "release registry field count is invalid"
 
-  REPO="${FIELDS[0]}"
-  IMAGE_TAG="${FIELDS[1]}"
-  IMAGE_ID="${FIELDS[2]}"
-  IMAGE_ARCHIVE="${FIELDS[3]}"
-  IMAGE_ARCHIVE_SHA="${FIELDS[4]}"
-  ROLLBACK_SHA="${FIELDS[5]}"
-  ROLLBACK_TAG="${FIELDS[6]}"
-  ROLLBACK_IMAGE_ID="${FIELDS[7]}"
-  ROLLBACK_ARCHIVE="${FIELDS[8]}"
-  ROLLBACK_ARCHIVE_SHA="${FIELDS[9]}"
-  REQUIRED_CI_RUN_ID="${FIELDS[10]}"
-  REQUIRED_AUDIT_RUN_ID="${FIELDS[11]}"
+  PRODUCTION_ROOT="${FIELDS[0]}"
+  COMPOSE_BASE="${FIELDS[1]}"
+  COMPOSE_BASE_SHA="${FIELDS[2]}"
+  COMPOSE_PRODUCTION="${FIELDS[3]}"
+  COMPOSE_PRODUCTION_SHA="${FIELDS[4]}"
+  IMAGE_TAG="${FIELDS[5]}"
+  IMAGE_ID="${FIELDS[6]}"
+  IMAGE_ARCHIVE="${FIELDS[7]}"
+  IMAGE_ARCHIVE_SHA="${FIELDS[8]}"
+  ROLLBACK_SHA="${FIELDS[9]}"
+  ROLLBACK_TAG="${FIELDS[10]}"
+  ROLLBACK_IMAGE_ID="${FIELDS[11]}"
+  ROLLBACK_ARCHIVE="${FIELDS[12]}"
+  ROLLBACK_ARCHIVE_SHA="${FIELDS[13]}"
+  REQUIRED_CI_RUN_ID="${FIELDS[14]}"
+  REQUIRED_AUDIT_RUN_ID="${FIELDS[15]}"
 
-  [[ "$REPO" == '/home/andris/hermes-deals' ]] || fail "registered repo path is invalid"
+  [[ "$PRODUCTION_ROOT" == '/home/andris/hermes-deals' ]] || fail "registered production root is invalid"
+  [[ -d "$PRODUCTION_ROOT" && ! -L "$PRODUCTION_ROOT" ]] || fail "production root is missing or unsafe"
+  [[ -f "$PRODUCTION_ROOT/.env" && ! -L "$PRODUCTION_ROOT/.env" ]] || fail "production Compose env file is missing or unsafe"
+  EXPECTED_COMPOSE_ROOT="/usr/local/libexec/hermes-deals-releases/$EXPECTED_SHA"
+  [[ "$COMPOSE_BASE" == "$EXPECTED_COMPOSE_ROOT/docker-compose.yml" ]] || fail "registered base Compose path is invalid"
+  [[ "$COMPOSE_PRODUCTION" == "$EXPECTED_COMPOSE_ROOT/docker-compose.production.yml" ]] || fail "registered production Compose path is invalid"
+  [[ "$COMPOSE_BASE_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "registered base Compose SHA is invalid"
+  [[ "$COMPOSE_PRODUCTION_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "registered production Compose SHA is invalid"
+  for compose_file in "$COMPOSE_BASE" "$COMPOSE_PRODUCTION"; do
+    [[ -f "$compose_file" && ! -L "$compose_file" ]] || fail "registered Compose file is missing or unsafe"
+    [[ "$(stat -c '%U:%G' "$compose_file")" == 'root:root' ]] || fail "registered Compose ownership is invalid"
+    [[ "$(stat -c '%a' "$compose_file")" =~ ^(600|640|644)$ ]] || fail "registered Compose permissions are invalid"
+  done
+  [[ "$(sha256sum "$COMPOSE_BASE" | awk '{print $1}')" == "$COMPOSE_BASE_SHA" ]] || fail "base Compose content drift"
+  [[ "$(sha256sum "$COMPOSE_PRODUCTION" | awk '{print $1}')" == "$COMPOSE_PRODUCTION_SHA" ]] || fail "production Compose content drift"
   [[ "$IMAGE_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-${EXPECTED_SHA:0:7}$ ]] || fail "registered image tag is invalid"
   [[ "$ROLLBACK_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-${ROLLBACK_SHA:0:7}$ ]] || fail "registered rollback tag is invalid"
   [[ "$IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "registered image ID is invalid"
@@ -167,23 +190,12 @@ PY
   [[ "$(sha256sum "$IMAGE_ARCHIVE" | awk '{print $1}')" == "$IMAGE_ARCHIVE_SHA" ]] || fail "new image archive hash drift"
   [[ "$(sha256sum "$ROLLBACK_ARCHIVE" | awk '{print $1}')" == "$ROLLBACK_ARCHIVE_SHA" ]] || fail "rollback archive hash drift"
 
-  [[ -d "$REPO/.git" ]] || fail "production repo is not a Git checkout"
-  [[ "$(git -C "$REPO" branch --show-current)" == main ]] || fail "production repo branch must be main"
-  [[ "$(git -C "$REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail "production repo HEAD is not exact release SHA"
-  [[ -z "$(git -C "$REPO" status --porcelain)" ]] || fail "production repo worktree is not clean"
-  case "$(git -C "$REPO" remote get-url origin)" in
-    https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
-    *) fail "production repo origin is invalid" ;;
-  esac
-  for tracked in docker-compose.yml docker-compose.production.yml; do
-    git -C "$REPO" ls-files --error-unmatch "$tracked" >/dev/null || fail "required compose file is not tracked: $tracked"
-  done
-
   [[ "$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')" == "$IMAGE_ID" ]] || fail "registered new image ID drift"
   [[ "$(docker image inspect "$IMAGE_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}')" == "$EXPECTED_SHA" ]] || fail "new image revision label mismatch"
   [[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$ROLLBACK_IMAGE_ID" ]] || fail "registered rollback image ID drift"
 
-  COMPOSE=(docker compose --project-directory "$REPO" -f "$REPO/docker-compose.yml" -f "$REPO/docker-compose.production.yml")
+  export HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}"
+  COMPOSE=(docker compose --project-directory "$PRODUCTION_ROOT" --env-file "$PRODUCTION_ROOT/.env" -f "$COMPOSE_BASE" -f "$COMPOSE_PRODUCTION")
   CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
   [[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
   CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
