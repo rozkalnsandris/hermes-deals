@@ -147,6 +147,7 @@ def test_unbound_single_origin_is_partial_not_a_hostname_proof() -> None:
     assert result["authoritative_config_seen"] is False
 
 
+
 def test_directory_mount_config_is_read_without_exporting_mount_path(tmp_path: Path) -> None:
     module = load_collector()
     config_dir = tmp_path / "cloudflared"
@@ -177,7 +178,6 @@ def test_directory_mount_config_is_read_without_exporting_mount_path(tmp_path: P
     )
     assert status == "ok"
     assert raw and "deals.rozkalns.net" in raw
-
 
 def test_collector_never_exports_sensitive_runtime_surfaces() -> None:
     text = read(COLLECTOR)
