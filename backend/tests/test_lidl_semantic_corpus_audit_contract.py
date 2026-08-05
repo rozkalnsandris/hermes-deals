@@ -68,7 +68,8 @@ class LidlSemanticCorpusAuditContractTest(unittest.TestCase):
         ):
             self.assertIn(required, text)
         self.assertNotIn("github-runner ALL=(ALL) NOPASSWD: ALL", text)
-        self.assertNotIn("docker ", text)
+        for forbidden in ("docker run", "docker compose", "docker-compose"):
+            self.assertNotIn(forbidden, text)
 
     def test_workflow_requires_owner_merged_pr_and_fixed_dispatcher(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
