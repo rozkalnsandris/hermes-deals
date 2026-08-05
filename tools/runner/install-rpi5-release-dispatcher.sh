@@ -36,6 +36,8 @@ esac
 RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-release.service'
 DISPATCHER='/usr/local/sbin/hermes-deals-release-dispatch'
 REGISTER='/usr/local/sbin/hermes-deals-release-register'
+BRIDGE='/usr/local/sbin/hermes-deals-release-bridge'
+AUTO_REGISTER='/usr/local/sbin/hermes-deals-release-auto-register'
 SUDOERS='/etc/sudoers.d/hermes-deals-release-runner'
 REGISTRY_DIR='/etc/hermes-deals-releases.d'
 RELEASE_ARCHIVE_DIR='/opt/backups/hermes-deals/releases'
@@ -43,14 +45,30 @@ RELEASE_LIBEXEC_DIR='/usr/local/libexec/hermes-deals-releases'
 STAGING_ROOT='/home/andris/hermes-deals-release-evidence'
 SOURCE_DISPATCHER="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-dispatch"
 SOURCE_REGISTER="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-register"
+SOURCE_BRIDGE="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-bridge"
+SOURCE_AUTO_REGISTER="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-auto-register"
 
-for source in "$SOURCE_DISPATCHER" "$SOURCE_REGISTER"; do
+for source in "$SOURCE_DISPATCHER" "$SOURCE_REGISTER" "$SOURCE_BRIDGE" "$SOURCE_AUTO_REGISTER"; do
   [[ -f "$source" && ! -L "$source" ]] || fail "release source is missing or unsafe: $source"
 done
-git -C "$SOURCE_WORKTREE" ls-files --error-unmatch tools/runner/release/hermes-deals-release-dispatch >/dev/null || fail "release dispatcher source is not tracked"
-git -C "$SOURCE_WORKTREE" ls-files --error-unmatch tools/runner/release/hermes-deals-release-register >/dev/null || fail "release register source is not tracked"
+for tracked in \
+  tools/runner/release/hermes-deals-release-dispatch \
+  tools/runner/release/hermes-deals-release-register \
+  tools/runner/release/hermes-deals-release-bridge \
+  tools/runner/release/hermes-deals-release-auto-register; do
+  git -C "$SOURCE_WORKTREE" ls-files --error-unmatch "$tracked" >/dev/null \
+    || fail "release source is not tracked: $tracked"
+done
 /bin/bash -n "$SOURCE_DISPATCHER"
 /bin/bash -n "$SOURCE_REGISTER"
+/bin/bash -n "$SOURCE_AUTO_REGISTER"
+python3 - "$SOURCE_BRIDGE" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
 
 TMPDIR_INSTALL="$(mktemp -d /tmp/hermes-deals-release-installer.XXXXXX)"
 cleanup() { rm -rf -- "$TMPDIR_INSTALL"; }
@@ -66,6 +84,8 @@ install -d -o root -g root -m 0750 "$REGISTRY_DIR" "$RELEASE_ARCHIVE_DIR" "$RELE
 install -d -o andris -g andris -m 0700 "$STAGING_ROOT"
 install -o root -g root -m 0755 "$SOURCE_DISPATCHER" "$DISPATCHER"
 install -o root -g root -m 0755 "$SOURCE_REGISTER" "$REGISTER"
+install -o root -g root -m 0755 "$SOURCE_BRIDGE" "$BRIDGE"
+install -o root -g root -m 0755 "$SOURCE_AUTO_REGISTER" "$AUTO_REGISTER"
 install -o root -g root -m 0440 "$TMPDIR_INSTALL/sudoers" "$SUDOERS"
 visudo -cf "$SUDOERS" >/dev/null
 
@@ -77,10 +97,15 @@ sudo -l -U github-release-runner | grep -Fq '/usr/local/sbin/hermes-deals-releas
 if sudo -l -U github-release-runner | grep -Fq '/usr/local/sbin/hermes-deals-release-register'; then
   fail "root-only release register tool leaked into runner sudo rules"
 fi
+if sudo -l -U github-release-runner | grep -Fq '/usr/local/sbin/hermes-deals-release-auto-register'; then
+  fail "root-only release auto-register tool leaked into runner sudo rules"
+fi
 
-printf 'INSTALL_RESULT=PASS\nSOURCE_WORKTREE=%s\nSOURCE_SHA=%s\nRUNNER_SERVICE=%s\nDISPATCHER_SHA256=%s\nREGISTER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nDATABASE_WRITES_AUTHORIZED=false\n' \
+printf 'INSTALL_RESULT=PASS\nSOURCE_WORKTREE=%s\nSOURCE_SHA=%s\nRUNNER_SERVICE=%s\nDISPATCHER_SHA256=%s\nREGISTER_SHA256=%s\nBRIDGE_SHA256=%s\nAUTO_REGISTER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nDATABASE_WRITES_AUTHORIZED=false\n' \
   "$SOURCE_WORKTREE" \
   "$(git -C "$SOURCE_WORKTREE" rev-parse HEAD)" \
   "$RUNNER_SERVICE" \
   "$(sha256sum "$DISPATCHER" | awk '{print $1}')" \
-  "$(sha256sum "$REGISTER" | awk '{print $1}')"
+  "$(sha256sum "$REGISTER" | awk '{print $1}')" \
+  "$(sha256sum "$BRIDGE" | awk '{print $1}')" \
+  "$(sha256sum "$AUTO_REGISTER" | awk '{print $1}')"
