@@ -201,10 +201,48 @@ PY
   CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
   CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
   [[ "$CURRENT_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" ]] || fail "production image ID does not match registered rollback baseline"
-  [[ "$CURRENT_IMAGE_TAG" == "$ROLLBACK_TAG" ]] || fail "production image tag does not match registered rollback baseline"
+  [[ "$CURRENT_IMAGE_TAG" == hermes-deals-api:release-* ]] || fail "production image is not a Hermes Deals release image"
+  CURRENT_IMAGE_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+  if [[ "$CURRENT_IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+    [[ "$CURRENT_IMAGE_REVISION" == "$ROLLBACK_SHA" ]] || fail "production OCI revision does not match registered rollback baseline"
+  elif [[ -n "$CURRENT_IMAGE_REVISION" && "$CURRENT_IMAGE_REVISION" != '<no value>' ]]; then
+    fail "production OCI revision is malformed"
+  else
+    [[ "$CURRENT_IMAGE_TAG" == "$ROLLBACK_TAG" ]] || fail "production image has no exact rollback provenance"
+  fi
+
+  read_live_alembic() {
+    local db_container
+    local -a db_fields
+    local db_user db_name
+    db_container="$("${COMPOSE[@]}" ps -q db)"
+    [[ -n "$db_container" ]] || fail "production database container is not running"
+    mapfile -d '' -t db_fields < <(docker inspect "$db_container" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+env = {}
+for item in rows[0].get("Config", {}).get("Env", []):
+    key, sep, value = item.partition("=")
+    if sep:
+        env[key] = value
+for key in ("POSTGRES_USER", "POSTGRES_DB"):
+    value = env.get(key, "")
+    if not value or "\x00" in value:
+        raise SystemExit(2)
+    sys.stdout.write(value + "\x00")
+')
+    [[ ${#db_fields[@]} -eq 2 ]] || fail "production database identity could not be resolved"
+    db_user="${db_fields[0]}"
+    db_name="${db_fields[1]}"
+    "${COMPOSE[@]}" exec -T db \
+      psql -X -v ON_ERROR_STOP=1 -U "$db_user" -d "$db_name" -Atqc \
+      'SELECT version_num FROM alembic_version;'
+  }
 
   PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health)"
-  PRE_ALEMBIC="$("${COMPOSE[@]}" exec -T api alembic current 2>/dev/null | head -c 512)"
+  PRE_ALEMBIC="$(read_live_alembic)"
   PRE_HEALTH_FILE="$STAGING_DIR/pre-health.json"
   printf '%s\n' "$PRE_HEALTH" > "$PRE_HEALTH_FILE"
   PRE_ALEMBIC_FILE="$STAGING_DIR/pre-alembic.txt"
@@ -280,7 +318,7 @@ PY
       POST_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health 2>/dev/null)"
       CANARY_RC=$?
       UI_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 8 http://127.0.0.1:9128/ui)"
-      POST_ALEMBIC="$("${COMPOSE[@]}" exec -T api alembic current 2>/dev/null | head -c 512)"
+      POST_ALEMBIC="$(read_live_alembic)"
       [[ "$NEW_IMAGE_ID" == "$IMAGE_ID" && $CANARY_RC -eq 0 && "$UI_STATUS" =~ ^(200|302)$ && "$POST_ALEMBIC" == "$PRE_ALEMBIC" ]]
       APPLY_RC=$?
     fi
@@ -299,7 +337,7 @@ PY
         RESTORED_IMAGE_ID="$(docker inspect "$RESTORED_CONTAINER" --format '{{.Image}}' 2>/dev/null)"
         curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health >/dev/null 2>&1
         HEALTH_RC=$?
-        RESTORED_ALEMBIC="$("${COMPOSE[@]}" exec -T api alembic current 2>/dev/null | head -c 512)"
+        RESTORED_ALEMBIC="$(read_live_alembic)"
         [[ "$RESTORED_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" && $HEALTH_RC -eq 0 && "$RESTORED_ALEMBIC" == "$PRE_ALEMBIC" ]]
         ROLLBACK_RC=$?
       fi
