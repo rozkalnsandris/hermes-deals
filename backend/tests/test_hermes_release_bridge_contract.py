@@ -9,6 +9,8 @@ BRIDGE = ROOT / "tools" / "runner" / "release" / "hermes-deals-release-bridge"
 AUTO_REGISTER = (
     ROOT / "tools" / "runner" / "release" / "hermes-deals-release-auto-register"
 )
+DISPATCHER = ROOT / "tools" / "runner" / "release" / "hermes-deals-release-dispatch"
+INSTALLER = ROOT / "tools" / "runner" / "install-rpi5-release-dispatcher.sh"
 BOOTSTRAP = ROOT / "tools" / "runner" / "bootstrap-hermes-deals-release-runtime.sh"
 RUNBOOK = ROOT / "docs" / "operations" / "hermes-deals-release-bridge.md"
 
@@ -93,7 +95,7 @@ def test_dispatch_is_persisted_before_send_and_never_repeated_when_uncertain() -
     assert reconcile_body.count("apply_id = dispatch(") == 1
 
 
-def test_auto_register_parses_and_preserves_release_safety() -> None:
+def test_auto_register_normalizes_verified_legacy_rollback_image() -> None:
     subprocess.run(["bash", "-n", str(AUTO_REGISTER)], check=True)
     text = read(AUTO_REGISTER)
     for marker in (
@@ -102,9 +104,13 @@ def test_auto_register_parses_and_preserves_release_safety() -> None:
         "release-control HEAD is not the requested SHA",
         "exact main SHA has no successful CI push run",
         "expected exactly one FastAPI version",
-        "current production image tag is not release-bound",
-        "rollback full SHA could not be resolved uniquely",
-        'docker image save "$CURRENT_TAG" | gzip -n',
+        "current production image is not a Hermes Deals release image",
+        'org.opencontainers.image.revision',
+        "current production image has malformed OCI revision label",
+        'ROLLBACK_PROVENANCE=\'oci-revision\'',
+        'ROLLBACK_TAG="hermes-deals-api:release-${ROLLBACK_VERSION}-${ROLLBACK_SHA:0:7}"',
+        'docker image tag "$CURRENT_IMAGE_ID" "$ROLLBACK_TAG"',
+        'docker image save "$ROLLBACK_TAG" | gzip -n',
         '"$REGISTER" "${ARGS[@]}"',
         "DATABASE_WRITES_AUTHORIZED=false",
     ):
@@ -113,6 +119,40 @@ def test_auto_register_parses_and_preserves_release_safety() -> None:
     assert "docker compose down" not in text
     assert 'git -C "$PRIMARY" checkout' not in text
     assert 'git -C "$PRIMARY" reset' not in text
+
+
+def test_dispatcher_reads_alembic_directly_and_preserves_schema() -> None:
+    subprocess.run(["bash", "-n", str(DISPATCHER)], check=True)
+    text = read(DISPATCHER)
+    for marker in (
+        "production OCI revision does not match registered rollback baseline",
+        "read_live_alembic()",
+        "SELECT version_num FROM alembic_version;",
+        'PRE_ALEMBIC="$(read_live_alembic)"',
+        'POST_ALEMBIC="$(read_live_alembic)"',
+        'RESTORED_ALEMBIC="$(read_live_alembic)"',
+        '"migration_commands_executed": False',
+        '"database_writes_authorized": False',
+    ):
+        assert marker in text
+    assert "alembic upgrade" not in text
+    assert "alembic downgrade" not in text
+
+
+def test_runtime_installer_updates_all_release_components_from_exact_main() -> None:
+    subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
+    text = read(INSTALLER)
+    for marker in (
+        "installer source must be the isolated release-control worktree",
+        "release source HEAD is not exact origin/main",
+        'SOURCE_BRIDGE="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-bridge"',
+        'SOURCE_AUTO_REGISTER="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-auto-register"',
+        'install -o root -g root -m 0755 "$SOURCE_BRIDGE" "$BRIDGE"',
+        'install -o root -g root -m 0755 "$SOURCE_AUTO_REGISTER" "$AUTO_REGISTER"',
+        "AUTO_REGISTER_SHA256",
+        "DATABASE_WRITES_AUTHORIZED=false",
+    ):
+        assert marker in text
 
 
 def test_bootstrap_verifies_runner_digest_and_narrow_sudo() -> None:

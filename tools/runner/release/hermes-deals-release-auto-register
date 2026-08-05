@@ -161,18 +161,62 @@ CURRENT_CONTAINER="$(docker compose \
 [[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
 CURRENT_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
 CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
-[[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-([0-9]+\.[0-9]+\.[0-9]+)-([0-9a-f]{7})$ ]] \
-  || fail "current production image tag is not release-bound"
-ROLLBACK_SHORT_SHA="${BASH_REMATCH[2]}"
+[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]] \
+  || fail "current production image is not a Hermes Deals release image"
+CURRENT_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+ROLLBACK_REF=''
+ROLLBACK_PROVENANCE=''
+if [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  ROLLBACK_REF="$CURRENT_REVISION"
+  ROLLBACK_PROVENANCE='oci-revision'
+elif [[ -n "$CURRENT_REVISION" && "$CURRENT_REVISION" != '<no value>' ]]; then
+  fail "current production image has malformed OCI revision label"
+elif [[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-([0-9a-f]{7})$ ]]; then
+  ROLLBACK_REF="${BASH_REMATCH[1]}"
+  ROLLBACK_PROVENANCE='canonical-tag'
+else
+  fail "current production image has no valid rollback SHA provenance"
+fi
 ROLLBACK_SHA="$(runuser -u andris -- env HOME=/home/andris GIT_OPTIONAL_LOCKS=0 \
-  git -C "$SOURCE" rev-parse "${ROLLBACK_SHORT_SHA}^{commit}")"
-[[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ && "${ROLLBACK_SHA:0:7}" == "$ROLLBACK_SHORT_SHA" ]] \
-  || fail "rollback full SHA could not be resolved uniquely"
+  git -C "$SOURCE" rev-parse "${ROLLBACK_REF}^{commit}")"
+[[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "rollback full SHA could not be resolved uniquely"
+if [[ "$ROLLBACK_PROVENANCE" == 'oci-revision' && "$ROLLBACK_SHA" != "$CURRENT_REVISION" ]]; then
+  fail "current production OCI revision contradicts rollback SHA"
+fi
 [[ "$(docker image inspect "$CURRENT_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
   || fail "current image tag and container image ID disagree"
-ROLLBACK_LABEL="$(docker image inspect "$CURRENT_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
-[[ -z "$ROLLBACK_LABEL" || "$ROLLBACK_LABEL" == "$ROLLBACK_SHA" ]] \
-  || fail "current image revision label contradicts rollback SHA"
+
+ROLLBACK_VERSION="$(
+  runuser -u andris -- env HOME=/home/andris GIT_OPTIONAL_LOCKS=0 \
+    git -C "$SOURCE" show "${ROLLBACK_SHA}:backend/app/main.py" |
+  python3 -c '
+import ast, re, sys
+text = sys.stdin.read()
+tree = ast.parse(text, filename="backend/app/main.py")
+versions = []
+for node in ast.walk(tree):
+    if not isinstance(node, ast.Call):
+        continue
+    name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+    if name != "FastAPI":
+        continue
+    for keyword in node.keywords:
+        if keyword.arg == "version" and isinstance(keyword.value, ast.Constant):
+            versions.append(keyword.value.value)
+if len(versions) != 1 or not isinstance(versions[0], str):
+    raise SystemExit("expected exactly one rollback FastAPI version")
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", versions[0]):
+    raise SystemExit("rollback FastAPI version is not numeric semver")
+print(versions[0])
+'
+)" || fail "rollback version derivation failed"
+ROLLBACK_TAG="hermes-deals-api:release-${ROLLBACK_VERSION}-${ROLLBACK_SHA:0:7}"
+docker image tag "$CURRENT_IMAGE_ID" "$ROLLBACK_TAG"
+[[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
+  || fail "canonical rollback alias does not match the running image"
+ROLLBACK_LABEL="$(docker image inspect "$ROLLBACK_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
+[[ -z "$ROLLBACK_LABEL" || "$ROLLBACK_LABEL" == '<no value>' || "$ROLLBACK_LABEL" == "$ROLLBACK_SHA" ]] \
+  || fail "canonical rollback image revision label contradicts rollback SHA"
 
 install -d -o root -g root -m 0750 /opt/backups/hermes-deals/releases
 ROLLBACK_TMP="$(mktemp /opt/backups/hermes-deals/releases/.bridge-rollback.XXXXXX.tar.gz)"
@@ -180,16 +224,16 @@ cleanup() {
   [[ -z "$ROLLBACK_TMP" ]] || rm -f -- "$ROLLBACK_TMP"
 }
 trap cleanup EXIT
-docker image save "$CURRENT_TAG" | gzip -n > "$ROLLBACK_TMP"
+docker image save "$ROLLBACK_TAG" | gzip -n > "$ROLLBACK_TMP"
 chown root:root "$ROLLBACK_TMP"
 chmod 0600 "$ROLLBACK_TMP"
 [[ -s "$ROLLBACK_TMP" ]] || fail "rollback archive is empty"
 
-ARGS=(api-ui "$NEW_SHA" "$VERSION" "$ROLLBACK_SHA" "$CURRENT_TAG" "$ROLLBACK_TMP" "$SOURCE" "$CI_RUN_ID")
+ARGS=(api-ui "$NEW_SHA" "$VERSION" "$ROLLBACK_SHA" "$ROLLBACK_TAG" "$ROLLBACK_TMP" "$SOURCE" "$CI_RUN_ID")
 if [[ -n "$AUDIT_RUN_ID" ]]; then
   ARGS+=("$AUDIT_RUN_ID")
 fi
 "$REGISTER" "${ARGS[@]}"
 
-printf 'AUTO_REGISTER_RESULT=PASS\nREGISTRY_STATUS=created\nCOMMIT_SHA=%s\nVERSION=%s\nROLLBACK_SHA=%s\nREQUIRED_CI_RUN_ID=%s\nREQUIRED_AUDIT_RUN_ID=%s\nDATABASE_WRITES_AUTHORIZED=false\n' \
-  "$NEW_SHA" "$VERSION" "$ROLLBACK_SHA" "$CI_RUN_ID" "${AUDIT_RUN_ID:-none}"
+printf 'AUTO_REGISTER_RESULT=PASS\nREGISTRY_STATUS=created\nCOMMIT_SHA=%s\nVERSION=%s\nROLLBACK_SHA=%s\nROLLBACK_TAG=%s\nROLLBACK_PROVENANCE=%s\nREQUIRED_CI_RUN_ID=%s\nREQUIRED_AUDIT_RUN_ID=%s\nDATABASE_WRITES_AUTHORIZED=false\n' \
+  "$NEW_SHA" "$VERSION" "$ROLLBACK_SHA" "$ROLLBACK_TAG" "$ROLLBACK_PROVENANCE" "$CI_RUN_ID" "${AUDIT_RUN_ID:-none}"

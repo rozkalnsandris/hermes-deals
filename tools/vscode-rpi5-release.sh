@@ -103,22 +103,102 @@ fi
 mapfile -t CHANGED_FILES < <(git diff --name-only "${PRODUCTION_SHA}..${REMOTE_SHA}")
 [[ ${#CHANGED_FILES[@]} -gt 0 ]] || fail "cumulative release range has no changed files"
 
-MIGRATION_FOUND=0
 COMPOSE_FOUND=0
 for path in "${CHANGED_FILES[@]}"; do
   case "$path" in
-    backend/alembic.ini|backend/alembic/*|backend/migrations/*|*alembic/versions/*)
-      MIGRATION_FOUND=1
-      ;;
     docker-compose.yml|docker-compose.production.yml)
       COMPOSE_FOUND=1
       ;;
   esac
 done
-(( MIGRATION_FOUND == 0 )) \
-  || fail "cumulative database migration change detected; VS Code API/UI deploy is not authorized"
 (( COMPOSE_FOUND == 0 )) \
   || fail "cumulative Compose change detected; VS Code API/UI deploy is not authorized"
+
+MIGRATION_RECONCILIATION="not-required"
+mapfile -t MIGRATION_CHANGES < <(
+  git diff --name-status "${PRODUCTION_SHA}..${REMOTE_SHA}" -- \
+    backend/alembic.ini backend/alembic/versions backend/migrations
+)
+if (( ${#MIGRATION_CHANGES[@]} > 0 )); then
+  for row in "${MIGRATION_CHANGES[@]}"; do
+    status="${row%%$'\t'*}"
+    path="${row#*$'\t'}"
+    [[ "$status" == "A" && "$path" == backend/alembic/versions/*.py ]] \
+      || fail "cumulative database migration change is not an added Alembic revision; API/UI deploy is not authorized"
+  done
+
+  TARGET_ALEMBIC_HEAD="$(python3 - "$ROOT/backend/alembic/versions" <<'PY'
+import ast
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+revisions: set[str] = set()
+parents: set[str] = set()
+for path in sorted(root.glob("*.py")):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    values: dict[str, object] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}:
+                    values[target.id] = ast.literal_eval(node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id in {"revision", "down_revision"} and node.value is not None:
+                values[node.target.id] = ast.literal_eval(node.value)
+    revision = values.get("revision")
+    if revision is None:
+        continue
+    if not isinstance(revision, str) or not revision:
+        raise SystemExit("invalid Alembic revision identifier")
+    if revision in revisions:
+        raise SystemExit("duplicate Alembic revision identifier")
+    revisions.add(revision)
+    down = values.get("down_revision")
+    if isinstance(down, str):
+        parents.add(down)
+    elif isinstance(down, (tuple, list)):
+        if not all(isinstance(item, str) and item for item in down):
+            raise SystemExit("invalid Alembic parent identifier")
+        parents.update(down)
+    elif down is not None:
+        raise SystemExit("invalid Alembic down_revision")
+heads = sorted(revisions - parents)
+if len(heads) != 1:
+    raise SystemExit("target Alembic graph must have exactly one head")
+print(heads[0])
+PY
+)" || fail "target Alembic head could not be resolved"
+
+  DB_CONTAINER="$("${COMPOSE[@]}" ps -q db)"
+  [[ -n "$DB_CONTAINER" ]] || fail "production database container is not running"
+  mapfile -d '' -t DB_FIELDS < <(docker inspect "$DB_CONTAINER" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+env = {}
+for item in rows[0].get("Config", {}).get("Env", []):
+    key, sep, value = item.partition("=")
+    if sep:
+        env[key] = value
+for key in ("POSTGRES_USER", "POSTGRES_DB"):
+    value = env.get(key, "")
+    if not value or "\x00" in value:
+        raise SystemExit(2)
+    sys.stdout.write(value + "\x00")
+')
+  [[ ${#DB_FIELDS[@]} -eq 2 ]] || fail "production database identity could not be resolved"
+  DB_USER="${DB_FIELDS[0]}"
+  DB_NAME="${DB_FIELDS[1]}"
+  LIVE_ALEMBIC="$("${COMPOSE[@]}" exec -T db \
+    psql -X -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -Atqc \
+    'SELECT version_num FROM alembic_version;')" \
+    || fail "production Alembic version could not be read"
+  [[ "$LIVE_ALEMBIC" == "$TARGET_ALEMBIC_HEAD" ]] \
+    || fail "cumulative database migration change detected and live schema is not already at exact target head"
+  MIGRATION_RECONCILIATION="verified-live-head:${LIVE_ALEMBIC}"
+fi
 
 printf '\nHermes Deals cumulative release candidate\n'
 printf '  source PR:       #%s — %s\n' "$PR_NUMBER" "$PR_TITLE"
@@ -129,6 +209,7 @@ printf '  production SHA:  %s\n' "$PRODUCTION_SHA"
 printf '  target main SHA: %s\n' "$REMOTE_SHA"
 printf '  commits:         %s\n' "$COMMIT_COUNT"
 printf '  changed files:   %s\n' "${#CHANGED_FILES[@]}"
+printf '  schema gate:     %s\n' "$MIGRATION_RECONCILIATION"
 printf '\nCumulative commits:\n'
 git --no-pager log --oneline --no-decorate "${PRODUCTION_SHA}..${REMOTE_SHA}"
 printf '\nCumulative changed files:\n'
