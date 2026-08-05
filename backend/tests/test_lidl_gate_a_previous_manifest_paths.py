@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -42,3 +43,35 @@ def test_symlinked_current_run_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(selector.PreviousManifestError, match="current run.*unsafe"):
         selector.select_previous_manifest(root, linked_current)
+
+
+def test_retry_authorized_previous_manifest_is_rejected(tmp_path: Path) -> None:
+    selector = load_selector()
+    root = tmp_path / "evidence"
+    root.mkdir()
+    current = root / "lidl-gate-a-current"
+    current.mkdir()
+    manifest = root / "lidl-gate-a-unsafe" / "controller" / "controller-manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "controller_version": "lidl-weekly-shadow-controller-v1",
+                "result": "READY",
+                "execution_fingerprint": "a" * 64,
+                "dry_run": True,
+                "corpus_write_authorized": False,
+                "database_write_authorized": False,
+                "review_write_authorized": False,
+                "production_publish_authorized": False,
+                "systemd_change_authorized": False,
+                "bounded_retry_authorized": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(selector.PreviousManifestError, match="no completed safe"):
+        selector.select_previous_manifest(root, current)
