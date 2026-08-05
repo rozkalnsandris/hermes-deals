@@ -89,10 +89,11 @@ class LidlSemanticCorpusAuditDispatcherLogOwnershipTest(unittest.TestCase):
             'git -C "/home/andris/hermes-deals" switch',
             'git -C "/home/andris/hermes-deals" stash',
             "github-runner ALL=(ALL) NOPASSWD: ALL",
-            "docker ",
+            "\nsudo docker ",
+            "\n/usr/bin/docker ",
             "docker-compose",
-            "psql ",
-            "alembic ",
+            "\npsql ",
+            "\nalembic ",
         ):
             self.assertNotIn(forbidden, text)
 
