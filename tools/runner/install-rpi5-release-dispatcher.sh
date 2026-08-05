@@ -13,22 +13,35 @@ fail() {
 for user in github-release-runner andris; do
   id "$user" >/dev/null 2>&1 || fail "required local user is missing: $user"
 done
-for command in awk bash chmod cmp curl docker flock git grep gzip id install mktemp pgrep python3 readlink rm sha256sum stat sudo systemctl tar tr visudo; do
+for command in awk bash chmod cmp curl docker flock git grep gzip id install mktemp pgrep python3 readlink rm runuser sha256sum stat sudo systemctl tar tr visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 
 SOURCE_WORKTREE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+SOURCE_OWNER='andris'
+SOURCE_HOME='/home/andris'
 PRIMARY_GIT_DIR='/home/andris/hermes-deals/.git'
 EXPECTED_SOURCE='/home/andris/hermes-deals-worktrees/release-control'
+
+run_owner_git() {
+  runuser -u "$SOURCE_OWNER" -- env \
+    HOME="$SOURCE_HOME" \
+    PATH='/home/andris/.local/bin:/usr/local/bin:/usr/bin:/bin' \
+    git -C "$SOURCE_WORKTREE" "$@"
+}
+
 [[ "$SOURCE_WORKTREE" == "$EXPECTED_SOURCE" ]] || fail "installer source must be the isolated release-control worktree"
 [[ "$(stat -c '%U:%G' "$SOURCE_WORKTREE")" == 'andris:andris' ]] || fail "release source worktree ownership is invalid"
-[[ "$(git -C "$SOURCE_WORKTREE" rev-parse --is-inside-work-tree)" == true ]] || fail "installer source is not a Git worktree"
-[[ -z "$(git -C "$SOURCE_WORKTREE" branch --show-current)" ]] || fail "release source worktree must remain detached"
-[[ "$(git -C "$SOURCE_WORKTREE" rev-parse HEAD)" == "$(git -C "$SOURCE_WORKTREE" rev-parse refs/remotes/origin/main)" ]] || fail "release source HEAD is not exact origin/main"
-[[ -z "$(git -C "$SOURCE_WORKTREE" status --porcelain=v1 --untracked-files=all)" ]] || fail "installer source worktree is not clean"
-COMMON_GIT_DIR="$(readlink -f -- "$(git -C "$SOURCE_WORKTREE" rev-parse --path-format=absolute --git-common-dir)")"
+[[ "$(run_owner_git rev-parse --is-inside-work-tree)" == true ]] || fail "installer source is not a Git worktree"
+WORKTREE_GIT_DIR="$(readlink -f -- "$(run_owner_git rev-parse --path-format=absolute --git-dir)")"
+[[ -f "$WORKTREE_GIT_DIR/index" ]] || fail "release source index is missing"
+[[ "$(stat -c '%U:%G' "$WORKTREE_GIT_DIR/index")" == 'andris:andris' ]] || fail "release source index ownership is invalid"
+[[ -z "$(run_owner_git branch --show-current)" ]] || fail "release source worktree must remain detached"
+[[ "$(run_owner_git rev-parse HEAD)" == "$(run_owner_git rev-parse refs/remotes/origin/main)" ]] || fail "release source HEAD is not exact origin/main"
+[[ -z "$(run_owner_git status --porcelain=v1 --untracked-files=all)" ]] || fail "installer source worktree is not clean"
+COMMON_GIT_DIR="$(readlink -f -- "$(run_owner_git rev-parse --path-format=absolute --git-common-dir)")"
 [[ "$COMMON_GIT_DIR" == "$PRIMARY_GIT_DIR" ]] || fail "release source is not linked to the Hermes Deals primary Git directory"
-case "$(git -C "$SOURCE_WORKTREE" remote get-url origin)" in
+case "$(run_owner_git remote get-url origin)" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
   *) fail "installer source origin is invalid" ;;
 esac
@@ -56,7 +69,7 @@ for tracked in \
   tools/runner/release/hermes-deals-release-register \
   tools/runner/release/hermes-deals-release-bridge \
   tools/runner/release/hermes-deals-release-auto-register; do
-  git -C "$SOURCE_WORKTREE" ls-files --error-unmatch "$tracked" >/dev/null \
+  run_owner_git ls-files --error-unmatch "$tracked" >/dev/null \
     || fail "release source is not tracked: $tracked"
 done
 /bin/bash -n "$SOURCE_DISPATCHER"
@@ -100,10 +113,12 @@ fi
 if sudo -l -U github-release-runner | grep -Fq '/usr/local/sbin/hermes-deals-release-auto-register'; then
   fail "root-only release auto-register tool leaked into runner sudo rules"
 fi
+[[ "$(stat -c '%U:%G' "$WORKTREE_GIT_DIR/index")" == 'andris:andris' ]] \
+  || fail "release source index ownership changed during installation"
 
 printf 'INSTALL_RESULT=PASS\nSOURCE_WORKTREE=%s\nSOURCE_SHA=%s\nRUNNER_SERVICE=%s\nDISPATCHER_SHA256=%s\nREGISTER_SHA256=%s\nBRIDGE_SHA256=%s\nAUTO_REGISTER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nDATABASE_WRITES_AUTHORIZED=false\n' \
   "$SOURCE_WORKTREE" \
-  "$(git -C "$SOURCE_WORKTREE" rev-parse HEAD)" \
+  "$(run_owner_git rev-parse HEAD)" \
   "$RUNNER_SERVICE" \
   "$(sha256sum "$DISPATCHER" | awk '{print $1}')" \
   "$(sha256sum "$REGISTER" | awk '{print $1}')" \
