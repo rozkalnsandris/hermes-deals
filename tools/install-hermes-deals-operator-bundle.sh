@@ -16,7 +16,6 @@ DEST="$DEST_DIR/hermes-deals-operator.yaml"
 [[ "$(id -un)" == 'andris' ]] || fail 'run as the andris user, not root'
 [[ "$(pwd -P)" == "$PRIMARY" ]] || fail "run from $PRIMARY"
 [[ -f "$SOURCE" && ! -L "$SOURCE" ]] || fail 'bundle template is missing or unsafe'
-[[ -f "$SKILL_ROOT/hermes-deals/SKILL.md" ]] || fail 'hermes-deals skill is missing'
 [[ -f "$SKILL_ROOT/hermes-deals-release/SKILL.md" ]] || fail 'hermes-deals-release skill is missing'
 command -v hermes >/dev/null 2>&1 || fail 'hermes command is missing'
 
@@ -35,7 +34,7 @@ hermes bundles reload >/dev/null
 hermes bundles show hermes-deals-operator >/dev/null
 
 SKILLS_OUTPUT="$(hermes skills list)"
-for skill in github-auth hermes-deals hermes-deals-release; do
+for skill in github-auth hermes-deals-release; do
   grep -Fq -- "$skill" <<<"$SKILLS_OUTPUT" \
     || fail "required skill is not visible: $skill"
 done
