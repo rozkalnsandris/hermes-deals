@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "mode": "ALDI_A30_AUTHORITATIVE_CYCLE_PLAN_V01",
+  "source_discovery_commit": "24d1a44df06751fe9107e568ceb12c9f2c5cea79",
+  "source_discovery_run_id": 31010778804,
+  "artifact_sha256": "07da2bee09f520010a4c3f7c392da444d2a7013f74ef4864974635c4667b0630",
+  "old_preview_run": "/home/andris/.local/state/hermes-deals/aldi-perfect-shadow/a30-browser-v03-runs/20260805T114247Z",
+  "old_preview_page_count": 41,
+  "sources": {
+    "current": {
+      "valid_from": "2026-08-03",
+      "valid_to": "2026-08-08",
+      "source_path": "/aldi-nord/aldi-aktuell/2026/2026cw32mopromotionaldi-angebote-ab-montag-03-08-1/",
+      "image_template": "https://ipaper.ipapercms.dk/aldi-nord/aldi-aktuell/2026/2026cw32mopromotionaldi-angebote-ab-montag-03-08-1/Image.ashx?PageNumber={page}",
+      "probe_sha256": {
+        "1": "d0bfa8718f28b1f88a22991b00ea6999cc00517bbd8c8f51b050144307fa55da",
+        "2": "5ec9419d812be09bcf567f2ee642667c11ad4304ad8fc4e76932836e4b3e4c3e"
+      }
+    },
+    "preview": {
+      "valid_from": "2026-08-10",
+      "valid_to": null,
+      "source_path": "/aldi-nord/aldi-aktuell/2026/2026cw33mopromotionaldi-angebote-ab-montag-10-08-1/",
+      "image_template": "https://ipaper.ipapercms.dk/aldi-nord/aldi-aktuell/2026/2026cw33mopromotionaldi-angebote-ab-montag-10-08-1/Image.ashx?PageNumber={page}",
+      "probe_sha256": {
+        "1": "702c29da009fa4a3a8a6c4ab184621c350815abf06dd7464f4d99e7c7b80cd1d",
+        "2": "f7d1f57386a8ad15a83ff78cd7d2f324ba40c3535ee5a3b42283bef4980f45bd"
+      }
+    }
+  },
+  "limits": {
+    "max_pages": 80,
+    "minimum_image_bytes": 10000,
+    "consecutive_terminal_failures": 2
+  },
+  "rollover": {
+    "required_pages": 41,
+    "max_hamming": 8,
+    "max_mae": 4.0,
+    "max_rms": 8.0,
+    "max_p99": 18
+  }
+}
