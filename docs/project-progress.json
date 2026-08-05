@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "project": "Hermes Deals",
+  "repository": "rozkalnsandris/hermes-deals",
+  "timezone": "Europe/Berlin",
+  "excluded_issue_numbers": [
+    57,
+    58,
+    66,
+    67,
+    68,
+    107,
+    111
+  ],
+  "excluded_issue_title_prefixes": [
+    "[Hermes deploy]"
+  ],
+  "categories": [
+    {
+      "id": "foundation",
+      "label": "Foundation, data trust and UI reliability",
+      "weight": 20,
+      "items": [
+        {
+          "id": "core-foundation",
+          "label": "Database, immutable evidence, offer API and base family UI",
+          "points": 14,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              "README.md",
+              "docs/ARCHITECTURE.md",
+              "issue #35"
+            ]
+          }
+        },
+        {
+          "id": "ui-bundle",
+          "label": "Maintainable split UI bundle",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 17
+          }
+        },
+        {
+          "id": "review-state",
+          "label": "Authoritative Review Queue state",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 18
+          }
+        },
+        {
+          "id": "date-mobile",
+          "label": "Date, calendar and mobile regression gate",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 32
+          }
+        }
+      ]
+    },
+    {
+      "id": "release",
+      "label": "GitHub CI, audit and controlled production release",
+      "weight": 10,
+      "items": [
+        {
+          "id": "ci-audit-foundation",
+          "label": "GitHub CI and least-privilege audit foundation",
+          "points": 4,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              ".github/workflows/ci.yml",
+              "issue #35"
+            ]
+          }
+        },
+        {
+          "id": "controlled-release",
+          "label": "Controlled exact-SHA release workflow",
+          "points": 4,
+          "completion": {
+            "type": "issue",
+            "issue": 21
+          }
+        },
+        {
+          "id": "netto-production-verification",
+          "label": "Production verification of merged Netto daily-special fixes",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 19
+          }
+        }
+      ]
+    },
+    {
+      "id": "netto",
+      "label": "Netto 5659 trusted weekly pipeline",
+      "weight": 14,
+      "items": [
+        {
+          "id": "netto-daily-ui",
+          "label": "Daily specials visible in the family UI",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 12
+          }
+        },
+        {
+          "id": "netto-date-selection",
+          "label": "Requested-date immutable snapshot selection",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 13
+          }
+        },
+        {
+          "id": "netto-review-policy",
+          "label": "Audited title/package review-only source policy",
+          "points": 1,
+          "completion": {
+            "type": "issue",
+            "issue": 15
+          }
+        },
+        {
+          "id": "netto-extraction-gates",
+          "label": "Audited title/package promotion gates",
+          "points": 4,
+          "completion": {
+            "type": "issue",
+            "issue": 27
+          }
+        },
+        {
+          "id": "netto-weekly",
+          "label": "Unattended evidence-aware weekly refresh",
+          "points": 5,
+          "completion": {
+            "type": "issue",
+            "issue": 28
+          }
+        }
+      ]
+    },
+    {
+      "id": "lidl",
+      "label": "Lidl physical-store trusted weekly pipeline",
+      "weight": 14,
+      "items": [
+        {
+          "id": "lidl-base",
+          "label": "Precision-first parser and Review workflow foundation",
+          "points": 4,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              "README.md",
+              "issues #35 and #39"
+            ]
+          }
+        },
+        {
+          "id": "lidl-identity",
+          "label": "Parser identity and immutable corpus roles",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 22
+          }
+        },
+        {
+          "id": "lidl-semantics",
+          "label": "Extraction semantics and eligibility gates",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 23
+          }
+        },
+        {
+          "id": "lidl-weekly",
+          "label": "Weekly discovery, Review gate and controlled rollout",
+          "points": 4,
+          "completion": {
+            "type": "issue",
+            "issue": 24
+          }
+        }
+      ]
+    },
+    {
+      "id": "aldi",
+      "label": "ALDI Nord frozen evidence and weekly pipeline",
+      "weight": 10,
+      "items": [
+        {
+          "id": "aldi-shadow-base",
+          "label": "Audited A2.1 shadow extraction foundation",
+          "points": 3,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              "issues #35 and #39"
+            ]
+          }
+        },
+        {
+          "id": "aldi-frozen-corpus",
+          "label": "A3.0 frozen corpus acquisition gate",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 25
+          }
+        },
+        {
+          "id": "aldi-parity-ledger",
+          "label": "Deterministic offer-to-page parity ledger",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 56
+          }
+        },
+        {
+          "id": "aldi-rollover",
+          "label": "Browser-backed cycle rollover and review gate",
+          "points": 2,
+          "completion": {
+            "type": "issue",
+            "issue": 80
+          }
+        }
+      ]
+    },
+    {
+      "id": "edeka",
+      "label": "EDEKA Patzer trusted regional weekly pipeline",
+      "weight": 10,
+      "items": [
+        {
+          "id": "edeka-foundation",
+          "label": "Market-bound collector, persistence and normalization foundation",
+          "points": 5,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              "README.md",
+              "issues #35 and #39"
+            ]
+          }
+        },
+        {
+          "id": "edeka-weekly",
+          "label": "Regional source, provenance and weekly production gate",
+          "points": 5,
+          "completion": {
+            "type": "issue",
+            "issue": 26
+          }
+        }
+      ]
+    },
+    {
+      "id": "comparison",
+      "label": "Canonical identity and fair best-price comparison",
+      "weight": 10,
+      "items": [
+        {
+          "id": "comparison-foundation",
+          "label": "Canonical identity, unit basis and comparison-family schema",
+          "points": 4,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              "README.md",
+              "issue #35"
+            ]
+          }
+        },
+        {
+          "id": "comparison-canaries",
+          "label": "Audited comparison-family identity canaries",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 29
+          }
+        },
+        {
+          "id": "comparison-api-ui",
+          "label": "Best-price API and family-facing UI",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 30
+          }
+        }
+      ]
+    },
+    {
+      "id": "weekly-overview",
+      "label": "Whole-week family decision overview",
+      "weight": 5,
+      "items": [
+        {
+          "id": "weekly-preview",
+          "label": "Special-period weekly overview foundation",
+          "points": 2,
+          "completion": {
+            "type": "fixed",
+            "evidence": [
+              "issues #35 and #39"
+            ]
+          }
+        },
+        {
+          "id": "weekly-complete",
+          "label": "Trustworthy all-retailer weekly overview",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 31
+          }
+        }
+      ]
+    },
+    {
+      "id": "shopping-list",
+      "label": "Persistent shopping list and basket optimization",
+      "weight": 4,
+      "items": [
+        {
+          "id": "shopping-list-complete",
+          "label": "Persistent family list and explainable basket allocation",
+          "points": 4,
+          "completion": {
+            "type": "issue",
+            "issue": 33
+          }
+        }
+      ]
+    },
+    {
+      "id": "meal-planning",
+      "label": "Meal planning from trusted deals",
+      "weight": 3,
+      "items": [
+        {
+          "id": "meal-planning-complete",
+          "label": "Recipe and meal suggestions integrated with the shopping list",
+          "points": 3,
+          "completion": {
+            "type": "issue",
+            "issue": 34
+          }
+        }
+      ]
+    }
+  ]
+}

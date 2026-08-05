@@ -1,0 +1,63 @@
+name: Update project progress
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+      timezone: "Europe/Berlin"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+
+concurrency:
+  group: hermes-deals-project-progress
+  cancel-in-progress: false
+
+jobs:
+  update-project-progress:
+    name: Update auditable project progress
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Verify default-branch execution
+        env:
+          EXPECTED_REF: refs/heads/main
+        run: |
+          test "${GITHUB_REF}" = "${EXPECTED_REF}"
+
+      - name: Checkout current main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Generate progress snapshot and README block
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python tools/update_project_progress.py
+
+      - name: Commit changed generated files
+        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+
+          if git diff --quiet -- README.md docs/project-progress-latest.json; then
+            echo "Project progress is already current."
+            exit 0
+          fi
+
+          git diff --check -- README.md docs/project-progress-latest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/project-progress-latest.json
+          git commit -m "docs: update project progress [skip ci]"
+          git push origin HEAD:main
