@@ -1,0 +1,16 @@
+[Unit]
+Description=Hermes Deals EDEKA Patzer immutable source freshness monitor
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/home/andris/.local/state/hermes-deals/edeka-scheduler-armed
+
+[Service]
+Type=oneshot
+User=andris
+WorkingDirectory=/home/andris/hermes-deals
+Environment=HOME=/home/andris
+# Exit code 2 marks stale, unverifiable or retry-exhausted source state.
+ExecStart=/usr/bin/docker compose exec -T --user 1000:1000 api python -m app.edeka_stale_monitor --max-success-age-hours 192 --failure-grace-hours 30
+TimeoutStartSec=120
+Nice=10
+UMask=0027
