@@ -1,0 +1,17 @@
+[Unit]
+Description=Hermes Deals EDEKA Patzer weekly collector schedule
+Documentation=https://www.edeka.de/maerkte/071897/angebote/
+ConditionPathExists=/home/andris/.local/state/hermes-deals/edeka-scheduler-armed
+
+[Timer]
+# Primary weekly collection after the new campaign normally appears.
+OnCalendar=Mon *-*-* 05:15:00
+# One controlled retry; an unchanged current source is a verified no-op.
+OnCalendar=Tue *-*-* 05:15:00
+Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
+Unit=hermes-deals-edeka-collector.service
+
+[Install]
+WantedBy=timers.target

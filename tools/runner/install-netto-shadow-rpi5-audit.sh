@@ -110,7 +110,13 @@ STAGING_DIR="$STAGING_ROOT/$RUN_KEY"
 install -d -o andris -g andris -m 0700 "$STAGING_ROOT"
 [[ ! -e "$STAGING_DIR" ]] || fail "staging directory already exists"
 install -d -o andris -g andris -m 0700 "$STAGING_DIR"
-cleanup() { rm -rf -- "$STAGING_DIR"; }
+LOG_FILE="$STAGING_ROOT/.${RUN_KEY}.audit-execution.log"
+[[ ! -e "$LOG_FILE" ]] || fail "audit execution log already exists"
+install -o root -g root -m 0600 /dev/null "$LOG_FILE"
+cleanup() {
+  rm -rf -- "$STAGING_DIR"
+  rm -f -- "$LOG_FILE"
+}
 trap cleanup EXIT
 
 set +e
@@ -128,9 +134,13 @@ runuser -u andris -- /usr/bin/env -i \
   HERMES_AUDIT_EXPORT_DIR="$STAGING_DIR" \
   HERMES_NETTO_AUDIT_TOOL="$tool_path" \
   /bin/bash --noprofile --norc "$runner_path" \
-  > "$STAGING_DIR/audit-execution.log" 2>&1
+  > "$LOG_FILE" 2>&1
 AUDIT_RC=$?
 set -e
+install -o andris -g andris -m 0600 \
+  "$LOG_FILE" \
+  "$STAGING_DIR/audit-execution.log"
+rm -f -- "$LOG_FILE"
 printf '%s\n' "$AUDIT_RC" > "$STAGING_DIR/audit-exit-code.txt"
 chown andris:andris "$STAGING_DIR/audit-execution.log" "$STAGING_DIR/audit-exit-code.txt"
 chmod 0600 "$STAGING_DIR/audit-execution.log" "$STAGING_DIR/audit-exit-code.txt"

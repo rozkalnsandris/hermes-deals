@@ -129,7 +129,7 @@ class UiReferenceRebuildV9bTest(unittest.TestCase):
         self.assertIn("DAILY_SPECIAL_PREVIEW_LIMIT=6", self.html)
         self.assertIn("data-special-more", self.html)
         self.assertIn(
-            "Promise.all([loadOverview(),loadGrid(),loadDailySpecials()])",
+            "Promise.allSettled([loadOverview(),loadGrid(),loadDailySpecials()])",
             self.html,
         )
 

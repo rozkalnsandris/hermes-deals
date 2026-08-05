@@ -205,15 +205,40 @@ def manifest_candidate(payload: Mapping[str, Any]) -> bool:
     )
 
 
+LEGACY_CONTAINER_RAW_ROOT = Path("/data/raw")
+
+
 def reference(manifest: Path, root: Path, value: Any) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
     raw = Path(value)
-    candidates = [raw] if raw.is_absolute() else [manifest.parent / raw, root / raw]
+    candidates: list[Path]
+    fallback: Path
+
+    if raw.is_absolute():
+        candidates = [raw]
+        fallback = raw
+        try:
+            legacy_relative = raw.relative_to(LEGACY_CONTAINER_RAW_ROOT)
+        except ValueError:
+            pass
+        else:
+            # Collector manifests were authored inside the container and may
+            # retain /data/raw/... paths. Map only that exact legacy namespace
+            # to the explicitly supplied host raw root. Never basename-search
+            # or remap arbitrary absolute paths.
+            if ".." not in legacy_relative.parts:
+                mapped = root / legacy_relative
+                candidates.append(mapped)
+                fallback = mapped
+    else:
+        candidates = [manifest.parent / raw, root / raw]
+        fallback = candidates[0]
+
     for candidate in candidates:
         if candidate.exists() or candidate.is_symlink():
             return candidate.absolute()
-    return candidates[0].absolute()
+    return fallback.absolute()
 
 
 def inspect_manifests(repo: Path, root: Path, today: date) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

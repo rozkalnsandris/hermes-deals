@@ -45,12 +45,14 @@ class UiDailyUseV1Test(unittest.TestCase):
             'open=OPEN_STATUSES.has(selected.status)',
             'reopenAllowed=canReopenStatus(selected.status)',
             '${open?`<button class="primary" id="save">',
-            'function detailMessage(detail,fallback)',
+            'class ReviewApiError extends Error',
+            'async function reviewRequest(url,options,fallback)',
             'form?.classList.add("readonly-form")',
             'form?.querySelectorAll("input,select,textarea,button").forEach(node=>node.disabled=true)',
             '{advance:true,successMessage:"Lapas pārbaude pabeigta."}',
         ):
             self.assertIn(marker, html)
+        self.assertNotIn('function detailMessage(detail,fallback)', html)
         self.assertNotIn('alert("Fast approval neizdevās:', html)
 
 

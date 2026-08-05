@@ -103,7 +103,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          EVENT_PATH: ${{ github.event_path }}
           WORKFLOW_REF: ${{ github.ref }}
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: "277435981"
@@ -122,7 +121,10 @@ jobs:
               raise SystemExit(f"unexpected repository: {repo}")
           if os.environ["WORKFLOW_REF"] != "refs/heads/main":
               raise SystemExit("audit workflow must execute from main")
-          event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
+          event_path = pathlib.Path(os.environ["GITHUB_EVENT_PATH"])
+          if not event_path.is_file():
+              raise SystemExit("GitHub event payload file is unavailable")
+          event = json.loads(event_path.read_text(encoding="utf-8"))
           if (event.get("label") or {}).get("name") != "audit:netto-shadow-v1":
               raise SystemExit("unexpected audit label")
           sender = event.get("sender") or {}

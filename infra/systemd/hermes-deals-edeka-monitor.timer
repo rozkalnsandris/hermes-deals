@@ -1,0 +1,19 @@
+[Unit]
+Description=Hermes Deals EDEKA Patzer freshness checks
+ConditionPathExists=/home/andris/.local/state/hermes-deals/edeka-scheduler-armed
+
+[Timer]
+# Monday is reserved for the primary collection and grace window.
+OnCalendar=Tue *-*-* 08:00:00
+OnCalendar=Wed *-*-* 08:00:00
+OnCalendar=Thu *-*-* 08:00:00
+OnCalendar=Fri *-*-* 08:00:00
+OnCalendar=Sat *-*-* 08:00:00
+OnCalendar=Sun *-*-* 08:00:00
+Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
+Unit=hermes-deals-edeka-monitor.service
+
+[Install]
+WantedBy=timers.target
