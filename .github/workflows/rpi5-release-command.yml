@@ -1,0 +1,402 @@
+name: RPi5 controlled API/UI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_class:
+        description: Release class
+        required: true
+        type: choice
+        options:
+          - smoke
+          - api-ui
+      pr_number:
+        description: Merged pull request number
+        required: true
+        type: string
+      release_sha:
+        description: Exact 40-character squash merge SHA
+        required: true
+        type: string
+      mode:
+        description: Plan only or apply the registered release
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      audit_run_id:
+        description: Optional successful issue-specific RPi5 audit workflow run ID
+        required: false
+        default: ""
+        type: string
+      authorization:
+        description: For apply, type exactly APPLY api-ui <release_sha>
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+# This serializes releases with the general RPi5 audit workflow. The dedicated
+# Netto audit uses a legacy separate concurrency group, so both the GitHub-hosted
+# authorizer and self-hosted release job also fail closed when that workflow is active.
+concurrency:
+  group: hermes-deals-rpi5-audit
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact merged release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_class: ${{ steps.authorize.outputs.release_class }}
+      release_sha: ${{ steps.authorize.outputs.release_sha }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      mode: ${{ steps.authorize.outputs.mode }}
+      ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
+      audit_run_id: ${{ steps.authorize.outputs.audit_run_id }}
+
+    steps:
+      - name: Validate owner, current main, CI and optional audit
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_PATH: ${{ github.event_path }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.parse
+          import urllib.request
+
+          expected_repo = "rozkalnsandris/hermes-deals"
+          event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
+          if event.get("repository", {}).get("full_name") != expected_repo:
+              raise SystemExit("unexpected repository")
+          if os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("release workflow must run from main")
+
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"]:
+              raise SystemExit("workflow_dispatch actor login is not allowlisted")
+          if sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("workflow_dispatch actor numeric identity is not allowlisted")
+
+          inputs = event.get("inputs") or {}
+          release_class = str(inputs.get("release_class", "")).strip()
+          pr_raw = str(inputs.get("pr_number", "")).strip()
+          release_sha = str(inputs.get("release_sha", "")).strip()
+          mode = str(inputs.get("mode", "")).strip()
+          audit_run_raw = str(inputs.get("audit_run_id", "")).strip()
+          authorization = str(inputs.get("authorization", "")).strip()
+
+          if release_class not in {"smoke", "api-ui"}:
+              raise SystemExit("release class is not allowlisted")
+          if not pr_raw.isdigit() or int(pr_raw) <= 0:
+              raise SystemExit("pull request number must be positive")
+          if not re.fullmatch(r"[0-9a-f]{40}", release_sha):
+              raise SystemExit("release SHA must be exactly 40 lowercase hex characters")
+          if mode not in {"plan", "apply"}:
+              raise SystemExit("release mode is invalid")
+          if audit_run_raw and (not audit_run_raw.isdigit() or int(audit_run_raw) <= 0):
+              raise SystemExit("audit run ID must be empty or positive")
+
+          if release_class == "smoke":
+              if mode != "plan":
+                  raise SystemExit("smoke release cannot apply production")
+              if authorization:
+                  raise SystemExit("smoke release authorization must be empty")
+              if audit_run_raw:
+                  raise SystemExit("smoke release cannot claim an issue-specific audit")
+          elif mode == "apply":
+              expected_phrase = f"APPLY api-ui {release_sha}"
+              if authorization != expected_phrase:
+                  raise SystemExit("apply authorization phrase does not match exact SHA")
+          elif authorization:
+              raise SystemExit("plan mode authorization must be empty")
+
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-release-authorizer",
+          }
+
+          def get_json(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          pr_number = int(pr_raw)
+          pr = get_json(f"https://api.github.com/repos/{expected_repo}/pulls/{pr_number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("release source pull request is not merged")
+          if pr.get("base", {}).get("ref") != "main":
+              raise SystemExit("release source pull request was not merged into main")
+          if pr.get("base", {}).get("repo", {}).get("full_name") != expected_repo:
+              raise SystemExit("release source pull request targets another repository")
+          if pr.get("merge_commit_sha") != release_sha:
+              raise SystemExit("release SHA is not the pull request squash merge SHA")
+
+          main = get_json(f"https://api.github.com/repos/{expected_repo}/branches/main")
+          current_main_sha = str(main.get("commit", {}).get("sha", ""))
+          if current_main_sha != release_sha:
+              raise SystemExit("release SHA is stale; only exact current main can be released")
+
+          encoded_sha = urllib.parse.quote(release_sha, safe="")
+          ci_runs = get_json(
+              f"https://api.github.com/repos/{expected_repo}/actions/workflows/ci.yml/runs"
+              f"?branch=main&head_sha={encoded_sha}&status=completed&per_page=100"
+          ).get("workflow_runs", [])
+          successful_ci = [
+              run
+              for run in ci_runs
+              if run.get("event") == "push"
+              and run.get("head_branch") == "main"
+              and run.get("head_sha") == release_sha
+              and run.get("conclusion") == "success"
+          ]
+          if not successful_ci:
+              raise SystemExit("exact release SHA has no successful main push CI run")
+          ci_run_id = max(int(run["id"]) for run in successful_ci)
+
+          active_statuses = ("queued", "in_progress", "waiting", "requested", "pending")
+          active_netto_runs = []
+          for active_status in active_statuses:
+              runs = get_json(
+                  f"https://api.github.com/repos/{expected_repo}/actions/workflows/"
+                  f"netto-shadow-rpi5-audit.yml/runs?status={active_status}&per_page=100"
+              ).get("workflow_runs", [])
+              active_netto_runs.extend(
+                  run for run in runs if run.get("status") in active_statuses
+              )
+          if active_netto_runs:
+              active_ids = ",".join(str(run.get("id")) for run in active_netto_runs[:10])
+              raise SystemExit(
+                  f"dedicated Netto RPi5 audit is active; release refused: {active_ids}"
+              )
+
+          audit_run_id = ""
+          if audit_run_raw:
+              audit = get_json(
+                  f"https://api.github.com/repos/{expected_repo}/actions/runs/{audit_run_raw}"
+              )
+              allowed_audit_names = {
+                  "RPi5 approved audit command",
+                  "Netto shadow RPi5 audit",
+              }
+              if audit.get("name") not in allowed_audit_names:
+                  raise SystemExit("audit workflow name is not allowlisted")
+              if audit.get("status") != "completed" or audit.get("conclusion") != "success":
+                  raise SystemExit("issue-specific audit did not complete successfully")
+              if audit.get("head_branch") != "main" or audit.get("head_sha") != release_sha:
+                  raise SystemExit("issue-specific audit is not bound to exact release SHA")
+              audit_run_id = str(int(audit_run_raw))
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"release_class={release_class}\n")
+              handle.write(f"release_sha={release_sha}\n")
+              handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"mode={mode}\n")
+              handle.write(f"ci_run_id={ci_run_id}\n")
+              handle.write(f"audit_run_id={audit_run_id}\n")
+
+          summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary.write_text(
+              "## Authorized Hermes Deals release\n\n"
+              f"- Class: `{release_class}`\n"
+              f"- Mode: `{mode}`\n"
+              f"- Exact current main SHA: `{release_sha}`\n"
+              f"- Merged PR: `#{pr_number}`\n"
+              f"- Successful CI run: `{ci_run_id}`\n"
+              f"- Issue-specific audit run: `{audit_run_id or 'not-required'}`\n"
+              f"- Database writes authorized: **false**\n",
+              encoding="utf-8",
+          )
+          PY
+
+  release:
+    name: Run root-owned release dispatcher
+    needs:
+      - authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-release
+    timeout-minutes: 45
+
+    steps:
+      - name: Recheck dedicated Netto audit inactivity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ needs.authorize.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          release_sha = os.environ["RELEASE_SHA"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-release-audit-recheck",
+          }
+          branch_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/branches/main",
+              headers=headers,
+          )
+          with urllib.request.urlopen(branch_request, timeout=20) as response:
+              current_main = str(json.load(response).get("commit", {}).get("sha", ""))
+          if current_main != release_sha:
+              raise SystemExit("main advanced after authorization; release refused")
+
+          active_statuses = ("queued", "in_progress", "waiting", "requested", "pending")
+          active = []
+          for status in active_statuses:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/actions/workflows/"
+                  f"netto-shadow-rpi5-audit.yml/runs?status={status}&per_page=100",
+                  headers=headers,
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  active.extend(
+                      run
+                      for run in json.load(response).get("workflow_runs", [])
+                      if run.get("status") in active_statuses
+                  )
+          if active:
+              identifiers = ",".join(str(run.get("id")) for run in active[:10])
+              raise SystemExit(
+                  f"dedicated Netto RPi5 audit became active; release refused: {identifiers}"
+              )
+          PY
+
+      - name: Dispatch registered release without repository checkout
+        id: dispatch
+        env:
+          RELEASE_CLASS: ${{ needs.authorize.outputs.release_class }}
+          RELEASE_SHA: ${{ needs.authorize.outputs.release_sha }}
+          RELEASE_MODE: ${{ needs.authorize.outputs.mode }}
+          CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+          AUDIT_RUN_ID: ${{ needs.authorize.outputs.audit_run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir" >> "$GITHUB_OUTPUT"
+
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-release-dispatch \
+            "$RELEASE_CLASS" \
+            "$RELEASE_SHA" \
+            "$RELEASE_MODE" \
+            "$CI_RUN_ID" \
+            "${AUDIT_RUN_ID:-}" \
+            "$export_dir" \
+            2>&1 | tee "$export_dir/runner-dispatch.log"
+          dispatch_rc=${PIPESTATUS[0]}
+          set -e
+
+          printf '%s\n' "$dispatch_rc" > "$export_dir/runner-dispatch-exit-code.txt"
+          printf 'release_class=%s\nrelease_sha=%s\nmode=%s\nci_run_id=%s\naudit_run_id=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$RELEASE_CLASS" "$RELEASE_SHA" "$RELEASE_MODE" "$CI_RUN_ID" \
+            "${AUDIT_RUN_ID:-}" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$export_dir/runner-request.txt"
+          exit "$dispatch_rc"
+
+      - name: Upload sanitized release evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ needs.authorize.outputs.release_class }}-${{ needs.authorize.outputs.release_sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: Report release result to merged PR
+    needs:
+      - authorize
+      - release
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Post bounded release report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          RELEASE_CLASS: ${{ needs.authorize.outputs.release_class }}
+          RELEASE_SHA: ${{ needs.authorize.outputs.release_sha }}
+          RELEASE_MODE: ${{ needs.authorize.outputs.mode }}
+          CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+          AUDIT_RUN_ID: ${{ needs.authorize.outputs.audit_run_id }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          pr_number = int(os.environ["PR_NUMBER"])
+          run_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['RUN_ID']}"
+          body = (
+              "<!-- hermes-deals-controlled-release -->\n"
+              "## Controlled release result\n\n"
+              f"- Class: `{os.environ['RELEASE_CLASS']}`\n"
+              f"- Mode: `{os.environ['RELEASE_MODE']}`\n"
+              f"- Exact main SHA: `{os.environ['RELEASE_SHA']}`\n"
+              f"- CI run: `{os.environ['CI_RUN_ID']}`\n"
+              f"- Audit run: `{os.environ.get('AUDIT_RUN_ID') or 'not-required'}`\n"
+              f"- Release job: **{os.environ['RELEASE_RESULT']}**\n"
+              f"- Workflow evidence: {run_url}\n"
+              "- Database writes authorized: **false**\n"
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+              data=json.dumps({"body": body}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-release-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20):
+              pass
+          PY
