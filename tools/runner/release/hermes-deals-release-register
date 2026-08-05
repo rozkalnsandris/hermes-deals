@@ -114,10 +114,51 @@ docker build \
   --tag "$NEW_TAG" \
   "$SOURCE_WORKTREE/backend"
 
-docker run --rm \
+IMAGE_SMOKE_OUTPUT="$(docker run --rm -i \
   --env DATABASE_URL='sqlite+pysqlite:///:memory:' \
+  --env EXPECTED_APP_VERSION="$VERSION" \
   "$NEW_TAG" \
-  python -m pytest -q
+  python - <<'PY_SMOKE'
+import os
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+expected_version = os.environ.get("EXPECTED_APP_VERSION", "")
+if not expected_version or app.version != expected_version:
+    raise SystemExit("application version mismatch")
+
+schema = app.openapi()
+if "/api/health" not in schema.get("paths", {}):
+    raise SystemExit("health route missing from OpenAPI schema")
+
+route_paths = {getattr(route, "path", "") for route in app.routes}
+for required_route in ("/api/health", "/ui", "/ui/styles.css", "/ui/app.js"):
+    if required_route not in route_paths:
+        raise SystemExit(f"required route missing: {required_route}")
+
+ui_root = Path("/app/app/ui")
+for asset in ("index.html", "styles.css", "app.js"):
+    path = ui_root / asset
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise SystemExit(f"UI asset missing or empty: {asset}")
+
+with TestClient(app) as client:
+    health = client.get("/api/health")
+    if health.status_code != 200 or health.json().get("status") != "ok":
+        raise SystemExit("in-image health request failed")
+    ui = client.get("/ui")
+    if ui.status_code != 200 or not ui.text.strip():
+        raise SystemExit("in-image UI request failed")
+
+print("IMAGE_SMOKE_RESULT=PASS")
+PY_SMOKE
+)"
+printf '%s\n' "$IMAGE_SMOKE_OUTPUT"
+[[ "$IMAGE_SMOKE_OUTPUT" == 'IMAGE_SMOKE_RESULT=PASS' ]] \
+  || fail "production image runtime smoke validation failed"
 
 NEW_IMAGE_ID="$(docker image inspect "$NEW_TAG" --format '{{.Id}}')"
 [[ "$NEW_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "new image ID is invalid"
