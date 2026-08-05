@@ -32,6 +32,17 @@ docker compose \
 The last known-good release image archive must be retained across Docker image
 pruning. Keep at least the previous and current release archives.
 
+## Controlled GitHub release workflow
+
+The repository-side controlled API/UI release implementation is documented in
+`docs/operations/rpi5-github-release-runner.md`.
+
+The workflow is manual-only and requires an exact current `main` squash merge
+SHA, successful exact-SHA CI, a separate release runner account, root
+registration of immutable image and rollback archives, and an exact apply
+confirmation phrase. The first implementation slice cannot run migrations or
+authorize database writes.
+
 ## Scheduled retailer collectors
 
 The production systemd collector services are stored in `infra/systemd/`.
