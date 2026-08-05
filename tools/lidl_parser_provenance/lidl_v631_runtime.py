@@ -10,6 +10,7 @@ import sys
 import types
 from typing import Any
 
+from app.lidl_weekly_semantics import gate_parser_report
 from app.schemas import OfferCandidate
 
 
@@ -126,10 +127,30 @@ class LidlParseResult:
     semantic_occurrences: tuple[CardSemanticOffer, ...]
 
 
+class SemanticGatedShadowRuntime:
+    """Read-only proxy that keeps frozen parser rows review-only by default."""
+
+    def __init__(self, module: types.ModuleType) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._module, name)
+
+    @property
+    def raw_module(self) -> types.ModuleType:
+        return self._module
+
+    def analyze_lidl_pdf(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        report = self._module.analyze_lidl_pdf(*args, **kwargs)
+        if not isinstance(report, dict):
+            raise RuntimeError("Frozen Lidl V6.3.1 parser returned a non-object report")
+        return gate_parser_report(report)
+
+
 @dataclass(frozen=True)
 class LidlV631Runtime:
     base: types.ModuleType
-    shadow: types.ModuleType
+    shadow: SemanticGatedShadowRuntime
     provenance_dir: Path
 
 
@@ -213,7 +234,7 @@ def load_lidl_v631(
         sys.modules["app.lidl.models"] = models_module
         base = _load_module("app.lidl.r61_base", base_path)
         lidl_module.r61_base = base
-        shadow = _load_module("app.lidl.r61_shadow", shadow_path)
+        shadow_module = _load_module("app.lidl.r61_shadow", shadow_path)
     finally:
         for name, previous in previous_modules.items():
             if previous is None:
@@ -227,10 +248,10 @@ def load_lidl_v631(
 
     if getattr(base, "PARSER_VERSION", None) != "lidl-pdf-v08c-r6":
         raise RuntimeError("Unexpected frozen Lidl base parser version")
-    if getattr(shadow, "PARSER_VERSION", None) != PARSER_VERSION:
+    if getattr(shadow_module, "PARSER_VERSION", None) != PARSER_VERSION:
         raise RuntimeError("Unexpected Lidl V6.3.1 shadow parser version")
     return LidlV631Runtime(
         base=base,
-        shadow=shadow,
+        shadow=SemanticGatedShadowRuntime(shadow_module),
         provenance_dir=root,
     )

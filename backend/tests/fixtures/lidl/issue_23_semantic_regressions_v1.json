@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "issue": 23,
+  "description": "Known Lidl false-negative titles with generic, non-flyer-specific scope outcomes.",
+  "cases": [
+    {
+      "id": "alesto-walnusskerne",
+      "title": "ALESTO Walnusskerne",
+      "expected_scope": "review",
+      "expected_reason": "insufficient_generic_scope_evidence_requires_review"
+    },
+    {
+      "id": "langnese-magnum",
+      "title": "LANGNESE Magnum",
+      "expected_scope": "review",
+      "expected_reason": "insufficient_generic_scope_evidence_requires_review"
+    },
+    {
+      "id": "buttercroissant",
+      "title": "Buttercroissant",
+      "expected_scope": "in_scope",
+      "expected_reason": "generic_scope_evidence_in_scope"
+    },
+    {
+      "id": "kinder-maxi-king",
+      "title": "KINDER Maxi King",
+      "structured_category_text": "Lebensmittel > Süßwaren",
+      "expected_scope": "in_scope",
+      "expected_reason": "generic_scope_evidence_in_scope"
+    }
+  ]
+}
