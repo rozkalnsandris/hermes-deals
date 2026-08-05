@@ -6,6 +6,7 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MAIN_DEPLOY = ROOT / "tools/runner/release/hermes-deals-release-main-deploy"
+DISPATCHER = ROOT / "tools/runner/release/hermes-deals-release-dispatch"
 
 
 def test_direct_main_deploy_resolves_exact_web_published_binding() -> None:
@@ -32,6 +33,35 @@ def test_direct_main_deploy_resolves_exact_web_published_binding() -> None:
         assert marker in text
 
     assert "http://127.0.0.1:9128/api/health" not in text
+    assert "192.168.0.180" not in text
+
+
+def test_dispatcher_reuses_exact_web_published_binding_for_apply_and_rollback() -> None:
+    subprocess.run(["bash", "-n", str(DISPATCHER)], check=True)
+    text = DISPATCHER.read_text(encoding="utf-8")
+
+    for marker in (
+        "resolve_web_base_url()",
+        'WEB_CONTAINER_BEFORE="$("${COMPOSE[@]}" ps -q web)"',
+        'ports.get("80/tcp")',
+        'binding.get("HostIp")',
+        'binding.get("HostPort")',
+        'LOCAL_WEB_BASE="$(resolve_web_base_url "$WEB_CONTAINER_BEFORE")"',
+        '"$LOCAL_WEB_BASE/api/health"',
+        '"$LOCAL_WEB_BASE/ui"',
+        'WEB_CONTAINER_AFTER="$("${COMPOSE[@]}" ps -q web)"',
+        'WEB_CONTAINER_RESTORED="$("${COMPOSE[@]}" ps -q web)"',
+        '"$WEB_CONTAINER_AFTER" == "$WEB_CONTAINER_BEFORE"',
+        '"$WEB_CONTAINER_RESTORED" == "$WEB_CONTAINER_BEFORE"',
+        'APPLY_LOG="$STAGING_DIR/apply-compose.log"',
+        'ROLLBACK_LOG="$STAGING_DIR/rollback-compose.log"',
+        "production API health check failed before deploy",
+        "production API apply verification failed",
+        "production API rollback verification failed",
+    ):
+        assert marker in text
+
+    assert "127.0.0.1:9128" not in text
     assert "192.168.0.180" not in text
 
 
