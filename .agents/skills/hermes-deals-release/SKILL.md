@@ -28,11 +28,16 @@ Use the already authenticated `gh` CLI. Never request, print, copy, store or pas
 Always preserve all of these:
 
 - `database_writes_authorized=false`;
-- no `alembic upgrade`, `alembic downgrade` or other migration command;
+- no `alembic upgrade`;
+- no `alembic downgrade`;
+- no other migration command;
 - no production data mutation;
-- no `docker compose up`, Compose-file change or broad container recreation outside the controlled dispatcher;
+- no `docker compose up`;
+- no Compose-file change or broad container recreation outside the controlled dispatcher;
 - no Cloudflare, DNS, tunnel, secret or token change;
-- no `git reset`, `git clean`, stash, branch switch or edit in the primary worktree;
+- no `git reset`;
+- no `git clean`;
+- no stash, branch switch or edit in the primary worktree;
 - no destructive deletion or manually invented rollback;
 - no B15M2 issue #20 or B15M2 V08 execution;
 - no alternative attempt after a guarded step returns BLOCKED, FAIL or an ambiguous result.
