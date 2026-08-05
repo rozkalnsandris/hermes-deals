@@ -45,9 +45,12 @@
     {"from":"weekly-semantic-view","to":"weekly-semantics","kind":"imports","evidence_token":"from app.lidl_weekly_semantics import"},
     {"from":"weekly-semantic-view","to":"weekly-completeness-contract","kind":"imports","evidence_token":"from app.lidl_weekly_completeness_contract import"},
     {"from":"weekly-one-shot","to":"family-source-discovery","kind":"imports","evidence_token":"from app.lidl_family_source_discovery import"},
+    {"from":"weekly-one-shot","to":"weekly-completeness-contract","kind":"imports","evidence_token":"from app.lidl_weekly_completeness_contract import"},
     {"from":"weekly-staging","to":"weekly-completeness-contract","kind":"imports","evidence_token":"from app.lidl_weekly_completeness_contract import"},
     {"from":"weekly-completeness","to":"weekly-completeness-contract","kind":"imports","evidence_token":"from app.lidl_weekly_completeness_contract import"},
-    {"from":"corpus-import","to":"review-seed-reconciliation","kind":"imports","evidence_token":"from app.lidl_review_seed_reconciliation import"}
+    {"from":"weekly-semantics","to":"weekly-completeness-contract","kind":"imports","evidence_token":"from app.lidl_weekly_completeness_contract import"},
+    {"from":"corpus-import","to":"review-seed-reconciliation","kind":"imports","evidence_token":"from app.lidl_review_seed_reconciliation import"},
+    {"from":"corpus-import","to":"weekly-completeness-contract","kind":"imports","evidence_token":"from app.lidl_weekly_completeness_contract import"}
   ],
   "historical_identities": [
     {"name":"legacy parser.py public path","paths":["backend/app/lidl/parser.py","backend/app/retailers/lidl/parser.py"],"status":"absent_from_current_repository","allowed_importers":[]},
