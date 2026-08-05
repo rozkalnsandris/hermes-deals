@@ -98,6 +98,8 @@ def _validate_context(context: EdekaParserContext) -> None:
         parsed.scheme not in {"http", "https"}
         or parsed.netloc.casefold() != "www.edeka.de"
         or parsed.path != expected_path
+        or bool(parsed.query)
+        or bool(parsed.fragment)
     ):
         raise ValueError(
             "EDEKA parser source_url is not bound to the configured public market "
@@ -148,10 +150,26 @@ def _validate_campaign_freshness(
         )
 
 
-def _offer_id_from_href(href: str) -> str | None:
-    fragment = urlparse(href).fragment
-    match = _OFFER_FRAGMENT_RE.fullmatch(fragment)
-    return match.group("offer_id").lower() if match else None
+def _offer_id_from_href(href: str, source_url: str) -> str | None:
+    parsed_href = urlparse(href)
+    match = _OFFER_FRAGMENT_RE.fullmatch(parsed_href.fragment)
+    if match is None:
+        return None
+
+    source_page = urlparse(source_url)
+    resolved = urlparse(urljoin(source_url, href))
+    if (
+        resolved.scheme.casefold() != source_page.scheme.casefold()
+        or resolved.netloc.casefold() != source_page.netloc.casefold()
+        or resolved.path != source_page.path
+        or resolved.query != source_page.query
+    ):
+        raise ValueError(
+            "EDEKA offer fragment points outside the configured source page: "
+            f"{href}"
+        )
+
+    return match.group("offer_id").lower()
 
 
 def _price_fields(
@@ -274,7 +292,7 @@ def parse_edeka_html(
 
     for anchor in soup.find_all("a", href=True):
         href = str(anchor.get("href") or "")
-        source_offer_id = _offer_id_from_href(href)
+        source_offer_id = _offer_id_from_href(href, context.source_url)
         if source_offer_id is None or source_offer_id in seen_offer_ids:
             continue
 
