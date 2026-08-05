@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "issue": 22,
+  "canonical_runtime_node": "v631-runtime-loader",
+  "canonical_parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+  "corpus_manifest": "tools/lidl_parser_provenance/v631/manifest.json",
+  "retention_policy": {
+    "mode": "permanent_content_addressed_evidence",
+    "required_paths": [
+      "tools/lidl_parser_provenance/v631/r61_base.py",
+      "tools/lidl_parser_provenance/v631/r61_shadow.py",
+      "tools/lidl_parser_provenance/v631/test_lidl_r61_shadow.py",
+      "tools/lidl_parser_provenance/v631/manifest.json"
+    ],
+    "removal_requires_recovery_proof": true
+  },
+  "nodes": [
+    {
+      "id": "v631-runtime-loader",
+      "path": "tools/lidl_parser_provenance/lidl_v631_runtime.py",
+      "role": "canonical_active_runtime_adapter",
+      "lifecycle": "active",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": true
+    },
+    {
+      "id": "v631-frozen-base",
+      "path": "tools/lidl_parser_provenance/v631/r61_base.py",
+      "role": "authoritative_frozen_base_parser",
+      "lifecycle": "frozen",
+      "parser_version": "lidl-pdf-v08c-r6",
+      "sha256": "55b403e1b23eb3bce5eb67e2d1665b47be7bf4d5e8ea109234f9c317a77518a2",
+      "runtime_imported": true
+    },
+    {
+      "id": "v631-shadow-parser",
+      "path": "tools/lidl_parser_provenance/v631/r61_shadow.py",
+      "role": "authoritative_shadow_parser",
+      "lifecycle": "frozen",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "7191e910f07bb0a14ece3f398f1ba73e3ea250fc4bec1aeafea3afa8ce6dda90",
+      "runtime_imported": true
+    },
+    {
+      "id": "r61-reference-copy",
+      "path": "tools/lidl_parser_provenance/r61_base.py",
+      "role": "frozen_reference_copy",
+      "lifecycle": "reference",
+      "parser_version": "lidl-pdf-v08c-r6",
+      "sha256": "55b403e1b23eb3bce5eb67e2d1665b47be7bf4d5e8ea109234f9c317a77518a2",
+      "runtime_imported": false
+    },
+    {
+      "id": "r61-reference-loader",
+      "path": "tools/lidl_parser_provenance/r61_runtime.py",
+      "role": "reference_only_loader",
+      "lifecycle": "reference",
+      "parser_version": "lidl-pdf-v08c-r6",
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "family-source-discovery",
+      "path": "backend/app/lidl_family_source_discovery.py",
+      "role": "selected_store_source_discovery",
+      "lifecycle": "active",
+      "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "weekly-one-shot",
+      "path": "tools/lidl_weekly_one_shot.py",
+      "role": "guarded_weekly_shadow_entrypoint",
+      "lifecycle": "active",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": true
+    },
+    {
+      "id": "weekly-staging",
+      "path": "tools/lidl_weekly_staging.py",
+      "role": "append_only_staging_entrypoint",
+      "lifecycle": "active",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": true
+    },
+    {
+      "id": "weekly-completeness",
+      "path": "tools/lidl-weekly-completeness.py",
+      "role": "review_completeness_entrypoint",
+      "lifecycle": "active",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": true
+    },
+    {
+      "id": "weekly-completeness-contract",
+      "path": "backend/app/lidl_weekly_completeness_contract.py",
+      "role": "review_and_eligibility_contract",
+      "lifecycle": "active",
+      "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "corpus-import",
+      "path": "backend/app/lidl_corpus_import.py",
+      "role": "immutable_corpus_importer",
+      "lifecycle": "active",
+      "parser_version": "lidl-pdf-v08c-r61-shadow-v631",
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "review-seed-reconciliation",
+      "path": "backend/app/lidl_review_seed_reconciliation.py",
+      "role": "review_seed_reconciler",
+      "lifecycle": "active",
+      "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": false
+    },
+    {
+      "id": "structured-source-shadow",
+      "path": "backend/app/structured_source_shadow.py",
+      "role": "legacy_multi_retailer_shadow_discovery",
+      "lifecycle": "compatibility",
+      "parser_version": null,
+      "sha256": "AUTO",
+      "runtime_imported": false
+    }
+  ],
+  "edges": [
+    {
+      "from": "weekly-one-shot",
+      "to": "v631-runtime-loader",
+      "kind": "imports",
+      "evidence_token": "from lidl_parser_provenance.lidl_v631_runtime import"
+    },
+    {
+      "from": "weekly-staging",
+      "to": "v631-runtime-loader",
+      "kind": "imports",
+      "evidence_token": "from lidl_parser_provenance.lidl_v631_runtime import"
+    },
+    {
+      "from": "weekly-completeness",
+      "to": "v631-runtime-loader",
+      "kind": "imports",
+      "evidence_token": "from lidl_parser_provenance.lidl_v631_runtime import"
+    },
+    {
+      "from": "v631-runtime-loader",
+      "to": "v631-frozen-base",
+      "kind": "content_addressed_load",
+      "evidence_token": "base_path = root / \"r61_base.py\""
+    },
+    {
+      "from": "v631-runtime-loader",
+      "to": "v631-shadow-parser",
+      "kind": "content_addressed_load",
+      "evidence_token": "shadow_path = root / \"r61_shadow.py\""
+    },
+    {
+      "from": "weekly-one-shot",
+      "to": "family-source-discovery",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_family_source_discovery import"
+    },
+    {
+      "from": "weekly-staging",
+      "to": "weekly-completeness-contract",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_weekly_completeness_contract import"
+    },
+    {
+      "from": "weekly-completeness",
+      "to": "weekly-completeness-contract",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_weekly_completeness_contract import"
+    },
+    {
+      "from": "corpus-import",
+      "to": "review-seed-reconciliation",
+      "kind": "imports",
+      "evidence_token": "from app.lidl_review_seed_reconciliation import"
+    }
+  ],
+  "historical_identities": [
+    {
+      "name": "legacy parser.py public path",
+      "paths": [
+        "backend/app/lidl/parser.py",
+        "backend/app/retailers/lidl/parser.py"
+      ],
+      "status": "absent_from_current_repository",
+      "allowed_importers": []
+    },
+    {
+      "name": "dead noncanonical r6_parser.py",
+      "paths": [
+        "backend/app/lidl/r6_parser.py",
+        "backend/app/r6_parser.py",
+        "tools/lidl_parser_provenance/r6_parser.py"
+      ],
+      "status": "quarantined_by_absence",
+      "allowed_importers": [],
+      "recovery_evidence": "tools/lidl_parser_provenance/v631/"
+    },
+    {
+      "name": "legacy Codex V6.2 worktree",
+      "paths": [],
+      "status": "external_evidence_only_non_authoritative",
+      "allowed_importers": []
+    }
+  ]
+}
