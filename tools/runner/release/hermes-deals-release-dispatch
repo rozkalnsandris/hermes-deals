@@ -190,19 +190,30 @@ PY
   [[ "$(sha256sum "$IMAGE_ARCHIVE" | awk '{print $1}')" == "$IMAGE_ARCHIVE_SHA" ]] || fail "new image archive hash drift"
   [[ "$(sha256sum "$ROLLBACK_ARCHIVE" | awk '{print $1}')" == "$ROLLBACK_ARCHIVE_SHA" ]] || fail "rollback archive hash drift"
 
-  [[ "$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')" == "$IMAGE_ID" ]] || fail "registered new image ID drift"
-  [[ "$(docker image inspect "$IMAGE_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}')" == "$EXPECTED_SHA" ]] || fail "new image revision label mismatch"
-  [[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$ROLLBACK_IMAGE_ID" ]] || fail "registered rollback image ID drift"
+  NEW_IMAGE_ID="$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')" \
+    || fail "registered new image ID could not be inspected"
+  [[ "$NEW_IMAGE_ID" == "$IMAGE_ID" ]] || fail "registered new image ID drift"
+  NEW_IMAGE_REVISION="$(docker image inspect "$IMAGE_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
+    || fail "registered new image revision label could not be inspected"
+  [[ "$NEW_IMAGE_REVISION" == "$EXPECTED_SHA" ]] || fail "new image revision label mismatch"
+  REGISTERED_ROLLBACK_IMAGE_ID="$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" \
+    || fail "registered rollback image ID could not be inspected"
+  [[ "$REGISTERED_ROLLBACK_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" ]] || fail "registered rollback image ID drift"
 
   export HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}"
   COMPOSE=(docker compose --project-directory "$PRODUCTION_ROOT" --env-file "$PRODUCTION_ROOT/.env" -f "$COMPOSE_BASE" -f "$COMPOSE_PRODUCTION")
   CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+  WEB_CONTAINER_BEFORE="$("${COMPOSE[@]}" ps -q web)"
   [[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
-  CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
-  CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
+  [[ -n "$WEB_CONTAINER_BEFORE" ]] || fail "production web container is not running"
+  CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')" \
+    || fail "production API image ID could not be inspected"
+  CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')" \
+    || fail "production API image tag could not be inspected"
   [[ "$CURRENT_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" ]] || fail "production image ID does not match registered rollback baseline"
   [[ "$CURRENT_IMAGE_TAG" == hermes-deals-api:release-* ]] || fail "production image is not a Hermes Deals release image"
-  CURRENT_IMAGE_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+  CURRENT_IMAGE_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
+    || fail "production API revision label could not be inspected"
   if [[ "$CURRENT_IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
     [[ "$CURRENT_IMAGE_REVISION" == "$ROLLBACK_SHA" ]] || fail "production OCI revision does not match registered rollback baseline"
   elif [[ -n "$CURRENT_IMAGE_REVISION" && "$CURRENT_IMAGE_REVISION" != '<no value>' ]]; then
@@ -210,6 +221,44 @@ PY
   else
     [[ "$CURRENT_IMAGE_TAG" == "$ROLLBACK_TAG" ]] || fail "production image has no exact rollback provenance"
   fi
+
+  resolve_web_base_url() {
+    local web_container="$1"
+    docker inspect "$web_container" | python3 -c '
+import ipaddress
+import json
+import sys
+
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+ports = rows[0].get("NetworkSettings", {}).get("Ports", {})
+bindings = ports.get("80/tcp")
+if not isinstance(bindings, list) or len(bindings) != 1:
+    raise SystemExit(2)
+binding = bindings[0]
+if not isinstance(binding, dict):
+    raise SystemExit(2)
+host_ip = str(binding.get("HostIp") or "")
+host_port = str(binding.get("HostPort") or "")
+if host_ip in {"", "0.0.0.0", "::"}:
+    raise SystemExit(2)
+try:
+    parsed_ip = ipaddress.ip_address(host_ip)
+except ValueError:
+    raise SystemExit(2)
+if not host_port.isdigit():
+    raise SystemExit(2)
+port = int(host_port)
+if not 1 <= port <= 65535:
+    raise SystemExit(2)
+host = f"[{parsed_ip.compressed}]" if parsed_ip.version == 6 else parsed_ip.compressed
+print(f"http://{host}:{port}")
+'
+  }
+
+  LOCAL_WEB_BASE="$(resolve_web_base_url "$WEB_CONTAINER_BEFORE")" \
+    || fail "production web published endpoint could not be resolved"
 
   read_live_alembic() {
     local db_container
@@ -241,7 +290,8 @@ for key in ("POSTGRES_USER", "POSTGRES_DB"):
       'SELECT version_num FROM alembic_version;'
   }
 
-  PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health)"
+  PRE_HEALTH="$(curl --fail --silent --show-error --max-time 8 "$LOCAL_WEB_BASE/api/health")" \
+    || fail "production API health check failed before deploy"
   PRE_ALEMBIC="$(read_live_alembic)"
   PRE_HEALTH_FILE="$STAGING_DIR/pre-health.json"
   printf '%s\n' "$PRE_HEALTH" > "$PRE_HEALTH_FILE"
@@ -308,18 +358,20 @@ PY
     docker image load --input "$IMAGE_ARCHIVE" >/dev/null
     [[ "$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}')" == "$IMAGE_ID" ]] || fail "new image archive did not reproduce expected image"
 
+    APPLY_LOG="$STAGING_DIR/apply-compose.log"
     set +e
     HERMES_DEALS_API_TAG="${IMAGE_TAG#hermes-deals-api:}" \
-      "${COMPOSE[@]}" up -d --no-deps --no-build --wait api >/dev/null 2>&1
+      "${COMPOSE[@]}" up -d --no-deps --no-build --wait api >"$APPLY_LOG" 2>&1
     APPLY_RC=$?
     if [[ $APPLY_RC -eq 0 ]]; then
       NEW_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+      WEB_CONTAINER_AFTER="$("${COMPOSE[@]}" ps -q web)"
       NEW_IMAGE_ID="$(docker inspect "$NEW_CONTAINER" --format '{{.Image}}' 2>/dev/null)"
-      POST_HEALTH="$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health 2>/dev/null)"
+      POST_HEALTH="$(curl --fail --silent --show-error --max-time 8 "$LOCAL_WEB_BASE/api/health" 2>/dev/null)"
       CANARY_RC=$?
-      UI_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 8 http://127.0.0.1:9128/ui)"
+      UI_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 8 "$LOCAL_WEB_BASE/ui")"
       POST_ALEMBIC="$(read_live_alembic)"
-      [[ "$NEW_IMAGE_ID" == "$IMAGE_ID" && $CANARY_RC -eq 0 && "$UI_STATUS" =~ ^(200|302)$ && "$POST_ALEMBIC" == "$PRE_ALEMBIC" ]]
+      [[ "$WEB_CONTAINER_AFTER" == "$WEB_CONTAINER_BEFORE" && "$NEW_IMAGE_ID" == "$IMAGE_ID" && $CANARY_RC -eq 0 && "$UI_STATUS" =~ ^(200|302)$ && "$POST_ALEMBIC" == "$PRE_ALEMBIC" ]]
       APPLY_RC=$?
     fi
     set -e
@@ -327,18 +379,21 @@ PY
     if [[ $APPLY_RC -eq 0 ]]; then
       FINAL_STATUS="applied"
     else
+      printf 'ERROR: production API apply verification failed (rc=%s)\n' "$APPLY_RC" >&2
       ROLLBACK_PERFORMED=true
+      ROLLBACK_LOG="$STAGING_DIR/rollback-compose.log"
       set +e
       HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}" \
-        "${COMPOSE[@]}" up -d --no-deps --no-build --wait api >/dev/null 2>&1
+        "${COMPOSE[@]}" up -d --no-deps --no-build --wait api >"$ROLLBACK_LOG" 2>&1
       ROLLBACK_RC=$?
       if [[ $ROLLBACK_RC -eq 0 ]]; then
         RESTORED_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+        WEB_CONTAINER_RESTORED="$("${COMPOSE[@]}" ps -q web)"
         RESTORED_IMAGE_ID="$(docker inspect "$RESTORED_CONTAINER" --format '{{.Image}}' 2>/dev/null)"
-        curl --fail --silent --show-error --max-time 8 http://127.0.0.1:9128/api/health >/dev/null 2>&1
+        curl --fail --silent --show-error --max-time 8 "$LOCAL_WEB_BASE/api/health" >/dev/null 2>&1
         HEALTH_RC=$?
         RESTORED_ALEMBIC="$(read_live_alembic)"
-        [[ "$RESTORED_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" && $HEALTH_RC -eq 0 && "$RESTORED_ALEMBIC" == "$PRE_ALEMBIC" ]]
+        [[ "$WEB_CONTAINER_RESTORED" == "$WEB_CONTAINER_BEFORE" && "$RESTORED_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" && $HEALTH_RC -eq 0 && "$RESTORED_ALEMBIC" == "$PRE_ALEMBIC" ]]
         ROLLBACK_RC=$?
       fi
       set -e
@@ -347,6 +402,7 @@ PY
         FINAL_STATUS="apply-failed-rollback-succeeded"
         RESULT_RC=1
       else
+        printf 'ERROR: production API rollback verification failed (rc=%s)\n' "$ROLLBACK_RC" >&2
         FINAL_STATUS="apply-failed-rollback-failed"
         RESULT_RC=2
       fi
