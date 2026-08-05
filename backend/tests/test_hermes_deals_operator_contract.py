@@ -22,6 +22,8 @@ def test_release_skill_is_deploy_only_check_then_deploy() -> None:
     text = read(SKILL)
     for marker in (
         "This skill is only a deploy operator.",
+        "Follow repository `AGENTS.md` and this release skill only.",
+        "inspect or summarize pull requests, issues, branches, commits or project history before deploy",
         "bash tools/vscode-rpi5-release.sh check",
         "bash tools/vscode-rpi5-release.sh deploy",
         "Do not run a separate Plan.",
@@ -36,6 +38,7 @@ def test_release_skill_is_deploy_only_check_then_deploy() -> None:
         assert marker in text
 
     for forbidden in (
+        "Follow repository `AGENTS.md` and the `hermes-deals` skill",
         "APPLY api-ui <40-sha>",
         "bash tools/vscode-rpi5-release.sh plan",
         "bash tools/vscode-rpi5-release.sh apply",
@@ -51,20 +54,22 @@ def test_release_skill_is_deploy_only_check_then_deploy() -> None:
         assert forbidden_action in text
 
 
-def test_operator_bundle_has_no_issue_or_pr_workflow_skill() -> None:
+def test_operator_bundle_has_no_issue_pr_or_generic_project_skill() -> None:
     text = read(BUNDLE)
     for marker in (
         "name: hermes-deals-operator",
         "- github-auth",
-        "- hermes-deals",
         "- hermes-deals-release",
         "only a deploy operator",
+        "Never inspect or summarize pull requests, issues, branches, commits or project history before deploy.",
         "Never run Plan",
         "database_writes_authorized=false",
     ):
         assert marker in text
 
     for forbidden in (
+        "- hermes-deals\n",
+        "Follow AGENTS.md, hermes-deals and hermes-deals-release exactly.",
         "- github-issues",
         "- github-pr-workflow",
         "APPLY api-ui",
@@ -81,12 +86,14 @@ def test_bundle_installer_is_user_scoped_and_deploy_only() -> None:
         "hermes bundles reload",
         "hermes bundles show hermes-deals-operator",
         'SKILLS_OUTPUT="$(hermes skills list)"',
-        "for skill in github-auth hermes-deals hermes-deals-release",
+        "for skill in github-auth hermes-deals-release",
         "BUNDLE_INSTALL_RESULT=PASS",
         "OPERATOR_ROLE=deploy-only",
         "PRODUCTION_CHANGED=false",
     ):
         assert marker in text
+    assert 'SKILL_ROOT/hermes-deals/SKILL.md' not in text
+    assert "for skill in github-auth hermes-deals hermes-deals-release" not in text
     assert "github-issues" not in text
     assert "github-pr-workflow" not in text
     assert "sudo " not in text
