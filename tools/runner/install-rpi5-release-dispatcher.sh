@@ -13,16 +13,22 @@ fail() {
 for user in github-release-runner andris; do
   id "$user" >/dev/null 2>&1 || fail "required local user is missing: $user"
 done
-for command in awk bash chmod curl docker flock git grep gzip id install mktemp pgrep python3 readlink rm sha256sum stat sudo systemctl tar tr visudo; do
+for command in awk bash chmod cmp curl docker flock git grep gzip id install mktemp pgrep python3 readlink rm sha256sum stat sudo systemctl tar tr visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 
-REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-[[ "$REPO" == '/home/andris/hermes-deals' ]] || fail "installer source must be /home/andris/hermes-deals"
-[[ -d "$REPO/.git" ]] || fail "installer source is not a Git checkout"
-[[ "$(git -C "$REPO" branch --show-current)" == main ]] || fail "installer source branch must be main"
-[[ -z "$(git -C "$REPO" status --porcelain)" ]] || fail "installer source worktree is not clean"
-case "$(git -C "$REPO" remote get-url origin)" in
+SOURCE_WORKTREE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+PRIMARY_GIT_DIR='/home/andris/hermes-deals/.git'
+EXPECTED_SOURCE='/home/andris/hermes-deals-worktrees/release-control'
+[[ "$SOURCE_WORKTREE" == "$EXPECTED_SOURCE" ]] || fail "installer source must be the isolated release-control worktree"
+[[ "$(stat -c '%U:%G' "$SOURCE_WORKTREE")" == 'andris:andris' ]] || fail "release source worktree ownership is invalid"
+[[ "$(git -C "$SOURCE_WORKTREE" rev-parse --is-inside-work-tree)" == true ]] || fail "installer source is not a Git worktree"
+[[ -z "$(git -C "$SOURCE_WORKTREE" branch --show-current)" ]] || fail "release source worktree must remain detached"
+[[ "$(git -C "$SOURCE_WORKTREE" rev-parse HEAD)" == "$(git -C "$SOURCE_WORKTREE" rev-parse refs/remotes/origin/main)" ]] || fail "release source HEAD is not exact origin/main"
+[[ -z "$(git -C "$SOURCE_WORKTREE" status --porcelain=v1 --untracked-files=all)" ]] || fail "installer source worktree is not clean"
+COMMON_GIT_DIR="$(readlink -f -- "$(git -C "$SOURCE_WORKTREE" rev-parse --path-format=absolute --git-common-dir)")"
+[[ "$COMMON_GIT_DIR" == "$PRIMARY_GIT_DIR" ]] || fail "release source is not linked to the Hermes Deals primary Git directory"
+case "$(git -C "$SOURCE_WORKTREE" remote get-url origin)" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
   *) fail "installer source origin is invalid" ;;
 esac
@@ -33,15 +39,16 @@ REGISTER='/usr/local/sbin/hermes-deals-release-register'
 SUDOERS='/etc/sudoers.d/hermes-deals-release-runner'
 REGISTRY_DIR='/etc/hermes-deals-releases.d'
 RELEASE_ARCHIVE_DIR='/opt/backups/hermes-deals/releases'
+RELEASE_LIBEXEC_DIR='/usr/local/libexec/hermes-deals-releases'
 STAGING_ROOT='/home/andris/hermes-deals-release-evidence'
-SOURCE_DISPATCHER="$REPO/tools/runner/release/hermes-deals-release-dispatch"
-SOURCE_REGISTER="$REPO/tools/runner/release/hermes-deals-release-register"
+SOURCE_DISPATCHER="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-dispatch"
+SOURCE_REGISTER="$SOURCE_WORKTREE/tools/runner/release/hermes-deals-release-register"
 
 for source in "$SOURCE_DISPATCHER" "$SOURCE_REGISTER"; do
   [[ -f "$source" && ! -L "$source" ]] || fail "release source is missing or unsafe: $source"
 done
-git -C "$REPO" ls-files --error-unmatch tools/runner/release/hermes-deals-release-dispatch >/dev/null || fail "release dispatcher source is not tracked"
-git -C "$REPO" ls-files --error-unmatch tools/runner/release/hermes-deals-release-register >/dev/null || fail "release register source is not tracked"
+git -C "$SOURCE_WORKTREE" ls-files --error-unmatch tools/runner/release/hermes-deals-release-dispatch >/dev/null || fail "release dispatcher source is not tracked"
+git -C "$SOURCE_WORKTREE" ls-files --error-unmatch tools/runner/release/hermes-deals-release-register >/dev/null || fail "release register source is not tracked"
 /bin/bash -n "$SOURCE_DISPATCHER"
 /bin/bash -n "$SOURCE_REGISTER"
 
@@ -55,7 +62,7 @@ SUDOERS
 chmod 0440 "$TMPDIR_INSTALL/sudoers"
 visudo -cf "$TMPDIR_INSTALL/sudoers" >/dev/null
 
-install -d -o root -g root -m 0750 "$REGISTRY_DIR" "$RELEASE_ARCHIVE_DIR"
+install -d -o root -g root -m 0750 "$REGISTRY_DIR" "$RELEASE_ARCHIVE_DIR" "$RELEASE_LIBEXEC_DIR"
 install -d -o andris -g andris -m 0700 "$STAGING_ROOT"
 install -o root -g root -m 0755 "$SOURCE_DISPATCHER" "$DISPATCHER"
 install -o root -g root -m 0755 "$SOURCE_REGISTER" "$REGISTER"
@@ -71,7 +78,9 @@ if sudo -l -U github-release-runner | grep -Fq '/usr/local/sbin/hermes-deals-rel
   fail "root-only release register tool leaked into runner sudo rules"
 fi
 
-printf 'INSTALL_RESULT=PASS\nRUNNER_SERVICE=%s\nDISPATCHER_SHA256=%s\nREGISTER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nDATABASE_WRITES_AUTHORIZED=false\n' \
+printf 'INSTALL_RESULT=PASS\nSOURCE_WORKTREE=%s\nSOURCE_SHA=%s\nRUNNER_SERVICE=%s\nDISPATCHER_SHA256=%s\nREGISTER_SHA256=%s\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\nDATABASE_WRITES_AUTHORIZED=false\n' \
+  "$SOURCE_WORKTREE" \
+  "$(git -C "$SOURCE_WORKTREE" rev-parse HEAD)" \
   "$RUNNER_SERVICE" \
   "$(sha256sum "$DISPATCHER" | awk '{print $1}')" \
   "$(sha256sum "$REGISTER" | awk '{print $1}')"
