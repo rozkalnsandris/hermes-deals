@@ -1,0 +1,135 @@
+name: ALDI A3.0 authoritative cycle RPi5
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged PR registering the authoritative-cycle audit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: hermes-deals-aldi-a30-authoritative-cycle
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr: ${{ steps.auth.outputs.pr }}
+    steps:
+      - id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          PR: ${{ inputs.pr_number }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          if os.environ["ACTOR"] != "rozkalnsandris" or os.environ["ACTOR_ID"] != "277435981":
+              raise SystemExit("owner required")
+          number = os.environ["PR"]
+          if not number.isdigit():
+              raise SystemExit("numeric PR required")
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+          }
+
+          def get(url: str):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+
+          pr = get(f"https://api.github.com/repos/{os.environ['REPO']}/pulls/{number}")
+          if not pr.get("merged") or pr["base"]["ref"] != "main":
+              raise SystemExit("merged main PR required")
+          sha = pr["merge_commit_sha"]
+          tree = get(f"https://api.github.com/repos/{os.environ['REPO']}/git/trees/{sha}?recursive=1")
+          paths = {item["path"] for item in tree["tree"] if item.get("type") == "blob"}
+          required = {
+              "tools/aldi_a30_authoritative_cycle.py",
+              "config/aldi-a30-authoritative-cycle-2026cw32-cw33.json",
+              "tools/run-hermes-deals-aldi-a30-authoritative-cycle-v01.sh",
+              "tools/runner/install-aldi-a30-authoritative-cycle-dispatcher.sh",
+          }
+          if required - paths:
+              raise SystemExit("registered files missing")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr={number}\n")
+          PY
+
+  rpi5:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 60
+    steps:
+      - id: run
+        env:
+          SHA: ${{ needs.authorize.outputs.sha }}
+        run: |
+          out="${RUNNER_TEMP}/hermes-deals-aldi-a30-authoritative-cycle-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$out"
+          echo "artifact_dir=$out" >> "$GITHUB_OUTPUT"
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-a30-authoritative-cycle-dispatch "$SHA" "$out" 2>&1 | tee "$out/runner-dispatch.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "$rc" > "$out/runner-dispatch-exit-code.txt"
+          exit "$rc"
+      - if: always() && steps.run.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: aldi-a30-authoritative-cycle-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.run.outputs.artifact_dir }}
+          retention-days: 30
+          if-no-files-found: error
+
+  report:
+    if: always() && needs.authorize.result == 'success'
+    needs: [authorize, rpi5]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.authorize.outputs.pr }}
+          SHA: ${{ needs.authorize.outputs.sha }}
+          RESULT: ${{ needs.rpi5.result }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          body = (
+              "## ALDI authoritative-cycle acquisition\n\n"
+              f"- RPi5 result: **{os.environ['RESULT']}**\n"
+              f"- Registered commit: `{os.environ['SHA']}`\n"
+              f"- Workflow run: `{os.environ['RUN_ID']}`\n"
+              "- Production DB/deploy: **false / not authorized**\n"
+          )
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers=headers,
+              method="POST",
+          )
+          urllib.request.urlopen(request, timeout=20).read()
+          PY
