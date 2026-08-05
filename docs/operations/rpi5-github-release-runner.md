@@ -30,7 +30,9 @@ The release path is separate from the audit path:
   `actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-release.service`
 - sudo allowlist: only `/usr/local/sbin/hermes-deals-release-dispatch`
 - root-only registration tool: `/usr/local/sbin/hermes-deals-release-register`
+- isolated detached source worktree: `/home/andris/hermes-deals-worktrees/release-control`
 - registry: `/etc/hermes-deals-releases.d`
+- root-owned Compose bundles: `/usr/local/libexec/hermes-deals-releases/<sha>`
 - release archives: `/opt/backups/hermes-deals/releases`
 
 `github-release-runner` must not belong to the `docker` group. It never receives
@@ -79,22 +81,36 @@ hermes-deals-release
 
 Do not add the account to `docker`.
 
-After the infrastructure PR is merged and the service is active, install the
-root-owned dispatcher layer from a clean exact `main` checkout:
+After the infrastructure PR is merged and the service is active, create a
+dedicated detached worktree. This updates shared Git metadata only; it does not
+switch or modify the primary `/home/andris/hermes-deals` checkout used by other
+work such as B15M2 V08.
 
 ```bash
-cd /home/andris/hermes-deals
-git switch main
-git pull --ff-only origin main
-git status --short
+PRIMARY=/home/andris/hermes-deals
+SOURCE=/home/andris/hermes-deals-worktrees/release-control
 
-sudo bash tools/runner/install-rpi5-release-dispatcher.sh
+git -C "$PRIMARY" fetch origin main
+git -C "$PRIMARY" worktree add --detach "$SOURCE" origin/main
+git -C "$SOURCE" status --short
+
+sudo bash "$SOURCE/tools/runner/install-rpi5-release-dispatcher.sh"
+```
+
+For later updates, the dedicated worktree must be clean before moving it to the
+new exact `origin/main`:
+
+```bash
+git -C "$SOURCE" fetch origin main
+git -C "$SOURCE" status --short
+git -C "$SOURCE" checkout --detach origin/main
 ```
 
 Expected final fields:
 
 ```text
 INSTALL_RESULT=PASS
+SOURCE_WORKTREE=/home/andris/hermes-deals-worktrees/release-control
 SUDOERS_VALID=true
 RUNNER_HAS_DOCKER_GROUP=false
 DATABASE_WRITES_AUTHORIZED=false
@@ -133,19 +149,31 @@ This smoke is required before any image registration.
 
 ## Register an API/UI image
 
-Registration is a root-only local operation. It builds the image from a clean
-exact `main`, applies an OCI revision label, runs the complete test suite inside
-the image, creates a root-owned archive, copies and restore-tests the rollback
-archive, and writes an immutable JSON registry entry.
+Registration is a root-only local operation. It builds the image from the clean
+detached release worktree at exact `origin/main`, applies an OCI revision label,
+runs the complete test suite inside the image, creates a root-owned archive,
+copies and restore-tests the rollback archive, and writes an immutable JSON
+registry entry. The primary checkout is read only as the production project
+root; its branch and HEAD are not changed or used as release provenance.
+
+Stage A does not authorize Compose changes. Both Compose files in the exact
+release worktree must byte-match the current production baseline. Registration
+copies them into a root-owned, SHA-addressed bundle. The dispatcher later uses
+that bundle with `--project-directory /home/andris/hermes-deals`, so existing
+relative data, configuration and environment paths remain anchored to the
+production project root.
 
 Example:
 
 ```bash
-cd /home/andris/hermes-deals
-git switch main
-git pull --ff-only origin main
+PRIMARY=/home/andris/hermes-deals
+SOURCE=/home/andris/hermes-deals-worktrees/release-control
 
-NEW_SHA="$(git rev-parse HEAD)"
+git -C "$SOURCE" fetch origin main
+git -C "$SOURCE" status --short
+git -C "$SOURCE" checkout --detach origin/main
+
+NEW_SHA="$(git -C "$SOURCE" rev-parse HEAD)"
 ROLLBACK_SHA="<full-current-production-sha>"
 ROLLBACK_TAG="hermes-deals-api:release-<version>-${ROLLBACK_SHA:0:7}"
 ROLLBACK_ARCHIVE="/path/to/verified/current-production-image.tar.gz"
@@ -157,7 +185,7 @@ sudo /usr/local/sbin/hermes-deals-release-register \
   "$ROLLBACK_SHA" \
   "$ROLLBACK_TAG" \
   "$ROLLBACK_ARCHIVE" \
-  /home/andris/hermes-deals \
+  "$SOURCE" \
   "<required-successful-main-ci-run-id>" \
   "<optional-required-audit-run-id>"
 ```
@@ -167,6 +195,7 @@ Registration must end with:
 ```text
 REGISTER_RESULT=PASS
 ROLLBACK_RESTORE_TESTED=true
+COMPOSE_CHANGE_AUTHORIZED=false
 REQUIRED_CI_RUN_ID=<exact-successful-main-ci-run-id>
 DATABASE_WRITES_AUTHORIZED=false
 PRODUCTION_APPLY_PERFORMED=false
@@ -190,7 +219,8 @@ empty.
 The dispatcher verifies, without changing production:
 
 - root registry ownership and exact SHA binding;
-- clean local `main` at the release SHA;
+- root-owned Compose bundle paths, ownership and hashes;
+- explicit production project directory and `.env` binding;
 - new and rollback image IDs, OCI revision labels and archive hashes;
 - current API container equals the registered rollback baseline;
 - current health response and Alembic revision;
@@ -238,6 +268,7 @@ sudo rm -f /etc/sudoers.d/hermes-deals-release-runner
 sudo rm -f /usr/local/sbin/hermes-deals-release-dispatch
 sudo rm -f /usr/local/sbin/hermes-deals-release-register
 sudo rm -rf /etc/hermes-deals-releases.d
+sudo rm -rf /usr/local/libexec/hermes-deals-releases
 sudo visudo -c
 ```
 
