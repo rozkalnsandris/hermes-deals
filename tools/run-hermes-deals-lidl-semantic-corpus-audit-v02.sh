@@ -3,7 +3,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 077
 
-AUDIT_VERSION="lidl-semantic-corpus-audit-v02.2-authoritative-corpus-root"
+AUDIT_VERSION="lidl-semantic-corpus-audit-v02.3-partition-contract"
 AUDIT_REPO="/home/andris/hermes-deals-audit-source"
 V01_PATH="tools/run-hermes-deals-lidl-semantic-corpus-audit-v01.sh"
 EXPECTED_ORIGIN_HTTPS="https://github.com/rozkalnsandris/hermes-deals"
@@ -123,6 +123,30 @@ find_flyer_dir() {
   printf '%s\n' "$candidate"
 }'''
 
+old_partition_validation = r'''total = int(coverage.get("row_count") or 0)
+parts = sum(
+    int(coverage.get(key) or 0)
+    for key in ("production_ready_count", "review_required_count", "excluded_count")
+)
+if total <= 0 or total != parts:
+    raise SystemExit("semantic row partition is incomplete")'''
+
+new_partition_validation = r'''input_total = int(coverage.get("input_row_count") or 0)
+unique_total = int(coverage.get("unique_row_count") or 0)
+explained_total = int(coverage.get("explained_count") or 0)
+parts = sum(
+    int(coverage.get(key) or 0)
+    for key in ("production_ready_count", "review_required_count", "excluded_count")
+)
+if (
+    input_total <= 0
+    or unique_total != input_total
+    or explained_total != input_total
+    or parts != input_total
+):
+    raise SystemExit("semantic row partition is incomplete")
+total = input_total'''
+
 replacements = {
     'AUDIT_VERSION="lidl-semantic-corpus-audit-v01"': f'AUDIT_VERSION="{version}"',
     'REPO="/home/andris/hermes-deals"': f'REPO="{repo}"',
@@ -131,6 +155,7 @@ replacements = {
         'hermes-deals-lidl-semantic-audit-*'
     ),
     old_discovery: new_discovery,
+    old_partition_validation: new_partition_validation,
 }
 for old, new in replacements.items():
     if text.count(old) != 1:
