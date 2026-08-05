@@ -45,6 +45,8 @@ def _validated_manifest(path: Path) -> Mapping[str, Any] | None:
     for key, expected in EXPECTED_SAFETY.items():
         if payload.get(key) is not expected:
             return None
+    if payload.get("bounded_retry_authorized", False) is not False:
+        return None
     return payload
 
 
