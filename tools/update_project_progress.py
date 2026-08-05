@@ -376,6 +376,8 @@ def render_readme_block(snapshot: Mapping[str, Any]) -> str:
     delta = int(snapshot["previous_day_percentage_points"])
     delta_text = f"+{delta}" if delta >= 0 else str(delta)
     overall = int(snapshot["overall_percent"])
+    _require(0 <= delta <= overall, "previous-day points must fit overall progress")
+    previous_overall = overall - delta
     bar = render_progress_bar(overall)
 
     store_lines = []
@@ -393,10 +395,14 @@ def render_readme_block(snapshot: Mapping[str, Any]) -> str:
             "",
             f"**Overall:** **{overall}%** `{bar}`",
             "",
+            (
+                f"**Overall project progress ({previous_day}):** "
+                f"**{delta_text} percentage points** "
+                f"**({previous_overall}% → {overall}%)**"
+            ),
+            "",
             "**Store catalogues**",
             *store_lines,
-            "",
-            f"**Previous day ({previous_day}):** **{delta_text} percentage points**",
             "",
             (
                 "**Issues fixed:** "

@@ -7,13 +7,13 @@ Private, fully custom family shopping-intelligence platform for Andris' househol
 
 **Overall:** **56%** `███████████░░░░░░░░░`
 
+**Overall project progress (04.08.2026):** **+5 percentage points** **(51% → 56%)**
+
 **Store catalogues**
 - **Netto:** **36%** `████░░░░░░`
 - **Lidl:** **71%** `███████░░░`
 - **ALDI Nord:** **60%** `██████░░░░`
 - **EDEKA Patzer:** **50%** `█████░░░░░`
-
-**Previous day (04.08.2026):** **+5 percentage points**
 
 **Issues fixed:** **24 total** · **3 during the previous day** — [#12](https://github.com/rozkalnsandris/hermes-deals/issues/12), [#13](https://github.com/rozkalnsandris/hermes-deals/issues/13), [#15](https://github.com/rozkalnsandris/hermes-deals/issues/15)
 
