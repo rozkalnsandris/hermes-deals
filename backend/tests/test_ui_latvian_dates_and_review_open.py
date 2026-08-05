@@ -117,7 +117,7 @@ class UiLatvianDateAndReviewOpenTest(unittest.TestCase):
         html = read_family_ui_contract()
         for marker in (
             'id="reviewSearchHint"',
-            "async function updateReviewSearchHint(d)",
+            "async function updateReviewSearchHint(d,isCurrent=()=>true)",
             "/api/v1/review-items?source_chain=lidl&limit=500",
             'draft:"labots, vēl nav publicēts"',
             'pending:"gaida pārbaudi"',
