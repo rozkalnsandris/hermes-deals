@@ -121,7 +121,7 @@ def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
     assert "git -C" not in dispatch
 
 
-def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() -> None:
+def test_root_registration_builds_smoke_tests_archives_and_restore_tests_exact_main() -> None:
     register = read(REGISTER)
 
     for marker in (
@@ -140,7 +140,7 @@ def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() 
         '[[ -f "$ROLLBACK_ARCHIVE_SOURCE" && ! -L "$ROLLBACK_ARCHIVE_SOURCE" ]]',
         "org.opencontainers.image.revision=$NEW_SHA",
         "docker run --rm",
-        "python -m pytest -q",
+        "IMAGE_SMOKE_RESULT=PASS",
         "docker image save",
         "required CI run ID is invalid",
         "/run/lock/hermes-deals-rpi5-privileged.lock",
@@ -154,6 +154,8 @@ def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() 
         "PRODUCTION_APPLY_PERFORMED=false",
     ):
         assert marker in register
+
+    assert "python -m pytest" not in register
 
 
 def test_release_installer_shell_syntax_and_sudo_scope() -> None:
