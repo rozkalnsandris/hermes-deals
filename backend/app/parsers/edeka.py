@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup, Tag
 
@@ -42,6 +43,8 @@ _APP_PREIS_RE = re.compile(
     re.IGNORECASE,
 )
 _TITLE_PREFIX_RE = re.compile(r"^\s*Angebot:\s*", re.IGNORECASE)
+_LOCAL_TZ = ZoneInfo("Europe/Berlin")
+_MAX_CAMPAIGN_LENGTH_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,8 @@ def _validate_context(context: EdekaParserContext) -> None:
         raise ValueError("EDEKA parser requires internal_market_id")
     if not store_name:
         raise ValueError("EDEKA parser requires store_name")
+    if context.collected_at.tzinfo is None or context.collected_at.utcoffset() is None:
+        raise ValueError("EDEKA parser requires timezone-aware collected_at")
 
     parsed = urlparse(context.source_url)
     expected_path = f"/maerkte/{public_market_id}/angebote/"
@@ -121,7 +126,26 @@ def _page_validity(soup: BeautifulSoup) -> tuple[date, date]:
     valid_until = _single_page_date(text, _VALID_UNTIL_RE, label="valid_until")
     if valid_until < valid_from:
         raise ValueError("EDEKA valid_until is earlier than valid_from")
+    if (valid_until - valid_from).days + 1 > _MAX_CAMPAIGN_LENGTH_DAYS:
+        raise ValueError(
+            "EDEKA campaign window is implausibly long: "
+            f"{valid_from}..{valid_until}"
+        )
     return valid_from, valid_until
+
+
+def _validate_campaign_freshness(
+    context: EdekaParserContext,
+    valid_from: date,
+    valid_until: date,
+) -> None:
+    reference_date = context.collected_at.astimezone(_LOCAL_TZ).date()
+    if not valid_from <= reference_date <= valid_until:
+        raise ValueError(
+            "EDEKA campaign window does not cover the collection date; "
+            "refusing stale or future catalogue: "
+            f"collected={reference_date} campaign={valid_from}..{valid_until}"
+        )
 
 
 def _offer_id_from_href(href: str) -> str | None:
@@ -239,6 +263,11 @@ def parse_edeka_html(
         )
 
     valid_from, valid_until = _page_validity(soup)
+    _validate_campaign_freshness(
+        context,
+        valid_from,
+        valid_until,
+    )
 
     offers: list[OfferCandidate] = []
     seen_offer_ids: set[str] = set()
