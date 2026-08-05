@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "rpi5-release-command.yml"
 INSTALLER = ROOT / "tools" / "runner" / "install-rpi5-release-dispatcher.sh"
 RUNBOOK = ROOT / "docs" / "operations" / "rpi5-github-release-runner.md"
+DISPATCHER = ROOT / "tools" / "runner" / "release" / "hermes-deals-release-dispatch"
+REGISTER = ROOT / "tools" / "runner" / "release" / "hermes-deals-release-register"
 AUDIT_WORKFLOW = ROOT / ".github" / "workflows" / "rpi5-audit-command.yml"
 
 
@@ -82,8 +84,7 @@ def test_self_hosted_release_job_never_checks_out_repository_code() -> None:
 
 
 def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
-    text = read(INSTALLER)
-    dispatch = text.split("<<'DISPATCH'\n", 1)[1].split("\nDISPATCH\n", 1)[0]
+    dispatch = read(DISPATCHER)
 
     for marker in (
         '[[ "$RELEASE_CLASS" =~ ^(smoke|api-ui)$ ]]',
@@ -96,6 +97,8 @@ def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
         'docker image load --input "$ROLLBACK_ARCHIVE"',
         'docker image load --input "$IMAGE_ARCHIVE"',
         "up -d --no-deps --no-build --wait api",
+        '"$POST_ALEMBIC" == "$PRE_ALEMBIC"',
+        '"$RESTORED_ALEMBIC" == "$PRE_ALEMBIC"',
         "apply-failed-rollback-succeeded",
         '"database_writes_authorized": False',
         '"migration_commands_executed": False',
@@ -109,8 +112,7 @@ def test_dispatcher_is_api_only_fail_closed_and_has_rollback() -> None:
 
 
 def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() -> None:
-    text = read(INSTALLER)
-    register = text.split("<<'REGISTER'\n", 1)[1].split("\nREGISTER\n", 1)[0]
+    register = read(REGISTER)
 
     for marker in (
         "register tool must run as root",
@@ -136,19 +138,22 @@ def test_root_registration_builds_tests_archives_and_restore_tests_exact_main() 
 
 
 def test_release_installer_shell_syntax_and_sudo_scope() -> None:
-    result = subprocess.run(
-        ["bash", "-n", str(INSTALLER)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
+    for path in (INSTALLER, DISPATCHER, REGISTER):
+        result = subprocess.run(
+            ["bash", "-n", str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"{path}: {result.stderr}"
 
     text = read(INSTALLER)
-    sudoers = text.split("<<'SUDOERS'\n", 1)[1].split("\nSUDOERS\n", 1)[0]
-    assert sudoers.count("NOPASSWD:") == 1
-    assert "/usr/local/sbin/hermes-deals-release-dispatch" in sudoers
-    assert "hermes-deals-release-register" not in sudoers
+    assert text.count("NOPASSWD:") == 1
+    assert "github-release-runner ALL=(root) NOPASSWD: /usr/local/sbin/hermes-deals-release-dispatch" in text
+    sudoers_source = text.split("<<'SUDOERS'\n", 1)[1].split("\nSUDOERS\n", 1)[0]
+    assert "hermes-deals-release-register" not in sudoers_source
+    assert "tools/runner/release/hermes-deals-release-dispatch" in text
+    assert "tools/runner/release/hermes-deals-release-register" in text
 
 
 def test_runbook_keeps_install_apply_and_db_write_as_separate_authorizations() -> None:
