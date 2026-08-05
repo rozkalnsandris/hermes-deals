@@ -90,7 +90,7 @@ def test_dispatch_is_persisted_before_send_and_never_repeated_when_uncertain() -
     reconcile_body = text.split("def reconcile(", 1)[1].split("def block(", 1)[0]
     assert 'if run_raw is None:' in reconcile_body
     assert "correlate_dispatch(client, state, 0)" in reconcile_body
-    assert reconcile_body.count("dispatch(client") == 1
+    assert reconcile_body.count("apply_id = dispatch(") == 1
 
 
 def test_auto_register_parses_and_preserves_release_safety() -> None:
