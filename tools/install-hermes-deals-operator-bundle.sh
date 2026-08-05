@@ -35,7 +35,7 @@ hermes bundles reload >/dev/null
 hermes bundles show hermes-deals-operator >/dev/null
 
 SKILLS_OUTPUT="$(hermes skills list)"
-for skill in github-auth github-issues github-pr-workflow hermes-deals hermes-deals-release; do
+for skill in github-auth hermes-deals hermes-deals-release; do
   grep -Fq -- "$skill" <<<"$SKILLS_OUTPUT" \
     || fail "required skill is not visible: $skill"
 done
@@ -43,5 +43,6 @@ done
 printf 'BUNDLE_INSTALL_RESULT=PASS\n'
 printf 'BUNDLE_PATH=%s\n' "$DEST"
 printf 'BUNDLE_COMMAND=/hermes-deals-operator\n'
+printf 'OPERATOR_ROLE=deploy-only\n'
 printf 'DATABASE_WRITES_AUTHORIZED=false\n'
 printf 'PRODUCTION_CHANGED=false\n'

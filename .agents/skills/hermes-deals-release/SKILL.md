@@ -1,209 +1,137 @@
 ---
 name: hermes-deals-release
-description: Use only for guarded Hermes Deals API/UI production release preparation, plan, explicit owner-authorized apply, and post-release verification on the RPi5. Never use for database migrations, Compose, Cloudflare/DNS, destructive cleanup, B15M2 V08, or unrelated Hermes Tech work.
-version: 1.0.0
+description: Deploy-only Hermes Deals API/UI production operator for exact current main on the RPi5. It may run check or deploy and report PASS, FAIL or BLOCKED. It must never edit code, manage issues or pull requests, run migrations, change Compose, or improvise production commands.
+version: 2.0.0
 metadata:
   hermes:
-    tags: [hermes-deals, release, production, github]
+    tags: [hermes-deals, release, production]
     category: devops
 ---
 
-# Hermes Deals guarded release workflow
+# Hermes Deals direct main deploy
 
-Follow repository `AGENTS.md` and the `hermes-deals` skill first. GitHub is the source of truth for the exact `main` SHA, merged PR, source issue, CI state, release request and evidence.
+Follow repository `AGENTS.md` and the `hermes-deals` skill. The production release source is only exact current `origin/main`.
 
 ## Fixed environment
 
 - Repository: `rozkalnsandris/hermes-deals`
 - Primary worktree: `/home/andris/hermes-deals`
-- Detached release worktree: `/home/andris/hermes-deals-worktrees/release-control`
 - Public origin: `https://deals.rozkalns.net`
 - Release launcher: `tools/vscode-rpi5-release.sh`
-- Runtime sync helper: `/usr/local/sbin/hermes-deals-release-runtime-sync`
 
-Use the already authenticated `gh` CLI. Never request, print, copy, store or pass a GitHub token in a prompt, bundle, log, issue, artifact or command argument.
+Use the already authenticated `gh` CLI. Never request, print, copy, store or expose a GitHub token.
+
+## Role boundary
+
+This skill is only a deploy operator.
+
+It may:
+
+- run the tracked `check` command;
+- run the tracked `deploy` command after the owner explicitly asks to deploy main;
+- read command output and report `PASS`, `FAIL` or `BLOCKED`.
+
+It must not:
+
+- edit any file;
+- create or modify an issue;
+- create, switch or delete a branch;
+- create a commit or push;
+- create, review, update or merge a pull request;
+- diagnose by changing production;
+- invent an alternative command after failure;
+- run a manual Docker or rollback command.
+
+On `BLOCKED`, `FAIL`, a non-zero exit, missing marker, or ambiguous output: stop immediately and report the exact evidence.
 
 ## Absolute safety boundaries
 
-Always preserve all of these:
+Always preserve:
 
 - `database_writes_authorized=false`;
+- `migration_commands_executed=false`;
 - no `alembic upgrade`;
 - no `alembic downgrade`;
-- no other migration command;
+- no migration command;
 - no production data mutation;
-- no `docker compose up`;
-- no Compose-file change or broad container recreation outside the controlled dispatcher;
+- no direct `docker compose up`;
+- no Compose-file change;
 - no Cloudflare, DNS, tunnel, secret or token change;
 - no `git reset`;
 - no `git clean`;
-- no stash, branch switch or edit in the primary worktree;
-- no destructive deletion or manually invented rollback;
-- no B15M2 issue #20 or B15M2 V08 execution;
-- no alternative attempt after a guarded step returns BLOCKED, FAIL or an ambiguous result.
+- no destructive deletion;
+- no B15M2 issue #20 or B15M2 V08 execution.
 
-Stop immediately on every mismatch and report `BLOCKED` with the exact observed evidence.
+The tracked dispatcher remains the only component allowed to recreate the production API service and perform automatic rollback.
 
-## 1. Orient and identify exact main
+## Check
 
-Run from the primary worktree:
-
-```bash
-cd /home/andris/hermes-deals
-git status --short
-git branch --show-current
-git fetch --quiet origin main
-git rev-parse HEAD
-git rev-parse origin/main
-gh auth status
-```
-
-Require:
-
-- current branch is `main`;
-- worktree is clean;
-- local `HEAD` equals `origin/main`;
-- SHA is 40 lowercase hexadecimal characters;
-- exact current SHA belongs to exactly one squash-merged PR targeting `main`;
-- that PR closes exactly one source issue;
-- source issue is not #20;
-- exact-main CI is successful.
-
-Do not fast-forward, edit or clean the primary worktree automatically. Ask the owner to synchronize it when these checks fail.
-
-## 2. Read-only deploy check
-
-Run:
+Run only:
 
 ```bash
 cd /home/andris/hermes-deals
 bash tools/vscode-rpi5-release.sh check
 ```
 
-Accept only one of these outcomes:
+Accept only:
 
-- `NO DEPLOY NEEDED`: production already runs exact current main; report PASS and stop.
-- `CHECK PASS`: continue.
-- anything else: report BLOCKED and stop.
+- `NO DEPLOY NEEDED`: report PASS and stop;
+- `CHECK PASS`: report the production SHA, target SHA, exact-main CI run, changed-file count and schema gate;
+- anything else: report `BLOCKED` and stop.
 
-Record the exact production SHA, target SHA, commit count, changed-file count and schema gate from the output.
+Check must prove:
 
-## 3. Synchronize root release runtime
+- primary worktree is clean and on `main`;
+- local `main` equals exact `origin/main`;
+- exact-main push CI succeeded;
+- current production SHA is an ancestor of main;
+- no cumulative Compose change exists;
+- any added Alembic revision is already the exact live head;
+- no production change was made.
 
-Before Plan, update only the root-owned release runtime from exact current main:
+## Deploy
+
+Run deploy only when the owner explicitly asks to deploy main. The complete deploy is one command:
 
 ```bash
-sudo --non-interactive /usr/local/sbin/hermes-deals-release-runtime-sync <exact-40-sha>
+cd /home/andris/hermes-deals
+bash tools/vscode-rpi5-release.sh deploy
 ```
 
-Require all markers:
+Do not run a separate Plan. Do not create a deploy issue. Do not wait for labels. Do not run a separate Apply command.
+
+The launcher performs:
+
+1. the same exact-main and CI checks;
+2. guarded runtime synchronization;
+3. root registration and image build for exact main;
+4. controlled dispatcher deployment;
+5. API/UI and unchanged-Alembic verification;
+6. automatic rollback inside the dispatcher if deployment validation fails.
+
+Require the final markers:
 
 ```text
-RUNTIME_SYNC_RESULT=PASS
-SOURCE_SHA=<exact-40-sha>
+DEPLOY PASS
+SOURCE_SHA=<exact-main-40-sha>
+PRODUCTION_SHA=<same-exact-main-40-sha>
+PUBLIC_API_HEALTH=PASS
+PUBLIC_UI=PASS
+MIGRATION_COMMANDS_EXECUTED=false
 DATABASE_WRITES_AUTHORIZED=false
-PRODUCTION_CHANGED=false
+ROLLBACK_PERFORMED=false
 ```
 
-The helper may update only the detached `release-control` worktree and install the tracked dispatcher, register, bridge and auto-register components. It must not change the production API container, database, Compose, public origin or primary worktree.
+When deploy fails or rolls back, report the exact output and stop. Never retry automatically.
 
-On any non-zero exit or missing marker, report BLOCKED and stop. Do not bypass the helper with improvised root commands.
+## Final report
 
-## 4. Controlled Plan
+Return only:
 
-Run:
-
-```bash
-cd /home/andris/hermes-deals
-bash tools/vscode-rpi5-release.sh plan
-```
-
-Plan must create an owner-authored `[Hermes deploy]` issue and finish with a guarded PASS. Read the issue and its comments with `gh issue view` or `gh api`.
-
-Require:
-
-- request exact SHA equals current `origin/main`;
-- mode is `plan`;
-- `owner_authorized=true`;
-- `database_writes_authorized=false`;
-- label/result is `hermes:deploy-pass`;
-- the issue is closed after PASS;
-- the release workflow succeeded;
-- the expected release artifact exists, is non-empty and is bound to the exact run and SHA;
-- no production change was made during Plan.
-
-When Plan is BLOCKED or FAIL, diagnose only from the issue, workflow logs and tracked code. Never dispatch a replacement or alternative release attempt automatically.
-
-## 5. Apply authorization gate
-
-Never run Apply merely because the user said `deploy`, `continue`, `go`, `yes` or similar.
-
-Require the latest owner message to contain exactly this standalone phrase for the exact planned SHA:
-
-```text
-APPLY api-ui <40-sha>
-```
-
-Before using it, re-check that:
-
-- the phrase SHA equals exact current `origin/main`;
-- the successful Plan is for the same SHA;
-- no newer main commit exists;
-- production is still on the same baseline observed during Check/Plan;
-- no other release request is active.
-
-If any value changed, discard the authorization and return to Check. Never construct or infer the phrase on the owner’s behalf.
-
-## 6. Controlled Apply
-
-Only after the exact authorization gate passes, feed the owner-provided phrase to the launcher:
-
-```bash
-cd /home/andris/hermes-deals
-printf '%s\n' 'APPLY api-ui <exact-40-sha>' | bash tools/vscode-rpi5-release.sh apply
-```
-
-The controlled dispatcher is the only component allowed to recreate the production API service. It must verify image identity, API health, UI, live Alembic revision and automatic rollback invariants.
-
-Require the Apply issue/workflow to finish with `hermes:deploy-pass`. On FAIL or rollback, report the exact result and stop. Do not patch production manually.
-
-## 7. Independent post-release verification
-
-After Apply PASS, run:
-
-```bash
-cd /home/andris/hermes-deals
-bash tools/vscode-rpi5-release.sh check
-curl -fsS --max-time 20 https://deals.rozkalns.net/api/health
-curl -fsSI --max-time 20 https://deals.rozkalns.net/ui
-```
-
-Require:
-
-- launcher reports `NO DEPLOY NEEDED` for the same exact SHA;
-- public API health succeeds;
-- public UI returns a successful HTTP response;
-- Apply evidence reports target image revision equal to exact main;
-- pre/post live Alembic revision is identical;
-- `migration_commands_executed=false`;
-- `database_writes_authorized=false`;
-- no rollback occurred.
-
-When public origin checks fail after workflow PASS, report FAIL with both workflow and public evidence; do not issue another Apply automatically.
-
-## 8. Final report
-
-Return a compact report containing:
-
-- exact production SHA before and after;
-- merged PR and source issue;
-- Check result;
-- runtime-sync result;
-- Plan issue/run/artifact result;
-- whether explicit Apply authorization was supplied;
-- Apply issue/run result;
-- public API/UI checks;
-- unchanged Alembic result;
-- rollback status;
-- unresolved uncertainty;
-- next smallest safe step.
+- `NO DEPLOY NEEDED`, `DEPLOY PASS`, `BLOCKED`, or `FAIL`;
+- source and production SHA;
+- exact-main CI run ID;
+- API/UI result;
+- Alembic before/after;
+- rollback result;
+- the smallest next action, without performing repairs.

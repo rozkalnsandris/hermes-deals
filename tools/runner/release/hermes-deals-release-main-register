@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'main register must run as root'
+[[ $# -eq 1 ]] || fail 'usage: hermes-deals-release-main-register <40-sha>'
+
+NEW_SHA="$1"
+[[ "$NEW_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid release SHA'
+
+REPOSITORY='rozkalnsandris/hermes-deals'
+OWNER='andris'
+OWNER_HOME='/home/andris'
+PRIMARY='/home/andris/hermes-deals'
+SOURCE='/home/andris/hermes-deals-worktrees/release-control'
+TOKEN_FILE='/etc/hermes-deals-release-bridge/token'
+REGISTER='/usr/local/sbin/hermes-deals-release-register'
+REGISTRY="/etc/hermes-deals-releases.d/api-ui-$NEW_SHA.json"
+ROLLBACK_TMP=''
+
+run_owner() {
+  runuser -u "$OWNER" -- env \
+    HOME="$OWNER_HOME" \
+    PATH='/home/andris/.local/bin:/usr/local/bin:/usr/bin:/bin' \
+    GIT_OPTIONAL_LOCKS=0 \
+    "$@"
+}
+
+for command in chown chmod docker git gzip install mktemp python3 readlink rm runuser sha256sum stat tar; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+[[ -x "$REGISTER" && ! -L "$REGISTER" ]] || fail 'release register tool is missing or unsafe'
+[[ -f "$TOKEN_FILE" && ! -L "$TOKEN_FILE" ]] || fail 'release token is missing or unsafe'
+[[ "$(stat -c '%U:%G:%a' "$TOKEN_FILE")" == 'root:root:600' ]] \
+  || fail 'release token metadata is invalid'
+
+if [[ -e "$REGISTRY" ]]; then
+  [[ -f "$REGISTRY" && ! -L "$REGISTRY" ]] || fail 'existing registry is unsafe'
+  [[ "$(stat -c '%U:%G' "$REGISTRY")" == 'root:root' ]] \
+    || fail 'existing registry ownership is invalid'
+  python3 - "$REGISTRY" "$NEW_SHA" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if data.get("schema_version") != 2:
+    raise SystemExit("existing registry schema mismatch")
+if data.get("release_class") != "api-ui":
+    raise SystemExit("existing registry class mismatch")
+if data.get("commit_sha") != sys.argv[2]:
+    raise SystemExit("existing registry SHA mismatch")
+if data.get("database_writes_authorized") is not False:
+    raise SystemExit("existing registry unexpectedly authorizes database writes")
+PY
+  printf 'MAIN_REGISTER_RESULT=PASS\n'
+  printf 'REGISTRY_STATUS=already-present\n'
+  printf 'COMMIT_SHA=%s\n' "$NEW_SHA"
+  printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+  exit 0
+fi
+
+[[ -d "$PRIMARY" && ! -L "$PRIMARY" ]] || fail 'primary repository is missing or unsafe'
+[[ -d "$SOURCE" && ! -L "$SOURCE" ]] || fail 'release-control worktree is missing or unsafe'
+[[ "$(stat -c '%U:%G' "$SOURCE")" == 'andris:andris' ]] \
+  || fail 'release-control ownership is invalid'
+
+run_owner git -C "$PRIMARY" fetch --quiet --prune origin main
+[[ -z "$(run_owner git -C "$SOURCE" status --porcelain=v1 --untracked-files=all)" ]] \
+  || fail 'release-control worktree is not clean'
+run_owner git -C "$SOURCE" checkout --quiet --detach origin/main
+[[ -z "$(run_owner git -C "$SOURCE" branch --show-current)" ]] \
+  || fail 'release-control worktree is not detached'
+[[ "$(run_owner git -C "$SOURCE" rev-parse HEAD)" == "$NEW_SHA" ]] \
+  || fail 'release-control HEAD is not the requested SHA'
+[[ "$(run_owner git -C "$SOURCE" rev-parse refs/remotes/origin/main)" == "$NEW_SHA" ]] \
+  || fail 'release-control origin/main is not the requested SHA'
+[[ -z "$(run_owner git -C "$SOURCE" status --porcelain=v1 --untracked-files=all)" ]] \
+  || fail 'release-control worktree became dirty'
+
+CI_RUN_ID="$(python3 - "$TOKEN_FILE" "$REPOSITORY" "$NEW_SHA" <<'PY'
+import json
+import pathlib
+import sys
+import urllib.parse
+import urllib.request
+
+token_path, repo, sha = sys.argv[1:]
+token = pathlib.Path(token_path).read_text(encoding="utf-8").strip()
+headers = {
+    "Accept": "application/vnd.github+json",
+    "Authorization": f"Bearer {token}",
+    "User-Agent": "hermes-deals-release-main-register",
+    "X-GitHub-Api-Version": "2022-11-28",
+}
+
+def get(url: str):
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+user = get("https://api.github.com/user")
+if user.get("login") != "rozkalnsandris" or int(user.get("id") or 0) != 277435981:
+    raise SystemExit("release token owner mismatch")
+main = get(f"https://api.github.com/repos/{repo}/branches/main")
+if main.get("commit", {}).get("sha") != sha:
+    raise SystemExit("release SHA is not exact current main")
+encoded = urllib.parse.quote(sha, safe="")
+runs = get(
+    f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs"
+    f"?branch=main&head_sha={encoded}&status=completed&per_page=100"
+).get("workflow_runs", [])
+matches = [
+    run for run in runs
+    if run.get("event") == "push"
+    and run.get("head_branch") == "main"
+    and run.get("head_sha") == sha
+    and run.get("conclusion") == "success"
+]
+if not matches:
+    raise SystemExit("exact main SHA has no successful CI push run")
+print(max(int(run["id"]) for run in matches))
+PY
+)" || fail 'exact current main and CI verification failed'
+[[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail 'resolved CI run ID is invalid'
+
+VERSION="$(python3 - "$SOURCE/backend/app/main.py" <<'PY'
+import ast
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+versions = []
+for node in ast.walk(tree):
+    if not isinstance(node, ast.Call):
+        continue
+    name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+    if name != "FastAPI":
+        continue
+    for keyword in node.keywords:
+        if keyword.arg == "version" and isinstance(keyword.value, ast.Constant):
+            versions.append(keyword.value.value)
+if len(versions) != 1 or not isinstance(versions[0], str):
+    raise SystemExit("expected exactly one FastAPI version")
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", versions[0]):
+    raise SystemExit("FastAPI version is not numeric semver")
+print(versions[0])
+PY
+)" || fail 'release version derivation failed'
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'release version is invalid'
+
+CURRENT_CONTAINER="$(docker compose \
+  --project-directory "$PRIMARY" \
+  --env-file "$PRIMARY/.env" \
+  -f "$PRIMARY/docker-compose.yml" \
+  -f "$PRIMARY/docker-compose.production.yml" \
+  ps -q api)"
+[[ -n "$CURRENT_CONTAINER" ]] || fail 'production API container is not running'
+CURRENT_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
+CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
+[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]] \
+  || fail 'current production image is not a Hermes Deals release image'
+CURRENT_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+
+ROLLBACK_REF=''
+ROLLBACK_PROVENANCE=''
+if [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  ROLLBACK_REF="$CURRENT_REVISION"
+  ROLLBACK_PROVENANCE='oci-revision'
+elif [[ -n "$CURRENT_REVISION" && "$CURRENT_REVISION" != '<no value>' ]]; then
+  fail 'current production image has malformed OCI revision label'
+elif [[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-([0-9a-f]{7})$ ]]; then
+  ROLLBACK_REF="${BASH_REMATCH[1]}"
+  ROLLBACK_PROVENANCE='canonical-tag'
+else
+  fail 'current production image has no valid rollback SHA provenance'
+fi
+
+ROLLBACK_SHA="$(run_owner git -C "$SOURCE" rev-parse "${ROLLBACK_REF}^{commit}")"
+[[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'rollback full SHA could not be resolved uniquely'
+if [[ "$ROLLBACK_PROVENANCE" == oci-revision && "$ROLLBACK_SHA" != "$CURRENT_REVISION" ]]; then
+  fail 'current production OCI revision contradicts rollback SHA'
+fi
+[[ "$(docker image inspect "$CURRENT_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
+  || fail 'current image tag and container image ID disagree'
+
+ROLLBACK_VERSION="$(
+  run_owner git -C "$SOURCE" show "${ROLLBACK_SHA}:backend/app/main.py" |
+  python3 -c '
+import ast
+import re
+import sys
+
+tree = ast.parse(sys.stdin.read(), filename="backend/app/main.py")
+versions = []
+for node in ast.walk(tree):
+    if not isinstance(node, ast.Call):
+        continue
+    name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+    if name != "FastAPI":
+        continue
+    for keyword in node.keywords:
+        if keyword.arg == "version" and isinstance(keyword.value, ast.Constant):
+            versions.append(keyword.value.value)
+if len(versions) != 1 or not isinstance(versions[0], str):
+    raise SystemExit("expected exactly one rollback FastAPI version")
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", versions[0]):
+    raise SystemExit("rollback FastAPI version is not numeric semver")
+print(versions[0])
+'
+)" || fail 'rollback version derivation failed'
+
+ROLLBACK_TAG="hermes-deals-api:release-${ROLLBACK_VERSION}-${ROLLBACK_SHA:0:7}"
+docker image tag "$CURRENT_IMAGE_ID" "$ROLLBACK_TAG"
+[[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] \
+  || fail 'canonical rollback alias does not match the running image'
+ROLLBACK_LABEL="$(docker image inspect "$ROLLBACK_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
+[[ -z "$ROLLBACK_LABEL" || "$ROLLBACK_LABEL" == '<no value>' || "$ROLLBACK_LABEL" == "$ROLLBACK_SHA" ]] \
+  || fail 'canonical rollback image revision label contradicts rollback SHA'
+
+install -d -o root -g root -m 0750 /opt/backups/hermes-deals/releases
+ROLLBACK_TMP="$(mktemp /opt/backups/hermes-deals/releases/.main-rollback.XXXXXX.tar.gz)"
+cleanup() {
+  [[ -z "$ROLLBACK_TMP" ]] || rm -f -- "$ROLLBACK_TMP"
+}
+trap cleanup EXIT
+docker image save "$ROLLBACK_TAG" | gzip -n > "$ROLLBACK_TMP"
+chown root:root "$ROLLBACK_TMP"
+chmod 0600 "$ROLLBACK_TMP"
+[[ -s "$ROLLBACK_TMP" ]] || fail 'rollback archive is empty'
+
+"$REGISTER" \
+  api-ui \
+  "$NEW_SHA" \
+  "$VERSION" \
+  "$ROLLBACK_SHA" \
+  "$ROLLBACK_TAG" \
+  "$ROLLBACK_TMP" \
+  "$SOURCE" \
+  "$CI_RUN_ID"
+
+printf 'MAIN_REGISTER_RESULT=PASS\n'
+printf 'REGISTRY_STATUS=created\n'
+printf 'COMMIT_SHA=%s\n' "$NEW_SHA"
+printf 'VERSION=%s\n' "$VERSION"
+printf 'ROLLBACK_SHA=%s\n' "$ROLLBACK_SHA"
+printf 'ROLLBACK_TAG=%s\n' "$ROLLBACK_TAG"
+printf 'ROLLBACK_PROVENANCE=%s\n' "$ROLLBACK_PROVENANCE"
+printf 'REQUIRED_CI_RUN_ID=%s\n' "$CI_RUN_ID"
+printf 'DATABASE_WRITES_AUTHORIZED=false\n'

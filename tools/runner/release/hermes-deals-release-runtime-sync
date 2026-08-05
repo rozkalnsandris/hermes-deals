@@ -29,7 +29,7 @@ run_owner() {
     "$@"
 }
 
-for command in git gh python3 runuser sha256sum docker; do
+for command in docker gh git python3 runuser sha256sum; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 
@@ -54,10 +54,13 @@ import sys
 sha = sys.argv[1]
 rows = json.load(sys.stdin).get("workflow_runs", [])
 if not any(
-    row.get("head_sha") == sha and row.get("conclusion") == "success"
+    row.get("event") == "push"
+    and row.get("head_branch") == "main"
+    and row.get("head_sha") == sha
+    and row.get("conclusion") == "success"
     for row in rows
 ):
-    raise SystemExit("exact current main has no successful CI push run")
+    raise SystemExit(2)
 ' "$TARGET_SHA" <<<"$CI_JSON" || fail 'exact current main has no successful CI push run'
 
 run_owner git -C "$SOURCE_WORKTREE" checkout --quiet --detach "$TARGET_SHA"
@@ -92,7 +95,9 @@ for name in \
   hermes-deals-release-dispatch \
   hermes-deals-release-register \
   hermes-deals-release-bridge \
-  hermes-deals-release-auto-register; do
+  hermes-deals-release-auto-register \
+  hermes-deals-release-main-register \
+  hermes-deals-release-main-deploy; do
   source="$SOURCE_WORKTREE/tools/runner/release/$name"
   installed="/usr/local/sbin/$name"
   [[ -f "$source" && -f "$installed" && ! -L "$installed" ]] \
@@ -104,5 +109,6 @@ done
 printf 'RUNTIME_SYNC_RESULT=PASS\n'
 printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
 printf 'SOURCE_WORKTREE=%s\n' "$SOURCE_WORKTREE"
+printf 'DIRECT_MAIN_DEPLOY_READY=true\n'
 printf 'DATABASE_WRITES_AUTHORIZED=false\n'
 printf 'PRODUCTION_CHANGED=false\n'
