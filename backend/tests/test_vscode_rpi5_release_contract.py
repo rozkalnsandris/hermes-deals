@@ -1,90 +1,89 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+LAUNCHER = ROOT / "tools" / "vscode-rpi5-release.sh"
 
 
-def test_vscode_tasks_expose_check_plan_and_apply() -> None:
+def test_vscode_tasks_expose_only_check_and_deploy() -> None:
     tasks = json.loads((ROOT / ".vscode" / "tasks.json").read_text(encoding="utf-8"))
     labels = {task["label"] for task in tasks["tasks"]}
     assert labels == {
         "Hermes Deals: Check deploy",
-        "Hermes Deals: Plan production deploy",
-        "Hermes Deals: Apply production deploy",
+        "Hermes Deals: Deploy current main",
     }
-
     modes = {tuple(task["args"]) for task in tasks["tasks"]}
     assert modes == {
         ("tools/vscode-rpi5-release.sh", "check"),
-        ("tools/vscode-rpi5-release.sh", "plan"),
-        ("tools/vscode-rpi5-release.sh", "apply"),
+        ("tools/vscode-rpi5-release.sh", "deploy"),
     }
 
 
-def test_release_launcher_preserves_fail_closed_boundaries() -> None:
-    text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
-    required = (
-        'PRIMARY_ROOT="/home/andris/hermes-deals"',
-        '[[ "$BRANCH" == "main" ]]',
+def test_direct_launcher_has_only_check_and_deploy_modes() -> None:
+    subprocess.run(["bash", "-n", str(LAUNCHER)], check=True)
+    text = LAUNCHER.read_text(encoding="utf-8")
+    assert "usage: tools/vscode-rpi5-release.sh {check|deploy}" in text
+    assert "  plan)" not in text
+    assert "  apply)" not in text
+    assert "gh issue create" not in text
+    assert "hermes:deploy-ready" not in text
+    assert "hermes-deals-release-bridge poll" not in text
+    assert "gh workflow run" not in text
+
+
+def test_launcher_preserves_exact_main_and_ci_gates() -> None:
+    text = LAUNCHER.read_text(encoding="utf-8")
+    for marker in (
+        "PRIMARY_ROOT='/home/andris/hermes-deals'",
+        '[[ "$(git branch --show-current)" == main ]]',
         "git status --porcelain",
         '[[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]',
         "current main SHA is not bound to exactly one merged PR",
-        "production API image is not a Hermes Deals release image",
+        "exact current main has no successful CI push run",
         "production API image has no valid release SHA provenance",
-        "production API image has malformed OCI revision label",
-        "production OCI revision contradicts resolved Git commit",
         'git diff --name-only "${PRODUCTION_SHA}..${REMOTE_SHA}"',
-        "cumulative database migration change is not an added Alembic revision",
-        "live schema is not already at exact target head",
         "cumulative Compose change detected",
-        "APPLY api-ui ${REMOTE_SHA}",
-        "hermes:deploy-ready",
-        "<!-- hermes-deals-release-request-v1 -->",
-        "database_writes_authorized",
-        "/usr/local/sbin/hermes-deals-release-bridge poll",
-    )
-    for marker in required:
-        assert marker in text
-
-
-def test_launcher_prefers_full_oci_revision_with_canonical_tag_fallback() -> None:
-    text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
-    assert 'org.opencontainers.image.revision' in text
-    assert '[[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]' in text
-    assert 'PRODUCTION_PROVENANCE="oci-revision"' in text
-    assert 'PRODUCTION_PROVENANCE="canonical-tag"' in text
-    assert 'release-[0-9]+\\.[0-9]+\\.[0-9]+-([0-9a-f]{7})' in text
-    assert '[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]]' in text
-
-
-def test_launcher_reconciles_only_added_revisions_at_exact_live_head() -> None:
-    text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
-    for marker in (
-        'git diff --name-status "${PRODUCTION_SHA}..${REMOTE_SHA}"',
-        '[[ "$status" == "A" && "$path" == backend/alembic/versions/*.py ]]',
-        'TARGET_ALEMBIC_HEAD="$(python3 - "$ROOT/backend/alembic/versions"',
-        "target Alembic graph must have exactly one head",
-        "SELECT version_num FROM alembic_version;",
-        '[[ "$LIVE_ALEMBIC" == "$TARGET_ALEMBIC_HEAD" ]]',
-        'MIGRATION_RECONCILIATION="verified-live-head:${LIVE_ALEMBIC}"',
+        "cumulative migration change is not an added Alembic revision",
+        "live schema is not already at exact target head",
     ):
         assert marker in text
-    assert "alembic upgrade" not in text
 
 
-def test_launcher_uses_bridge_instead_of_direct_workflow_dispatch() -> None:
-    text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
-    assert "gh workflow run" not in text
-    assert "gh issue create" in text
-    assert '"owner_authorized": True' in text
-    assert '"database_writes_authorized": False' in text
+def test_deploy_runs_only_guarded_root_components() -> None:
+    text = LAUNCHER.read_text(encoding="utf-8")
+    for marker in (
+        "DEPLOY api-ui ${REMOTE_SHA}",
+        'sudo --non-interactive "$RUNTIME_SYNC" "$REMOTE_SHA"',
+        'sudo --non-interactive "$AUTO_REGISTER" "$REMOTE_SHA" "$PR_NUMBER"',
+        'sudo --non-interactive "$DISPATCH" api-ui "$REMOTE_SHA" apply',
+        "https://deals.rozkalns.net/api/health",
+        "https://deals.rozkalns.net/ui",
+        "deployed runtime SHA does not equal exact current main",
+        "DATABASE_WRITES_AUTHORIZED=false",
+        "MIGRATION_COMMANDS_EXECUTED=false",
+    ):
+        assert marker in text
+    for forbidden in (
+        "alembic upgrade",
+        "alembic downgrade",
+        "docker compose up",
+        "docker compose down",
+        "git reset",
+        "git clean",
+    ):
+        assert forbidden not in text
 
 
-def test_check_mode_has_no_release_request() -> None:
-    text = (ROOT / "tools" / "vscode-rpi5-release.sh").read_text(encoding="utf-8")
-    check_block = text.split("  check)", 1)[1].split("  plan)", 1)[0]
-    assert "create_bridge_request" not in check_block
-    assert "No production change was made" in check_block
+def test_check_mode_cannot_invoke_release_components() -> None:
+    text = LAUNCHER.read_text(encoding="utf-8")
+    check_exit = '[[ "$MODE" == check ]] && exit 0'
+    assert check_exit in text
+    before_exit, after_exit = text.split(check_exit, 1)
+    assert 'sudo --non-interactive "$RUNTIME_SYNC"' not in before_exit
+    assert 'sudo --non-interactive "$AUTO_REGISTER"' not in before_exit
+    assert 'sudo --non-interactive "$DISPATCH"' not in before_exit
+    assert 'sudo --non-interactive "$RUNTIME_SYNC"' in after_exit
