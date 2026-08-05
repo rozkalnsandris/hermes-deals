@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail "register tool must run as root"
+[[ $# -ge 8 && $# -le 9 ]] || fail "usage: hermes-deals-release-register api-ui <new-sha> <version> <rollback-sha> <rollback-tag> <rollback-archive> <clean-release-worktree> <required-ci-run-id> [required-audit-run-id]"
+
+RELEASE_CLASS="$1"
+NEW_SHA="$2"
+VERSION="$3"
+ROLLBACK_SHA="$4"
+ROLLBACK_TAG="$5"
+ROLLBACK_ARCHIVE_SOURCE="$6"
+SOURCE_WORKTREE="$7"
+REQUIRED_CI_RUN_ID="$8"
+REQUIRED_AUDIT_RUN_ID="${9:-}"
+PRODUCTION_ROOT='/home/andris/hermes-deals'
+PRIMARY_GIT_DIR="$PRODUCTION_ROOT/.git"
+EXPECTED_SOURCE='/home/andris/hermes-deals-worktrees/release-control'
+RELEASE_LIBEXEC_ROOT='/usr/local/libexec/hermes-deals-releases'
+
+[[ "$RELEASE_CLASS" == api-ui ]] || fail "only api-ui registration is supported in this release slice"
+[[ "$NEW_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid new release SHA"
+[[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid rollback SHA"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must be numeric semver"
+[[ "$ROLLBACK_TAG" =~ ^hermes-deals-api:release-[0-9]+\.[0-9]+\.[0-9]+-${ROLLBACK_SHA:0:7}$ ]] || fail "rollback tag does not bind rollback SHA"
+[[ "$REQUIRED_CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "required CI run ID is invalid"
+[[ -z "$REQUIRED_AUDIT_RUN_ID" || "$REQUIRED_AUDIT_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "required audit run ID is invalid"
+
+exec 9>/run/lock/hermes-deals-rpi5-privileged.lock
+flock -n 9 || fail "another Hermes Deals release process is already active"
+if pgrep -af '/usr/local/sbin/hermes-deals-(audit-dispatch|netto-shadow-audit-dispatch)' >/dev/null 2>&1; then
+  fail "an existing Hermes Deals audit dispatcher is active"
+fi
+
+SOURCE_WORKTREE="$(readlink -f -- "$SOURCE_WORKTREE")"
+[[ "$SOURCE_WORKTREE" == "$EXPECTED_SOURCE" ]] || fail "registration source must be the isolated release-control worktree"
+[[ "$(stat -c '%U:%G' "$SOURCE_WORKTREE")" == 'andris:andris' ]] || fail "release source worktree ownership is invalid"
+[[ "$(git -C "$SOURCE_WORKTREE" rev-parse --is-inside-work-tree)" == true ]] || fail "registration source is not a Git worktree"
+[[ -z "$(git -C "$SOURCE_WORKTREE" branch --show-current)" ]] || fail "release source worktree must remain detached"
+[[ "$(git -C "$SOURCE_WORKTREE" rev-parse HEAD)" == "$NEW_SHA" ]] || fail "registration source HEAD mismatch"
+[[ "$(git -C "$SOURCE_WORKTREE" rev-parse refs/remotes/origin/main)" == "$NEW_SHA" ]] || fail "registration source is not exact origin/main"
+[[ -z "$(git -C "$SOURCE_WORKTREE" status --porcelain=v1 --untracked-files=all)" ]] || fail "registration source worktree is not clean"
+COMMON_GIT_DIR="$(readlink -f -- "$(git -C "$SOURCE_WORKTREE" rev-parse --path-format=absolute --git-common-dir)")"
+[[ "$COMMON_GIT_DIR" == "$PRIMARY_GIT_DIR" ]] || fail "release source is not linked to the Hermes Deals primary Git directory"
+case "$(git -C "$SOURCE_WORKTREE" remote get-url origin)" in
+  https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
+  *) fail "registration source origin is invalid" ;;
+esac
+
+[[ -d "$PRODUCTION_ROOT" && ! -L "$PRODUCTION_ROOT" ]] || fail "production project root is missing or unsafe"
+[[ -f "$PRODUCTION_ROOT/.env" && ! -L "$PRODUCTION_ROOT/.env" ]] || fail "production Compose env file is missing or unsafe"
+for tracked in backend/Dockerfile backend/requirements.txt docker-compose.yml docker-compose.production.yml; do
+  git -C "$SOURCE_WORKTREE" ls-files --error-unmatch "$tracked" >/dev/null || fail "required release input is not tracked: $tracked"
+done
+for compose_name in docker-compose.yml docker-compose.production.yml; do
+  SOURCE_COMPOSE="$SOURCE_WORKTREE/$compose_name"
+  PRODUCTION_COMPOSE="$PRODUCTION_ROOT/$compose_name"
+  [[ -f "$SOURCE_COMPOSE" && ! -L "$SOURCE_COMPOSE" ]] || fail "release Compose file is missing or unsafe: $compose_name"
+  [[ -f "$PRODUCTION_COMPOSE" && ! -L "$PRODUCTION_COMPOSE" ]] || fail "production Compose baseline is missing or unsafe: $compose_name"
+  cmp -s "$SOURCE_COMPOSE" "$PRODUCTION_COMPOSE" || fail "api-ui release cannot change Compose configuration: $compose_name"
+done
+
+[[ -f "$ROLLBACK_ARCHIVE_SOURCE" && ! -L "$ROLLBACK_ARCHIVE_SOURCE" ]] || fail "rollback archive is missing or unsafe"
+ROLLBACK_ARCHIVE_SOURCE="$(readlink -f -- "$ROLLBACK_ARCHIVE_SOURCE")"
+tar -tzf "$ROLLBACK_ARCHIVE_SOURCE" >/dev/null || fail "rollback archive is not a readable gzip tar"
+
+export HERMES_DEALS_API_TAG="${ROLLBACK_TAG#hermes-deals-api:}"
+COMPOSE=(docker compose --project-directory "$PRODUCTION_ROOT" --env-file "$PRODUCTION_ROOT/.env" -f "$SOURCE_WORKTREE/docker-compose.yml" -f "$SOURCE_WORKTREE/docker-compose.production.yml")
+CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
+[[ -n "$CURRENT_CONTAINER" ]] || fail "production API container is not running"
+CURRENT_IMAGE_ID="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Image}}')"
+CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
+[[ "$CURRENT_IMAGE_TAG" == "$ROLLBACK_TAG" ]] || fail "running production tag is not the declared rollback tag"
+[[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] || fail "running production image ID does not match rollback tag"
+ROLLBACK_REVISION_LABEL="$(docker image inspect "$ROLLBACK_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' 2>/dev/null || true)"
+[[ -z "$ROLLBACK_REVISION_LABEL" || "$ROLLBACK_REVISION_LABEL" == "$ROLLBACK_SHA" ]] || fail "rollback image revision label contradicts declared rollback SHA"
+ROLLBACK_REVISION_LABEL_VERIFIED=false
+[[ "$ROLLBACK_REVISION_LABEL" == "$ROLLBACK_SHA" ]] && ROLLBACK_REVISION_LABEL_VERIFIED=true
+
+install -d -o root -g root -m 0750 /opt/backups/hermes-deals/releases /etc/hermes-deals-releases.d "$RELEASE_LIBEXEC_ROOT"
+REGISTRY="/etc/hermes-deals-releases.d/api-ui-$NEW_SHA.json"
+COMPOSE_BUNDLE="$RELEASE_LIBEXEC_ROOT/$NEW_SHA"
+[[ ! -e "$REGISTRY" ]] || fail "release registry already exists for exact SHA"
+[[ ! -e "$COMPOSE_BUNDLE" ]] || fail "release Compose bundle already exists for exact SHA"
+
+ROLLBACK_ARCHIVE="/opt/backups/hermes-deals/releases/rollback-${ROLLBACK_TAG#hermes-deals-api:}.tar.gz"
+if [[ "$ROLLBACK_ARCHIVE_SOURCE" != "$ROLLBACK_ARCHIVE" ]]; then
+  install -o root -g root -m 0600 "$ROLLBACK_ARCHIVE_SOURCE" "$ROLLBACK_ARCHIVE"
+else
+  [[ "$(stat -c '%U:%G' "$ROLLBACK_ARCHIVE")" == 'root:root' ]] || fail "existing rollback archive ownership is invalid"
+  chmod 0600 "$ROLLBACK_ARCHIVE"
+fi
+ROLLBACK_ARCHIVE_SHA="$(sha256sum "$ROLLBACK_ARCHIVE" | awk '{print $1}')"
+
+docker image load --input "$ROLLBACK_ARCHIVE" >/dev/null
+[[ "$(docker image inspect "$ROLLBACK_TAG" --format '{{.Id}}')" == "$CURRENT_IMAGE_ID" ]] || fail "rollback archive restore test failed"
+
+NEW_TAG="hermes-deals-api:release-${VERSION}-${NEW_SHA:0:7}"
+docker build \
+  --pull=false \
+  --label "org.opencontainers.image.revision=$NEW_SHA" \
+  --label "org.opencontainers.image.source=https://github.com/rozkalnsandris/hermes-deals" \
+  --tag "$NEW_TAG" \
+  "$SOURCE_WORKTREE/backend"
+
+docker run --rm \
+  --env DATABASE_URL='sqlite+pysqlite:///:memory:' \
+  "$NEW_TAG" \
+  python -m pytest -q
+
+NEW_IMAGE_ID="$(docker image inspect "$NEW_TAG" --format '{{.Id}}')"
+[[ "$NEW_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "new image ID is invalid"
+[[ "$(docker image inspect "$NEW_TAG" --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}')" == "$NEW_SHA" ]] || fail "new image revision label mismatch"
+
+NEW_ARCHIVE="/opt/backups/hermes-deals/releases/${NEW_TAG#hermes-deals-api:}.tar.gz"
+TMP_ARCHIVE="$(mktemp /opt/backups/hermes-deals/releases/.new-image.XXXXXX.tar.gz)"
+cleanup_archive() { rm -f -- "$TMP_ARCHIVE"; }
+trap cleanup_archive EXIT
+docker image save "$NEW_TAG" | gzip -n > "$TMP_ARCHIVE"
+chown root:root "$TMP_ARCHIVE"
+chmod 0600 "$TMP_ARCHIVE"
+mv -f -- "$TMP_ARCHIVE" "$NEW_ARCHIVE"
+trap - EXIT
+NEW_ARCHIVE_SHA="$(sha256sum "$NEW_ARCHIVE" | awk '{print $1}')"
+
+TMP_BUNDLE="$(mktemp -d "$RELEASE_LIBEXEC_ROOT/.bundle.XXXXXX")"
+cleanup_bundle() { rm -rf -- "$TMP_BUNDLE"; }
+trap cleanup_bundle EXIT
+install -o root -g root -m 0644 "$SOURCE_WORKTREE/docker-compose.yml" "$TMP_BUNDLE/docker-compose.yml"
+install -o root -g root -m 0644 "$SOURCE_WORKTREE/docker-compose.production.yml" "$TMP_BUNDLE/docker-compose.production.yml"
+COMPOSE_BASE_SHA="$(sha256sum "$TMP_BUNDLE/docker-compose.yml" | awk '{print $1}')"
+COMPOSE_PRODUCTION_SHA="$(sha256sum "$TMP_BUNDLE/docker-compose.production.yml" | awk '{print $1}')"
+mv -- "$TMP_BUNDLE" "$COMPOSE_BUNDLE"
+trap - EXIT
+
+TMP_REGISTRY="$(mktemp /etc/hermes-deals-releases.d/.api-ui.XXXXXX.json)"
+BUNDLE_COMMITTED=true
+cleanup_registry() {
+  rm -f -- "$TMP_REGISTRY"
+  if [[ "$BUNDLE_COMMITTED" == true ]]; then
+    rm -rf -- "$COMPOSE_BUNDLE"
+  fi
+}
+trap cleanup_registry EXIT
+python3 - "$TMP_REGISTRY" "$NEW_SHA" "$SOURCE_WORKTREE" "$PRODUCTION_ROOT" \
+  "$COMPOSE_BUNDLE/docker-compose.yml" "$COMPOSE_BASE_SHA" \
+  "$COMPOSE_BUNDLE/docker-compose.production.yml" "$COMPOSE_PRODUCTION_SHA" \
+  "$NEW_TAG" "$NEW_IMAGE_ID" "$NEW_ARCHIVE" "$NEW_ARCHIVE_SHA" \
+  "$ROLLBACK_SHA" "$ROLLBACK_TAG" "$CURRENT_IMAGE_ID" "$ROLLBACK_ARCHIVE" \
+  "$ROLLBACK_ARCHIVE_SHA" "$ROLLBACK_REVISION_LABEL_VERIFIED" \
+  "$REQUIRED_CI_RUN_ID" "$REQUIRED_AUDIT_RUN_ID" <<'PY_REGISTER'
+import datetime
+import json
+import pathlib
+import sys
+
+(
+    output,
+    new_sha,
+    source_worktree,
+    production_root,
+    compose_base_path,
+    compose_base_sha,
+    compose_production_path,
+    compose_production_sha,
+    new_tag,
+    new_image_id,
+    new_archive,
+    new_archive_sha,
+    rollback_sha,
+    rollback_tag,
+    rollback_image_id,
+    rollback_archive,
+    rollback_archive_sha,
+    rollback_revision_label_verified,
+    required_ci_run_id,
+    required_audit_run_id,
+) = sys.argv[1:]
+pathlib.Path(output).write_text(
+    json.dumps(
+        {
+            "schema_version": 2,
+            "release_class": "api-ui",
+            "commit_sha": new_sha,
+            "source_worktree": source_worktree,
+            "production_root": production_root,
+            "compose_base_path": compose_base_path,
+            "compose_base_sha256": compose_base_sha,
+            "compose_production_path": compose_production_path,
+            "compose_production_sha256": compose_production_sha,
+            "compose_change_authorized": False,
+            "image_tag": new_tag,
+            "image_id": new_image_id,
+            "image_archive": new_archive,
+            "image_archive_sha256": new_archive_sha,
+            "rollback_commit_sha": rollback_sha,
+            "rollback_tag": rollback_tag,
+            "rollback_image_id": rollback_image_id,
+            "rollback_archive": rollback_archive,
+            "rollback_archive_sha256": rollback_archive_sha,
+            "rollback_restore_tested": True,
+            "rollback_revision_label_verified": rollback_revision_label_verified == "true",
+            "required_ci_run_id": int(required_ci_run_id),
+            "required_audit_run_id": int(required_audit_run_id) if required_audit_run_id else None,
+            "database_writes_authorized": False,
+            "registered_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY_REGISTER
+chown root:root "$TMP_REGISTRY"
+chmod 0644 "$TMP_REGISTRY"
+mv -f -- "$TMP_REGISTRY" "$REGISTRY"
+BUNDLE_COMMITTED=false
+trap - EXIT
+
+printf 'REGISTER_RESULT=PASS\nRELEASE_CLASS=api-ui\nCOMMIT_SHA=%s\nSOURCE_WORKTREE=%s\nCOMPOSE_BUNDLE=%s\nCOMPOSE_CHANGE_AUTHORIZED=false\nIMAGE_TAG=%s\nIMAGE_ID=%s\nIMAGE_ARCHIVE_SHA256=%s\nROLLBACK_SHA=%s\nROLLBACK_RESTORE_TESTED=true\nROLLBACK_REVISION_LABEL_VERIFIED=%s\nREQUIRED_CI_RUN_ID=%s\nREQUIRED_AUDIT_RUN_ID=%s\nDATABASE_WRITES_AUTHORIZED=false\nPRODUCTION_APPLY_PERFORMED=false\n' \
+  "$NEW_SHA" "$SOURCE_WORKTREE" "$COMPOSE_BUNDLE" "$NEW_TAG" "$NEW_IMAGE_ID" \
+  "$NEW_ARCHIVE_SHA" "$ROLLBACK_SHA" "$ROLLBACK_REVISION_LABEL_VERIFIED" \
+  "$REQUIRED_CI_RUN_ID" "${REQUIRED_AUDIT_RUN_ID:-none}"
