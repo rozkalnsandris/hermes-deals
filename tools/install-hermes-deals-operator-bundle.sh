@@ -34,8 +34,10 @@ install -m 0600 -- "$SOURCE" "$DEST"
 hermes bundles reload >/dev/null
 hermes bundles show hermes-deals-operator >/dev/null
 
+SKILLS_OUTPUT="$(hermes skills list)"
 for skill in github-auth github-issues github-pr-workflow hermes-deals hermes-deals-release; do
-  hermes skills list | grep -Fq "$skill" || fail "required skill is not visible: $skill"
+  grep -Fq -- "$skill" <<<"$SKILLS_OUTPUT" \
+    || fail "required skill is not visible: $skill"
 done
 
 printf 'BUNDLE_INSTALL_RESULT=PASS\n'
