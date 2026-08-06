@@ -59,14 +59,27 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
             self.active,
         )
         self.assertIn("weeklyUnique([...explicit,...current])", self.active)
+        self.assertIn("await weeklyLoadDate(selected,token)", self.active)
         self.assertIn(
-            "Promise.allSettled(dates.map(weeklyFetchDay))",
+            "Promise.all(remaining.map(iso=>weeklyLoadDate(iso,token)))",
             self.active,
         )
         self.assertIn(
             "payload.available_count??payload.total??rows.length",
             self.active,
         )
+
+    def test_weekly_overview_defers_hidden_legacy_requests(self) -> None:
+        self.assertIn("loadingDates:new Set()", self.active)
+        self.assertIn("pending=weeklyState.loadingDates.has(iso)", self.active)
+        self.assertIn("async function openWeeklyDeals", self.active)
+        self.assertIn('weeklyNavDeals").addEventListener("click",()=>void openWeeklyDeals())', self.active)
+        self.assertNotIn(
+            '$("comparisonToggle").style.display=mode==="canonical"?"flex":"none";loadInitialPage();',
+            self.active,
+        )
+        self.assertNotIn("syncUrl();renderWeeklyOverview();reloadAll();", self.active)
+        self.assertNotIn("syncUrl();reloadAll();loadWeeklyOverview(target);", self.active)
 
     def test_full_week_catalog_rows_are_excluded(self) -> None:
         self.assertIn("WEEKLY_SPECIAL_MAX_DAYS=3", self.active)
