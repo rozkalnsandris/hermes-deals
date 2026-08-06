@@ -1,0 +1,179 @@
+name: Issue 183 quick-date fix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: issue-183-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  apply-fix:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/issue-183-berlin-quick-dates'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the authorized branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/issue-183-berlin-quick-dates
+          fetch-depth: 0
+
+      - name: Apply the bounded UI fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          from hashlib import sha256
+          import importlib.util
+          from pathlib import Path
+          import re
+
+          app_path = Path("backend/app/ui/app.js")
+          static_test_path = Path("backend/tests/test_ui_static_assets.py")
+          contract_path = Path("backend/tests/ui_contract.py")
+          regression_path = Path("backend/tests/test_ui_quick_date_timezone_contract.py")
+
+          old = (
+              'function dateFromOffset(offset){const d=new Date();'
+              'd.setDate(d.getDate()+Number(offset));return '
+              '`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-'
+              '${String(d.getDate()).padStart(2,"0")}`;}'
+          )
+          new = (
+              'function dateFromOffset(offset){return '
+              'addDaysIso(todayLocal(),Number(offset));}'
+          )
+
+          app = app_path.read_text(encoding="utf-8")
+          if app.count(old) != 1:
+              raise SystemExit(f"expected exactly one legacy quick-date helper, found {app.count(old)}")
+          old_js_sha = sha256(app.encode("utf-8")).hexdigest()
+          app = app.replace(old, new, 1)
+          app_path.write_text(app, encoding="utf-8")
+          new_js_sha = sha256(app.encode("utf-8")).hexdigest()
+
+          static_test = static_test_path.read_text(encoding="utf-8")
+          if static_test.count(old_js_sha) != 1:
+              raise SystemExit("expected exactly one JavaScript SHA pin")
+          static_test = static_test.replace(old_js_sha, new_js_sha, 1)
+
+          contract = contract_path.read_text(encoding="utf-8")
+          match = re.search(r'ORIGINAL_INDEX_SHA256 = "([0-9a-f]{64})"', contract)
+          if not match:
+              raise SystemExit("original UI contract SHA pin not found")
+          old_contract_sha = match.group(1)
+
+          spec = importlib.util.spec_from_file_location("issue183_ui_contract", contract_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("could not load UI contract module")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          new_contract_sha = sha256(
+              module.read_family_ui_contract().encode("utf-8")
+          ).hexdigest()
+
+          if contract.count(old_contract_sha) != 1:
+              raise SystemExit("expected exactly one contract SHA pin in ui_contract.py")
+          contract = contract.replace(old_contract_sha, new_contract_sha, 1)
+          contract_path.write_text(contract, encoding="utf-8")
+
+          if static_test.count(old_contract_sha) != 1:
+              raise SystemExit("expected exactly one contract SHA assertion pin")
+          static_test = static_test.replace(old_contract_sha, new_contract_sha, 1)
+          static_test_path.write_text(static_test, encoding="utf-8")
+
+          regression_path.write_text(
+              '''from __future__ import annotations
+
+from pathlib import Path
+
+
+APP = (
+    Path(__file__).resolve().parents[1] / "app" / "ui" / "app.js"
+).read_text(encoding="utf-8")
+
+
+def test_quick_dates_use_the_authoritative_berlin_calendar_day() -> None:
+    assert (
+        'function dateFromOffset(offset){return '
+        'addDaysIso(todayLocal(),Number(offset));}'
+        in APP
+    )
+    assert 'function dateFromOffset(offset){const d=new Date();' not in APP
+    assert (
+        'setAsOfIso(dateFromOffset(b.dataset.offset));'
+        in APP
+    )
+''',
+              encoding="utf-8",
+          )
+
+          print(f"OLD_JS_SHA256={old_js_sha}")
+          print(f"NEW_JS_SHA256={new_js_sha}")
+          print(f"OLD_CONTRACT_SHA256={old_contract_sha}")
+          print(f"NEW_CONTRACT_SHA256={new_contract_sha}")
+          PY
+
+      - name: Validate the focused contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check backend/app/ui/app.js
+          python -m py_compile \
+            backend/tests/test_ui_quick_date_timezone_contract.py \
+            backend/tests/test_ui_static_assets.py \
+            backend/tests/ui_contract.py
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import importlib.util
+          import re
+
+          app = Path("backend/app/ui/app.js").read_text(encoding="utf-8")
+          assert 'function dateFromOffset(offset){return addDaysIso(todayLocal(),Number(offset));}' in app
+          assert 'function dateFromOffset(offset){const d=new Date();' not in app
+
+          static_test = Path("backend/tests/test_ui_static_assets.py").read_text(encoding="utf-8")
+          js_sha = hashlib.sha256(app.encode("utf-8")).hexdigest()
+          assert f'EXPECTED_JS_SHA256 = "{js_sha}"' in static_test
+
+          contract_path = Path("backend/tests/ui_contract.py")
+          spec = importlib.util.spec_from_file_location("issue183_verify_contract", contract_path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          reconstructed = hashlib.sha256(module.read_family_ui_contract().encode("utf-8")).hexdigest()
+          pinned = re.search(r'ORIGINAL_INDEX_SHA256 = "([0-9a-f]{64})"', contract_path.read_text(encoding="utf-8"))
+          assert pinned and pinned.group(1) == reconstructed
+          assert reconstructed in static_test
+          PY
+
+      - name: Commit only the reviewed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- \
+            backend/app/ui/app.js \
+            backend/tests/test_ui_quick_date_timezone_contract.py \
+            backend/tests/test_ui_static_assets.py \
+            backend/tests/ui_contract.py; then
+            echo "The bounded fix is already present."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            backend/app/ui/app.js \
+            backend/tests/test_ui_quick_date_timezone_contract.py \
+            backend/tests/test_ui_static_assets.py \
+            backend/tests/ui_contract.py
+          git commit -m "fix: keep quick dates on Berlin calendar days"
+          git push origin HEAD:fix/issue-183-berlin-quick-dates
