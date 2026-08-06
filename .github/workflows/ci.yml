@@ -52,3 +52,29 @@ jobs:
           DATABASE_URL: "sqlite+pysqlite:///:memory:"
         run: |
           python -m pytest -q
+
+  apply-branding-once:
+    name: Apply branding once
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/branding-deals-217' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branding branch
+        uses: actions/checkout@v5
+        with:
+          ref: chore/branding-deals-217
+          fetch-depth: 0
+      - name: Apply and commit Deals branding
+        run: |
+          set -Eeuo pipefail
+          python tools/apply_deals_branding_once.py
+          rm -f tools/apply_deals_branding_once.py
+          rm -f .github/workflows/apply-branding-once.yml
+          git checkout origin/main -- .github/workflows/ci.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: integrate Deals project branding (#217) [branding-applied]"
+          git push origin HEAD:chore/branding-deals-217
