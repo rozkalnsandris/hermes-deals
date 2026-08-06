@@ -38,8 +38,8 @@
       "weight": 20
     },
     {
-      "completed_points": 4,
-      "completion_percent": 40,
+      "completed_points": 8,
+      "completion_percent": 80,
       "id": "release",
       "items": [
         {
@@ -50,7 +50,7 @@
           "points": 4
         },
         {
-          "completed": false,
+          "completed": true,
           "id": "controlled-release",
           "issue": 21,
           "label": "Controlled exact-SHA release workflow",
@@ -294,33 +294,237 @@
       "weight": 3
     }
   ],
-  "completed_issue_count": 24,
-  "generated_at": "2026-08-05T18:09:00Z",
-  "generated_at_local": "2026-08-05T20:09:00+02:00",
-  "overall_percent": 56,
-  "previous_day": "2026-08-04",
-  "previous_day_completed_issue_count": 3,
+  "completed_issue_count": 42,
+  "generated_at": "2026-08-06T06:20:13.195296Z",
+  "generated_at_local": "2026-08-06T08:20:13.195296+02:00",
+  "overall_percent": 60,
+  "previous_day": "2026-08-05",
+  "previous_day_completed_issue_count": 37,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-04T19:52:31Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/12",
-      "number": 12,
-      "title": "fix: show Netto daily specials in the Deals UI"
+      "closed_at": "2026-08-04T22:05:13Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/17",
+      "number": 17,
+      "title": "refactor: split UI bundle without behavior changes"
     },
     {
-      "closed_at": "2026-08-04T20:00:23Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/13",
-      "number": 13,
-      "title": "fix: select Netto daily-special snapshot by requested date"
+      "closed_at": "2026-08-05T08:27:16Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/18",
+      "number": 18,
+      "title": "P0 UI: fix Review Queue state and refresh inconsistencies"
     },
     {
-      "closed_at": "2026-08-04T20:30:03Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/15",
-      "number": 15,
-      "title": "netto: import audited N25/N26 scanning source and review policy"
+      "closed_at": "2026-08-05T20:04:10Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/21",
+      "number": 21,
+      "title": "P0 Infra: add controlled production release workflow from verified GitHub SHA"
+    },
+    {
+      "closed_at": "2026-08-05T17:02:55Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/22",
+      "number": 22,
+      "title": "P1 Lidl: consolidate parser identity and immutable corpus roles"
+    },
+    {
+      "closed_at": "2026-08-05T13:19:00Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/23",
+      "number": 23,
+      "title": "P1 Lidl: close extraction semantics, eligibility leaks and known false negatives"
+    },
+    {
+      "closed_at": "2026-08-05T09:33:26Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/25",
+      "number": 25,
+      "title": "P1 ALDI Nord: complete A3.0 frozen corpus and offer-to-page verification"
+    },
+    {
+      "closed_at": "2026-08-04T22:53:22Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/32",
+      "number": 32,
+      "title": "P1 UI: audit and fix historical date, calendar and mobile regressions"
+    },
+    {
+      "closed_at": "2026-08-05T09:31:06Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/46",
+      "number": 46,
+      "title": "P0 UI: hide raw upstream errors and provide bounded retry"
+    },
+    {
+      "closed_at": "2026-08-05T09:43:02Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/54",
+      "number": 54,
+      "title": "P2 UI: clear stale green API health status after a failed check"
+    },
+    {
+      "closed_at": "2026-08-05T10:43:47Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/62",
+      "number": 62,
+      "title": "P2 UI: do not show refresh success when a data section failed"
+    },
+    {
+      "closed_at": "2026-08-05T10:39:20Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/65",
+      "number": 65,
+      "title": "P1 Netto audit dispatcher creates unreadable execution log"
+    },
+    {
+      "closed_at": "2026-08-05T10:36:21Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/71",
+      "number": 71,
+      "title": "P2 UI: localize Review Queue API failures without exposing raw details"
+    },
+    {
+      "closed_at": "2026-08-05T11:20:42Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/77",
+      "number": 77,
+      "title": "P2 UI: keep the global updated timestamp authoritative after partial failures"
+    },
+    {
+      "closed_at": "2026-08-05T11:48:46Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/83",
+      "number": 83,
+      "title": "P1 Netto audit rejects valid container-authored raw evidence paths"
+    },
+    {
+      "closed_at": "2026-08-05T12:59:05Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/85",
+      "number": 85,
+      "title": "P2 UI: ignore stale grid responses after newer search or filter requests"
+    },
+    {
+      "closed_at": "2026-08-05T13:17:48Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/86",
+      "number": 86,
+      "title": "P1 Infra: add a safe public-edge versus local-origin diagnostic probe"
+    },
+    {
+      "closed_at": "2026-08-05T13:49:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/97",
+      "number": 97,
+      "title": "P1 Infra: add owner-authorized RPi5 public-origin probe workflow"
+    },
+    {
+      "closed_at": "2026-08-05T15:40:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/101",
+      "number": 101,
+      "title": "P1 Infra: add sanitized RPi5 origin incident evidence workflow"
+    },
+    {
+      "closed_at": "2026-08-05T16:26:27Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/105",
+      "number": 105,
+      "title": "fix: accept UTF-8 BOM in Actions runner metadata during release bootstrap"
+    },
+    {
+      "closed_at": "2026-08-05T17:04:11Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/108",
+      "number": 108,
+      "title": "fix: bind release authorizer to GitHub event payload path"
+    },
+    {
+      "closed_at": "2026-08-05T17:40:25Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/110",
+      "number": 110,
+      "title": "P1 Infra: add sanitized Cloudflare Tunnel ingress target audit"
+    },
+    {
+      "closed_at": "2026-08-05T18:25:57Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/116",
+      "number": 116,
+      "title": "P2 Docs: add auditable daily project progress statistics"
+    },
+    {
+      "closed_at": "2026-08-05T18:09:19Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/117",
+      "number": 117,
+      "title": "P1 UI: freeze Cloudflare 502 error handling regression contract"
+    },
+    {
+      "closed_at": "2026-08-05T18:32:21Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/123",
+      "number": 123,
+      "title": "P1 Infra: add deterministic origin health monitor policy"
+    },
+    {
+      "closed_at": "2026-08-05T18:32:14Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/127",
+      "number": 127,
+      "title": "Add guarded VS Code production deploy tasks"
+    },
+    {
+      "closed_at": "2026-08-05T18:50:02Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/129",
+      "number": 129,
+      "title": "P3 Docs: place previous-day project progress below Overall"
+    },
+    {
+      "closed_at": "2026-08-05T18:53:17Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/131",
+      "number": 131,
+      "title": "fix: route VS Code deploy through release bridge"
+    },
+    {
+      "closed_at": "2026-08-05T19:00:33Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/133",
+      "number": 133,
+      "title": "Allow VS Code deploy check to recognize legacy release image labels"
+    },
+    {
+      "closed_at": "2026-08-05T19:16:20Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/136",
+      "number": 136,
+      "title": "Allow verified schema-already-applied API/UI release"
+    },
+    {
+      "closed_at": "2026-08-05T19:56:10Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/139",
+      "number": 139,
+      "title": "Add guarded Hermes Deals deploy operator"
+    },
+    {
+      "closed_at": "2026-08-05T20:04:48Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/141",
+      "number": 141,
+      "title": "Fix Hermes bundle skill validation false failure"
+    },
+    {
+      "closed_at": "2026-08-05T20:22:45Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/145",
+      "number": 145,
+      "title": "Prevent root-owned release-control Git index during runtime sync"
+    },
+    {
+      "closed_at": "2026-08-05T20:39:34Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/148",
+      "number": 148,
+      "title": "Release register rejects legacy production tag despite identical image ID"
+    },
+    {
+      "closed_at": "2026-08-05T21:11:35Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/151",
+      "number": 151,
+      "title": "Simplify Hermes deploy to direct main check and deploy"
+    },
+    {
+      "closed_at": "2026-08-05T21:26:54Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/154",
+      "number": 154,
+      "title": "Fix sudo privilege checks that match Defaults lines"
+    },
+    {
+      "closed_at": "2026-08-05T21:40:49Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/156",
+      "number": 156,
+      "title": "Fix direct-main health probe and remove generic operator orientation"
+    },
+    {
+      "closed_at": "2026-08-05T21:57:46Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/158",
+      "number": 158,
+      "title": "Replace in-image pytest with runtime smoke validation"
     }
   ],
-  "previous_day_percentage_points": 5,
+  "previous_day_percentage_points": 19,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
   "schema_version": 1,
