@@ -7,7 +7,10 @@ from fastapi import Depends, FastAPI, Query, Response
 from sqlalchemy.orm import Session
 
 from app import current_deals_fast_route as fast_route
-from app.current_deals_sql_loader import load_sql_ranked_state_rows
+from app.current_deals_sql_loader import (
+    load_sql_ranked_state_rows,
+    materialize_only,
+)
 from app.db import get_db
 from app.schemas import CurrentDealsOut
 from app.weekly_special_api import router as weekly_router
@@ -54,20 +57,21 @@ def installed_fast_current_deals(
         fast_route._clear_current_deals_cache()
 
     started = perf_counter()
-    payload = fast_route.fast_current_deals(
-        as_of=as_of,
-        q=q,
-        retailer=retailer,
-        view=view,
-        app_only=app_only,
-        coupon_only=coupon_only,
-        discount_only=discount_only,
-        image_only=image_only,
-        sort=sort,
-        offset=offset,
-        limit=limit,
-        db=db,
-    )
+    with materialize_only(view):
+        payload = fast_route.fast_current_deals(
+            as_of=as_of,
+            q=q,
+            retailer=retailer,
+            view=view,
+            app_only=app_only,
+            coupon_only=coupon_only,
+            discount_only=discount_only,
+            image_only=image_only,
+            sort=sort,
+            offset=offset,
+            limit=limit,
+            db=db,
+        )
     duration_ms = (perf_counter() - started) * 1000
     response.headers["Server-Timing"] = (
         f"current-deals-sql;dur={duration_ms:.1f}"
@@ -76,7 +80,7 @@ def installed_fast_current_deals(
         "private, max-age=15, stale-while-revalidate=45"
     )
     response.headers["X-Hermes-Current-Deals-Engine"] = (
-        "sql-ranked-active-only"
+        "sql-ranked-requested-view"
     )
     return payload
 
