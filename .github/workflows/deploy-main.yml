@@ -150,58 +150,41 @@ jobs:
         env:
           EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
           TARGET_SHA: ${{ needs.resolve.outputs.sha }}
+          PUBLIC_VERIFY_MAX_ATTEMPTS: "6"
+          PUBLIC_VERIFY_DELAY_SECONDS: "5"
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ -d "$EVIDENCE_DIR" && ! -L "$EVIDENCE_DIR" ]]
 
-          curl --fail --location --silent --show-error --max-time 20 \
-            --dump-header "$EVIDENCE_DIR/public-health.headers" \
-            --output "$EVIDENCE_DIR/public-health.json" \
-            https://deals.rozkalns.net/api/health
-          curl --fail --location --silent --show-error --max-time 20 \
-            --dump-header "$EVIDENCE_DIR/public-ui.headers" \
-            --output "$EVIDENCE_DIR/public-ui.html" \
-            https://deals.rozkalns.net/ui
-          curl --fail --location --silent --show-error --max-time 20 \
-            --dump-header "$EVIDENCE_DIR/public-review.headers" \
-            --output "$EVIDENCE_DIR/public-review.html" \
-            https://deals.rozkalns.net/ui/review
-
-          python3 - "$EVIDENCE_DIR" "$TARGET_SHA" <<'PY'
+          python3 - "$EVIDENCE_DIR" "$TARGET_SHA" \
+            "$PUBLIC_VERIFY_MAX_ATTEMPTS" "$PUBLIC_VERIFY_DELAY_SECONDS" <<'PY'
           from __future__ import annotations
 
           from hashlib import sha256
           import json
           from pathlib import Path
           import re
+          import shutil
           import sys
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
 
           evidence_dir = Path(sys.argv[1])
           target_sha = sys.argv[2]
+          max_attempts = int(sys.argv[3])
+          delay_seconds = int(sys.argv[4])
 
-          def read_text(name: str) -> str:
-              return (evidence_dir / name).read_text(encoding="utf-8")
-
-          health_headers = read_text("public-health.headers").lower()
-          ui_headers = read_text("public-ui.headers").lower()
-          review_headers = read_text("public-review.headers").lower()
-          health = json.loads(read_text("public-health.json"))
-          ui = read_text("public-ui.html")
-          review = read_text("public-review.html")
-
-          if "content-type: application/json" not in health_headers:
-              raise SystemExit("public health response has the wrong content type")
-          if health.get("status") != "ok" or health.get("service") != "hermes-deals-api":
-              raise SystemExit("public health payload is invalid")
-          if "content-type: text/html" not in ui_headers:
-              raise SystemExit("public UI response has the wrong content type")
-          if "content-type: text/html" not in review_headers:
-              raise SystemExit("public Review response has the wrong content type")
-          if len(ui.encode("utf-8")) < 100_000:
-              raise SystemExit("public UI body is unexpectedly small")
-          if len(review.encode("utf-8")) < 1_000:
-              raise SystemExit("public Review body is unexpectedly small")
+          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+              raise SystemExit("target SHA is invalid")
+          if not 1 <= max_attempts <= 10:
+              raise SystemExit("public verification attempt count is invalid")
+          if not 0 <= delay_seconds <= 30:
+              raise SystemExit("public verification delay is invalid")
+          if not evidence_dir.is_dir() or evidence_dir.is_symlink():
+              raise SystemExit("public verification evidence directory is unsafe")
 
           required_ui_markers = (
               '<meta name="hermes-production-bundle" content="inline-v1">',
@@ -214,40 +197,176 @@ jobs:
               "--accent:#246b45",
               "/api/v1/deals/current",
           )
-          missing = [marker for marker in required_ui_markers if marker not in ui]
-          if missing:
-              raise SystemExit(f"public UI is missing required markers: {missing}")
-
           forbidden_ui_markers = (
               'href="/ui/styles.css"',
               'src="/ui/app.js"',
           )
-          leaked = [marker for marker in forbidden_ui_markers if marker in ui]
-          if leaked:
-              raise SystemExit(f"public UI still depends on external assets: {leaked}")
-          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
-              raise SystemExit("target SHA is invalid")
-
-          report = {
-              "result": "PASS",
-              "target_sha": target_sha,
-              "health_status": health["status"],
-              "health_service": health["service"],
-              "health_version": health.get("version"),
-              "health_phase": health.get("phase"),
-              "ui_bytes": len(ui.encode("utf-8")),
-              "ui_sha256": sha256(ui.encode("utf-8")).hexdigest(),
-              "review_bytes": len(review.encode("utf-8")),
-              "review_sha256": sha256(review.encode("utf-8")).hexdigest(),
-              "external_ui_assets_required": False,
-          }
-          (evidence_dir / "public-ui-check.json").write_text(
-              json.dumps(report, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
+          canonical_files = (
+              "public-health.headers",
+              "public-health.json",
+              "public-ui.headers",
+              "public-ui.html",
+              "public-review.headers",
+              "public-review.html",
           )
-          print("PUBLIC_API_HEALTH=PASS")
-          print("PUBLIC_UI_BUNDLE=PASS")
-          print("PUBLIC_REVIEW=PASS")
+          request_headers = {
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache",
+              "User-Agent": "hermes-deals-public-contract/1",
+          }
+
+          def write_headers(path: Path, status: int, headers) -> None:
+              lines = [f"HTTP-STATUS: {status}"]
+              lines.extend(f"{key}: {value}" for key, value in headers.items())
+              path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+          def fetch(
+              url: str,
+              headers_path: Path,
+              body_path: Path,
+          ) -> str:
+              request = Request(url, headers=request_headers)
+              try:
+                  with urlopen(request, timeout=20) as response:
+                      payload = response.read()
+                      write_headers(headers_path, response.status, response.headers)
+              except HTTPError as exc:
+                  payload = exc.read()
+                  write_headers(headers_path, exc.code, exc.headers)
+                  body_path.write_bytes(payload)
+                  raise RuntimeError(f"{url} returned HTTP {exc.code}") from exc
+              except URLError as exc:
+                  raise RuntimeError(f"{url} request failed: {exc.reason}") from exc
+              body_path.write_bytes(payload)
+              try:
+                  return payload.decode("utf-8")
+              except UnicodeDecodeError as exc:
+                  raise RuntimeError(f"{url} response is not UTF-8") from exc
+
+          def content_type(headers_path: Path) -> str:
+              for line in headers_path.read_text(encoding="utf-8").splitlines():
+                  key, separator, value = line.partition(":")
+                  if separator and key.casefold() == "content-type":
+                      return value.strip().split(";", 1)[0].casefold()
+              return ""
+
+          last_error = "public verification did not run"
+          for attempt in range(1, max_attempts + 1):
+              attempt_dir = evidence_dir / f"public-attempt-{attempt:02d}"
+              attempt_dir.mkdir(mode=0o700)
+              query = urlencode(
+                  {
+                      "deploy_sha": target_sha,
+                      "attempt": attempt,
+                  }
+              )
+              result_path = attempt_dir / "validation.json"
+              error_path = attempt_dir / "validation.err"
+
+              try:
+                  health_text = fetch(
+                      f"https://deals.rozkalns.net/api/health?{query}",
+                      attempt_dir / "public-health.headers",
+                      attempt_dir / "public-health.json",
+                  )
+                  ui = fetch(
+                      f"https://deals.rozkalns.net/ui?{query}",
+                      attempt_dir / "public-ui.headers",
+                      attempt_dir / "public-ui.html",
+                  )
+                  review = fetch(
+                      f"https://deals.rozkalns.net/ui/review?{query}",
+                      attempt_dir / "public-review.headers",
+                      attempt_dir / "public-review.html",
+                  )
+
+                  if content_type(attempt_dir / "public-health.headers") != "application/json":
+                      raise RuntimeError("public health response has the wrong content type")
+                  health = json.loads(health_text)
+                  if (
+                      health.get("status") != "ok"
+                      or health.get("service") != "hermes-deals-api"
+                  ):
+                      raise RuntimeError("public health payload is invalid")
+                  if content_type(attempt_dir / "public-ui.headers") != "text/html":
+                      raise RuntimeError("public UI response has the wrong content type")
+                  if content_type(attempt_dir / "public-review.headers") != "text/html":
+                      raise RuntimeError("public Review response has the wrong content type")
+                  if len(ui.encode("utf-8")) < 100_000:
+                      raise RuntimeError("public UI body is unexpectedly small")
+                  if len(review.encode("utf-8")) < 1_000:
+                      raise RuntimeError("public Review body is unexpectedly small")
+
+                  missing = [marker for marker in required_ui_markers if marker not in ui]
+                  if missing:
+                      raise RuntimeError(
+                          f"public UI is missing required markers: {missing}"
+                      )
+                  leaked = [marker for marker in forbidden_ui_markers if marker in ui]
+                  if leaked:
+                      raise RuntimeError(
+                          f"public UI still depends on external assets: {leaked}"
+                      )
+
+                  report = {
+                      "result": "PASS",
+                      "attempt": attempt,
+                      "max_attempts": max_attempts,
+                      "target_sha": target_sha,
+                      "health_status": health["status"],
+                      "health_service": health["service"],
+                      "health_version": health.get("version"),
+                      "health_phase": health.get("phase"),
+                      "ui_bytes": len(ui.encode("utf-8")),
+                      "ui_sha256": sha256(ui.encode("utf-8")).hexdigest(),
+                      "review_bytes": len(review.encode("utf-8")),
+                      "review_sha256": sha256(review.encode("utf-8")).hexdigest(),
+                      "external_ui_assets_required": False,
+                  }
+                  result_path.write_text(
+                      json.dumps(report, indent=2, sort_keys=True) + "\n",
+                      encoding="utf-8",
+                  )
+                  for name in canonical_files:
+                      shutil.copy2(attempt_dir / name, evidence_dir / name)
+                  shutil.copy2(result_path, evidence_dir / "public-ui-check.json")
+                  (evidence_dir / "public-verification-attempt.txt").write_text(
+                      f"{attempt}\n",
+                      encoding="utf-8",
+                  )
+                  print(f"PUBLIC_VERIFY_ATTEMPT={attempt}")
+                  print("PUBLIC_API_HEALTH=PASS")
+                  print("PUBLIC_UI_BUNDLE=PASS")
+                  print("PUBLIC_REVIEW=PASS")
+                  raise SystemExit(0)
+              except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                  last_error = str(exc)
+                  error_path.write_text(last_error + "\n", encoding="utf-8")
+                  result_path.write_text(
+                      json.dumps(
+                          {
+                              "result": "FAIL",
+                              "attempt": attempt,
+                              "max_attempts": max_attempts,
+                              "target_sha": target_sha,
+                              "error": last_error,
+                          },
+                          indent=2,
+                          sort_keys=True,
+                      )
+                      + "\n",
+                      encoding="utf-8",
+                  )
+                  print(
+                      f"PUBLIC_VERIFY_ATTEMPT={attempt} FAIL: {last_error}",
+                      file=sys.stderr,
+                  )
+                  if attempt < max_attempts:
+                      time.sleep(delay_seconds)
+
+          raise SystemExit(
+              f"public API/UI contract failed after {max_attempts} attempts: {last_error}"
+          )
           PY
 
       - name: Upload deploy evidence
