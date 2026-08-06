@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import subprocess
+import textwrap
 
 import yaml
 
@@ -84,6 +86,15 @@ def test_public_contract_retries_bounded_edge_propagation_without_weakening() ->
     assert 'src="/ui/app.js"' in text
     assert "external_ui_assets_required" in text
     assert 'shutil.copy2(result_path, evidence_dir / "public-ui-check.json")' in text
+
+
+def test_embedded_workflow_python_blocks_compile() -> None:
+    text = read(WORKFLOW)
+    blocks = re.findall(r"<<'PY'\n(.*?)\n\s+PY", text, flags=re.DOTALL)
+
+    assert len(blocks) == 2
+    for index, block in enumerate(blocks, start=1):
+        compile(textwrap.dedent(block), f"deploy-main-block-{index}.py", "exec")
 
 
 def test_main_push_ci_runs_are_not_cancelled_by_newer_merges() -> None:
