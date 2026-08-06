@@ -72,6 +72,7 @@ def load_gate_b_plan(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     )
 
     chunks: list[str] = []
+    part_lengths: list[int] = []
     for part_name in _GATE_B_PARTS:
         _CORE.require(Path(part_name).name == part_name, "unsafe Gate B part name")
         part_path = path.parent / part_name
@@ -83,17 +84,27 @@ def load_gate_b_plan(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             raise _CORE.GateCError(f"invalid Gate B part: {part_name}: {exc}") from exc
         _CORE.require(text and not any(char.isspace() for char in text), f"invalid Gate B part whitespace: {part_name}")
         chunks.append(text)
+        part_lengths.append(len(text))
 
+    encoded = "".join(chunks)
     try:
-        decoded = base64.b64decode("".join(chunks), validate=True)
+        decoded = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error) as exc:
-        raise _CORE.GateCError(f"invalid Gate B Base64 payload: {exc}") from exc
-    _CORE.require(len(decoded) == _GATE_B_DECODED_BYTES, "Gate B decoded byte count drift")
+        raise _CORE.GateCError(
+            f"invalid Gate B Base64 payload: {exc}; part_lengths={part_lengths}; encoded_length={len(encoded)}"
+        ) from exc
+    _CORE.require(
+        len(decoded) == _GATE_B_DECODED_BYTES,
+        "Gate B decoded byte count drift: "
+        f"expected={_GATE_B_DECODED_BYTES} actual={len(decoded)} "
+        f"part_lengths={part_lengths} encoded_length={len(encoded)}",
+    )
     decoded_sha256 = sha256(decoded).hexdigest()
     _CORE.require(
         decoded_sha256 == _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256,
         "Gate B decoded SHA256 mismatch: "
-        f"expected={_EXPECTED_CANONICAL_GATE_B_PLAN_SHA256} actual={decoded_sha256}",
+        f"expected={_EXPECTED_CANONICAL_GATE_B_PLAN_SHA256} actual={decoded_sha256} "
+        f"part_lengths={part_lengths}",
     )
     try:
         plan = json.loads(decoded.decode("utf-8"))
