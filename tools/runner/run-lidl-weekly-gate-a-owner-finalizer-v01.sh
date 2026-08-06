@@ -3,10 +3,8 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 077
 
-OWNER_FINALIZER_VERSION='lidl-weekly-gate-a-owner-finalizer-v01'
+OWNER_FINALIZER_VERSION='lidl-weekly-gate-a-owner-finalizer-v01-snapshot-invariance'
 PRIMARY='/home/andris/hermes-deals'
-PRIMARY_EXPECTED_BRANCH='audit/b15m2-v08-preparation'
-PRIMARY_EXPECTED_HEAD='a2d9e20039275832286b229984b8261f9394554f'
 V08_SCRIPT="$PRIMARY/tools/run-hermes-deals-b15m2-least-privilege-shadow-migration-api-regression-v08.sh"
 AUDIT_REPO='/home/andris/hermes-deals-audit-source'
 INDEX="$AUDIT_REPO/.git/index"
@@ -54,7 +52,30 @@ cleanup() { rm -f -- "$INSTALL_LOG"; }
 trap cleanup EXIT
 
 git_read() {
-  GIT_OPTIONAL_LOCKS=0 git -C "$1" "${@:2}"
+  local repo="$1"
+  shift
+  local stdout_file stderr_file rc stderr_text
+  stdout_file="$(mktemp /tmp/hermes-deals-git-read-out.XXXXXX)"
+  stderr_file="$(mktemp /tmp/hermes-deals-git-read-err.XXXXXX)"
+  set +e
+  GIT_OPTIONAL_LOCKS=0 git -C "$repo" "$@" >"$stdout_file" 2>"$stderr_file"
+  rc=$?
+  set -e
+  stderr_text="$(cat "$stderr_file")"
+  if [[ "$rc" -ne 0 || -n "$stderr_text" ]]; then
+    printf 'GIT_READ_REPOSITORY=%s\nGIT_READ_EXIT_CODE=%s\n' "$repo" "$rc" >&2
+    if [[ -n "$stderr_text" ]]; then
+      printf 'GIT_READ_STDERR_BEGIN\n%s\nGIT_READ_STDERR_END\n' "$stderr_text" >&2
+    fi
+    rm -f -- "$stdout_file" "$stderr_file"
+    fail 'Git read failed closed or wrote to stderr'
+  fi
+  cat "$stdout_file"
+  rm -f -- "$stdout_file" "$stderr_file"
+}
+
+text_sha256() {
+  printf '%s' "$1" | sha256sum | awk '{print $1}'
 }
 
 file_state() {
@@ -71,15 +92,30 @@ file_state() {
 }
 
 verify_primary_unchanged() {
-  local branch_now head_now status_now v08_now
+  local branch_now head_now status_now status_sha_now index_path_now index_now v08_now
   branch_now="$(git_read "$PRIMARY" branch --show-current)"
   head_now="$(git_read "$PRIMARY" rev-parse HEAD)"
   status_now="$(git_read "$PRIMARY" status --porcelain=v1 --untracked-files=all)"
+  status_sha_now="$(text_sha256 "$status_now")"
+  index_path_now="$(git_read "$PRIMARY" rev-parse --path-format=absolute --git-path index)"
+  [[ "$index_path_now" == "$PRIMARY_INDEX_PATH_BEFORE" ]] || fail 'primary Git index path changed'
+  [[ ! -e "${index_path_now}.lock" ]] || fail 'primary Git index lock appeared'
+  index_now="$(file_state "$index_path_now")"
   v08_now="$(file_state "$V08_SCRIPT")"
   [[ "$branch_now" == "$PRIMARY_BRANCH_BEFORE" ]] || fail 'primary branch changed'
   [[ "$head_now" == "$PRIMARY_HEAD_BEFORE" ]] || fail 'primary HEAD changed'
   [[ "$status_now" == "$PRIMARY_STATUS_BEFORE" ]] || fail 'primary worktree status changed'
+  [[ "$status_sha_now" == "$PRIMARY_STATUS_SHA256_BEFORE" ]] || fail 'primary status digest changed'
+  [[ "$index_now" == "$PRIMARY_INDEX_BEFORE" ]] || fail 'primary Git index changed'
   [[ "$v08_now" == "$PRIMARY_V08_BEFORE" ]] || fail 'protected B15M2 V08 file changed'
+}
+
+verify_audit_registered_state() {
+  [[ "$(git_read "$AUDIT_REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'audit repository HEAD changed'
+  [[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'audit repository changed'
+  [[ "$(stat -c '%U:%G' "$INDEX")" == andris:andris ]] || fail 'audit Git index ownership changed'
+  [[ ! -e "$AUDIT_REPO/.git/index.lock" ]] || fail 'audit Git index lock appeared'
+  [[ "$(file_state "$INDEX")" == "$AUDIT_INDEX_REGISTERED" ]] || fail 'audit Git index content changed'
 }
 
 printf '=== Lidl weekly Gate A owner finalizer ===\n'
@@ -89,7 +125,7 @@ printf 'TARGET_SHA=%s\nPR_NUMBER=%s\nTARGET=%s\nAS_OF=%s\nUSE_PREVIOUS=%s\nLOG=%
   "$TARGET_SHA" "$PR_NUMBER" "$TARGET" "$AS_OF" "$USE_PREVIOUS" "$LOG"
 
 [[ "$(id -un)" == andris ]] || fail 'owner finalizer must run as andris'
-for command in date gh git grep head python3 readlink sed sha256sum stat sudo tee; do
+for command in awk cat date gh git grep head mktemp python3 readlink sed sha256sum stat sudo tee; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 [[ "$(readlink -f -- "$PRIMARY")" == "$PRIMARY" ]] || fail 'primary repository path drift'
@@ -107,11 +143,16 @@ done
 PRIMARY_BRANCH_BEFORE="$(git_read "$PRIMARY" branch --show-current)"
 PRIMARY_HEAD_BEFORE="$(git_read "$PRIMARY" rev-parse HEAD)"
 PRIMARY_STATUS_BEFORE="$(git_read "$PRIMARY" status --porcelain=v1 --untracked-files=all)"
+PRIMARY_STATUS_SHA256_BEFORE="$(text_sha256 "$PRIMARY_STATUS_BEFORE")"
+PRIMARY_INDEX_PATH_BEFORE="$(git_read "$PRIMARY" rev-parse --path-format=absolute --git-path index)"
+[[ "$PRIMARY_INDEX_PATH_BEFORE" == /* ]] || fail 'primary Git index path is not absolute'
+[[ -f "$PRIMARY_INDEX_PATH_BEFORE" && ! -L "$PRIMARY_INDEX_PATH_BEFORE" ]] || fail 'primary Git index is missing or unsafe'
+[[ ! -e "${PRIMARY_INDEX_PATH_BEFORE}.lock" ]] || fail 'primary repository has a stale index lock'
+PRIMARY_INDEX_BEFORE="$(file_state "$PRIMARY_INDEX_PATH_BEFORE")"
 PRIMARY_V08_BEFORE="$(file_state "$V08_SCRIPT")"
-printf 'PRIMARY_BRANCH_BEFORE=%s\nPRIMARY_HEAD_BEFORE=%s\nPRIMARY_V08_STATE_BEFORE=%s\n' \
-  "$PRIMARY_BRANCH_BEFORE" "$PRIMARY_HEAD_BEFORE" "$PRIMARY_V08_BEFORE"
-[[ "$PRIMARY_BRANCH_BEFORE" == "$PRIMARY_EXPECTED_BRANCH" ]] || fail 'protected primary branch differs from expected baseline'
-[[ "$PRIMARY_HEAD_BEFORE" == "$PRIMARY_EXPECTED_HEAD" ]] || fail 'protected primary HEAD differs from expected baseline'
+printf 'PRIMARY_BRANCH_BEFORE=%s\nPRIMARY_HEAD_BEFORE=%s\nPRIMARY_STATUS_SHA256_BEFORE=%s\nPRIMARY_INDEX_PATH_BEFORE=%s\nPRIMARY_INDEX_STATE_BEFORE=%s\nPRIMARY_V08_STATE_BEFORE=%s\nPRIMARY_GIT_STDERR_POLICY=empty-required\n' \
+  "${PRIMARY_BRANCH_BEFORE:-DETACHED}" "$PRIMARY_HEAD_BEFORE" "$PRIMARY_STATUS_SHA256_BEFORE" \
+  "$PRIMARY_INDEX_PATH_BEFORE" "$PRIMARY_INDEX_BEFORE" "$PRIMARY_V08_BEFORE"
 [[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'audit repository is not clean'
 
 origin="$(git_read "$AUDIT_REPO" remote get-url origin)"
@@ -129,6 +170,8 @@ git -C "$AUDIT_REPO" switch -C main "$TARGET_SHA"
 [[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'audit repository became dirty'
 [[ "$(stat -c '%U:%G' "$INDEX")" == andris:andris ]] || fail 'audit Git index ownership drift'
 [[ ! -e "$AUDIT_REPO/.git/index.lock" ]] || fail 'audit Git index lock appeared'
+AUDIT_INDEX_REGISTERED="$(file_state "$INDEX")"
+printf 'AUDIT_INDEX_STATE_REGISTERED=%s\n' "$AUDIT_INDEX_REGISTERED"
 
 INSTALLER="$AUDIT_REPO/tools/runner/install-lidl-weekly-gate-a-dispatcher.sh"
 [[ -f "$INSTALLER" && ! -L "$INSTALLER" ]] || fail 'Gate A installer is missing or unsafe'
@@ -154,12 +197,9 @@ done
 IMAGE_ID="$(sed -n 's/^REGISTERED_IMAGE_ID=//p' "$INSTALL_LOG" | tail -n 1)"
 [[ "$IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail 'installer registered image ID is invalid'
 printf 'REGISTERED_IMAGE_ID=%s\n' "$IMAGE_ID"
-[[ "$(git_read "$AUDIT_REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'audit repository HEAD changed during install'
-[[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'audit repository changed during install'
-[[ "$(stat -c '%U:%G' "$INDEX")" == andris:andris ]] || fail 'audit Git index ownership changed during install'
-[[ ! -e "$AUDIT_REPO/.git/index.lock" ]] || fail 'installer left an audit Git index lock'
+verify_audit_registered_state
 verify_primary_unchanged
-printf 'PRIMARY_WORKTREE_VERIFIED_UNCHANGED=true\nPRIMARY_V08_VERIFIED_UNCHANGED=true\nAUDIT_CLONE_HEAD=%s\n' "$TARGET_SHA"
+printf 'PRIMARY_WORKTREE_VERIFIED_UNCHANGED=true\nPRIMARY_INDEX_VERIFIED_UNCHANGED=true\nPRIMARY_V08_VERIFIED_UNCHANGED=true\nAUDIT_CLONE_HEAD=%s\n' "$TARGET_SHA"
 
 gh auth status
 DISPATCH_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -181,10 +221,7 @@ printf 'WORKFLOW_RUN_ID=%s\nWORKFLOW_RUN_URL=https://github.com/%s/actions/runs/
 gh run watch "$RUN_ID" --repo "$REPOSITORY" --exit-status
 
 verify_primary_unchanged
-[[ "$(git_read "$AUDIT_REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'audit repository HEAD changed during workflow'
-[[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'audit repository changed during workflow'
-[[ "$(stat -c '%U:%G' "$INDEX")" == andris:andris ]] || fail 'audit Git index ownership changed during workflow'
-[[ ! -e "$AUDIT_REPO/.git/index.lock" ]] || fail 'workflow left an audit Git index lock'
+verify_audit_registered_state
 printf 'WORKFLOW_RESULT=PASS\n'
-printf 'PRIMARY_WORKTREE_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true\nPRIMARY_V08_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true\n'
+printf 'PRIMARY_WORKTREE_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true\nPRIMARY_INDEX_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true\nPRIMARY_V08_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true\n'
 printf 'OWNER_FINALIZER_RESULT=PASS\nLOG=%s\n' "$LOG"
