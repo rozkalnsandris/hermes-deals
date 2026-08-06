@@ -13,5 +13,9 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 
+# Source stays split for review and tests. Only the immutable release image
+# receives a self-contained HTML document so nginx needs to proxy only /ui.
+RUN python -m app.ui_bundle --ui-dir /app/app/ui
+
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
