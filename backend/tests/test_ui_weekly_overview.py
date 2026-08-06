@@ -52,20 +52,29 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
         self.assertIn('<section class="weekly-calendar-shell"', self.active)
         self.assertIn('<aside class="weekly-summary-panel"', self.active)
 
-    def test_week_loader_combines_explicit_and_current_contracts(self) -> None:
+    def test_week_loader_uses_one_weekly_api_response(self) -> None:
         self.assertIn(
-            "Promise.all([fetchExplicitDailySpecials(iso),"
-            "fetchAllDailyDeals(iso)])",
-            self.active,
-        )
-        self.assertIn("weeklyUnique([...explicit,...current])", self.active)
-        self.assertIn("await weeklyLoadDate(selected,token)", self.active)
-        self.assertIn(
-            "Promise.all(remaining.map(iso=>weeklyLoadDate(iso,token)))",
+            '/api/v1/deals/weekly-specials',
             self.active,
         )
         self.assertIn(
-            "payload.available_count??payload.total??rows.length",
+            'function weeklyBundleUrl(start)',
+            self.active,
+        )
+        self.assertIn(
+            'const payload=await fetchJson(weeklyBundleUrl(start))',
+            self.active,
+        )
+        self.assertIn(
+            'payload.days||[]',
+            self.active,
+        )
+        self.assertNotIn(
+            'async function weeklyFetchDay(iso)',
+            self.active,
+        )
+        self.assertNotIn(
+            'weeklyLoadDate',
             self.active,
         )
 
