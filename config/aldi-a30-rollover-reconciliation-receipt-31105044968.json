@@ -1,0 +1,111 @@
+{
+  "artifact": {
+    "artifact_id": 8969175974,
+    "name": "aldi-a30-authoritative-cycle-10e22b745a92bcf4e7213aafe83e165e08719c99-run-31105044968",
+    "registered_commit": "10e22b745a92bcf4e7213aafe83e165e08719c99",
+    "run_id": 31105044968,
+    "zip_sha256": "fce7766060b9ff32874b55e474ea28a957b9ee21a7b0e2ecbe11952c36879bd4"
+  },
+  "classifications": {
+    "information_page_41_change": {
+      "automatic_offer_extraction_allowed": false,
+      "classification": "non_offer_information_page_content_changed",
+      "new": {
+        "bytes": 12217,
+        "path": "evidence/manual-review/new-current/page-041.jpg",
+        "sha256": "4fffb3305f980b0e47da175a4931569440cf541d5e439fa58524c7eabfc7ab85"
+      },
+      "old": {
+        "bytes": 12228,
+        "path": "evidence/manual-review/old-preview/page-041.jpg",
+        "sha256": "61afc0b2a9e65ac68fd5a67c9ddf4a35fc393afa661de21d6030a6a38268acec"
+      }
+    },
+    "new_current_page_3": {
+      "automatic_offer_approval_allowed": false,
+      "bytes": 13950,
+      "classification": "offer_page_added_to_current_ledger",
+      "current_ledger_action": "include",
+      "path": "evidence/manual-review/new-current/page-003.jpg",
+      "sha256": "ad297cdd2f3dc728f0114fcb8a06c6d2c6131f4b342173b134d9e99bd092ae7c"
+    },
+    "old_preview_page_37": {
+      "automatic_offer_extraction_allowed": false,
+      "bytes": 11933,
+      "carry_forward": false,
+      "classification": "removed_non_offer_competition_page",
+      "path": "evidence/manual-review/old-preview/page-037.jpg",
+      "sha256": "17197e1af7c0f1ff60f7fa610a0916576e38ab16fb4cd260cea8ecd79533a380"
+    }
+  },
+  "decision": "shadow_reconciliation_accepted",
+  "evidence": {
+    "authoritative_report": {
+      "bytes": 88495,
+      "path": "evidence/authoritative-cycle-report.json",
+      "sha256": "ece18d2c357236d77ae4ed453cf8bdc9cd642aec675abe1463dcddf3b15d3925"
+    },
+    "dispatcher_manifest": {
+      "bytes": 17732,
+      "path": "dispatcher-evidence-manifest.json",
+      "sha256": "2c6e8f90f30a55be9b02e7f67b4af668a0d29b60542de7174cb6ece484c6491b"
+    },
+    "manual_review": {
+      "bytes": 3945,
+      "path": "evidence/manual-review/manual-review.json",
+      "sha256": "f6b4a4e32f7c038a0ef18402bc5ef7680494abe419b7bc7738f0ae74d4daeca3"
+    }
+  },
+  "issue_number": 191,
+  "mode": "ALDI_A30_ROLLOVER_RECONCILIATION_RECEIPT_V01",
+  "rollover": {
+    "content_set_matched_pages": 39,
+    "current_page_count": 41,
+    "duplicate_content_groups": [],
+    "moved_pages": [
+      {
+        "new_page": 4,
+        "old_page": 3,
+        "sha256": "9ec7d0f2981013edf21e866b7c7bd9a9a8bf4c9f38e6b2f1fe48f42b585b9bd1"
+      },
+      {
+        "new_page": 5,
+        "old_page": 4,
+        "sha256": "f61a951cdd7ef74d1c4a790fec778b68dc0b6043e9ace59a5f8e7a3191985930"
+      },
+      {
+        "new_page": 37,
+        "old_page": 5,
+        "sha256": "d7d9587bd4730d4240941cb33156c27333c64f5985ccd57f6b2d319f033c36b8"
+      }
+    ],
+    "new_only_pages": [
+      3,
+      41
+    ],
+    "old_only_pages": [
+      37,
+      41
+    ],
+    "positional_visual_matched_pages": 36,
+    "preview_page_count": 41,
+    "strict_41_of_41_automatic_promotion_passed": false
+  },
+  "safety": {
+    "automatic_approval_allowed": false,
+    "automatic_promotion_allowed": false,
+    "automatic_publication_allowed": false,
+    "b15m2_v08_action_allowed": false,
+    "next_step_scope": "shadow_parser_and_parity_only",
+    "production_database_write_allowed": false,
+    "production_deployment_allowed": false,
+    "scheduler_installation_allowed": false,
+    "strict_41_of_41_gate_unchanged": true
+  },
+  "schema_version": 1,
+  "upstream_issue_numbers": [
+    80,
+    121,
+    165
+  ]
+}
