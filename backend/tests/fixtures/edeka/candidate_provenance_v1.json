@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "strategy": "edeka_candidate_provenance_v1",
+  "manifest": {
+    "schema_version": 1,
+    "strategy": "edeka_regional_source_manifest_v1",
+    "retailer": "edeka",
+    "public_market_code": "071897",
+    "source_market_id": "587881",
+    "scope": "family_primary_edeka",
+    "campaign_id": "synthetic-contract-2026-08-03",
+    "valid_from": "2026-08-03",
+    "valid_to": "2026-08-08",
+    "source_url": "https://www.edeka.de/eh/angebote.jsp",
+    "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "parser_identity": "edeka-shadow-contract-v1",
+    "source_state": "review_pending",
+    "fallback_allowed": false,
+    "ambiguous_rows_route": "review_required",
+    "database_write_authorized": false,
+    "review_write_authorized": false,
+    "automatic_approval_enabled": false,
+    "automatic_publish_enabled": false,
+    "production_apply_authorized": false
+  },
+  "candidates": [
+    {
+      "candidate_id": "synthetic-card-1",
+      "campaign_id": "synthetic-contract-2026-08-03",
+      "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "parser_identity": "edeka-shadow-contract-v1",
+      "page_number": 1,
+      "card_id": "page-1-card-1",
+      "route": "automatic_candidate",
+      "ambiguous": false,
+      "provenance_complete": true
+    },
+    {
+      "candidate_id": "synthetic-card-2",
+      "campaign_id": "synthetic-contract-2026-08-03",
+      "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "parser_identity": "edeka-shadow-contract-v1",
+      "page_number": 1,
+      "card_id": "page-1-card-2",
+      "route": "review_required",
+      "ambiguous": true,
+      "provenance_complete": true
+    }
+  ],
+  "database_write_authorized": false,
+  "review_write_authorized": false,
+  "automatic_approval_enabled": false,
+  "automatic_publish_enabled": false,
+  "production_apply_authorized": false
+}
