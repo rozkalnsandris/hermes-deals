@@ -12,12 +12,18 @@ from app.current_deals_fast_route import (
     _clear_current_deals_cache,
     fast_current_deals,
 )
+from app.current_deals_route_installer import installed_fast_current_deals
 from app.main import app
+
+
+class _Rows(list):
+    def all(self):
+        return list(self)
 
 
 class _FakeDb:
     def execute(self, _statement):
-        return []
+        return _Rows()
 
 
 def _deal(
@@ -76,15 +82,15 @@ def _call(db, *, view: str = "current"):
     )
 
 
-def test_fast_route_is_registered_before_legacy_route() -> None:
+def test_fast_route_replaces_legacy_http_registration() -> None:
     routes = [
         route
         for route in app.routes
         if getattr(route, "path", None) == "/api/v1/deals/current"
     ]
 
-    assert len(routes) >= 2
-    assert routes[0].endpoint is fast_current_deals
+    assert len(routes) == 1
+    assert routes[0].endpoint is installed_fast_current_deals
 
 
 def test_availability_state_preserves_current_and_upcoming_windows() -> None:
