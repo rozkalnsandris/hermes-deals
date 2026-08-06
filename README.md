@@ -110,3 +110,7 @@ These are deployed/reviewed pins, not a claim that every pin will always remain 
 
 `make clean` deliberately preserves `data/raw/`, `audit/`, `.codex/evidence/`,
 local databases and backup archives.
+
+## Operations runbooks
+
+- [Cloudflare Access service authentication for automated deploy checks](docs/operations/CLOUDFLARE_ACCESS_SERVICE_AUTH.md) — diagnose Access sign-in HTML, configure Service Tokens and GitHub secrets, verify automatic RPi5 deploys, and rotate credentials safely.
