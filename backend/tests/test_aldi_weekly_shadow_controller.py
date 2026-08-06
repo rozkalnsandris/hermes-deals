@@ -62,7 +62,7 @@ def test_new_verified_identity_is_ready_and_read_only() -> None:
 
 def test_exact_unchanged_identity_is_deterministic_noop() -> None:
     first = decide(manifest())
-    second = decide(manifest(), {"schema_version": 1, "fingerprint": first["fingerprint"]})
+    second = decide(manifest(), first)
     assert second["decision"] == "NO_OP"
     assert second["fingerprint"] == first["fingerprint"]
 
@@ -95,7 +95,7 @@ def test_parser_or_ledger_change_requires_new_shadow_run() -> None:
     first = decide(manifest())
     changed = deepcopy(manifest())
     changed["parser_identity"] = "aldi-a21-frozen-v2"
-    result = decide(changed, {"schema_version": 1, "fingerprint": first["fingerprint"]})
+    result = decide(changed, first)
     assert result["decision"] == "READY"
     assert result["fingerprint"] != first["fingerprint"]
 
@@ -107,6 +107,7 @@ def test_parser_or_ledger_change_requires_new_shadow_run() -> None:
         ("region", "aldi_sued"),
         ("source_url", "https://example.invalid/flyer"),
         ("source_sha256", "bad"),
+        ("automatic_candidate_count", True),
         ("promotion_ready", True),
         ("immutable_evidence", False),
     ],
@@ -116,3 +117,21 @@ def test_identity_and_safety_drift_is_rejected(field: str, value: object) -> Non
     raw[field] = value
     with pytest.raises(AldiWeeklyError):
         decide(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("strategy", "other-controller"),
+        ("decision", "WAIT"),
+        ("source_state", "review_pending"),
+        ("safety", {"dry_run": True}),
+    ],
+)
+def test_untrusted_prior_cannot_suppress_a_new_shadow_run(
+    field: str, value: object
+) -> None:
+    prior = decide(manifest())
+    prior[field] = value
+    with pytest.raises(AldiWeeklyError):
+        decide(manifest(), prior)
