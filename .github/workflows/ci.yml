@@ -35,7 +35,6 @@ jobs:
       - name: Apply guarded issue 183 patch
         if: >-
           github.event_name == 'pull_request' &&
-          github.event.pull_request.number == 187 &&
           github.event.pull_request.head.ref == 'fix/berlin-quick-dates-183' &&
           github.actor == 'rozkalnsandris'
         working-directory: .
