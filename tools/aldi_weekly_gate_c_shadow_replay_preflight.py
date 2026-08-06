@@ -27,6 +27,7 @@ for _name, _value in vars(_CORE).items():
 _ORIGINAL_VALIDATE_GATE_B_PLAN = _CORE.validate_gate_b_plan
 _ORIGINAL_LOAD_A21_PROJECTION = _CORE.load_a21_projection
 _ORIGINAL_VALIDATE_LEGACY_PARITY_BUNDLE = _CORE.validate_legacy_parity_bundle
+_ORIGINAL_VALIDATE_PRIOR_RESULT = _CORE.validate_prior_result
 _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256 = _CORE.EXPECTED_GATE_B_PLAN_SHA256
 _GATE_B_INDEX_MODE = "ALDI_WEEKLY_GATE_B_REPLAY_PLAN_CHUNK_INDEX_V01"
 _GATE_B_PARTS = [
@@ -189,14 +190,53 @@ def validate_legacy_parity_bundle(
     return validated
 
 
+def validate_prior_result(prior: Mapping[str, Any]) -> None:
+    decision = prior.get("decision")
+    _CORE.require(
+        decision in {"READY_FOR_SHADOW_REPLAY", "NO_OP"},
+        "prior Gate C result is not complete",
+    )
+    _CORE.require(
+        prior.get("partition_counts") == EXPECTED_GATE_B_PARTITIONS,
+        "prior Gate C partition counts mismatch",
+    )
+    _CORE.require(
+        prior.get("candidate_parity_claimed") is True,
+        "prior Gate C candidate parity is incomplete",
+    )
+    _CORE.require(
+        prior.get("production_eligible") is False,
+        "unsafe prior Gate C production eligibility",
+    )
+    _CORE.require(
+        prior.get("promotion_ready") is False,
+        "unsafe prior Gate C promotion readiness",
+    )
+    expected_next_step = (
+        "exact_shadow_replay_inputs_unchanged"
+        if decision == "NO_OP"
+        else "execute_offline_shadow_replay_and_duplicate_immutability_audit"
+    )
+    _CORE.require(
+        prior.get("next_step_scope") == expected_next_step,
+        "prior Gate C next-step scope mismatch",
+    )
+
+    normalized = dict(prior)
+    normalized["decision"] = "READY_FOR_SHADOW_REPLAY"
+    _ORIGINAL_VALIDATE_PRIOR_RESULT(normalized)
+
+
 _CORE.validate_gate_b_plan = validate_gate_b_plan
 _CORE.load_gate_b_plan = load_gate_b_plan
 _CORE.load_a21_projection = load_a21_projection
 _CORE.validate_legacy_parity_bundle = validate_legacy_parity_bundle
+_CORE.validate_prior_result = validate_prior_result
 globals()["validate_gate_b_plan"] = validate_gate_b_plan
 globals()["load_gate_b_plan"] = load_gate_b_plan
 globals()["load_a21_projection"] = load_a21_projection
 globals()["validate_legacy_parity_bundle"] = validate_legacy_parity_bundle
+globals()["validate_prior_result"] = validate_prior_result
 
 
 if __name__ == "__main__":
