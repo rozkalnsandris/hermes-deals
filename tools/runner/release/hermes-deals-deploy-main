@@ -218,7 +218,20 @@ NEW_REVISION="$(docker image inspect "$NEW_IMAGE" --format '{{index .Config.Labe
 docker run --rm \
   -e 'DATABASE_URL=sqlite+pysqlite:///:memory:' \
   "$NEW_IMAGE" \
-  python -c 'from app.main import app; assert app.openapi()["info"]["title"]; assert any(r.path == "/api/health" for r in app.routes); assert any(r.path == "/ui" for r in app.routes)'
+  python -c '
+from app.main import app
+
+def walk(routes):
+    for route in routes:
+        yield route
+        yield from walk(getattr(route, "routes", ()))
+
+schema = app.openapi()
+assert schema["info"]["title"]
+paths = {getattr(route, "path", None) for route in walk(app.routes)}
+assert "/api/health" in paths
+assert "/ui" in paths
+'
 
 printf 'DEPLOY: switching API container\n'
 set +e
