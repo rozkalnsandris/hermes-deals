@@ -34,6 +34,8 @@ def test_workflow_queues_every_successful_main_ci_on_one_rpi5_runner() -> None:
     assert "/usr/local/sbin/hermes-deals-deploy-main" in text
     assert "https://deals.rozkalns.net/api/health" in text
     assert "https://deals.rozkalns.net/ui" in text
+    assert "actions/upload-artifact@v6" in text
+    assert "actions/upload-artifact@v4" not in text
     assert "concurrency:" not in text
     for forbidden in ("pr_number", "issue", "plan", "APPLY api-ui", "release registry"):
         assert forbidden not in text
