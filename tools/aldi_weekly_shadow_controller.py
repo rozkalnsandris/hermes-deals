@@ -20,6 +20,7 @@ SOURCE_STATES = {
     "parser_failed",
     "review_pending",
 }
+STRATEGY = "aldi_weekly_shadow_controller_gate_a_v1"
 
 
 class AldiWeeklyError(ValueError):
@@ -65,6 +66,18 @@ def _date(value: Any, field: str) -> date:
         return date.fromisoformat(str(value))
     except ValueError as exc:
         raise AldiWeeklyError(f"{field} must be ISO date") from exc
+
+
+def _count(value: Any, field: str) -> int:
+    if isinstance(value, bool):
+        raise AldiWeeklyError(f"{field} must be a non-negative integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise AldiWeeklyError(f"{field} must be a non-negative integer") from exc
+    if parsed < 0:
+        raise AldiWeeklyError(f"{field} must be non-negative")
+    return parsed
 
 
 def _canonical(value: Any) -> bytes:
@@ -116,19 +129,18 @@ def validate_manifest(raw: Mapping[str, Any]) -> dict[str, Any]:
         "parser_identity": _text(raw.get("parser_identity"), "parser_identity"),
         "ledger_identity": _text(raw.get("ledger_identity"), "ledger_identity"),
         "ledger_sha256": _sha(raw.get("ledger_sha256"), "ledger_sha256"),
-        "automatic_candidate_count": int(raw.get("automatic_candidate_count", -1)),
-        "review_required_count": int(raw.get("review_required_count", -1)),
-        "unexplained_card_count": int(raw.get("unexplained_card_count", -1)),
+        "automatic_candidate_count": _count(
+            raw.get("automatic_candidate_count"), "automatic_candidate_count"
+        ),
+        "review_required_count": _count(
+            raw.get("review_required_count"), "review_required_count"
+        ),
+        "unexplained_card_count": _count(
+            raw.get("unexplained_card_count"), "unexplained_card_count"
+        ),
         "promotion_ready": raw.get("promotion_ready"),
         "immutable_evidence": raw.get("immutable_evidence"),
     }
-    for field in (
-        "automatic_candidate_count",
-        "review_required_count",
-        "unexplained_card_count",
-    ):
-        if manifest[field] < 0:
-            raise AldiWeeklyError(f"{field} must be non-negative")
     if manifest["promotion_ready"] is not False:
         raise AldiWeeklyError("promotion_ready must remain false")
     if manifest["immutable_evidence"] is not True:
@@ -160,6 +172,18 @@ def fingerprint(manifest: Mapping[str, Any]) -> str:
     return sha256(_canonical(identity)).hexdigest()
 
 
+def _validated_prior_fingerprint(prior: Mapping[str, Any]) -> str:
+    if prior.get("schema_version") != 1 or prior.get("strategy") != STRATEGY:
+        raise AldiWeeklyError("prior result has unsupported schema or strategy")
+    if prior.get("decision") not in {Decision.READY.value, Decision.NO_OP.value}:
+        raise AldiWeeklyError("prior result is not a successful shadow decision")
+    if prior.get("source_state") != "available":
+        raise AldiWeeklyError("prior result is not bound to available evidence")
+    if prior.get("safety") != Safety().__dict__:
+        raise AldiWeeklyError("prior result safety contract mismatch")
+    return _sha(prior.get("fingerprint"), "prior fingerprint")
+
+
 def decide(
     raw: Mapping[str, Any], prior: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -181,11 +205,9 @@ def decide(
         reasons.append("review_pending")
     else:
         current_fingerprint = fingerprint(manifest)
-        prior_fingerprint = None
-        if prior is not None:
-            if prior.get("schema_version") != 1:
-                raise AldiWeeklyError("prior result has unsupported schema_version")
-            prior_fingerprint = _sha(prior.get("fingerprint"), "prior fingerprint")
+        prior_fingerprint = (
+            _validated_prior_fingerprint(prior) if prior is not None else None
+        )
         if prior_fingerprint == current_fingerprint:
             decision = Decision.NO_OP
             reasons.append("unchanged_exact_identity")
@@ -196,7 +218,7 @@ def decide(
     current_fingerprint = fingerprint(manifest)
     return {
         "schema_version": 1,
-        "strategy": "aldi_weekly_shadow_controller_gate_a_v1",
+        "strategy": STRATEGY,
         "decision": decision.value,
         "reasons": reasons,
         "fingerprint": current_fingerprint,
