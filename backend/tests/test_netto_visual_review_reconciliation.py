@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
+import gzip
+from hashlib import sha256
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -52,6 +56,67 @@ class NettoVisualReviewReconciliationTest(unittest.TestCase):
             "rows": rows,
         }
 
+    def compressed_first_review(self) -> dict[str, object]:
+        raw = self.first_review()
+        fields = [
+            "card_id",
+            "campaign_id",
+            "page_number",
+            "visual_index",
+            "expected_title",
+            "expected_price",
+            "title_verdict",
+            "price_verdict",
+        ]
+        encoded_rows = []
+        for row in raw["rows"]:
+            encoded_rows.append(
+                [
+                    row["cell_id"],
+                    row["campaign_id"],
+                    row["page_number"],
+                    row["visual_index"],
+                    row["expected_title_first_pass"],
+                    row["expected_price_eur_first_pass"],
+                    row["title_verdict"],
+                    row["price_verdict"],
+                ]
+            )
+        decoded = {
+            "strategy": "netto_visual_shadow_corpus_v1",
+            "source_archive_sha256": raw["source_archive_sha256"],
+            "source_fixture_manifest_sha256": raw[
+                "source_fixture_manifest_sha256"
+            ],
+            "page_count": raw["page_count"],
+            "cell_count": raw["cell_count"],
+            "campaign_cell_counts": raw["campaign_cell_counts"],
+            "safety": {
+                "review_only_default": True,
+                "automatic_approval_enabled": False,
+                "automatic_publish_enabled": False,
+                "database_write_performed": False,
+                "deployment_performed": False,
+                "production_apply_authorized": False,
+            },
+            "row_fields": fields,
+            "rows": encoded_rows,
+        }
+        decoded_bytes = json.dumps(
+            decoded,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        packed = gzip.compress(decoded_bytes, mtime=0)
+        return {
+            "strategy": "netto_visual_shadow_corpus_v1_gzip",
+            "encoding": "gzip+base64",
+            "payload_chunks": [base64.b64encode(packed).decode("ascii")],
+            "payload_sha256": sha256(packed).hexdigest(),
+            "decoded_sha256": sha256(decoded_bytes).hexdigest(),
+        }
+
     def second_review(self) -> dict[str, object]:
         rows = []
         for index in range(100):
@@ -97,6 +162,16 @@ class NettoVisualReviewReconciliationTest(unittest.TestCase):
         self.assertFalse(result["automatic_publish_enabled"])
         self.assertFalse(result["database_write_performed"])
         self.assertFalse(result["deployment_performed"])
+
+    def test_existing_compressed_shadow_shape_is_supported(self) -> None:
+        result = MODULE.reconcile_reviews(
+            self.compressed_first_review(),
+            self.second_review(),
+        )
+
+        self.assertEqual(result["identity_match_count"], 100)
+        self.assertEqual(result["row_disagreement_count"], 0)
+        self.assertFalse(result["promotion_ready"])
 
     def test_title_disagreement_is_reported_and_blocked(self) -> None:
         second = self.second_review()
