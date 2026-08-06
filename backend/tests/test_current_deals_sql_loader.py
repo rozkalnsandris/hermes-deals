@@ -14,7 +14,7 @@ from app.current_deals_sql_loader import (
     _InactiveWinner,
     load_sql_ranked_state_rows,
 )
-from app.models import OfferCandidateRecord, SourceSnapshot
+from app.models import Base, OfferCandidateRecord, SourceSnapshot
 
 
 def _snapshot(session: Session, collected_at: datetime) -> SourceSnapshot:
@@ -79,8 +79,7 @@ def _offer(
 
 def _session() -> Session:
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    SourceSnapshot.__table__.create(engine)
-    OfferCandidateRecord.__table__.create(engine)
+    Base.metadata.create_all(engine)
     return Session(engine)
 
 
