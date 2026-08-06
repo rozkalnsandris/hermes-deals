@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Iterator
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_, select
@@ -13,6 +15,10 @@ from app.models import OfferCandidateRecord
 
 
 _ACTIVE_STATES = frozenset({"current", "upcoming"})
+_MATERIALIZE_STATE: ContextVar[str | None] = ContextVar(
+    "hermes_current_deals_materialize_state",
+    default=None,
+)
 
 
 @dataclass(frozen=True)
@@ -33,14 +39,22 @@ class _WinnerMeta:
 
 @dataclass(frozen=True)
 class _InactiveWinner:
-    """Count-only row for expired/unknown winners.
-
-    The public handler only materializes rows for the current/upcoming views.
-    Expired and unknown winners are still returned to the existing counting
-    loop, but their large ORM payloads never leave PostgreSQL.
-    """
+    """Count-only row for a winner not needed by the requested view."""
 
     source_chain: str
+
+
+@contextmanager
+def materialize_only(state: str) -> Iterator[None]:
+    """Materialize full ORM rows only for one public availability view."""
+
+    if state not in _ACTIVE_STATES:
+        raise ValueError(f"unsupported materialization state: {state}")
+    token = _MATERIALIZE_STATE.set(state)
+    try:
+        yield
+    finally:
+        _MATERIALIZE_STATE.reset(token)
 
 
 def _state_expression(effective_date: date):
@@ -134,12 +148,7 @@ def _newness(meta: _WinnerMeta) -> tuple[datetime, str]:
 def _suppress_physical_rescue_duplicates(
     winners: list[_WinnerMeta],
 ) -> list[_WinnerMeta]:
-    """Mirror completeness-rescue read policy without loading raw JSON.
-
-    PostgreSQL/SQLite evaluates the exact rescue marker and returns only a
-    boolean. Python then applies the same physical-deal signature and newness
-    rules as ``dedupe_completeness_rescue_publications``.
-    """
+    """Mirror completeness-rescue policy using winner-only metadata."""
 
     groups: dict[tuple[object, ...], list[int]] = {}
     for index, winner in enumerate(winners):
@@ -176,6 +185,9 @@ def _suppress_physical_rescue_duplicates(
 
 
 def _winner_metadata_query(effective_date: date):
+    # Keep the window-function input narrow. Product text, source URLs and the
+    # JSON rescue marker are joined only after one winner per stable identity
+    # and availability state has been selected.
     classified = select(
         OfferCandidateRecord.id.label("id"),
         OfferCandidateRecord.source_chain.label("source_chain"),
@@ -184,13 +196,7 @@ def _winner_metadata_query(effective_date: date):
         ),
         OfferCandidateRecord.source_offer_id.label("source_offer_id"),
         OfferCandidateRecord.collected_at.label("collected_at"),
-        OfferCandidateRecord.product_name_raw.label("product_name_raw"),
-        OfferCandidateRecord.price_eur.label("price_eur"),
-        OfferCandidateRecord.valid_from.label("valid_from"),
-        OfferCandidateRecord.valid_until.label("valid_until"),
-        OfferCandidateRecord.source_url.label("source_url"),
         _state_expression(effective_date).label("state"),
-        _rescue_expression().label("is_completeness_rescue"),
     ).where(OfferCandidateRecord.source_offer_id.is_not(None)).cte(
         "classified_current_deals"
     )
@@ -213,20 +219,45 @@ def _winner_metadata_query(effective_date: date):
         .label("winner_rank"),
     ).cte("ranked_current_deals")
 
-    return select(ranked).where(ranked.c.winner_rank == 1)
+    winners = select(
+        ranked.c.id,
+        ranked.c.state,
+    ).where(ranked.c.winner_rank == 1).cte("current_deal_winner_ids")
+
+    return (
+        select(
+            winners.c.state.label("state"),
+            OfferCandidateRecord.id.label("id"),
+            OfferCandidateRecord.source_chain.label("source_chain"),
+            OfferCandidateRecord.source_store_external_id.label(
+                "source_store_external_id"
+            ),
+            OfferCandidateRecord.source_offer_id.label("source_offer_id"),
+            OfferCandidateRecord.collected_at.label("collected_at"),
+            OfferCandidateRecord.product_name_raw.label("product_name_raw"),
+            OfferCandidateRecord.price_eur.label("price_eur"),
+            OfferCandidateRecord.valid_from.label("valid_from"),
+            OfferCandidateRecord.valid_until.label("valid_until"),
+            OfferCandidateRecord.source_url.label("source_url"),
+            _rescue_expression().label("is_completeness_rescue"),
+        )
+        .join(
+            OfferCandidateRecord,
+            OfferCandidateRecord.id == winners.c.id,
+        )
+    )
 
 
 def load_sql_ranked_state_rows(
     db: Session,
     effective_date: date,
 ) -> list[tuple[str, Any]]:
-    """Return stable state winners with active-only ORM materialization.
+    """Return SQL-ranked winners with requested-view ORM materialization.
 
-    The expensive identity ranking is executed by the database over narrow
-    columns. Full ``OfferCandidateRecord`` objects (including ``raw_payload``)
-    are fetched only for current/upcoming winners. Expired/unknown winners are
-    represented by count-only rows because the public endpoint cannot request
-    those states as a view.
+    Ranking runs over identity/date columns. Winner-only metadata is then used
+    for the narrow completeness-rescue policy. In production, the route sets a
+    context-local requested state, so full ORM objects (and ``raw_payload``)
+    are loaded only for the current *or* upcoming view being rendered.
     """
 
     result = db.execute(_winner_metadata_query(effective_date)).all()
@@ -249,8 +280,16 @@ def load_sql_ranked_state_rows(
     ]
     visible = _suppress_physical_rescue_duplicates(winners)
 
+    requested_state = _MATERIALIZE_STATE.get()
+    materialized_states = (
+        frozenset({requested_state})
+        if requested_state in _ACTIVE_STATES
+        else _ACTIVE_STATES
+    )
     active_ids = [
-        winner.id for winner in visible if winner.state in _ACTIVE_STATES
+        winner.id
+        for winner in visible
+        if winner.state in materialized_states
     ]
     active_by_id: dict[UUID, OfferCandidateRecord] = {}
     if active_ids:
@@ -263,10 +302,9 @@ def load_sql_ranked_state_rows(
 
     state_rows: list[tuple[str, Any]] = []
     for winner in visible:
-        if winner.state in _ACTIVE_STATES:
-            row = active_by_id.get(winner.id)
-            if row is not None:
-                state_rows.append((winner.state, row))
+        row = active_by_id.get(winner.id)
+        if row is not None:
+            state_rows.append((winner.state, row))
         else:
             state_rows.append(
                 (
