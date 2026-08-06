@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "strategy": "edeka_family_market_binding_v1",
+  "retailer": "edeka",
+  "market_name": "EDEKA Patzer",
+  "public_market_code": "071897",
+  "source_market_id": "587881",
+  "scope": "family_primary_edeka",
+  "fallback_allowed": false,
+  "source_manifest_required": true,
+  "campaign_window_required": true,
+  "source_sha256_required": true,
+  "parser_identity_required": true,
+  "ambiguous_rows_route": "review_required",
+  "automatic_approval_enabled": false,
+  "automatic_publish_enabled": false,
+  "database_write_authorized": false,
+  "production_apply_authorized": false
+}
