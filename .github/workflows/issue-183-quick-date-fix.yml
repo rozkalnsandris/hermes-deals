@@ -1,21 +1,20 @@
 name: Issue 183 quick-date fix
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - fix/issue-183-berlin-quick-dates
 
 permissions:
   contents: write
 
 concurrency:
-  group: issue-183-${{ github.event.pull_request.number }}
+  group: issue-183-quick-date-fix
   cancel-in-progress: false
 
 jobs:
   apply-fix:
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'fix/issue-183-berlin-quick-dates'
+    if: github.ref == 'refs/heads/fix/issue-183-berlin-quick-dates'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the authorized branch
@@ -53,6 +52,9 @@ jobs:
           )
 
           app = app_path.read_text(encoding="utf-8")
+          if new in app and old not in app:
+              print("The bounded fix is already present.")
+              raise SystemExit(0)
           if app.count(old) != 1:
               raise SystemExit(f"expected exactly one legacy quick-date helper, found {app.count(old)}")
           old_js_sha = sha256(app.encode("utf-8")).hexdigest()
