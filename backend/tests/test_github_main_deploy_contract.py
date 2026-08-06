@@ -59,6 +59,8 @@ def test_root_helper_accepts_queued_ancestors_and_never_downgrades() -> None:
         "release-control worktree must remain detached",
         "docker build",
         "org.opencontainers.image.revision=$TARGET_SHA",
+        "yield from walk(getattr(route, \"routes\", ()))",
+        "getattr(route, \"path\", None)",
         "up -d --no-deps --no-build --wait api",
         "production database container changed",
         "production web container changed",
@@ -70,6 +72,7 @@ def test_root_helper_accepts_queued_ancestors_and_never_downgrades() -> None:
     ):
         assert marker in text
 
+    assert 'any(r.path ==' not in text
     assert "flock -n 9" not in text
     assert "requested SHA is not exact current origin/main" not in text
     assert "alembic upgrade" not in text
