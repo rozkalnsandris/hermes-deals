@@ -16,6 +16,7 @@ from app.db import engine
 from app.models import OfferCandidateRecord, SourceSnapshot
 
 
+# Keep this integration contract out of the normal SQLite full-suite job.
 pytestmark = pytest.mark.skipif(
     engine.dialect.name != "postgresql",
     reason="requires the PostgreSQL 18 CI service",
