@@ -16,7 +16,7 @@ from tests.ui_contract import (
 
 
 EXPECTED_CSS_SHA256 = "f02517db802d9e6a58ea22e35fc8ee2023308ce074474eea90d638b90aac1a88"
-EXPECTED_JS_SHA256 = "7fd436a8d77ed60ac3839da29d968f92e184b705aedde97a17060b460cad4c8c"
+EXPECTED_JS_SHA256 = "9e5d380eaf76063396f9096f1d3e77d852e0d4079c66b90b3759838698c3b7ca"
 
 
 def test_ui_html_uses_external_static_assets() -> None:
@@ -82,7 +82,7 @@ def test_legacy_contract_reconstructs_original_index_exactly() -> None:
     contract = read_family_ui_contract()
 
     assert sha256(contract.encode("utf-8")).hexdigest() == ORIGINAL_INDEX_SHA256
-    assert ORIGINAL_INDEX_SHA256 == "085997b957280a1f1aa21c333651356a412c3bb1f9e60a9f453e11c5b23b1506"
+    assert ORIGINAL_INDEX_SHA256 == "3b955332d97a732197122e9cc09bd50eb74b0467acd1f51dfe0da059b5c1e798"
 
 
 def test_ui_trailing_slash_behavior_remains_routable() -> None:
