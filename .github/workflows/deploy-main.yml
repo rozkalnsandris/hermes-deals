@@ -145,17 +145,110 @@ jobs:
             "$TARGET_SHA" \
             "$evidence_dir"
 
-      - name: Verify public API and UI
+      - name: Verify and capture public API and UI
         if: success()
+        env:
+          EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
+          TARGET_SHA: ${{ needs.resolve.outputs.sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --max-time 20 \
-            https://deals.rozkalns.net/api/health >/dev/null
-          ui_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 20 \
-            https://deals.rozkalns.net/ui)"
-          [[ "$ui_status" =~ ^(200|302)$ ]]
-          printf 'PUBLIC_API_HEALTH=PASS\nPUBLIC_UI=PASS\n'
+          [[ -d "$EVIDENCE_DIR" && ! -L "$EVIDENCE_DIR" ]]
+
+          curl --fail --location --silent --show-error --max-time 20 \
+            --dump-header "$EVIDENCE_DIR/public-health.headers" \
+            --output "$EVIDENCE_DIR/public-health.json" \
+            https://deals.rozkalns.net/api/health
+          curl --fail --location --silent --show-error --max-time 20 \
+            --dump-header "$EVIDENCE_DIR/public-ui.headers" \
+            --output "$EVIDENCE_DIR/public-ui.html" \
+            https://deals.rozkalns.net/ui
+          curl --fail --location --silent --show-error --max-time 20 \
+            --dump-header "$EVIDENCE_DIR/public-review.headers" \
+            --output "$EVIDENCE_DIR/public-review.html" \
+            https://deals.rozkalns.net/ui/review
+
+          python3 - "$EVIDENCE_DIR" "$TARGET_SHA" <<'PY'
+          from __future__ import annotations
+
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          evidence_dir = Path(sys.argv[1])
+          target_sha = sys.argv[2]
+
+          def read_text(name: str) -> str:
+              return (evidence_dir / name).read_text(encoding="utf-8")
+
+          health_headers = read_text("public-health.headers").lower()
+          ui_headers = read_text("public-ui.headers").lower()
+          review_headers = read_text("public-review.headers").lower()
+          health = json.loads(read_text("public-health.json"))
+          ui = read_text("public-ui.html")
+          review = read_text("public-review.html")
+
+          if "content-type: application/json" not in health_headers:
+              raise SystemExit("public health response has the wrong content type")
+          if health.get("status") != "ok" or health.get("service") != "hermes-deals-api":
+              raise SystemExit("public health payload is invalid")
+          if "content-type: text/html" not in ui_headers:
+              raise SystemExit("public UI response has the wrong content type")
+          if "content-type: text/html" not in review_headers:
+              raise SystemExit("public Review response has the wrong content type")
+          if len(ui.encode("utf-8")) < 100_000:
+              raise SystemExit("public UI body is unexpectedly small")
+          if len(review.encode("utf-8")) < 1_000:
+              raise SystemExit("public Review body is unexpectedly small")
+
+          required_ui_markers = (
+              '<meta name="hermes-production-bundle" content="inline-v1">',
+              'data-hermes-production-bundle="styles.css"',
+              'data-hermes-production-bundle="app.js"',
+              'content="reference-v11-explicit-daily-special-api"',
+              'content="weekly-overview-v6-active-retailer-compaction"',
+              'content="netto-daily-quality-v1"',
+              'class="ui2-shell reference-app"',
+              "--accent:#246b45",
+              "/api/v1/deals/current",
+          )
+          missing = [marker for marker in required_ui_markers if marker not in ui]
+          if missing:
+              raise SystemExit(f"public UI is missing required markers: {missing}")
+
+          forbidden_ui_markers = (
+              'href="/ui/styles.css"',
+              'src="/ui/app.js"',
+          )
+          leaked = [marker for marker in forbidden_ui_markers if marker in ui]
+          if leaked:
+              raise SystemExit(f"public UI still depends on external assets: {leaked}")
+          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+              raise SystemExit("target SHA is invalid")
+
+          report = {
+              "result": "PASS",
+              "target_sha": target_sha,
+              "health_status": health["status"],
+              "health_service": health["service"],
+              "health_version": health.get("version"),
+              "health_phase": health.get("phase"),
+              "ui_bytes": len(ui.encode("utf-8")),
+              "ui_sha256": sha256(ui.encode("utf-8")).hexdigest(),
+              "review_bytes": len(review.encode("utf-8")),
+              "review_sha256": sha256(review.encode("utf-8")).hexdigest(),
+              "external_ui_assets_required": False,
+          }
+          (evidence_dir / "public-ui-check.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print("PUBLIC_API_HEALTH=PASS")
+          print("PUBLIC_UI_BUNDLE=PASS")
+          print("PUBLIC_REVIEW=PASS")
+          PY
 
       - name: Upload deploy evidence
         if: always() && steps.deploy.outputs.evidence_dir != ''
