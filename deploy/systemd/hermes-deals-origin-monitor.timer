@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Hermes Deals origin health monitor every five minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=15s
+Persistent=false
+Unit=hermes-deals-origin-monitor.service
+
+[Install]
+WantedBy=timers.target
