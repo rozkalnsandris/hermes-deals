@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from collections import Counter
 from decimal import Decimal, InvalidOperation
+import gzip
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -91,7 +93,59 @@ def _rows(payload: Mapping[str, Any], key: str, expected_count: int) -> list[Map
     return rows
 
 
-def normalize_first_review(payload: Mapping[str, Any]) -> dict[str, Any]:
+def _decode_first_review(payload: Mapping[str, Any]) -> dict[str, Any]:
+    if payload.get("strategy") != "netto_visual_shadow_corpus_v1_gzip":
+        return dict(payload)
+    if payload.get("encoding") != "gzip+base64":
+        raise ReviewReconciliationError("unexpected first-review wrapper encoding")
+    chunks = payload.get("payload_chunks")
+    if not isinstance(chunks, list) or not all(isinstance(chunk, str) for chunk in chunks):
+        raise ReviewReconciliationError("invalid first-review payload chunks")
+    try:
+        packed = base64.b64decode("".join(chunks), validate=True)
+        if sha256(packed).hexdigest() != payload.get("payload_sha256"):
+            raise ReviewReconciliationError("first-review compressed SHA mismatch")
+        decoded = gzip.decompress(packed)
+        if sha256(decoded).hexdigest() != payload.get("decoded_sha256"):
+            raise ReviewReconciliationError("first-review decoded SHA mismatch")
+        corpus = json.loads(decoded.decode("utf-8"))
+    except ReviewReconciliationError:
+        raise
+    except (ValueError, UnicodeError, gzip.BadGzipFile, json.JSONDecodeError) as exc:
+        raise ReviewReconciliationError("invalid compressed first-review corpus") from exc
+    if not isinstance(corpus, dict):
+        raise ReviewReconciliationError("decoded first-review root must be an object")
+    return corpus
+
+
+def _first_review_rows(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    encoded = payload.get("rows")
+    fields = payload.get("row_fields")
+    if fields is None:
+        return _rows(payload, "rows", 100)
+    if not isinstance(fields, list) or len(fields) != len(set(fields)):
+        raise ReviewReconciliationError("first-review row fields must be unique")
+    if not isinstance(encoded, list) or len(encoded) != 100:
+        raise ReviewReconciliationError("first-review rows must contain 100 rows")
+    rows: list[Mapping[str, Any]] = []
+    for values in encoded:
+        if not isinstance(values, list) or len(values) != len(fields):
+            raise ReviewReconciliationError("first-review encoded row shape mismatch")
+        rows.append(dict(zip(fields, values, strict=True)))
+    return rows
+
+
+def _field(row: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row:
+            return row[key]
+    raise ReviewReconciliationError(
+        f"review row is missing all supported fields: {', '.join(keys)}"
+    )
+
+
+def normalize_first_review(source: Mapping[str, Any]) -> dict[str, Any]:
+    payload = _decode_first_review(source)
     if payload.get("page_count") != 17 or payload.get("cell_count") != 100:
         raise ReviewReconciliationError("first review must bind 17 pages and 100 cells")
     if payload.get("campaign_cell_counts") != EXPECTED_CAMPAIGN_COUNTS:
@@ -103,10 +157,14 @@ def normalize_first_review(payload: Mapping[str, Any]) -> dict[str, Any]:
         != EXPECTED_FIXTURE_MANIFEST_SHA256
     ):
         raise ReviewReconciliationError("first-review fixture manifest SHA mismatch")
-    if payload.get("review_only_default") is not True:
+    safety_value = payload.get("safety", payload)
+    if not isinstance(safety_value, Mapping):
+        raise ReviewReconciliationError("first-review safety binding must be an object")
+    safety = safety_value
+    if safety.get("review_only_default") is not True:
         raise ReviewReconciliationError("first review must remain review-only")
     _require_false(
-        payload,
+        safety,
         (
             "automatic_approval_enabled",
             "automatic_publish_enabled",
@@ -120,11 +178,11 @@ def normalize_first_review(payload: Mapping[str, Any]) -> dict[str, Any]:
     normalized: dict[str, dict[str, Any]] = {}
     indexes: set[int] = set()
     campaign_counts: Counter[str] = Counter()
-    for row in _rows(payload, "rows", 100):
-        cell_id = _text(row.get("cell_id"))
-        campaign_id = _text(row.get("campaign_id"))
-        page_number = row.get("page_number")
-        visual_index = row.get("visual_index")
+    for row in _first_review_rows(payload):
+        cell_id = _text(_field(row, "cell_id", "card_id"))
+        campaign_id = _text(_field(row, "campaign_id"))
+        page_number = _field(row, "page_number")
+        visual_index = _field(row, "visual_index")
         if not cell_id or cell_id in normalized:
             raise ReviewReconciliationError("first-review cell IDs must be unique")
         if campaign_id not in EXPECTED_CAMPAIGN_COUNTS:
@@ -140,10 +198,24 @@ def normalize_first_review(payload: Mapping[str, Any]) -> dict[str, Any]:
             "campaign_id": campaign_id,
             "page_number": page_number,
             "visual_index": visual_index,
-            "expected_title": _text(row.get("expected_title_first_pass")),
-            "expected_price": _price(row.get("expected_price_eur_first_pass")),
-            "title_verdict": _text(row.get("title_verdict")),
-            "price_verdict": _text(row.get("price_verdict")),
+            "expected_title": _text(
+                _field(row, "expected_title_first_pass", "expected_title")
+            ),
+            "expected_price": _price(
+                _field(
+                    row,
+                    "expected_price_eur_first_pass",
+                    "expected_primary_price_eur",
+                    "expected_normal_price",
+                    "expected_price",
+                )
+            ),
+            "title_verdict": _text(
+                row.get("title_verdict", row.get("first_pass_title_verdict"))
+            ),
+            "price_verdict": _text(
+                row.get("price_verdict", row.get("first_pass_price_verdict"))
+            ),
         }
     if indexes != set(range(100)):
         raise ReviewReconciliationError("first-review visual indexes must cover 0..99")
