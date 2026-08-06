@@ -3,8 +3,13 @@ from __future__ import annotations
 
 import re
 import stat
+import sys
 from pathlib import Path
 from typing import Any, Mapping
+
+TOOLS_ROOT = Path(__file__).resolve().parent
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
 
 import lidl_gate_b_freeze_apply as apply_module
 import lidl_gate_b_freeze_plan as plan_module
