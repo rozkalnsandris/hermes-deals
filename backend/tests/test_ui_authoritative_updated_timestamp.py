@@ -14,9 +14,19 @@ def test_global_updated_timestamp_requires_authoritative_combined_success() -> N
         "async function loadInitialPage()",
         "reloadAll({markComplete:false})",
         "if(healthOk&&dataOk)markUpdated();",
-        "loadInitialPage();",
     ):
         assert marker in js
+
+    # The weekly overview is now the default visible surface. Its boot must not
+    # start the hidden legacy health/overview/grid/daily-special request bundle.
+    assert (
+        '$("comparisonToggle").style.display=mode==="canonical"?'
+        '"flex":"none";renderList();'
+    ) in js
+    assert (
+        '$("comparisonToggle").style.display=mode==="canonical"?'
+        '"flex":"none";loadInitialPage();'
+    ) not in js
 
     assert js.count("updateControlRoomStatus(d);markUpdated();") == 0
     assert js.count("syncListButtons();markUpdated();") == 0
