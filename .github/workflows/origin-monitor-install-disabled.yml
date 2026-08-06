@@ -1,0 +1,160 @@
+name: Prepare disabled origin monitor on RPi5
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged PR that registered the disabled monitor package
+        required: true
+        type: string
+      mode:
+        description: Read-only preflight or install files while leaving monitoring disabled
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - install-disabled
+      authorization:
+        description: For install-disabled, type INSTALL DISABLED origin-monitor <merge-sha>
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-rpi5-audit
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact disabled package
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      mode: ${{ steps.auth.outputs.mode }}
+    steps:
+      - name: Validate owner, merged PR, current blobs and authorization
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          PR_INPUT: ${{ inputs.pr_number }}
+          MODE_INPUT: ${{ inputs.mode }}
+          AUTH_INPUT: ${{ inputs.authorization }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit("unexpected repository")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8-sig"))
+          sender = event.get("sender") or {}
+          if os.environ["ACTOR"] != "rozkalnsandris" or sender.get("login") != "rozkalnsandris" or int(sender.get("id") or 0) != 277435981:
+              raise SystemExit("workflow actor is not the allowlisted owner")
+
+          raw_pr = os.environ["PR_INPUT"].strip()
+          if not raw_pr.isdigit() or int(raw_pr) <= 0:
+              raise SystemExit("pr_number must be positive")
+          mode = os.environ["MODE_INPUT"].strip()
+          if mode not in {"preflight", "install-disabled"}:
+              raise SystemExit("mode is invalid")
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-origin-monitor-authorizer",
+          }
+          def get(url):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{int(raw_pr)}")
+          if not pr.get("merged") or pr.get("base", {}).get("ref") != "main":
+              raise SystemExit("package PR is not merged into main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("merge SHA is invalid")
+          main = get(f"https://api.github.com/repos/{repo}/branches/main")["commit"]["sha"]
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...{main}")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("registered SHA is not reachable from current main")
+
+          required = {
+              "tools/hermes_deals_origin_probe.py",
+              "tools/hermes_deals_origin_monitor.py",
+              "tools/runner/origin-monitor-run.sh",
+              "tools/runner/origin-monitor-control.sh",
+              "tools/runner/bootstrap-origin-monitor-control.sh",
+              "deploy/systemd/hermes-deals-origin-monitor.service",
+              "deploy/systemd/hermes-deals-origin-monitor.timer",
+              ".github/workflows/origin-monitor-install-disabled.yml",
+              "docs/operations/origin-monitor-install-disabled.md",
+          }
+          def blobs(ref):
+              tree = get(f"https://api.github.com/repos/{repo}/git/trees/{ref}?recursive=1")
+              return {item["path"]: item["sha"] for item in tree.get("tree", []) if item.get("type") == "blob" and item.get("path") in required}
+          registered = blobs(sha)
+          current = blobs(main)
+          if set(registered) != required or current != registered:
+              raise SystemExit("registered package files differ from current main")
+
+          authorization = os.environ["AUTH_INPUT"].strip()
+          if mode == "preflight":
+              if authorization:
+                  raise SystemExit("preflight authorization must be empty")
+          elif authorization != f"INSTALL DISABLED origin-monitor {sha}":
+              raise SystemExit("install-disabled authorization phrase does not match exact SHA")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\nmode={mode}\n")
+          PY
+
+  control:
+    name: Preflight or install disabled package
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 10
+    steps:
+      - name: Run fixed root-owned control dispatcher
+        id: control
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          MODE: ${{ needs.authorize.outputs.mode }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-origin-monitor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir/installation-evidence" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-origin-monitor-control \
+            "$MODE" "$REGISTERED_SHA" "$export_dir"
+
+      - name: Upload sanitized installation evidence
+        if: always() && steps.control.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: origin-monitor-${{ needs.authorize.outputs.mode }}-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.control.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30

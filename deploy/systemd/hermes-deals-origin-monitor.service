@@ -1,0 +1,30 @@
+[Unit]
+Description=Hermes Deals public-edge and local-origin health monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=andris
+Group=andris
+UMask=0077
+StateDirectory=hermes-deals-origin-monitor
+StateDirectoryMode=0700
+ExecStart=/usr/local/sbin/hermes-deals-origin-monitor-run
+SuccessExitStatus=1 2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6
+ReadWritePaths=/var/lib/hermes-deals-origin-monitor
+
+[Install]
+WantedBy=multi-user.target
