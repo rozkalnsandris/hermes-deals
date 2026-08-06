@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'deploy helper must run as root through sudo'
+[[ $# -eq 2 ]] || fail 'usage: hermes-deals-deploy-main <40-sha> <evidence-dir>'
+
+TARGET_SHA="$1"
+EVIDENCE_DIR="$(readlink -f -- "$2")"
+[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'target SHA must be 40 lowercase hex characters'
+[[ "$EVIDENCE_DIR" =~ ^/home/github-release-runner/actions-runner/_work/_temp/hermes-deals-main-deploy-[0-9]+-[0-9]+$ ]] \
+  || fail 'evidence directory is outside the runner temp allowlist'
+[[ -d "$EVIDENCE_DIR" && ! -L "$EVIDENCE_DIR" ]] || fail 'evidence directory is missing or unsafe'
+[[ "$(stat -c '%U:%G' "$EVIDENCE_DIR")" == 'github-release-runner:github-release-runner' ]] \
+  || fail 'evidence directory ownership is invalid'
+[[ "$(stat -c '%a' "$EVIDENCE_DIR")" == '700' ]] || fail 'evidence directory permissions must be 0700'
+
+LOG_FILE="$EVIDENCE_DIR/deploy.log"
+touch "$LOG_FILE"
+chmod 0600 "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+PRIMARY='/home/andris/hermes-deals'
+SOURCE='/home/andris/hermes-deals-worktrees/release-control'
+OWNER='andris'
+OWNER_HOME='/home/andris'
+LOCK='/run/lock/hermes-deals-production-deploy.lock'
+
+finish() {
+  local rc=$?
+  chown -R github-release-runner:github-release-runner "$EVIDENCE_DIR" || true
+  trap - EXIT
+  exit "$rc"
+}
+trap finish EXIT
+
+for command in curl docker flock git install python3 readlink runuser sha256sum stat tee; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+[[ -d "$PRIMARY" && ! -L "$PRIMARY" ]] || fail 'production root is missing or unsafe'
+[[ -f "$PRIMARY/.env" && ! -L "$PRIMARY/.env" ]] || fail 'production env file is missing or unsafe'
+[[ -d "$SOURCE" && ! -L "$SOURCE" ]] || fail 'release-control worktree is missing or unsafe'
+
+owner_git() {
+  runuser -u "$OWNER" -- env \
+    HOME="$OWNER_HOME" \
+    PATH='/home/andris/.local/bin:/usr/local/bin:/usr/bin:/bin' \
+    git -C "$SOURCE" "$@"
+}
+
+exec 9>"$LOCK"
+flock -n 9 || fail 'another Hermes Deals production deploy is active'
+
+printf 'CHECK: synchronizing exact origin/main\n'
+owner_git fetch --prune origin main
+REMOTE_SHA="$(owner_git rev-parse refs/remotes/origin/main)"
+[[ "$REMOTE_SHA" == "$TARGET_SHA" ]] || fail 'requested SHA is not exact current origin/main'
+[[ -z "$(owner_git branch --show-current)" ]] || fail 'release-control worktree must remain detached'
+[[ -z "$(owner_git status --porcelain=v1 --untracked-files=all)" ]] || fail 'release-control worktree is not clean'
+owner_git checkout --detach "$TARGET_SHA"
+[[ "$(owner_git rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'release-control HEAD mismatch'
+[[ -z "$(owner_git status --porcelain=v1 --untracked-files=all)" ]] || fail 'release-control worktree became dirty'
+
+COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$PRIMARY/.env"
+  -f "$PRIMARY/docker-compose.yml"
+  -f "$PRIMARY/docker-compose.production.yml"
+)
+
+resolve_web_url() {
+  local container="$1"
+  local path="$2"
+  docker inspect "$container" | python3 -c '
+import ipaddress
+import json
+import sys
+
+path = sys.argv[1]
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+bindings = rows[0].get("NetworkSettings", {}).get("Ports", {}).get("80/tcp")
+if not isinstance(bindings, list) or len(bindings) != 1 or not isinstance(bindings[0], dict):
+    raise SystemExit(2)
+host_ip = str(bindings[0].get("HostIp") or "")
+host_port = str(bindings[0].get("HostPort") or "")
+if host_ip in {"", "0.0.0.0", "::"} or not host_port.isdigit():
+    raise SystemExit(2)
+ip = ipaddress.ip_address(host_ip)
+port = int(host_port)
+if not 1 <= port <= 65535:
+    raise SystemExit(2)
+host = f"[{ip.compressed}]" if ip.version == 6 else ip.compressed
+print(f"http://{host}:{port}{path}")
+' "$path"
+}
+
+read_alembic() {
+  local db_container
+  local -a fields
+  local db_user db_name
+  db_container="$("${COMPOSE[@]}" ps -q db)"
+  [[ -n "$db_container" ]] || fail 'production database container is not running'
+  mapfile -d '' -t fields < <(docker inspect "$db_container" | python3 -c '
+import json
+import sys
+rows = json.load(sys.stdin)
+if len(rows) != 1:
+    raise SystemExit(2)
+env = {}
+for item in rows[0].get("Config", {}).get("Env", []):
+    key, sep, value = item.partition("=")
+    if sep:
+        env[key] = value
+for key in ("POSTGRES_USER", "POSTGRES_DB"):
+    value = env.get(key, "")
+    if not value or "\x00" in value:
+        raise SystemExit(2)
+    sys.stdout.write(value + "\x00")
+')
+  [[ ${#fields[@]} -eq 2 ]] || fail 'database identity could not be resolved'
+  db_user="${fields[0]}"
+  db_name="${fields[1]}"
+  "${COMPOSE[@]}" exec -T db psql -X -v ON_ERROR_STOP=1 \
+    -U "$db_user" -d "$db_name" -Atqc 'SELECT version_num FROM alembic_version;'
+}
+
+API_BEFORE="$("${COMPOSE[@]}" ps -q api)"
+DB_BEFORE="$("${COMPOSE[@]}" ps -q db)"
+WEB_BEFORE="$("${COMPOSE[@]}" ps -q web)"
+[[ -n "$API_BEFORE" && -n "$DB_BEFORE" && -n "$WEB_BEFORE" ]] || fail 'production containers are not running'
+OLD_IMAGE_ID="$(docker inspect "$API_BEFORE" --format '{{.Image}}')"
+OLD_IMAGE_REF="$(docker inspect "$API_BEFORE" --format '{{.Config.Image}}')"
+[[ "$OLD_IMAGE_REF" == hermes-deals-api:* ]] || fail 'current API image reference is unexpected'
+OLD_TAG="${OLD_IMAGE_REF#hermes-deals-api:}"
+OLD_REVISION="$(docker inspect "$API_BEFORE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+ENV_TAG="$(python3 - "$PRIMARY/.env" <<'PY_ENV_READ'
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+values = [
+    line.split("=", 1)[1].strip()
+    for line in path.read_text(encoding="utf-8").splitlines()
+    if line.startswith("HERMES_DEALS_API_TAG=")
+]
+if len(values) != 1 or not values[0]:
+    raise SystemExit(2)
+print(values[0])
+PY_ENV_READ
+)" || fail 'production env tag could not be read'
+[[ "$ENV_TAG" == "$OLD_TAG" ]] || fail 'production env tag does not match running API image'
+PRE_ALEMBIC="$(read_alembic)"
+HEALTH_URL="$(resolve_web_url "$WEB_BEFORE" '/api/health')" || fail 'published API health URL could not be resolved'
+UI_URL="$(resolve_web_url "$WEB_BEFORE" '/ui')" || fail 'published UI URL could not be resolved'
+curl --fail --silent --show-error --max-time 10 "$HEALTH_URL" >"$EVIDENCE_DIR/pre-health.json"
+
+SHORT_SHA="${TARGET_SHA:0:12}"
+NEW_TAG="main-$SHORT_SHA"
+NEW_IMAGE="hermes-deals-api:$NEW_TAG"
+
+printf 'CHECK PASS\n'
+printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+printf 'PRODUCTION_SHA_BEFORE=%s\n' "$OLD_REVISION"
+printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
+printf 'BUILD: %s\n' "$NEW_IMAGE"
+docker build \
+  --label "org.opencontainers.image.revision=$TARGET_SHA" \
+  --tag "$NEW_IMAGE" \
+  "$SOURCE/backend"
+NEW_IMAGE_ID="$(docker image inspect "$NEW_IMAGE" --format '{{.Id}}')"
+NEW_REVISION="$(docker image inspect "$NEW_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+[[ "$NEW_REVISION" == "$TARGET_SHA" ]] || fail 'built image revision label mismatch'
+
+docker run --rm \
+  -e 'DATABASE_URL=sqlite+pysqlite:///:memory:' \
+  "$NEW_IMAGE" \
+  python -c 'from app.main import app; assert app.openapi()["info"]["title"]; assert any(r.path == "/api/health" for r in app.routes); assert any(r.path == "/ui" for r in app.routes)'
+
+printf 'DEPLOY: switching API container\n'
+set +e
+HERMES_DEALS_API_TAG="$NEW_TAG" "${COMPOSE[@]}" up -d --no-deps --no-build --wait api \
+  >"$EVIDENCE_DIR/compose-apply.log" 2>&1
+APPLY_RC=$?
+if [[ $APPLY_RC -eq 0 ]]; then
+  API_AFTER="$("${COMPOSE[@]}" ps -q api)"
+  DB_AFTER="$("${COMPOSE[@]}" ps -q db)"
+  WEB_AFTER="$("${COMPOSE[@]}" ps -q web)"
+  AFTER_IMAGE_ID="$(docker inspect "$API_AFTER" --format '{{.Image}}' 2>/dev/null)"
+  AFTER_REVISION="$(docker inspect "$API_AFTER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null)"
+  curl --fail --silent --show-error --max-time 12 "$HEALTH_URL" >"$EVIDENCE_DIR/post-health.json" 2>"$EVIDENCE_DIR/post-health.err"
+  HEALTH_RC=$?
+  UI_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 12 "$UI_URL")"
+  POST_ALEMBIC="$(read_alembic)"
+  if [[ "$AFTER_IMAGE_ID" != "$NEW_IMAGE_ID" ]]; then
+    printf 'ERROR: production API image ID mismatch after deploy\n'
+    APPLY_RC=1
+  elif [[ "$AFTER_REVISION" != "$TARGET_SHA" ]]; then
+    printf 'ERROR: production API revision mismatch after deploy\n'
+    APPLY_RC=1
+  elif [[ "$DB_AFTER" != "$DB_BEFORE" ]]; then
+    printf 'ERROR: production database container changed during API deploy\n'
+    APPLY_RC=1
+  elif [[ "$WEB_AFTER" != "$WEB_BEFORE" ]]; then
+    printf 'ERROR: production web container changed during API deploy\n'
+    APPLY_RC=1
+  elif [[ $HEALTH_RC -ne 0 ]]; then
+    printf 'ERROR: local API health check failed after deploy\n'
+    APPLY_RC=1
+  elif [[ ! "$UI_STATUS" =~ ^(200|302)$ ]]; then
+    printf 'ERROR: local UI check failed after deploy\n'
+    APPLY_RC=1
+  elif [[ "$POST_ALEMBIC" != "$PRE_ALEMBIC" ]]; then
+    printf 'ERROR: Alembic revision changed during API deploy\n'
+    APPLY_RC=1
+  else
+    APPLY_RC=0
+  fi
+fi
+set -e
+
+if [[ $APPLY_RC -ne 0 ]]; then
+  printf 'DEPLOY FAILED: starting rollback to %s\n' "$OLD_IMAGE_REF"
+  set +e
+  HERMES_DEALS_API_TAG="$OLD_TAG" "${COMPOSE[@]}" up -d --no-deps --no-build --wait api \
+    >"$EVIDENCE_DIR/compose-rollback.log" 2>&1
+  ROLLBACK_RC=$?
+  if [[ $ROLLBACK_RC -eq 0 ]]; then
+    RESTORED_API="$("${COMPOSE[@]}" ps -q api)"
+    RESTORED_ID="$(docker inspect "$RESTORED_API" --format '{{.Image}}' 2>/dev/null)"
+    curl --fail --silent --show-error --max-time 12 "$HEALTH_URL" \
+      >"$EVIDENCE_DIR/rollback-health.json" 2>"$EVIDENCE_DIR/rollback-health.err"
+    ROLLBACK_HEALTH_RC=$?
+    RESTORED_ALEMBIC="$(read_alembic)"
+    [[ "$RESTORED_ID" == "$OLD_IMAGE_ID" \
+        && $ROLLBACK_HEALTH_RC -eq 0 \
+        && "$RESTORED_ALEMBIC" == "$PRE_ALEMBIC" ]]
+    ROLLBACK_RC=$?
+  fi
+  set -e
+  if [[ $ROLLBACK_RC -eq 0 ]]; then
+    printf 'DEPLOY_RESULT=FAIL_ROLLBACK_PASS\n'
+    printf 'ROLLBACK_PERFORMED=true\n'
+    printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+    printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
+    exit 1
+  fi
+  printf 'DEPLOY_RESULT=FAIL_ROLLBACK_FAIL\n'
+  printf 'ROLLBACK_PERFORMED=true\n'
+  printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+  printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
+  exit 2
+fi
+
+python3 - "$PRIMARY/.env" "$NEW_TAG" <<'PY_ENV_WRITE'
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+tag = sys.argv[2]
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+indexes = [i for i, line in enumerate(lines) if line.startswith("HERMES_DEALS_API_TAG=")]
+if len(indexes) != 1:
+    raise SystemExit(2)
+ending = "\n" if lines[indexes[0]].endswith("\n") else ""
+lines[indexes[0]] = f"HERMES_DEALS_API_TAG={tag}{ending}"
+with path.open("r+", encoding="utf-8") as handle:
+    handle.seek(0)
+    handle.writelines(lines)
+    handle.truncate()
+PY_ENV_WRITE
+[[ "$(python3 - "$PRIMARY/.env" <<'PY_ENV_VERIFY'
+import pathlib
+import sys
+for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    if line.startswith("HERMES_DEALS_API_TAG="):
+        print(line.split("=", 1)[1].strip())
+PY_ENV_VERIFY
+)" == "$NEW_TAG" ]] || fail 'production env tag was not updated'
+
+printf 'DEPLOY_RESULT=PASS\n'
+printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+printf 'PRODUCTION_SHA=%s\n' "$AFTER_REVISION"
+printf 'IMAGE=%s\n' "$NEW_IMAGE"
+printf 'LOCAL_HEALTH_URL=%s\n' "$HEALTH_URL"
+printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
+printf 'ALEMBIC_AFTER=%s\n' "$POST_ALEMBIC"
+printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
+printf 'ROLLBACK_PERFORMED=false\n'
