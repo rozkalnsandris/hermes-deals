@@ -147,8 +147,8 @@ def test_fast_route_keeps_counts_and_caches_repeat_view() -> None:
     assert first.available_count == 1
     assert first.count == 1
     assert first.deals[0].source_offer_id == "current"
-    assert first.availability_counts["current"] == 1
-    assert first.availability_counts["upcoming"] == 1
+    assert first.availability_counts.current == 1
+    assert first.availability_counts.upcoming == 1
     assert second == first
 
 
