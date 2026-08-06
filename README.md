@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="backend/app/ui/assets/deals-logo.svg" alt="Hermes Deals logo" width="160">
+</p>
+
 # Hermes Deals
 
 Private, fully custom family shopping-intelligence platform for Andris' household.
