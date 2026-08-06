@@ -131,9 +131,62 @@ def validate_legacy_parity_bundle(
     bundle: Mapping[str, Any], *, file_sha256: str
 ) -> dict[str, Any]:
     _sync_expected_projection_sha()
-    return _ORIGINAL_VALIDATE_LEGACY_PARITY_BUNDLE(
+    validated = _ORIGINAL_VALIDATE_LEGACY_PARITY_BUNDLE(
         bundle, file_sha256=file_sha256
     )
+
+    summary = bundle["summary"]
+    mappings = bundle["offer_to_card_mapping"]
+    reverse = bundle["reverse_card_coverage"]
+    mapped_card_ids = {
+        str(row["card_id"])
+        for row in mappings
+        if row["match_status"] == "matched"
+    }
+    reverse_card_ids = {str(row["card_id"]) for row in reverse}
+    _CORE.require(
+        mapped_card_ids <= reverse_card_ids,
+        "legacy reverse coverage missing mapped cards",
+    )
+    _CORE.require(
+        _CORE.strict_int(summary.get("card_count"), "legacy card count")
+        == len(reverse),
+        "legacy card count/reverse coverage mismatch",
+    )
+    in_scope_or_review_count = sum(
+        1 for row in reverse if row["scope"] in {"in_scope", "review"}
+    )
+    _CORE.require(
+        _CORE.strict_int(
+            summary.get("in_scope_or_review_card_count"),
+            "legacy in-scope or review card count",
+        )
+        == in_scope_or_review_count,
+        "legacy in-scope/review card count mismatch",
+    )
+    matched_candidate_count = sum(
+        1 for row in mappings if row["match_status"] == "matched"
+    )
+    review_unmatched_count = sum(
+        1 for row in mappings if row["match_status"] == "review_unmatched"
+    )
+    _CORE.require(
+        _CORE.strict_int(
+            summary.get("matched_candidate_count"),
+            "legacy matched candidate count",
+        )
+        == matched_candidate_count,
+        "legacy matched candidate count mismatch",
+    )
+    _CORE.require(
+        _CORE.strict_int(
+            summary.get("review_unmatched_count"),
+            "legacy review-unmatched candidate count",
+        )
+        == review_unmatched_count,
+        "legacy review-unmatched candidate count mismatch",
+    )
+    return validated
 
 
 _CORE.validate_gate_b_plan = validate_gate_b_plan
