@@ -21,6 +21,7 @@ for _name, _value in vars(_CORE).items():
         globals()[_name] = _value
 
 _ORIGINAL_VALIDATE_GATE_B_PLAN = _CORE.validate_gate_b_plan
+_ORIGINAL_LOAD_A21_PROJECTION = _CORE.load_a21_projection
 _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256 = _CORE.EXPECTED_GATE_B_PLAN_SHA256
 
 
@@ -28,9 +29,12 @@ def validate_gate_b_plan(
     plan: Mapping[str, Any], *, file_sha256: str
 ) -> dict[str, Any]:
     _CORE.require(len(file_sha256) == 64, "Gate B raw file SHA invalid")
+    actual_canonical_sha256 = _CORE.canonical_sha(plan)
     _CORE.require(
-        _CORE.canonical_sha(plan) == _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256,
-        "Gate B plan SHA256 mismatch",
+        actual_canonical_sha256 == _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256,
+        "Gate B plan SHA256 mismatch: "
+        f"expected={_EXPECTED_CANONICAL_GATE_B_PLAN_SHA256} "
+        f"actual={actual_canonical_sha256}",
     )
     previous = _CORE.EXPECTED_GATE_B_PLAN_SHA256
     try:
@@ -40,8 +44,17 @@ def validate_gate_b_plan(
         _CORE.EXPECTED_GATE_B_PLAN_SHA256 = previous
 
 
+def load_a21_projection(path: Path) -> dict[str, Any]:
+    _CORE.EXPECTED_A21_PROJECTION_SHA256 = globals()[
+        "EXPECTED_A21_PROJECTION_SHA256"
+    ]
+    return _ORIGINAL_LOAD_A21_PROJECTION(path)
+
+
 _CORE.validate_gate_b_plan = validate_gate_b_plan
+_CORE.load_a21_projection = load_a21_projection
 globals()["validate_gate_b_plan"] = validate_gate_b_plan
+globals()["load_a21_projection"] = load_a21_projection
 
 
 if __name__ == "__main__":
