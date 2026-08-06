@@ -152,6 +152,8 @@ jobs:
           TARGET_SHA: ${{ needs.resolve.outputs.sha }}
           PUBLIC_VERIFY_MAX_ATTEMPTS: "6"
           PUBLIC_VERIFY_DELAY_SECONDS: "5"
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -163,6 +165,7 @@ jobs:
 
           from hashlib import sha256
           import json
+          import os
           from pathlib import Path
           import re
           import shutil
@@ -176,6 +179,8 @@ jobs:
           target_sha = sys.argv[2]
           max_attempts = int(sys.argv[3])
           delay_seconds = int(sys.argv[4])
+          access_client_id = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+          access_client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 
           if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
               raise SystemExit("target SHA is invalid")
@@ -185,6 +190,12 @@ jobs:
               raise SystemExit("public verification delay is invalid")
           if not evidence_dir.is_dir() or evidence_dir.is_symlink():
               raise SystemExit("public verification evidence directory is unsafe")
+          if not access_client_id or not access_client_secret:
+              raise SystemExit("Cloudflare Access service credentials are missing")
+          if any(character in access_client_id for character in "\r\n"):
+              raise SystemExit("Cloudflare Access client ID is invalid")
+          if any(character in access_client_secret for character in "\r\n"):
+              raise SystemExit("Cloudflare Access client secret is invalid")
 
           required_ui_markers = (
               '<meta name="hermes-production-bundle" content="inline-v1">',
@@ -213,6 +224,8 @@ jobs:
               "Cache-Control": "no-cache",
               "Pragma": "no-cache",
               "User-Agent": "hermes-deals-public-contract/1",
+              "CF-Access-Client-Id": access_client_id,
+              "CF-Access-Client-Secret": access_client_secret,
           }
 
           def write_headers(path: Path, status: int, headers) -> None:
@@ -322,6 +335,7 @@ jobs:
                       "review_bytes": len(review.encode("utf-8")),
                       "review_sha256": sha256(review.encode("utf-8")).hexdigest(),
                       "external_ui_assets_required": False,
+                      "cloudflare_access_service_auth": True,
                   }
                   result_path.write_text(
                       json.dumps(report, indent=2, sort_keys=True) + "\n",
@@ -338,6 +352,7 @@ jobs:
                   print("PUBLIC_API_HEALTH=PASS")
                   print("PUBLIC_UI_BUNDLE=PASS")
                   print("PUBLIC_REVIEW=PASS")
+                  print("PUBLIC_CLOUDFLARE_ACCESS=PASS")
                   raise SystemExit(0)
               except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
                   last_error = str(exc)
