@@ -8,6 +8,7 @@ from hashlib import sha256
 import html
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -31,6 +32,7 @@ EXPECTED_PAGE3_SHA256 = (
     "ad297cdd2f3dc728f0114fcb8a06c6d2c6131f4b342173b134d9e99bd092ae7c"
 )
 TARGET_STATUSES = {"auto_candidate", "review_required"}
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class GateDError(ValueError):
@@ -415,9 +417,13 @@ function renderHints(){{
  const box=document.getElementById('hints'); box.textContent='';
  for(const row of rows){{
   const div=document.createElement('div'); div.className='hint';
-  div.innerHTML=`<strong>${{row.display_title||'(no title)'}}</strong><br>`+
-   `<code>${{row.offer_key}}</code><br>`+
-   `status=${{row.publication_status}} price=${{row.price_eur??'—'}}`;
+  const strong=document.createElement('strong');
+  strong.textContent=row.display_title||'(no title)';
+  const key=document.createElement('code');
+  key.textContent=row.offer_key;
+  const meta=document.createElement('span');
+  meta.textContent=`status=${{row.publication_status}} price=${{row.price_eur??'—'}}`;
+  div.append(strong,document.createElement('br'),key,document.createElement('br'),meta);
   box.appendChild(div);
  }}
 }}
@@ -452,7 +458,10 @@ def create_review_pack(
     expected_page_counts: Mapping[str, int] = EXPECTED_PAGE_COUNTS,
     minimum_image_bytes: int = 10_000,
 ) -> dict[str, Any]:
-    require(bool(inputs.commit_sha), "commit SHA is required")
+    require(
+        COMMIT_SHA_RE.fullmatch(inputs.commit_sha) is not None,
+        "commit SHA must be 40 lowercase hex characters",
+    )
     require(not inputs.output.exists(), f"output already exists: {inputs.output}")
     projection_rows = load_projection(
         inputs.projection,
