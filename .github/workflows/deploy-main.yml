@@ -159,7 +159,7 @@ jobs:
 
       - name: Upload deploy evidence
         if: always() && steps.deploy.outputs.evidence_dir != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: production-deploy-${{ needs.resolve.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.deploy.outputs.evidence_dir }}
