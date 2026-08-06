@@ -13,6 +13,7 @@ from app.current_deals_route_installer import installed_fast_current_deals
 from app.current_deals_sql_loader import (
     _InactiveWinner,
     load_sql_ranked_state_rows,
+    materialize_only,
 )
 from app.models import Base, OfferCandidateRecord, SourceSnapshot
 
@@ -137,6 +138,21 @@ def test_sql_loader_materializes_only_current_and_upcoming_winners() -> None:
     assert all(isinstance(row, _InactiveWinner) for row in expired_rows)
     assert old_current not in current_rows
 
+    with materialize_only("current"):
+        current_view_rows = load_sql_ranked_state_rows(
+            session,
+            date(2026, 8, 6),
+        )
+    current_view_current = [
+        row for state, row in current_view_rows if state == "current"
+    ]
+    current_view_upcoming = [
+        row for state, row in current_view_rows if state == "upcoming"
+    ]
+    assert current_view_current == [new_current]
+    assert len(current_view_upcoming) == 1
+    assert isinstance(current_view_upcoming[0], _InactiveWinner)
+
 
 def test_sql_loader_preserves_completeness_rescue_preference() -> None:
     session = _session()
@@ -210,6 +226,6 @@ def test_installed_route_reports_server_timing_and_engine() -> None:
         "current-deals-sql;dur="
     )
     assert response.headers["x-hermes-current-deals-engine"] == (
-        "sql-ranked-active-only"
+        "sql-ranked-requested-view"
     )
     assert "stale-while-revalidate=45" in response.headers["cache-control"]
