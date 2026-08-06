@@ -199,11 +199,9 @@ def test_dispatcher_exports_only_bounded_sanitized_evidence() -> None:
     assert "SYSTEMD_CHANGE=false" in text
 
 
-def test_finalizer_changes_only_isolated_clone_and_rechecks_b15m2_boundary() -> None:
+def test_finalizer_changes_only_isolated_clone_and_rechecks_primary_snapshot() -> None:
     text = FINALIZER.read_text(encoding="utf-8")
     for marker in (
-        "audit/b15m2-v08-preparation",
-        "a2d9e20039275832286b229984b8261f9394554f",
         "run-hermes-deals-b15m2-least-privilege-shadow-migration-api-regression-v08.sh",
         'git -C "$AUDIT_REPO" switch -C main "$TARGET_SHA"',
         "install-lidl-weekly-gate-a-dispatcher.sh",
@@ -211,15 +209,31 @@ def test_finalizer_changes_only_isolated_clone_and_rechecks_b15m2_boundary() -> 
         '-f "target=$TARGET"',
         '-f "as_of=$AS_OF"',
         '-f "use_previous=$USE_PREVIOUS"',
+        "PRIMARY_STATUS_SHA256_BEFORE=",
+        "PRIMARY_INDEX_STATE_BEFORE=",
+        "PRIMARY_GIT_STDERR_POLICY=empty-required",
         "PRIMARY_WORKTREE_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true",
+        "PRIMARY_INDEX_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true",
         "PRIMARY_V08_VERIFIED_UNCHANGED_AFTER_WORKFLOW=true",
+        "AUDIT_INDEX_STATE_REGISTERED=",
     ):
         assert marker in text
     for forbidden in (
+        "PRIMARY_EXPECTED_BRANCH",
+        "PRIMARY_EXPECTED_HEAD",
+        "protected primary branch differs from expected baseline",
+        "protected primary HEAD differs from expected baseline",
+        "audit/b15m2-v08-preparation",
+        "a2d9e20039275832286b229984b8261f9394554f",
         'git -C "$PRIMARY" switch',
+        'git -C "$PRIMARY" checkout',
         'git -C "$PRIMARY" reset',
         'git -C "$PRIMARY" stash',
         'git -C "$PRIMARY" clean',
+        'git -C "$PRIMARY" pull',
+        'git -C "$PRIMARY" fetch',
+        'git -C "$PRIMARY" merge',
+        'git -C "$PRIMARY" rebase',
         "docker compose",
         "alembic",
         "psql",
