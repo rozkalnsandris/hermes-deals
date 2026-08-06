@@ -51,6 +51,7 @@ def _sync_expected_projection_sha() -> None:
 def validate_gate_b_plan(
     plan: Mapping[str, Any], *, file_sha256: str
 ) -> dict[str, Any]:
+    _sync_expected_projection_sha()
     _CORE.require(len(file_sha256) == 64, "Gate B raw file SHA invalid")
     actual_canonical_sha256 = _CORE.canonical_sha(plan)
     _CORE.require(
