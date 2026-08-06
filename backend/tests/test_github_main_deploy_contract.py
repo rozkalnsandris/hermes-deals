@@ -45,8 +45,8 @@ def test_workflow_queues_every_successful_main_ci_on_one_rpi5_runner() -> None:
     assert 'hermes-production-bundle" content="inline-v1' in text
     assert 'data-hermes-production-bundle="styles.css"' in text
     assert 'data-hermes-production-bundle="app.js"' in text
-    assert 'href=\"/ui/styles.css\"' in text
-    assert 'src=\"/ui/app.js\"' in text
+    assert 'href="/ui/styles.css"' in text
+    assert 'src="/ui/app.js"' in text
     assert "PUBLIC_UI_BUNDLE=PASS" in text
     assert "actions/upload-artifact@v6" in text
     assert "actions/upload-artifact@v4" not in text
