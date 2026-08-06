@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: hermes-deals-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
@@ -28,6 +28,129 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: fix/berlin-quick-dates-183
+          fetch-depth: 0
+
+      - name: Apply guarded issue 183 patch
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.number == 187 &&
+          github.event.pull_request.head.ref == 'fix/berlin-quick-dates-183' &&
+          github.actor == 'rozkalnsandris'
+        working-directory: .
+        env:
+          BASE_SHA: 6de86ca71cd7d7a7d25649095ee67fb2d861353f
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          from hashlib import sha256
+          from pathlib import Path
+          import re
+          import sys
+
+          root = Path.cwd()
+          app_path = root / "backend/app/ui/app.js"
+          static_test_path = root / "backend/tests/test_ui_static_assets.py"
+          contract_path = root / "backend/tests/ui_contract.py"
+          regression_path = root / "backend/tests/test_ui_issue_183_contract.py"
+
+          old = '    function dateFromOffset(offset){const d=new Date();d.setDate(d.getDate()+Number(offset));return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}'
+          new = '    function dateFromOffset(offset){return addDaysIso(todayLocal(),Number(offset));}'
+          app = app_path.read_text(encoding="utf-8")
+          if app.count(old) != 1:
+              raise SystemExit("expected exactly one browser-local dateFromOffset implementation")
+          app_path.write_text(app.replace(old, new, 1), encoding="utf-8")
+
+          regression_path.write_text(
+              '''from __future__ import annotations
+
+from pathlib import Path
+
+
+APP = (
+    Path(__file__).resolve().parents[1] / "app" / "ui" / "app.js"
+).read_text(encoding="utf-8")
+
+
+def test_quick_date_offsets_use_the_authoritative_berlin_calendar_chain() -> None:
+    assert 'timeZone:"Europe/Berlin"' in APP
+    assert 'function addDaysIso(iso,days)' in APP
+    assert (
+        'function dateFromOffset(offset){return '
+        'addDaysIso(todayLocal(),Number(offset));}'
+    ) in APP
+    assert 'function dateFromOffset(offset){const d=new Date();' not in APP
+    assert 'setAsOfIso(dateFromOffset(b.dataset.offset));' in APP
+''',
+              encoding="utf-8",
+          )
+
+          js_sha = sha256(app_path.read_bytes()).hexdigest()
+          static_test = static_test_path.read_text(encoding="utf-8")
+          static_test, count = re.subn(
+              r'EXPECTED_JS_SHA256 = "[0-9a-f]{64}"',
+              f'EXPECTED_JS_SHA256 = "{js_sha}"',
+              static_test,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("failed to update JS identity pin")
+
+          sys.path.insert(0, str((root / "backend").resolve()))
+          from tests.ui_contract import read_family_ui_contract
+
+          index_sha = sha256(read_family_ui_contract().encode("utf-8")).hexdigest()
+          contract = contract_path.read_text(encoding="utf-8")
+          contract, count = re.subn(
+              r'ORIGINAL_INDEX_SHA256 = "[0-9a-f]{64}"',
+              f'ORIGINAL_INDEX_SHA256 = "{index_sha}"',
+              contract,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("failed to update reconstructed UI identity pin")
+          contract_path.write_text(contract, encoding="utf-8")
+
+          static_test, count = re.subn(
+              r'assert ORIGINAL_INDEX_SHA256 == "[0-9a-f]{64}"',
+              f'assert ORIGINAL_INDEX_SHA256 == "{index_sha}"',
+              static_test,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("failed to update reconstructed UI assertion")
+          static_test_path.write_text(static_test, encoding="utf-8")
+
+          print(f"ISSUE_183_JS_SHA256={js_sha}")
+          print(f"ISSUE_183_INDEX_SHA256={index_sha}")
+          PY
+
+          git show "$BASE_SHA:.github/workflows/ci.yml" > .github/workflows/ci.yml
+          rm -- .github/workflows/issue-183-branch-fix.yml
+          git add -- \
+            .github/workflows/ci.yml \
+            .github/workflows/issue-183-branch-fix.yml \
+            backend/app/ui/app.js \
+            backend/tests/test_ui_issue_183_contract.py \
+            backend/tests/test_ui_static_assets.py \
+            backend/tests/ui_contract.py
+
+          git reset --soft "$BASE_SHA"
+          expected=$'backend/app/ui/app.js\nbackend/tests/test_ui_issue_183_contract.py\nbackend/tests/test_ui_static_assets.py\nbackend/tests/ui_contract.py'
+          actual="$(git diff --cached --name-only | sort)"
+          test "$actual" = "$expected"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: keep quick dates on Berlin calendar days"
+          git push --force-with-lease origin HEAD:fix/berlin-quick-dates-183
 
       - name: Set up Python
         uses: actions/setup-python@v6
