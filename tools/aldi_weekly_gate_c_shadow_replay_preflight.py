@@ -30,8 +30,14 @@ _ORIGINAL_VALIDATE_LEGACY_PARITY_BUNDLE = _CORE.validate_legacy_parity_bundle
 _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256 = _CORE.EXPECTED_GATE_B_PLAN_SHA256
 _GATE_B_INDEX_MODE = "ALDI_WEEKLY_GATE_B_REPLAY_PLAN_CHUNK_INDEX_V01"
 _GATE_B_PARTS = [
-    f"aldi-weekly-gate-b-replay-plan-31105044968.part-{index:02d}.b64"
-    for index in range(1, 7)
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-01a.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-01b.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-01c.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-02.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-03.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-04.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-05.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-06.b64",
 ]
 _GATE_B_DECODED_BYTES = 24557
 
@@ -93,14 +99,13 @@ def load_gate_b_plan(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise _CORE.GateCError(
             f"invalid Gate B Base64 payload: {exc}; part_lengths={part_lengths}; encoded_length={len(encoded)}"
         ) from exc
-    decoded_sha256 = sha256(decoded).hexdigest()
     _CORE.require(
         len(decoded) == _GATE_B_DECODED_BYTES,
         "Gate B decoded byte count drift: "
         f"expected={_GATE_B_DECODED_BYTES} actual={len(decoded)} "
-        f"actual_sha256={decoded_sha256} "
         f"part_lengths={part_lengths} encoded_length={len(encoded)}",
     )
+    decoded_sha256 = sha256(decoded).hexdigest()
     _CORE.require(
         decoded_sha256 == _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256,
         "Gate B decoded SHA256 mismatch: "
