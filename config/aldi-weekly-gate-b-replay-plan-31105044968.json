@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "mode": "ALDI_WEEKLY_GATE_B_REPLAY_PLAN_CHUNK_INDEX_V01",
+  "encoding": "base64",
+  "parts": [
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-01a.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-01b.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-01c.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-02.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-03.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-04.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-05.b64",
+    "aldi-weekly-gate-b-replay-plan-31105044968.part-06.b64"
+  ],
+  "decoded_bytes": 24557,
+  "decoded_sha256": "3188821faa36a6d9fb598fde521a59993e6cb11678a8160e4afead4ba4fcfdd4"
+}
