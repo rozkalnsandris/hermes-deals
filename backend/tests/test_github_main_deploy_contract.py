@@ -34,6 +34,20 @@ def test_workflow_queues_every_successful_main_ci_on_one_rpi5_runner() -> None:
     assert "/usr/local/sbin/hermes-deals-deploy-main" in text
     assert "https://deals.rozkalns.net/api/health" in text
     assert "https://deals.rozkalns.net/ui" in text
+    assert "https://deals.rozkalns.net/ui/review" in text
+    assert "public-health.headers" in text
+    assert "public-health.json" in text
+    assert "public-ui.headers" in text
+    assert "public-ui.html" in text
+    assert "public-review.headers" in text
+    assert "public-review.html" in text
+    assert "public-ui-check.json" in text
+    assert 'hermes-production-bundle" content="inline-v1' in text
+    assert 'data-hermes-production-bundle="styles.css"' in text
+    assert 'data-hermes-production-bundle="app.js"' in text
+    assert 'href=\"/ui/styles.css\"' in text
+    assert 'src=\"/ui/app.js\"' in text
+    assert "PUBLIC_UI_BUNDLE=PASS" in text
     assert "actions/upload-artifact@v6" in text
     assert "actions/upload-artifact@v4" not in text
     assert "concurrency:" not in text
