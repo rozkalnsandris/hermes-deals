@@ -93,13 +93,14 @@ def load_gate_b_plan(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise _CORE.GateCError(
             f"invalid Gate B Base64 payload: {exc}; part_lengths={part_lengths}; encoded_length={len(encoded)}"
         ) from exc
+    decoded_sha256 = sha256(decoded).hexdigest()
     _CORE.require(
         len(decoded) == _GATE_B_DECODED_BYTES,
         "Gate B decoded byte count drift: "
         f"expected={_GATE_B_DECODED_BYTES} actual={len(decoded)} "
+        f"actual_sha256={decoded_sha256} "
         f"part_lengths={part_lengths} encoded_length={len(encoded)}",
     )
-    decoded_sha256 = sha256(decoded).hexdigest()
     _CORE.require(
         decoded_sha256 == _EXPECTED_CANONICAL_GATE_B_PLAN_SHA256,
         "Gate B decoded SHA256 mismatch: "
