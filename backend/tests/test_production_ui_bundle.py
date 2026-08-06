@@ -17,13 +17,28 @@ from app.ui_bundle import (
 )
 
 
-SOURCE_UI = Path(__file__).resolve().parents[1] / "app" / "ui"
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_UI = BACKEND_ROOT / "app" / "ui"
+DOCKERFILE = BACKEND_ROOT / "Dockerfile"
 
 
 def _copy_ui(tmp_path: Path, name: str = "ui") -> Path:
     target = tmp_path / name
     shutil.copytree(SOURCE_UI, target)
     return target
+
+
+def test_release_image_runs_the_fail_closed_ui_bundler() -> None:
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "COPY app ./app" in dockerfile
+    assert "RUN python -m app.ui_bundle --ui-dir /app/app/ui" in dockerfile
+    assert dockerfile.index("COPY app ./app") < dockerfile.index(
+        "RUN python -m app.ui_bundle --ui-dir /app/app/ui"
+    )
+    assert dockerfile.index(
+        "RUN python -m app.ui_bundle --ui-dir /app/app/ui"
+    ) < dockerfile.index("CMD [")
 
 
 def test_production_bundle_is_self_contained_and_deterministic(
