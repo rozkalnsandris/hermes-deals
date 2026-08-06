@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import subprocess
+import textwrap
 
 import yaml
 
@@ -55,6 +57,46 @@ def test_workflow_queues_every_successful_main_ci_on_one_rpi5_runner() -> None:
         assert forbidden not in text
 
 
+def test_public_contract_retries_bounded_edge_propagation_without_weakening() -> None:
+    text = read(WORKFLOW)
+
+    for marker in (
+        'PUBLIC_VERIFY_MAX_ATTEMPTS: "6"',
+        'PUBLIC_VERIFY_DELAY_SECONDS: "5"',
+        '"Cache-Control": "no-cache"',
+        '"Pragma": "no-cache"',
+        '"deploy_sha": target_sha',
+        'f"public-attempt-{attempt:02d}"',
+        '"validation.json"',
+        '"validation.err"',
+        '"public-verification-attempt.txt"',
+        "PUBLIC_VERIFY_ATTEMPT=",
+        "time.sleep(delay_seconds)",
+        "public API/UI contract failed after",
+    ):
+        assert marker in text
+
+    assert "if not 1 <= max_attempts <= 10" in text
+    assert "if not 0 <= delay_seconds <= 30" in text
+    assert "public UI body is unexpectedly small" in text
+    assert "public Review body is unexpectedly small" in text
+    assert "public UI is missing required markers" in text
+    assert "public UI still depends on external assets" in text
+    assert 'href="/ui/styles.css"' in text
+    assert 'src="/ui/app.js"' in text
+    assert "external_ui_assets_required" in text
+    assert 'shutil.copy2(result_path, evidence_dir / "public-ui-check.json")' in text
+
+
+def test_embedded_workflow_python_blocks_compile() -> None:
+    text = read(WORKFLOW)
+    blocks = re.findall(r"<<'PY'\n(.*?)\n\s+PY", text, flags=re.DOTALL)
+
+    assert len(blocks) == 2
+    for index, block in enumerate(blocks, start=1):
+        compile(textwrap.dedent(block), f"deploy-main-block-{index}.py", "exec")
+
+
 def test_main_push_ci_runs_are_not_cancelled_by_newer_merges() -> None:
     text = read(CI)
     assert "hermes-deals-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}" in text
@@ -75,8 +117,8 @@ def test_root_helper_accepts_queued_ancestors_and_never_downgrades() -> None:
         "release-control worktree must remain detached",
         "docker build",
         "org.opencontainers.image.revision=$TARGET_SHA",
-        "yield from walk(getattr(route, \"routes\", ()))",
-        "getattr(route, \"path\", None)",
+        'yield from walk(getattr(route, "routes", ()))',
+        'getattr(route, "path", None)',
         "up -d --no-deps --no-build --wait api",
         "production database container changed",
         "production web container changed",
