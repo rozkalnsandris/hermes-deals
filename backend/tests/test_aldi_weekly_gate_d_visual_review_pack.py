@@ -251,3 +251,30 @@ class GateDTest(unittest.TestCase):
                 (self.root / "one" / relative).read_bytes(),
                 (self.root / "two" / relative).read_bytes(),
             )
+
+    def test_invalid_commit_sha_is_rejected(self):
+        with self.assertRaisesRegex(MODULE.GateDError, "commit SHA"):
+            MODULE.create_review_pack(
+                MODULE.PackInputs(
+                    projection=self.projection,
+                    legacy_page_manifest=self.legacy_manifest,
+                    legacy_page_root=self.legacy_root,
+                    gate_b_plan=self.gate_b,
+                    current_pages_root=self.current_root,
+                    output=self.root / "bad-sha",
+                    commit_sha="not-a-sha",
+                ),
+                gate_b_loader=self.loader,
+                expected_projection_sha256=self.projection_sha,
+                expected_projection_counts=self.counts,
+                expected_projection_rows=3,
+                expected_page_counts=self.page_counts,
+                minimum_image_bytes=self.minimum,
+            )
+
+    def test_html_uses_text_nodes_for_candidate_content(self):
+        self.build()
+        content = (self.root / "out/index.html").read_text(encoding="utf-8")
+        self.assertNotIn("div.innerHTML", content)
+        self.assertIn("strong.textContent", content)
+        self.assertIn("key.textContent", content)
