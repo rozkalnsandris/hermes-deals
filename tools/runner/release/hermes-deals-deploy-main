@@ -57,12 +57,15 @@ owner_git() {
 }
 
 exec 9>"$LOCK"
-flock -n 9 || fail 'another Hermes Deals production deploy is active'
+flock 9
 
-printf 'CHECK: synchronizing exact origin/main\n'
+printf 'CHECK: synchronizing origin/main for queued SHA\n'
 owner_git fetch --prune origin main
 REMOTE_SHA="$(owner_git rev-parse refs/remotes/origin/main)"
-[[ "$REMOTE_SHA" == "$TARGET_SHA" ]] || fail 'requested SHA is not exact current origin/main'
+owner_git cat-file -e "${TARGET_SHA}^{commit}" \
+  || fail 'queued SHA is not available as a Git commit'
+owner_git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main \
+  || fail 'queued SHA is not an ancestor of current origin/main'
 [[ -z "$(owner_git branch --show-current)" ]] || fail 'release-control worktree must remain detached'
 [[ -z "$(owner_git status --porcelain=v1 --untracked-files=all)" ]] || fail 'release-control worktree is not clean'
 owner_git checkout --detach "$TARGET_SHA"
@@ -144,6 +147,9 @@ OLD_IMAGE_REF="$(docker inspect "$API_BEFORE" --format '{{.Config.Image}}')"
 [[ "$OLD_IMAGE_REF" == hermes-deals-api:* ]] || fail 'current API image reference is unexpected'
 OLD_TAG="${OLD_IMAGE_REF#hermes-deals-api:}"
 OLD_REVISION="$(docker inspect "$API_BEFORE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+[[ "$OLD_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail 'current production image has no exact Git revision'
+owner_git cat-file -e "${OLD_REVISION}^{commit}" \
+  || fail 'current production revision is not available in Git history'
 ENV_TAG="$(python3 - "$PRIMARY/.env" <<'PY_ENV_READ'
 import pathlib
 import sys
@@ -164,12 +170,40 @@ HEALTH_URL="$(resolve_web_url "$WEB_BEFORE" '/api/health')" || fail 'published A
 UI_URL="$(resolve_web_url "$WEB_BEFORE" '/ui')" || fail 'published UI URL could not be resolved'
 curl --fail --silent --show-error --max-time 10 "$HEALTH_URL" >"$EVIDENCE_DIR/pre-health.json"
 
+if [[ "$OLD_REVISION" == "$TARGET_SHA" ]]; then
+  printf 'DEPLOY_RESULT=NO_OP_ALREADY_CURRENT\n'
+  printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+  printf 'PRODUCTION_SHA=%s\n' "$OLD_REVISION"
+  printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
+  printf 'ALEMBIC_AFTER=%s\n' "$PRE_ALEMBIC"
+  printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+  printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
+  printf 'ROLLBACK_PERFORMED=false\n'
+  exit 0
+fi
+
+if owner_git merge-base --is-ancestor "$TARGET_SHA" "$OLD_REVISION"; then
+  printf 'DEPLOY_RESULT=NO_OP_STALE\n'
+  printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+  printf 'PRODUCTION_SHA=%s\n' "$OLD_REVISION"
+  printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
+  printf 'ALEMBIC_AFTER=%s\n' "$PRE_ALEMBIC"
+  printf 'DATABASE_WRITES_AUTHORIZED=false\n'
+  printf 'MIGRATION_COMMANDS_EXECUTED=false\n'
+  printf 'ROLLBACK_PERFORMED=false\n'
+  exit 0
+fi
+
+owner_git merge-base --is-ancestor "$OLD_REVISION" "$TARGET_SHA" \
+  || fail 'current production SHA is not an ancestor of queued target SHA'
+
 SHORT_SHA="${TARGET_SHA:0:12}"
 NEW_TAG="main-$SHORT_SHA"
 NEW_IMAGE="hermes-deals-api:$NEW_TAG"
 
 printf 'CHECK PASS\n'
 printf 'SOURCE_SHA=%s\n' "$TARGET_SHA"
+printf 'CURRENT_MAIN_SHA=%s\n' "$REMOTE_SHA"
 printf 'PRODUCTION_SHA_BEFORE=%s\n' "$OLD_REVISION"
 printf 'ALEMBIC_BEFORE=%s\n' "$PRE_ALEMBIC"
 printf 'BUILD: %s\n' "$NEW_IMAGE"
