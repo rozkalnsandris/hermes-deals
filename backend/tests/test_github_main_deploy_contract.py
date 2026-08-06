@@ -88,6 +88,37 @@ def test_public_contract_retries_bounded_edge_propagation_without_weakening() ->
     assert 'shutil.copy2(result_path, evidence_dir / "public-ui-check.json")' in text
 
 
+def test_public_contract_uses_cloudflare_access_service_secrets_safely() -> None:
+    text = read(WORKFLOW)
+
+    for marker in (
+        "CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}",
+        "CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}",
+        'os.environ.get("CF_ACCESS_CLIENT_ID", "")',
+        'os.environ.get("CF_ACCESS_CLIENT_SECRET", "")',
+        '"CF-Access-Client-Id": access_client_id',
+        '"CF-Access-Client-Secret": access_client_secret',
+        "Cloudflare Access service credentials are missing",
+        "Cloudflare Access client ID is invalid",
+        "Cloudflare Access client secret is invalid",
+        '"cloudflare_access_service_auth": True',
+        "PUBLIC_CLOUDFLARE_ACCESS=PASS",
+    ):
+        assert marker in text
+
+    assert "access_client_id =" in text
+    assert "access_client_secret =" in text
+    assert "if not access_client_id or not access_client_secret" in text
+    assert "request_headers" in text
+    assert "write_headers" in text
+    assert 'print(access_client_id)' not in text
+    assert 'print(access_client_secret)' not in text
+    assert 'write_text(access_client_id' not in text
+    assert 'write_text(access_client_secret' not in text
+    assert 'json.dumps(access_client_id' not in text
+    assert 'json.dumps(access_client_secret' not in text
+
+
 def test_embedded_workflow_python_blocks_compile() -> None:
     text = read(WORKFLOW)
     blocks = re.findall(r"<<'PY'\n(.*?)\n\s+PY", text, flags=re.DOTALL)
