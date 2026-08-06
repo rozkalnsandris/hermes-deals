@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools" / "aldi_weekly_gate_c_shadow_replay_preflight.py"
+GATE_B_PLAN = ROOT / "config" / "aldi-weekly-gate-b-replay-plan-31105044968.json"
 SPEC = importlib.util.spec_from_file_location(
     "aldi_weekly_gate_c_reverse_coverage_contract", TOOL
 )
@@ -93,6 +94,52 @@ def _legacy_bundle() -> dict[str, object]:
     }
 
 
+def _validated_inputs() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    _, gate_b = MODULE.load_gate_b_plan(GATE_B_PLAN)
+    bundle = _legacy_bundle()
+    legacy = MODULE.validate_legacy_parity_bundle(
+        bundle,
+        file_sha256=MODULE.canonical_sha(bundle),
+    )
+    page3_ledger = {
+        "schema_version": 1,
+        "mode": MODULE.PAGE3_MODE,
+        "page_number": 3,
+        "page_sha256": MODULE.EXPECTED_PAGE3_SHA256,
+        "extraction_result": "complete",
+        "candidate_count": 1,
+        "candidates": [
+            {
+                "candidate_id": "page3:produce:001",
+                "card_id": "current:p003:c001",
+                "publication_status": "review_required",
+                "review_reasons": ["fresh_weekly_page_requires_visual_review"],
+                "production_eligible": False,
+                "automatic_approval_allowed": False,
+                "automatic_publication_allowed": False,
+            }
+        ],
+        "shadow_only": True,
+        "production_eligible": False,
+        "candidate_creation_performed": False,
+        "database_write_performed": False,
+        "review_write_performed": False,
+        "automatic_approval_performed": False,
+        "automatic_publication_performed": False,
+    }
+    page3 = MODULE.validate_page3_ledger(
+        page3_ledger,
+        file_sha256=MODULE.canonical_sha(page3_ledger),
+    )
+    a21 = {
+        "sha256": MODULE.EXPECTED_A21_PROJECTION_SHA256,
+        "row_count": 519,
+        "publication_counts": dict(MODULE.EXPECTED_PUBLICATION_COUNTS),
+        "offer_identity_sha256": "a" * 64,
+    }
+    return gate_b, legacy, page3 | {"a21": a21}
+
+
 def test_legacy_reverse_coverage_cannot_omit_a_mapped_card() -> None:
     bundle = _legacy_bundle()
     reverse = bundle["reverse_card_coverage"]
@@ -112,4 +159,53 @@ def test_legacy_reverse_coverage_cannot_omit_a_mapped_card() -> None:
         MODULE.validate_legacy_parity_bundle(
             bundle,
             file_sha256=MODULE.canonical_sha(bundle),
+        )
+
+
+def test_exact_no_op_prior_remains_idempotent() -> None:
+    gate_b, legacy, values = _validated_inputs()
+    page3 = dict(values)
+    a21 = page3.pop("a21")
+
+    ready = MODULE.build_result(gate_b, a21=a21, legacy=legacy, page3=page3)
+    first_no_op = MODULE.build_result(
+        gate_b,
+        a21=a21,
+        legacy=legacy,
+        page3=page3,
+        prior=ready,
+    )
+    repeated_no_op = MODULE.build_result(
+        gate_b,
+        a21=a21,
+        legacy=legacy,
+        page3=page3,
+        prior=first_no_op,
+    )
+
+    assert first_no_op["decision"] == "NO_OP"
+    assert repeated_no_op["decision"] == "NO_OP"
+    assert (
+        repeated_no_op["identity"]["replay_identity_sha256"]
+        == ready["identity"]["replay_identity_sha256"]
+    )
+
+
+def test_unsafe_top_level_prior_flag_is_rejected() -> None:
+    gate_b, legacy, values = _validated_inputs()
+    page3 = dict(values)
+    a21 = page3.pop("a21")
+    prior = MODULE.build_result(gate_b, a21=a21, legacy=legacy, page3=page3)
+    prior["production_eligible"] = True
+
+    with pytest.raises(
+        MODULE.GateCError,
+        match="unsafe prior Gate C production eligibility",
+    ):
+        MODULE.build_result(
+            gate_b,
+            a21=a21,
+            legacy=legacy,
+            page3=page3,
+            prior=prior,
         )
