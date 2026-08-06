@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.current_deals_sql_loader import (
@@ -13,6 +14,12 @@ from app.current_deals_sql_loader import (
 )
 from app.db import engine
 from app.models import OfferCandidateRecord, SourceSnapshot
+
+
+pytestmark = pytest.mark.skipif(
+    engine.dialect.name != "postgresql",
+    reason="requires the PostgreSQL 18 CI service",
+)
 
 
 def _snapshot(session: Session, collected_at: datetime) -> SourceSnapshot:
@@ -120,6 +127,8 @@ def test_sql_ranked_loader_executes_on_postgresql_18() -> None:
             valid_from=date(2026, 7, 1),
             valid_until=date(2026, 7, 2),
         )
+        ordinary_id = ordinary.id
+        rescue_id = rescue.id
         session.add_all([ordinary, rescue, upcoming, expired])
         session.commit()
 
@@ -130,7 +139,7 @@ def test_sql_ranked_loader_executes_on_postgresql_18() -> None:
     upcoming_rows = [row for state, row in rows if state == "upcoming"]
     expired_rows = [row for state, row in rows if state == "expired"]
 
-    assert rescue.id in {row.id for row in current}
-    assert ordinary.id not in {row.id for row in current}
+    assert rescue_id in {row.id for row in current}
+    assert ordinary_id not in {row.id for row in current}
     assert any(isinstance(row, _InactiveWinner) for row in upcoming_rows)
     assert any(isinstance(row, _InactiveWinner) for row in expired_rows)
