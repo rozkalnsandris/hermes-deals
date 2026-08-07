@@ -53,8 +53,7 @@ jobs:
       - ARM64
       - hermes-deals-audit
     timeout-minutes: 20
-    permissions:
-      contents: read
+    permissions: {}
     outputs:
       result: ${{ steps.run.outputs.result }}
       reason: ${{ steps.run.outputs.reason }}
@@ -66,24 +65,15 @@ jobs:
       production_head: ${{ steps.run.outputs.production_head }}
 
     steps:
-      - name: Checkout exact reviewed Phase A runtime
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.authorize.outputs.runtime_sha }}
-          path: issue-307-runtime
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Run exact guarded Phase C operator
+      - name: Run installed root-owned Phase C dispatcher
         id: run
         shell: bash
         env:
           EXPECTED_RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
-          EXPECTED_OPERATOR_SHA256: 083cbd27990ebcff0d4c9cb81443318a9837f1179555d9921086f47be5cd8d4e
         run: |
           set -Eeuo pipefail
           umask 077
-          OPERATOR="$GITHUB_WORKSPACE/issue-307-runtime/tools/runner/release/hermes-deals-web-dual-bind-cutover"
+          DISPATCHER=/usr/local/sbin/hermes-deals-307-phase-c-dispatch
           LOG_DIR="$RUNNER_TEMP/hermes-deals-307-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           CHECK_LOG="$LOG_DIR/check.log"
           APPLY_LOG="$LOG_DIR/apply.log"
@@ -111,44 +101,42 @@ jobs:
           emit production_head not_observed_from_restricted_runner
 
           [[ "$EXPECTED_RUNTIME_SHA" == '654ec9739f8cea74ee8a4ee93e25e12bf06482cc' ]]
-          emit reason validating_reviewed_operator_path
-          [[ -f "$OPERATOR" && ! -L "$OPERATOR" ]]
-          emit reason validating_reviewed_operator_sha256
-          printf '%s  %s\n' "$EXPECTED_OPERATOR_SHA256" "$OPERATOR" | sha256sum -c - >/dev/null
+          emit reason validating_installed_root_dispatcher
+          [[ -f "$DISPATCHER" && ! -L "$DISPATCHER" && -x "$DISPATCHER" ]]
+          [[ "$(stat -c '%U:%G:%a' "$DISPATCHER")" == 'root:root:755' ]]
 
-          # The restricted audit runner intentionally cannot traverse the protected
-          # /home/andris production tree directly. The reviewed root operator owns
-          # all production-path, Docker, UFW and cloudflared read checks, so the
-          # first production-facing action is its read-only `check` mode.
-          emit reason testing_exact_operator_sudo_and_read_only_check
+          emit reason testing_dispatcher_sudo_and_read_only_check
           set +e
-          sudo --non-interactive "$OPERATOR" check >"$CHECK_LOG" 2>&1
+          sudo --non-interactive "$DISPATCHER" check >"$CHECK_LOG" 2>&1
           CHECK_RC=$?
           set -e
           if [[ "$CHECK_RC" -ne 0 ]]; then
             if grep -Eqi 'password is required|a password is required|not allowed to run sudo|not in the sudoers' "$CHECK_LOG"; then
-              emit reason exact_operator_sudo_not_authorized
+              emit reason exact_dispatcher_sudo_not_authorized
             else
-              emit reason operator_check_failed
+              emit reason dispatcher_check_failed
             fi
             exit 1
           fi
           grep -Fx 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS' "$CHECK_LOG" >/dev/null
+          grep -Fx 'DISPATCH_MODE=check' "$CHECK_LOG" >/dev/null
           emit check_pass true
 
           emit reason applying_reviewed_dual_bind
           set +e
-          sudo --non-interactive "$OPERATOR" apply-dual >"$APPLY_LOG" 2>&1
+          sudo --non-interactive "$DISPATCHER" apply-dual >"$APPLY_LOG" 2>&1
           APPLY_RC=$?
           set -e
           if [[ "$APPLY_RC" -ne 0 ]]; then
             ROLLBACK_VERIFIED=false
             if grep -Fx 'AUTO_ROLLBACK_TO_LAN=PASS' "$APPLY_LOG" >/dev/null; then
               set +e
-              sudo --non-interactive "$OPERATOR" check >"$RECOVERY_LOG" 2>&1
+              sudo --non-interactive "$DISPATCHER" check >"$RECOVERY_LOG" 2>&1
               RECOVERY_RC=$?
               set -e
-              if [[ "$RECOVERY_RC" -eq 0 ]] && grep -Fx 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS' "$RECOVERY_LOG" >/dev/null; then
+              if [[ "$RECOVERY_RC" -eq 0 ]] \
+                && grep -Fx 'DISPATCH_MODE=check' "$RECOVERY_LOG" >/dev/null \
+                && grep -Fx 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS' "$RECOVERY_LOG" >/dev/null; then
                 ROLLBACK_VERIFIED=true
               fi
             fi
@@ -162,12 +150,13 @@ jobs:
             fi
             exit 1
           fi
+          grep -Fx 'DISPATCH_MODE=apply-dual' "$APPLY_LOG" >/dev/null
           grep -Fx 'HERMES_DEALS_307_DUAL_BIND_APPLY=PASS' "$APPLY_LOG" >/dev/null
           emit apply_pass true
 
           emit reason verifying_reviewed_dual_bind
           set +e
-          sudo --non-interactive "$OPERATOR" verify-dual >"$VERIFY_LOG" 2>&1
+          sudo --non-interactive "$DISPATCHER" verify-dual >"$VERIFY_LOG" 2>&1
           VERIFY_RC=$?
           set -e
           if [[ "$VERIFY_RC" -ne 0 ]]; then
@@ -175,6 +164,7 @@ jobs:
             emit reason dual_bind_apply_passed_but_followup_verify_failed
             exit 1
           fi
+          grep -Fx 'DISPATCH_MODE=verify-dual' "$VERIFY_LOG" >/dev/null
           grep -Fx 'HERMES_DEALS_307_DUAL_BIND_VERIFY=PASS' "$VERIFY_LOG" >/dev/null
           emit verify_pass true
           emit result PASS
@@ -236,8 +226,9 @@ jobs:
               f"- production Git unchanged: `{clean('PRODUCTION_GIT_UNCHANGED')}`\n"
               f"- production checkout HEAD: `{clean('PRODUCTION_HEAD')}`\n"
               f"- workflow: {clean('RUN_URL')}\n\n"
-              "Safety boundary: no Cloudflare route/Access/token action, UFW mutation, DB/Review/collector/API deploy, "
-              "or shared cloudflared lifecycle action is exposed by this bridge. Raw operator logs are not published."
+              "Safety boundary: the self-hosted job has no repository token and invokes only the installed root-owned #307 dispatcher. "
+              "No Cloudflare route/Access/token action, UFW mutation, DB/Review/collector/API deploy, or shared cloudflared lifecycle action is exposed. "
+              "Raw operator logs are not published."
           )
           payload = json.dumps({"body": body}).encode("utf-8")
           request = urllib.request.Request(
