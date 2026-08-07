@@ -47,6 +47,7 @@ EXIT_CODES = {
     "WAIT_SOURCE": 20,
     "WAIT_SCAN": 21,
     "WAIT_PROFILE": 22,
+    "WAIT_SOURCE_REVIEW": 23,
     "BLOCKED_SOURCE_DRIFT": 30,
     "BLOCKED_PARSER_DRIFT": 31,
 }
@@ -62,6 +63,9 @@ class CorpusMatch:
     live_raw_sha256: str
     raw_refresh: bool
     stable_source_identity_sha256: str
+    parser_input_identity_sha256: str
+    live_parser_input_identity_sha256: str
+    parser_input_changed: bool
 
 
 def _sha256(path: Path) -> str:
@@ -259,6 +263,23 @@ def _identity_digest(identity: Mapping[str, Any]) -> str:
     return sha256(encoded).hexdigest()
 
 
+def _canonical_parser_input(source_json: bytes) -> Mapping[str, Any]:
+    try:
+        payload = json.loads(source_json)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise RuntimeError(f"source JSON is invalid: {type(exc).__name__}") from exc
+    if not isinstance(payload, Mapping):
+        raise RuntimeError("source JSON must contain an object")
+    canonical = dict(payload)
+    canonical.pop("dateTime", None)
+    canonical.pop("warnings", None)
+    return canonical
+
+
+def _parser_input_identity(source_json: bytes) -> str:
+    return _identity_digest(_canonical_parser_input(source_json))
+
+
 def find_corpus_match(
     corpus: Path,
     *,
@@ -271,6 +292,7 @@ def find_corpus_match(
     live_identity = _stable_source_identity(live_source_json)
     live_identity_digest = _identity_digest(live_identity)
     live_raw_sha256 = sha256(live_source_json).hexdigest()
+    live_parser_input_identity = _parser_input_identity(live_source_json)
     matches: list[CorpusMatch] = []
     for flyer_dir in sorted(path for path in flyers.iterdir() if path.is_dir()):
         pdf = flyer_dir / "source.pdf"
@@ -287,6 +309,7 @@ def find_corpus_match(
                 f"for PDF {pdf_sha256}: live={live_identity!r} "
                 f"corpus={corpus_identity!r}"
             )
+        corpus_parser_input_identity = _parser_input_identity(corpus_source_json)
         scans_root = flyer_dir / "scans"
         scans = []
         if scans_root.is_dir():
@@ -306,6 +329,11 @@ def find_corpus_match(
                 live_raw_sha256=live_raw_sha256,
                 raw_refresh=corpus_raw_sha256 != live_raw_sha256,
                 stable_source_identity_sha256=live_identity_digest,
+                parser_input_identity_sha256=corpus_parser_input_identity,
+                live_parser_input_identity_sha256=live_parser_input_identity,
+                parser_input_changed=(
+                    corpus_parser_input_identity != live_parser_input_identity
+                ),
             )
         )
     if len(matches) > 1:
@@ -471,6 +499,18 @@ def run_one_shot(
             today=today,
             discovery=discovery,
             source=source_meta,
+        )
+        _atomic_json(output_dir / "one-shot-status.json", payload)
+        return payload
+    if match.parser_input_changed:
+        payload = _status_payload(
+            state="WAIT_SOURCE_REVIEW",
+            reason="parser_input_identity_changed_for_existing_pdf",
+            target=target,
+            today=today,
+            discovery=discovery,
+            source=source_meta,
+            corpus_match=match,
         )
         _atomic_json(output_dir / "one-shot-status.json", payload)
         return payload
