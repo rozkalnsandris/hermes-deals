@@ -1,29 +1,35 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "tools" / "vscode-rpi5-release.sh"
+PRODUCTION_WRAPPER = ROOT / "tools" / "vscode-rpi5-production-deploy.sh"
 
 
 def read_launcher() -> str:
     return LAUNCHER.read_text(encoding="utf-8")
 
 
-def test_vscode_tasks_expose_only_check_and_direct_deploy() -> None:
+def read_production_wrapper() -> str:
+    return PRODUCTION_WRAPPER.read_text(encoding="utf-8")
+
+
+def test_vscode_tasks_expose_check_and_confirmed_production_deploy() -> None:
     tasks = json.loads((ROOT / ".vscode" / "tasks.json").read_text(encoding="utf-8"))
     labels = {task["label"] for task in tasks["tasks"]}
     assert labels == {
         "Hermes Deals: Check deploy",
-        "Hermes Deals: Deploy current main",
+        "Hermes Deals: Production deploy",
     }
 
     modes = {tuple(task["args"]) for task in tasks["tasks"]}
     assert modes == {
         ("tools/vscode-rpi5-release.sh", "check"),
-        ("tools/vscode-rpi5-release.sh", "deploy"),
+        ("tools/vscode-rpi5-production-deploy.sh",),
     }
 
 
@@ -106,3 +112,48 @@ def test_check_mode_is_read_only_and_has_no_deploy_call() -> None:
     assert "MAIN_DEPLOY" not in check_block
     assert "RUNTIME_SYNC" not in check_block
     assert "sudo --non-interactive" not in check_block
+
+
+def test_production_wrapper_requires_exact_sha_confirmation_before_deploy() -> None:
+    subprocess.run(["bash", "-n", str(PRODUCTION_WRAPPER)], check=True)
+    text = read_production_wrapper()
+    required = (
+        "RELEASE_LAUNCHER='tools/vscode-rpi5-release.sh'",
+        '"$RELEASE_LAUNCHER" check',
+        '[[ "$LOCAL_SHA" == "$TARGET_SHA" ]]',
+        "NO DEPLOY NEEDED",
+        "PRODUCTION_CHANGED=false",
+        "Required confirmation:",
+        "DEPLOY %s",
+        "read -r -p '> ' CONFIRMATION",
+        '[[ "$CONFIRMATION" == "DEPLOY ${TARGET_SHA}" ]]',
+        "CONFIRMATION_MATCH=PASS",
+        '"$RELEASE_LAUNCHER" deploy',
+    )
+    for marker in required:
+        assert marker in text
+
+    check_pos = text.index('"$RELEASE_LAUNCHER" check')
+    no_op_pos = text.index("NO DEPLOY NEEDED")
+    confirm_pos = text.index("read -r -p '> ' CONFIRMATION")
+    deploy_pos = text.index('"$RELEASE_LAUNCHER" deploy')
+    assert check_pos < no_op_pos < confirm_pos < deploy_pos
+
+
+def test_production_wrapper_records_timestamped_local_log_and_container_state() -> None:
+    text = read_production_wrapper()
+    required = (
+        'STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/hermes-deals/deploy"',
+        'mkdir -p "$STATE_ROOT"',
+        'chmod 700 "$STATE_ROOT"',
+        'STAMP="$(date -u +%Y%m%dT%H%M%SZ)"',
+        'LOG_FILE="$STATE_ROOT/vscode-production-deploy-${STAMP}.log"',
+        'chmod 600 "$LOG_FILE"',
+        'exec > >(tee -a "$LOG_FILE") 2>&1',
+        "POST_DEPLOY_API_CONTAINER_RUNNING=true",
+        "POST_DEPLOY_API_REVISION=%s",
+        "CONFIRMED_TARGET_SHA=%s",
+        "FINISHED_AT_UTC=%s",
+    )
+    for marker in required:
+        assert marker in text

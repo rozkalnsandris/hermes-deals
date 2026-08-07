@@ -153,12 +153,15 @@ def test_runtime_installer_grants_only_sync_and_direct_main_deploy() -> None:
     assert "/bin/sh *" not in text
 
 
-def test_vscode_tasks_are_only_check_and_deploy() -> None:
+def test_vscode_tasks_are_only_check_and_production_deploy() -> None:
     data = json.loads(read(TASKS))
     labels = [task["label"] for task in data["tasks"]]
-    args = [task["args"][-1] for task in data["tasks"]]
+    args = [tuple(task["args"]) for task in data["tasks"]]
     assert labels == [
         "Hermes Deals: Check deploy",
-        "Hermes Deals: Deploy current main",
+        "Hermes Deals: Production deploy",
     ]
-    assert args == ["check", "deploy"]
+    assert args == [
+        ("tools/vscode-rpi5-release.sh", "check"),
+        ("tools/vscode-rpi5-production-deploy.sh",),
+    ]
