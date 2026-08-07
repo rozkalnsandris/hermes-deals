@@ -12,7 +12,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 
-PLAN_VERSION = "lidl-gate-b-freeze-plan-v1"
+PLAN_VERSION = "lidl-gate-b-freeze-plan-v2-source-revision"
 EXPECTED_GATE_A_RESULT = "WAIT"
 EXPECTED_GATE_A_REASON = "one_shot_wait_source"
 EXPECTED_ONE_SHOT_RESULT = "WAIT_SOURCE"
@@ -141,6 +141,14 @@ def _stable_source_identity(source_json: bytes) -> dict[str, Any]:
     return identity
 
 
+def _logical_source_identity(stable_identity: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in stable_identity.items()
+        if key != "document_path"
+    }
+
+
 def _expect_flags(
     payload: Mapping[str, Any],
     expected: Mapping[str, Any],
@@ -192,6 +200,65 @@ def _corpus_identity_conflicts(
                 raise LidlGateBFreezePlanError(
                     f"stable source identity is already frozen in corpus: {flyer_dir.name}"
                 )
+
+
+def _resolve_destination(
+    flyers_root: Path,
+    *,
+    flyer_key: str,
+    source_pdf_sha256: str,
+    stable_identity: Mapping[str, Any],
+) -> tuple[Path, dict[str, Any]]:
+    base = flyers_root / flyer_key
+    _require(not base.is_symlink(), "base flyer destination is a symlink")
+    if not base.exists():
+        return base, {
+            "strategy": "base_flyer_key",
+            "base_flyer_key": flyer_key,
+            "revision_of": None,
+        }
+
+    _require(base.is_dir(), "occupied base flyer destination is not a directory")
+    base_pdf = base / "source.pdf"
+    base_raw = base / "source.json"
+    _require(
+        base_pdf.is_file() and not base_pdf.is_symlink(),
+        "occupied base flyer source PDF is missing or unsafe",
+    )
+    _require(
+        base_raw.is_file() and not base_raw.is_symlink(),
+        "occupied base flyer source JSON is missing or unsafe",
+    )
+    base_identity = _stable_source_identity(base_raw.read_bytes())
+    _require(
+        _logical_source_identity(base_identity)
+        == _logical_source_identity(stable_identity),
+        "occupied base flyer key represents a different logical flyer",
+    )
+    _require(
+        base_identity["document_path"] != stable_identity["document_path"],
+        "occupied base flyer key has the same document path",
+    )
+
+    revision_key = f"{flyer_key}--src-{source_pdf_sha256[:12]}"
+    _require(
+        bool(FLYER_KEY_RE.fullmatch(revision_key))
+        and revision_key not in {".", ".."},
+        "derived source revision flyer key is unsafe or too long",
+    )
+    destination = flyers_root / revision_key
+    _require(
+        not destination.exists() and not destination.is_symlink(),
+        "planned source revision destination already exists",
+    )
+    return destination, {
+        "strategy": "content_addressed_source_revision",
+        "base_flyer_key": flyer_key,
+        "revision_of": flyer_key,
+        "base_document_path": base_identity["document_path"],
+        "live_document_path": stable_identity["document_path"],
+        "base_pdf_sha256": _sha256_file(base_pdf),
+    }
 
 
 def build_freeze_plan(
@@ -347,13 +414,14 @@ def build_freeze_plan(
         "advertised region identity mismatch",
     )
 
-    destination = flyers_root / flyer_key
-    _require(
-        not destination.exists() and not destination.is_symlink(),
-        "planned corpus destination already exists",
-    )
     _corpus_identity_conflicts(
         flyers_root,
+        source_pdf_sha256=actual_pdf_sha256,
+        stable_identity=stable_identity,
+    )
+    destination, destination_identity = _resolve_destination(
+        flyers_root,
+        flyer_key=flyer_key,
         source_pdf_sha256=actual_pdf_sha256,
         stable_identity=stable_identity,
     )
@@ -391,6 +459,7 @@ def build_freeze_plan(
         "source_raw_sha256": actual_raw_sha256,
         "stable_source_identity_sha256": stable_identity_sha256,
         "destination": str(destination),
+        "destination_strategy": destination_identity["strategy"],
     }
 
     return {
@@ -425,6 +494,7 @@ def build_freeze_plan(
         "destination": {
             "flyer_dir": str(destination),
             "must_not_exist": True,
+            **destination_identity,
             "files": files,
         },
         "apply_contract": {
