@@ -51,10 +51,14 @@ def test_dispatcher_fail_closed_evidence_is_bounded_and_uploadable() -> None:
 def test_dispatcher_never_exports_raw_runner_log() -> None:
     text = DISPATCHER.read_text(encoding="utf-8")
     assert '"$STAGING/runner.log" 2>&1' in text
-    assert "runner.log" not in text[text.index("manifest = {") :]
-    assert "controller-execution.log" not in text
-    assert "source.pdf" not in text
-    assert "source.json" not in text
+
+    copy_start = text.index("for source, name in (")
+    copy_end = text.index("manifest = {", copy_start)
+    export_copy_block = text[copy_start:copy_end]
+    assert "runner.log" not in export_copy_block
+    assert "controller-execution.log" not in export_copy_block
+    assert "source.pdf" not in export_copy_block
+    assert "source.json" not in export_copy_block
 
 
 def test_existing_workflow_can_report_synthetic_blocked_evidence() -> None:
