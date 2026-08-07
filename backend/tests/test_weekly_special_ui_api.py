@@ -15,6 +15,7 @@ from app.weekly_special_api import (
     WeeklySpecialsOut,
     _clear_weekly_cache,
     _normalize_ui_payload,
+    weekly_specials,
     weekly_specials_ui,
 )
 
@@ -86,7 +87,7 @@ def _payload() -> WeeklySpecialsOut:
     ):
         if 3 <= offset <= 5:
             day_deal = deal.model_copy(
-                update={"base_price_current": offset <= 5}
+                update={"base_price_current": offset != 4}
             )
             deals = [day_deal]
         else:
@@ -173,6 +174,34 @@ class WeeklySpecialUiApiTest(unittest.TestCase):
         self.assertEqual(
             sum(len(day["deal_ids"]) for day in body["days"]),
             body["count"],
+        )
+
+    def test_legacy_deploy_prewarm_also_seeds_ui_cache(self) -> None:
+        payload = _payload()
+        request = SimpleNamespace(headers={})
+        with patch(
+            "app.weekly_special_api._build_payload",
+            return_value=payload,
+        ) as build:
+            legacy = weekly_specials(
+                request=request,
+                week_start=date(2026, 8, 3),
+                db=_FakeDb(),
+            )
+            ui = weekly_specials_ui(
+                request=request,
+                week_start=date(2026, 8, 3),
+                db=_FakeDb(),
+            )
+
+        self.assertEqual(legacy.status_code, 200)
+        self.assertEqual(legacy.headers["x-hermes-weekly-cache"], "MISS")
+        self.assertEqual(ui.status_code, 200)
+        self.assertEqual(ui.headers["x-hermes-weekly-cache"], "HIT")
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(
+            json.loads(ui.body)["ui_contract"],
+            "normalized_unique_deals_by_id_v1",
         )
 
     def test_matching_ui_etag_returns_304_without_body(self) -> None:
