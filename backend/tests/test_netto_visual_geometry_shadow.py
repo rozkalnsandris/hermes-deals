@@ -146,6 +146,42 @@ class NettoVisualGeometryShadowTest(unittest.TestCase):
         self.assertIn("Bananen", result["groups"][0]["selected_title"])
         self.assertNotIn("KRACHER", result["groups"][0]["selected_title"])
 
+    def test_real_replay_context_labels_are_title_noise(self) -> None:
+        layout = _layout(
+            spans=[
+                _span("Extra°Punkte", 60, 80, 150, 98, 12),
+                _span("SPAREN", 60, 100, 130, 118, 12),
+                _span("Dauertiefpreis", 60, 120, 160, 138, 12),
+                _span("unverpackt", 60, 140, 145, 158, 12),
+                _span("Filialen mit Backofen. 8 für", 60, 160, 235, 178, 12),
+                _span("Produktname", 80, 195, 180, 215, 14),
+                _span("1,00", 100, 250, 145, 275, 22),
+            ]
+        )
+        result = MODULE.analyze_layout(layout)
+        self.assertEqual(len(result["groups"]), 1)
+        group = result["groups"][0]
+        self.assertEqual(group["selected_title"], "Produktname")
+        for forbidden in (
+            "Extra°Punkte", "SPAREN", "Dauertiefpreis", "unverpackt", "Backofen"
+        ):
+            self.assertNotIn(forbidden, group["selected_title"])
+
+    def test_geometry_title_requires_independent_evidence_before_automatic_route(self) -> None:
+        layout = _layout(
+            spans=[
+                _span("Produktname", 80, 120, 180, 140, 14),
+                _span("1,49", 100, 180, 145, 205, 22),
+            ]
+        )
+        result = MODULE.analyze_layout(layout)
+        self.assertEqual(len(result["groups"]), 1)
+        group = result["groups"][0]
+        self.assertEqual(group["selected_title"], "Produktname")
+        self.assertEqual(group["selected_normal_price"], "1.49")
+        self.assertEqual(group["route"], "review_required")
+        self.assertIn("title_independent_evidence_required", group["reasons"])
+
     def test_split_major_and_cents_are_reconstructed(self) -> None:
         layout = _layout(
             spans=[

@@ -20,20 +20,28 @@ UNIT_LABEL_RE = re.compile(
     re.I,
 )
 PROMO_EXACT = {
+    "aktion",
+    "aktion auch",
     "bis",
+    "dauertiefpreis",
     "du entscheidest",
     "kracher",
     "marke",
     "marke oder netto marke",
     "netto marke",
+    "sparen",
+    "unverpackt",
     "video anleitung",
     "versch",
     "verschiedene",
+    "xxl",
 }
 PROMO_PREFIXES = (
     "abgabe nur in haushaltsüblichen mengen",
     "angebot gilt nur in ausgewählten filialen",
     "aus unserer eigenen fleisch und wurst fachabteilung",
+    "extra punkte",
+    "filialen mit backofen",
     "für die artikel auf der seite",
 )
 
@@ -652,6 +660,14 @@ def analyze_layout(layout: Mapping[str, Any]) -> dict[str, Any]:
             reasons.append("normal_price_ambiguous_or_missing")
         if not title_candidates:
             reasons.append("title_missing")
+        else:
+            # The first exact 17-page / 100-cell RPi5 replay produced zero
+            # normalized title matches among all 28 single-center bindings.
+            # Geometry proximity alone is therefore not independent title
+            # evidence and must not make a row automatic. Keep the selected
+            # title for diagnosis while routing it to Review until a separate
+            # title-confidence/evidence gate is proved on the real corpus.
+            reasons.append("title_independent_evidence_required")
         if nearby_ambiguous:
             reasons.append("text_ownership_ambiguous")
         if any(
