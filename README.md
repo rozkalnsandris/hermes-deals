@@ -24,6 +24,17 @@ Private, fully custom family shopping-intelligence platform for Andris' househol
 _Last updated automatically: 07.08.2026 07:26 Europe/Berlin. [Measurement rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
+## Retailer control centers
+
+Each retailer has one canonical living GitHub tracker. Use these issues as the authoritative execution source of truth for current state, completed gates, blockers, next actions and evidence:
+
+- **Netto Marken-Discount 5659 → [#289](https://github.com/rozkalnsandris/hermes-deals/issues/289)**
+- **Lidl → [#24](https://github.com/rozkalnsandris/hermes-deals/issues/24)**
+- **ALDI Nord → [#165](https://github.com/rozkalnsandris/hermes-deals/issues/165)**
+- **EDEKA Patzer 071897 / 587881 → [#26](https://github.com/rozkalnsandris/hermes-deals/issues/26)**
+
+Cross-retailer sequencing and shared completion rules remain in [#39](https://github.com/rozkalnsandris/hermes-deals/issues/39).
+
 ## Current status — Phase 5G (B15F)
 
 The custom Hermes Deals stack is active across Netto, Lidl, ALDI Nord and the
