@@ -5,13 +5,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
+from pathlib import Path
 from time import monotonic, perf_counter
 from typing import Any
 from uuid import UUID
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
@@ -41,6 +42,10 @@ _CACHE_TTL_SECONDS = 30.0
 _CACHE_LIMIT = 8
 _SOURCE_CONTRACT = (
     "single_week_query_short_periods_plus_explicit_immutable_daily_evidence"
+)
+_UI_CONTRACT = "normalized_unique_deals_by_id_v1"
+_UI_BRIDGE_PATH = (
+    Path(__file__).resolve().parent / "ui" / "weekly-payload-bridge.js"
 )
 
 
@@ -104,6 +109,50 @@ class WeeklySpecialsOut(BaseModel):
     days: list[WeeklyDayOut]
 
 
+class WeeklyUiDealOut(BaseModel):
+    offer_candidate_id: UUID
+    source_chain: str
+    source_store_name: str | None = None
+    product_name_raw: str
+    brand_raw: str | None = None
+    package_text_raw: str | None = None
+    price_eur: Decimal
+    regular_price_eur: Decimal | None = None
+    unit_price_eur: Decimal | None = None
+    unit_label: str | None = None
+    pricing_mode: str | None = None
+    discount_percent: Decimal | None = None
+    app_price_eur: Decimal | None = None
+    valid_from: date | None = None
+    valid_until: date | None = None
+    app_valid_from: date | None = None
+    app_valid_until: date | None = None
+    source_url: str | None = None
+    source_image_url: str | None = None
+    canonical_product_id: UUID | None = None
+    canonical_comparable: bool = False
+    is_daily_special: bool = False
+    special_valid_on: date | None = None
+    special_confidence: str | None = None
+    deposit_eur: Decimal | None = None
+
+
+class WeeklyUiDayOut(BaseModel):
+    date: date
+    deal_ids: list[UUID]
+
+
+class WeeklyUiSpecialsOut(BaseModel):
+    week_start: date
+    week_end: date
+    timezone: str
+    count: int
+    source_contract: str
+    ui_contract: str
+    deals: list[WeeklyUiDealOut]
+    days: list[WeeklyUiDayOut]
+
+
 @dataclass(frozen=True)
 class _CacheEntry:
     expires_at: float
@@ -112,10 +161,12 @@ class _CacheEntry:
 
 
 _CACHE: OrderedDict[date, _CacheEntry] = OrderedDict()
+_UI_CACHE: OrderedDict[date, _CacheEntry] = OrderedDict()
 
 
 def _clear_weekly_cache() -> None:
     _CACHE.clear()
+    _UI_CACHE.clear()
 
 
 def _week_dates(week_start: date) -> tuple[date, ...]:
@@ -478,6 +529,38 @@ def _build_payload(
     )
 
 
+def _normalize_ui_payload(payload: WeeklySpecialsOut) -> WeeklyUiSpecialsOut:
+    unique: OrderedDict[UUID, WeeklyUiDealOut] = OrderedDict()
+    days: list[WeeklyUiDayOut] = []
+    for day in payload.days:
+        deal_ids: list[UUID] = []
+        for deal in day.deals:
+            normalized = WeeklyUiDealOut.model_validate(deal.model_dump())
+            existing = unique.get(deal.offer_candidate_id)
+            if existing is None:
+                unique[deal.offer_candidate_id] = normalized
+            elif existing != normalized:
+                raise RuntimeError(
+                    "Weekly UI normalization conflict for offer_candidate_id"
+                )
+            deal_ids.append(deal.offer_candidate_id)
+        days.append(WeeklyUiDayOut(date=day.date, deal_ids=deal_ids))
+
+    if payload.count != sum(len(day.deal_ids) for day in days):
+        raise RuntimeError("Weekly UI normalization changed the day-entry count")
+
+    return WeeklyUiSpecialsOut(
+        week_start=payload.week_start,
+        week_end=payload.week_end,
+        timezone=payload.timezone,
+        count=payload.count,
+        source_contract=payload.source_contract,
+        ui_contract=_UI_CONTRACT,
+        deals=list(unique.values()),
+        days=days,
+    )
+
+
 def _cache_headers(
     etag: str,
     elapsed_ms: float,
@@ -503,6 +586,56 @@ def _etag_matches(request: Request, etag: str) -> bool:
     )
 
 
+def _cached_weekly_response(
+    *,
+    request: Request,
+    cache: OrderedDict[date, _CacheEntry],
+    week_start: date,
+    started: float,
+) -> Response | None:
+    cached = cache.get(week_start)
+    if cached is None or cached.expires_at <= monotonic():
+        return None
+    cache.move_to_end(week_start)
+    elapsed_ms = (perf_counter() - started) * 1000
+    headers = _cache_headers(cached.etag, elapsed_ms, "HIT")
+    if _etag_matches(request, cached.etag):
+        return Response(status_code=304, headers=headers)
+    return Response(
+        content=cached.body,
+        media_type="application/json",
+        headers=headers,
+    )
+
+
+def _store_weekly_response(
+    *,
+    cache: OrderedDict[date, _CacheEntry],
+    week_start: date,
+    body: bytes,
+) -> str:
+    etag = f'"{sha256(body).hexdigest()}"'
+    cache[week_start] = _CacheEntry(
+        expires_at=monotonic() + _CACHE_TTL_SECONDS,
+        body=body,
+        etag=etag,
+    )
+    cache.move_to_end(week_start)
+    while len(cache) > _CACHE_LIMIT:
+        cache.popitem(last=False)
+    return etag
+
+
+@router.get("/ui/weekly-payload-bridge.js", include_in_schema=False)
+def weekly_payload_bridge() -> FileResponse:
+    if not _UI_BRIDGE_PATH.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Weekly UI payload bridge is not available",
+        )
+    return FileResponse(_UI_BRIDGE_PATH, media_type="application/javascript")
+
+
 @router.get(
     "/api/v1/deals/weekly-specials",
     response_model=WeeklySpecialsOut,
@@ -520,33 +653,69 @@ def weekly_specials(
         )
 
     started = perf_counter()
-    cached = _CACHE.get(week_start)
-    now = monotonic()
-    if cached is not None and cached.expires_at > now:
-        _CACHE.move_to_end(week_start)
-        elapsed_ms = (perf_counter() - started) * 1000
-        headers = _cache_headers(cached.etag, elapsed_ms, "HIT")
-        if _etag_matches(request, cached.etag):
-            return Response(status_code=304, headers=headers)
-        return Response(
-            content=cached.body,
-            media_type="application/json",
-            headers=headers,
-        )
+    cached_response = _cached_weekly_response(
+        request=request,
+        cache=_CACHE,
+        week_start=week_start,
+        started=started,
+    )
+    if cached_response is not None:
+        return cached_response
 
     _assert_read_only_session(db)
     payload = _build_payload(db, week_start)
     body = payload.model_dump_json().encode("utf-8")
-    etag = f'"{sha256(body).hexdigest()}"'
-    entry = _CacheEntry(
-        expires_at=monotonic() + _CACHE_TTL_SECONDS,
+    etag = _store_weekly_response(
+        cache=_CACHE,
+        week_start=week_start,
         body=body,
-        etag=etag,
     )
-    _CACHE[week_start] = entry
-    _CACHE.move_to_end(week_start)
-    while len(_CACHE) > _CACHE_LIMIT:
-        _CACHE.popitem(last=False)
+
+    elapsed_ms = (perf_counter() - started) * 1000
+    headers = _cache_headers(etag, elapsed_ms, "MISS")
+    if _etag_matches(request, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers=headers,
+    )
+
+
+@router.get(
+    "/api/v1/deals/weekly-specials/ui",
+    response_model=WeeklyUiSpecialsOut,
+    responses={304: {"description": "Weekly UI data is unchanged"}},
+)
+def weekly_specials_ui(
+    request: Request,
+    week_start: date = Query(...),
+    db: Session = Depends(get_db),
+) -> Response:
+    if week_start.isoweekday() != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="week_start must be a Monday",
+        )
+
+    started = perf_counter()
+    cached_response = _cached_weekly_response(
+        request=request,
+        cache=_UI_CACHE,
+        week_start=week_start,
+        started=started,
+    )
+    if cached_response is not None:
+        return cached_response
+
+    _assert_read_only_session(db)
+    payload = _normalize_ui_payload(_build_payload(db, week_start))
+    body = payload.model_dump_json(exclude_none=True).encode("utf-8")
+    etag = _store_weekly_response(
+        cache=_UI_CACHE,
+        week_start=week_start,
+        body=body,
+    )
 
     elapsed_ms = (perf_counter() - started) * 1000
     headers = _cache_headers(etag, elapsed_ms, "MISS")
