@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "plan_id": "edeka-patzer-production-canary-v01",
+  "issue": 26,
+  "state": "preparation_only",
+  "production_apply_authorized": false,
+  "market": {
+    "source_chain": "edeka",
+    "scope": "family_primary_edeka",
+    "public_market_id": "071897",
+    "internal_market_id": "587881",
+    "store_name": "EDEKA Patzer",
+    "source_url": "https://www.edeka.de/maerkte/071897/angebote/"
+  },
+  "authoritative_source": {
+    "workflow_run_id": 31157650948,
+    "artifact_id": 8985771511,
+    "artifact_zip_sha256": "86043c7d14b627f851a45645e8d2474a317fb609ade56b93db52018c863f4d31",
+    "campaign_valid_from": "2026-08-03",
+    "campaign_valid_until": "2026-08-08",
+    "raw_html_sha256": "2e3a88cfb67f6dd38075ffa16ba04a7520efd5fca1230874da30cc70af0f6f20",
+    "manifest_sha256": "df3be62abe356c8071766d00ab988f8aef69fcdf3724f6c64269a8c427581d9a",
+    "shadow_snapshot_id": "fb10cab0-3d9a-499d-8434-fd92bebb7c0e",
+    "parser_version": "edeka-v1",
+    "normalizer_version": "normalizer-v1.2",
+    "full_offer_count": 203,
+    "full_normalization_rows_sha256": "7e6b14e30c9faafacbebdd74709dc3b92675b98c60abc460ccfdc6e038aeb48e"
+  },
+  "canary_rows": [
+    {
+      "source_offer_id": "059d39c8-69b8-4c99-9008-61341138ca0e",
+      "product_name_raw": "Papa Joe's Tomatenketchup oder Mayonnaise",
+      "price_eur": "1.59",
+      "valid_from": "2026-08-03",
+      "valid_until": "2026-08-08",
+      "dialog_id": "dialog-angebot-059d39c8-69b8-4c99-9008-61341138ca0e",
+      "package_parse_method": "edeka_image_metric_single",
+      "package_evidence_source": "source_image_filename",
+      "package_signature": {
+        "item_quantity_value": "500",
+        "item_quantity_unit": "ml",
+        "pack_count": 1
+      },
+      "normalized_name": "papa joe s tomatenketchup oder mayonnaise",
+      "normalized_brand": null,
+      "review_required": false
+    },
+    {
+      "source_offer_id": "2e53629a-c206-44b0-9867-4922f2f1facd",
+      "product_name_raw": "Himbeeren",
+      "price_eur": "1.49",
+      "valid_from": "2026-08-03",
+      "valid_until": "2026-08-08",
+      "dialog_id": "dialog-angebot-2e53629a-c206-44b0-9867-4922f2f1facd",
+      "package_parse_method": "edeka_description_metric_single",
+      "package_evidence_source": "raw_payload.description",
+      "package_signature": {
+        "item_quantity_value": "125",
+        "item_quantity_unit": "g",
+        "pack_count": 1
+      },
+      "normalized_name": "himbeeren",
+      "normalized_brand": null,
+      "review_required": false
+    },
+    {
+      "source_offer_id": "0b6bcd44-9b9f-459c-bdce-f3e4fcf94edd",
+      "product_name_raw": "Kri Kri Greek Frozen Yoghurt",
+      "price_eur": "2.22",
+      "valid_from": "2026-08-03",
+      "valid_until": "2026-08-08",
+      "dialog_id": "dialog-angebot-0b6bcd44-9b9f-459c-bdce-f3e4fcf94edd",
+      "package_parse_method": "edeka_image_metric_multipack",
+      "package_evidence_source": "source_image_filename",
+      "package_signature": {
+        "item_quantity_value": "70",
+        "item_quantity_unit": "g",
+        "pack_count": 4
+      },
+      "normalized_name": "kri kri greek frozen yoghurt",
+      "normalized_brand": null,
+      "review_required": false
+    }
+  ],
+  "preflight": {
+    "required_alembic_head": "0007_comparison_family_pricing",
+    "require_exact_source_hashes": true,
+    "require_exact_three_source_offer_ids": true,
+    "require_no_existing_canary_snapshot_binding": true,
+    "require_baseline_counts": true,
+    "require_rollback_backup_before_write": true,
+    "fail_on_any_review_route": true,
+    "fail_on_any_source_or_market_mismatch": true,
+    "fail_on_unexpected_dependency_rows": true
+  },
+  "expected_first_apply_delta": {
+    "source_snapshots": 1,
+    "offer_candidates": 3,
+    "offer_normalizations": 3,
+    "product_match_candidates": 0,
+    "offer_product_links": 0,
+    "canonical_products": 0,
+    "offer_review_items": 0,
+    "offer_review_revisions": 0
+  },
+  "expected_exact_replay_delta": {
+    "source_snapshots": 0,
+    "offer_candidates": 0,
+    "offer_normalizations": 0,
+    "product_match_candidates": 0,
+    "offer_product_links": 0,
+    "canonical_products": 0,
+    "offer_review_items": 0,
+    "offer_review_revisions": 0
+  },
+  "rollback": {
+    "scope": "captured_canary_ids_only",
+    "delete_order": [
+      "offer_normalizations",
+      "offer_candidates",
+      "source_snapshots"
+    ],
+    "require_zero_dependent_product_match_candidates": true,
+    "require_zero_dependent_offer_product_links": true,
+    "require_zero_dependent_offer_review_items": true,
+    "broad_delete_by_chain_forbidden": true
+  },
+  "forbidden_actions": [
+    "canonical_product_creation",
+    "product_matching",
+    "offer_product_linking",
+    "review_queue_write",
+    "approval",
+    "publication",
+    "scheduler_activation",
+    "broad_edeka_import"
+  ]
+}
