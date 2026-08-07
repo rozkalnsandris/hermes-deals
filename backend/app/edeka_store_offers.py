@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import time
 from urllib.parse import urlparse
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from sqlalchemy import select
@@ -25,6 +25,7 @@ MANIFEST_STRATEGY = "edeka_patzer_store_offers_v1"
 MANIFEST_CONTENT_TYPE = (
     "application/vnd.hermes-deals.edeka-store-offers+json"
 )
+OFFER_SEMANTIC_FINGERPRINT_VERSION = 1
 _EXPECTED_PUBLIC_MARKET_ID = "071897"
 _EXPECTED_INTERNAL_MARKET_ID = "587881"
 _EXPECTED_STORE_NAME = "EDEKA Patzer"
@@ -132,6 +133,38 @@ def _single_offer_window(
     return valid_from, valid_until
 
 
+def _offer_semantic_sha256(offers: list[OfferCandidate]) -> str:
+    rows: list[dict[str, object]] = []
+    source_offer_ids: list[str] = []
+    for offer in offers:
+        row = offer.model_dump(mode="json")
+        row.pop("snapshot_id", None)
+        row.pop("collected_at", None)
+        source_offer_id = row.get("source_offer_id")
+        if not isinstance(source_offer_id, str) or not source_offer_id:
+            raise ValueError(
+                "EDEKA semantic fingerprint requires source_offer_id"
+            )
+        source_offer_ids.append(source_offer_id)
+        rows.append(row)
+    if len(source_offer_ids) != len(set(source_offer_ids)):
+        raise ValueError(
+            "EDEKA semantic fingerprint contains duplicate source_offer_id"
+        )
+    rows.sort(key=lambda row: str(row["source_offer_id"]))
+    payload = {
+        "schema_version": OFFER_SEMANTIC_FINGERPRINT_VERSION,
+        "offers": rows,
+    }
+    data = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256(data).hexdigest()
+
+
 def _write_manifest(
     *,
     source: SourceConfig,
@@ -166,6 +199,10 @@ def _write_manifest(
         "valid_from": valid_from.isoformat(),
         "valid_until": valid_until.isoformat(),
         "offer_count": len(offers),
+        "offer_semantic_fingerprint_version": (
+            OFFER_SEMANTIC_FINGERPRINT_VERSION
+        ),
+        "offer_semantic_sha256": _offer_semantic_sha256(offers),
         "raw_html_path": str(raw_path),
         "raw_html_sha256": raw_sha,
         "raw_content_type": fetched.content_type,
@@ -246,11 +283,53 @@ def _latest_manifest_snapshot(
     )
 
 
+def _manifest_offer_semantic_sha256(
+    manifest_path: Path,
+    expected_sha256: str,
+    source: SourceConfig,
+) -> str:
+    manifest = _read_manifest_bytes(manifest_path, expected_sha256)
+    _validate_manifest_source(manifest, source)
+    raw = _read_raw_html(manifest)
+
+    snapshot_id_value = manifest.get("snapshot_id")
+    collected_at_value = manifest.get("collected_at")
+    if not isinstance(snapshot_id_value, str):
+        raise ValueError("EDEKA manifest snapshot_id is missing")
+    if not isinstance(collected_at_value, str):
+        raise ValueError("EDEKA manifest collected_at is missing")
+    context = EdekaParserContext(
+        snapshot_id=UUID(snapshot_id_value),
+        source_url=source.url,
+        collected_at=datetime.fromisoformat(collected_at_value),
+        public_market_id=source.store_external_id or "",
+        internal_market_id=source.store_internal_id or "",
+        store_name=source.store_name or "",
+    )
+    offers = parse_edeka_html(raw, context)
+    semantic_sha = _offer_semantic_sha256(offers)
+
+    manifest_semantic_sha = manifest.get("offer_semantic_sha256")
+    manifest_semantic_version = manifest.get(
+        "offer_semantic_fingerprint_version"
+    )
+    if manifest_semantic_sha is not None:
+        if manifest_semantic_version != OFFER_SEMANTIC_FINGERPRINT_VERSION:
+            raise ValueError(
+                "EDEKA manifest semantic fingerprint version mismatch"
+            )
+        if manifest_semantic_sha != semantic_sha:
+            raise ValueError(
+                "EDEKA manifest semantic fingerprint mismatch"
+            )
+    return semantic_sha
+
+
 def _matching_previous_snapshot(
     db: Session,
     source: SourceConfig,
     *,
-    raw_sha256: str,
+    offer_semantic_sha256: str,
     valid_from: date,
     valid_until: date,
     offer_count: int,
@@ -261,15 +340,20 @@ def _matching_previous_snapshot(
     if not snapshot.snapshot_path or not snapshot.sha256:
         raise ValueError("EDEKA manifest snapshot binding is incomplete")
 
+    manifest_path = Path(snapshot.snapshot_path)
     manifest = _read_manifest_bytes(
-        Path(snapshot.snapshot_path),
+        manifest_path,
         snapshot.sha256,
     )
     _validate_manifest_source(manifest, source)
-    _read_raw_html(manifest)
+    previous_semantic_sha = _manifest_offer_semantic_sha256(
+        manifest_path,
+        snapshot.sha256,
+        source,
+    )
 
     if (
-        manifest.get("raw_html_sha256") == raw_sha256
+        previous_semantic_sha == offer_semantic_sha256
         and manifest.get("valid_from") == valid_from.isoformat()
         and manifest.get("valid_until") == valid_until.isoformat()
         and manifest.get("offer_count") == offer_count
@@ -310,12 +394,12 @@ def collect_edeka_store_offers(
         )
         offers = parse_edeka_html(fetched.content, context)
         valid_from, valid_until = _single_offer_window(offers)
-        raw_sha = sha256(fetched.content).hexdigest()
+        offer_semantic_sha = _offer_semantic_sha256(offers)
 
         previous = _matching_previous_snapshot(
             db,
             source,
-            raw_sha256=raw_sha,
+            offer_semantic_sha256=offer_semantic_sha,
             valid_from=valid_from,
             valid_until=valid_until,
             offer_count=len(offers),
@@ -394,4 +478,16 @@ def parse_edeka_store_offers_snapshot(
         raise ValueError("EDEKA manifest valid_until mismatch")
     if manifest.get("offer_count") != len(offers):
         raise ValueError("EDEKA manifest offer_count mismatch")
+    manifest_semantic_sha = manifest.get("offer_semantic_sha256")
+    if manifest_semantic_sha is not None:
+        if manifest.get("offer_semantic_fingerprint_version") != (
+            OFFER_SEMANTIC_FINGERPRINT_VERSION
+        ):
+            raise ValueError(
+                "EDEKA manifest semantic fingerprint version mismatch"
+            )
+        if manifest_semantic_sha != _offer_semantic_sha256(offers):
+            raise ValueError(
+                "EDEKA manifest semantic fingerprint mismatch"
+            )
     return offers
