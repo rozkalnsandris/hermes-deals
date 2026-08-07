@@ -123,7 +123,7 @@ def _build_artifact(tmp_path: Path) -> tuple[Path, dict[str, object]]:
     with tarfile.open(archive_path, "w:gz") as archive:
         archive.add(inner_root, arcname=inner_root.name, recursive=True)
     with tarfile.open(archive_path, "r:gz") as archive:
-        member_count = len(archive.getmembers())
+        member_count = sum(member.isfile() for member in archive.getmembers())
     archive_sha = _sha256_file(archive_path)
 
     dispatcher = {

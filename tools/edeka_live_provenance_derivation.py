@@ -174,6 +174,7 @@ def _safe_extract_archive(archive_path: Path, destination: Path) -> tuple[Path, 
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(source, "r:gz") as archive:
         members, root_name = _safe_tar_members(archive)
+        regular_file_count = sum(member.isfile() for member in members)
         for member in members:
             target = destination / Path(*PurePosixPath(member.name).parts)
             if member.isdir():
@@ -189,7 +190,7 @@ def _safe_extract_archive(archive_path: Path, destination: Path) -> tuple[Path, 
                     if not chunk:
                         break
                     output.write(chunk)
-    return (destination / root_name).resolve(), len(members)
+    return (destination / root_name).resolve(), regular_file_count
 
 
 def _write_exclusive_json(path: Path, payload: Mapping[str, Any]) -> None:
