@@ -5,7 +5,7 @@ umask 077
 
 RUNNER_VERSION="edeka-shadow-cycle-v01"
 RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-index-safe-v01"
-AUDIT_REPO="/home/andris/hermes-deals-audit-source"
+AUDIT_REPO="/home/andris/hermes-deals-audit-source-edeka"
 PRIMARY_REPO="/home/andris/hermes-deals"
 EVIDENCE_ROOT="/home/andris/hermes-deals-shadow-evidence/edeka"
 CACHE_ROOT="/home/andris/.cache/hermes-deals-edeka-shadow"
@@ -39,7 +39,7 @@ PRIMARY_REPO="$(readlink -f -- "$PRIMARY_REPO")"
 EVIDENCE_ROOT="$(readlink -m -- "$EVIDENCE_ROOT")"
 CACHE_ROOT="$(readlink -m -- "$CACHE_ROOT")"
 
-[[ "$AUDIT_REPO" == "/home/andris/hermes-deals-audit-source" ]] || fail "audit repository path drift"
+[[ "$AUDIT_REPO" == "/home/andris/hermes-deals-audit-source-edeka" ]] || fail "audit repository path drift"
 [[ "$PRIMARY_REPO" == "/home/andris/hermes-deals" ]] || fail "primary repository path drift"
 [[ "$EVIDENCE_ROOT" == "/home/andris/hermes-deals-shadow-evidence/edeka" ]] || fail "evidence root path drift"
 [[ "$CACHE_ROOT" == "/home/andris/.cache/hermes-deals-edeka-shadow" ]] || fail "cache root path drift"
