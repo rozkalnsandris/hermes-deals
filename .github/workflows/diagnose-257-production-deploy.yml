@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   inspect:
-    name: Inspect exact #257 deploy
+    name: "Inspect exact #257 deploy"
     if: >-
       github.event.pull_request.head.ref == 'diag/257-production-deploy-status' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Find CI and deploy bound to #257 merge SHA
+      - name: "Find CI and deploy bound to #257 merge SHA"
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -49,6 +49,34 @@ jobs:
               request = urllib.request.Request(url, headers=headers)
               with urllib.request.urlopen(request, timeout=20) as response:
                   return json.load(response)
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  return None
+
+          no_redirect = urllib.request.build_opener(NoRedirect)
+
+          def get_job_log(job_id: int) -> str | None:
+              api_url = f"https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs"
+              request = urllib.request.Request(api_url, headers=headers)
+              try:
+                  with no_redirect.open(request, timeout=20) as response:
+                      data = response.read()
+              except urllib.error.HTTPError as exc:
+                  if exc.code in {404, 409}:
+                      return None
+                  if exc.code not in {301, 302, 303, 307, 308}:
+                      raise
+                  location = exc.headers.get("Location")
+                  if not location:
+                      raise SystemExit("GitHub job-log redirect had no Location header")
+                  signed_request = urllib.request.Request(
+                      location,
+                      headers={"User-Agent": "hermes-deals-257-deploy-diagnostic"},
+                  )
+                  with urllib.request.urlopen(signed_request, timeout=20) as response:
+                      data = response.read()
+              return data.decode("utf-8", errors="replace")
 
           encoded = urllib.parse.quote(target, safe="")
           ci_url = (
@@ -90,19 +118,8 @@ jobs:
                   ).get("jobs", [])
                   deploy_jobs = [job for job in jobs if job.get("name") == "Deploy on RPi5"]
                   for job in deploy_jobs:
-                      job_id = int(job["id"])
-                      try:
-                          request = urllib.request.Request(
-                              f"https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs",
-                              headers=headers,
-                          )
-                          with urllib.request.urlopen(request, timeout=20) as response:
-                              text = response.read().decode("utf-8", errors="replace")
-                      except urllib.error.HTTPError as exc:
-                          if exc.code in {404, 409}:
-                              continue
-                          raise
-                      if target in text:
+                      text = get_job_log(int(job["id"]))
+                      if text is not None and target in text:
                           matched = (run, job)
                           break
                   if matched is not None:
@@ -126,10 +143,9 @@ jobs:
 
           while run.get("status") != "completed" and time.monotonic() < deadline:
               time.sleep(5)
-              refreshed = get_json(
+              run = get_json(
                   f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
               )
-              run = refreshed
               print(
                   "TARGET_DEPLOY_WAIT "
                   f"status={run.get('status')} conclusion={run.get('conclusion')}"
