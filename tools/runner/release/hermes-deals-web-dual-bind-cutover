@@ -1,0 +1,372 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'operator must run as root through sudo'
+[[ $# -eq 1 ]] || fail 'usage: hermes-deals-web-dual-bind-cutover <check|apply-dual|verify-dual|rollback-lan>'
+MODE="$1"
+[[ "$MODE" =~ ^(check|apply-dual|verify-dual|rollback-lan)$ ]] || fail 'unsupported mode'
+
+PRIMARY='/home/andris/hermes-deals'
+ENV_FILE="$PRIMARY/.env"
+COMPOSE_FILE="$PRIMARY/docker-compose.yml"
+STATE_DIR='/var/lib/hermes-deals-ops/issue-307'
+STATE_FILE="$STATE_DIR/dual-bind-state.env"
+OVERRIDE_FILE="$STATE_DIR/dual-bind.compose.yml"
+PROJECT='hermes-deals'
+WEB_SERVICE='web'
+WEB_NAME='hermes-deals-web-1'
+API_NAME='hermes-deals-api-1'
+DB_NAME='hermes-deals-db-1'
+LAN_IP='192.168.0.180'
+LOOPBACK_IP='127.0.0.1'
+PORT='9128'
+
+for command in curl docker grep install python3 readlink sha256sum stat ufw; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+[[ -d "$PRIMARY" && ! -L "$PRIMARY" ]] || fail 'production root is missing or unsafe'
+[[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail 'production env file is missing or unsafe'
+[[ -f "$COMPOSE_FILE" && ! -L "$COMPOSE_FILE" ]] || fail 'production compose file is missing or unsafe'
+
+COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$ENV_FILE"
+  -f "$COMPOSE_FILE"
+)
+
+DUAL_COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$ENV_FILE"
+  -f "$COMPOSE_FILE"
+  -f "$OVERRIDE_FILE"
+)
+
+read_bind_ip() {
+  python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+values = []
+for raw in path.read_text(encoding='utf-8').splitlines():
+    if raw.startswith('DEALS_BIND_IP='):
+        values.append(raw.split('=', 1)[1].strip())
+if len(values) != 1 or not values[0]:
+    raise SystemExit(2)
+print(values[0])
+PY
+}
+
+container_id() {
+  docker inspect "$1" --format '{{.Id}}'
+}
+
+container_image() {
+  docker inspect "$1" --format '{{.Image}}'
+}
+
+container_status() {
+  docker inspect "$1" --format '{{.State.Status}}'
+}
+
+web_bindings_json() {
+  docker inspect "$WEB_NAME" --format '{{json .HostConfig.PortBindings}}'
+}
+
+assert_bindings() {
+  local expected="$1"
+  web_bindings_json | python3 - "$expected" <<'PY'
+import json
+import sys
+expected_mode = sys.argv[1]
+rows = json.load(sys.stdin)
+if set(rows) != {'80/tcp'} or not isinstance(rows['80/tcp'], list):
+    raise SystemExit(2)
+actual = {
+    (str(item.get('HostIp') or ''), str(item.get('HostPort') or ''))
+    for item in rows['80/tcp']
+    if isinstance(item, dict)
+}
+if expected_mode == 'lan':
+    expected = {('192.168.0.180', '9128')}
+elif expected_mode == 'dual':
+    expected = {
+        ('192.168.0.180', '9128'),
+        ('127.0.0.1', '9128'),
+    }
+elif expected_mode == 'loopback':
+    expected = {('127.0.0.1', '9128')}
+else:
+    raise SystemExit(2)
+if actual != expected:
+    raise SystemExit(f'published bindings mismatch: {sorted(actual)!r}')
+PY
+}
+
+assert_compose_dual_model() {
+  "${DUAL_COMPOSE[@]}" config --format json | python3 - <<'PY'
+import json
+import sys
+model = json.load(sys.stdin)
+web = model.get('services', {}).get('web')
+if not isinstance(web, dict):
+    raise SystemExit('web service missing from resolved Compose model')
+ports = web.get('ports')
+if not isinstance(ports, list):
+    raise SystemExit('web ports missing from resolved Compose model')
+actual = set()
+for item in ports:
+    if not isinstance(item, dict):
+        raise SystemExit('web port is not canonical object form')
+    actual.add((
+        str(item.get('host_ip') or ''),
+        str(item.get('published') or ''),
+        int(item.get('target') or 0),
+        str(item.get('protocol') or 'tcp'),
+    ))
+expected = {
+    ('192.168.0.180', '9128', 80, 'tcp'),
+    ('127.0.0.1', '9128', 80, 'tcp'),
+}
+if actual != expected:
+    raise SystemExit(f'dual-bind Compose model mismatch: {sorted(actual)!r}')
+PY
+}
+
+cloudflared_pid() {
+  systemctl show cloudflared.service -p MainPID --value
+}
+
+cloudflared_ha() {
+  curl -fsS --max-time 5 http://127.0.0.1:20241/metrics | awk '
+    $1 == "cloudflared_tunnel_ha_connections" {
+      total += $2
+      found = 1
+    }
+    END {
+      if (!found) exit 1
+      printf "%.0f\n", total
+    }
+  '
+}
+
+assert_common_runtime() {
+  [[ "$(container_status "$WEB_NAME")" == 'running' ]] || fail 'web container is not running'
+  [[ "$(container_status "$API_NAME")" == 'running' ]] || fail 'api container is not running'
+  [[ "$(container_status "$DB_NAME")" == 'running' ]] || fail 'database container is not running'
+  [[ "$(docker inspect "$WEB_NAME" --format '{{index .Config.Labels "com.docker.compose.project"}}')" == "$PROJECT" ]] || fail 'web compose project mismatch'
+  [[ "$(docker inspect "$WEB_NAME" --format '{{index .Config.Labels "com.docker.compose.service"}}')" == "$WEB_SERVICE" ]] || fail 'web compose service mismatch'
+  [[ "$(docker inspect "$WEB_NAME" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}')" == "$PRIMARY" ]] || fail 'web compose working directory mismatch'
+  [[ "$(read_bind_ip)" == "$LAN_IP" ]] || fail 'production DEALS_BIND_IP is not the expected pre-cutover LAN value'
+  [[ "$(systemctl is-active cloudflared.service)" == 'active' ]] || fail 'cloudflared is not active'
+  [[ "$(cloudflared_ha)" == '4' ]] || fail 'cloudflared HA connection count is not 4'
+  if ufw status numbered | grep -Eq '(^|[[:space:]])9128/tcp([[:space:]]|$)'; then
+    fail 'unexpected UFW rule exists for 9128/tcp'
+  fi
+}
+
+assert_lan_health() {
+  curl --noproxy '*' -fsS --max-time 8 "http://$LAN_IP:$PORT/api/health" >/dev/null
+}
+
+assert_loopback_health() {
+  curl --noproxy '*' -fsS --max-time 8 "http://$LOOPBACK_IP:$PORT/api/health" >/dev/null
+}
+
+assert_loopback_closed() {
+  if curl --noproxy '*' -fsS --connect-timeout 2 --max-time 4 "http://$LOOPBACK_IP:$PORT/api/health" >/dev/null 2>&1; then
+    fail 'loopback 9128 unexpectedly accepts traffic'
+  fi
+}
+
+write_override() {
+  install -d -o root -g root -m 0700 "$STATE_DIR"
+  cat >"$OVERRIDE_FILE" <<'YAML'
+services:
+  web:
+    ports:
+      - "127.0.0.1:9128:80"
+YAML
+  chown root:root "$OVERRIDE_FILE"
+  chmod 0600 "$OVERRIDE_FILE"
+}
+
+write_state() {
+  local web_id="$1"
+  local web_image="$2"
+  local api_id="$3"
+  local db_id="$4"
+  local cf_pid="$5"
+  install -d -o root -g root -m 0700 "$STATE_DIR"
+  cat >"$STATE_FILE" <<EOF_STATE
+PRE_WEB_ID=$web_id
+PRE_WEB_IMAGE=$web_image
+PRE_API_ID=$api_id
+PRE_DB_ID=$db_id
+PRE_CF_PID=$cf_pid
+EOF_STATE
+  chown root:root "$STATE_FILE"
+  chmod 0600 "$STATE_FILE"
+}
+
+read_state_value() {
+  local key="$1"
+  [[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || fail 'dual-bind state file is missing or unsafe'
+  python3 - "$STATE_FILE" "$key" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+key = sys.argv[2]
+rows = {}
+for raw in path.read_text(encoding='utf-8').splitlines():
+    name, sep, value = raw.partition('=')
+    if not sep or name in rows:
+        raise SystemExit(2)
+    rows[name] = value
+if key not in rows or not rows[key]:
+    raise SystemExit(2)
+print(rows[key])
+PY
+}
+
+verify_dual_runtime() {
+  local expected_api expected_db expected_image expected_cf
+  expected_api="$(read_state_value PRE_API_ID)"
+  expected_db="$(read_state_value PRE_DB_ID)"
+  expected_image="$(read_state_value PRE_WEB_IMAGE)"
+  expected_cf="$(read_state_value PRE_CF_PID)"
+
+  assert_common_runtime
+  assert_bindings dual
+  assert_lan_health
+  assert_loopback_health
+  [[ "$(container_id "$API_NAME")" == "$expected_api" ]] || fail 'api container changed during web cutover'
+  [[ "$(container_id "$DB_NAME")" == "$expected_db" ]] || fail 'database container changed during web cutover'
+  [[ "$(container_image "$WEB_NAME")" == "$expected_image" ]] || fail 'web image changed during dual-bind cutover'
+  [[ "$(cloudflared_pid)" == "$expected_cf" ]] || fail 'cloudflared PID changed during web cutover'
+  [[ "$(cloudflared_ha)" == '4' ]] || fail 'cloudflared HA connection count changed'
+}
+
+rollback_to_lan_internal() {
+  trap - ERR
+  set +e
+  "${COMPOSE[@]}" up -d --no-deps --no-build --pull never web >/dev/null 2>&1
+  local rc=$?
+  if [[ $rc -eq 0 ]]; then
+    assert_bindings lan >/dev/null 2>&1 || rc=1
+    assert_lan_health >/dev/null 2>&1 || rc=1
+    assert_loopback_closed >/dev/null 2>&1 || rc=1
+  fi
+  set -e
+  if [[ $rc -eq 0 ]]; then
+    rm -f -- "$OVERRIDE_FILE" "$STATE_FILE"
+    printf 'AUTO_ROLLBACK_TO_LAN=PASS\n'
+    return 0
+  fi
+  printf 'AUTO_ROLLBACK_TO_LAN=FAIL\n' >&2
+  return 1
+}
+
+case "$MODE" in
+  check)
+    [[ ! -e "$STATE_FILE" && ! -e "$OVERRIDE_FILE" ]] || fail 'stale issue-307 transition state exists'
+    assert_common_runtime
+    assert_bindings lan
+    assert_lan_health
+    assert_loopback_closed
+    printf 'mode=check\n'
+    printf 'web_id=%s\n' "$(container_id "$WEB_NAME")"
+    printf 'web_image=%s\n' "$(container_image "$WEB_NAME")"
+    printf 'cloudflared_pid=%s\n' "$(cloudflared_pid)"
+    printf 'cloudflared_ha=%s\n' "$(cloudflared_ha)"
+    printf 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS\n'
+    ;;
+
+  apply-dual)
+    [[ ! -e "$STATE_FILE" && ! -e "$OVERRIDE_FILE" ]] || fail 'stale issue-307 transition state exists'
+    assert_common_runtime
+    assert_bindings lan
+    assert_lan_health
+    assert_loopback_closed
+
+    WEB_BEFORE="$(container_id "$WEB_NAME")"
+    WEB_IMAGE="$(container_image "$WEB_NAME")"
+    API_BEFORE="$(container_id "$API_NAME")"
+    DB_BEFORE="$(container_id "$DB_NAME")"
+    CF_BEFORE="$(cloudflared_pid)"
+
+    write_state "$WEB_BEFORE" "$WEB_IMAGE" "$API_BEFORE" "$DB_BEFORE" "$CF_BEFORE"
+    write_override
+    assert_compose_dual_model
+
+    MUTATED=true
+    on_error() {
+      local rc=$?
+      if [[ ${MUTATED:-false} == true ]]; then
+        rollback_to_lan_internal || true
+      fi
+      exit "$rc"
+    }
+    trap on_error ERR
+
+    "${DUAL_COMPOSE[@]}" up -d --no-deps --no-build --pull never web
+    verify_dual_runtime
+    [[ "$(container_id "$WEB_NAME")" != "$WEB_BEFORE" ]] || fail 'web container was not recreated for dual-bind transition'
+    MUTATED=false
+    trap - ERR
+
+    printf 'mode=apply-dual\n'
+    printf 'pre_web_id=%s\n' "$WEB_BEFORE"
+    printf 'dual_web_id=%s\n' "$(container_id "$WEB_NAME")"
+    printf 'web_image=%s\n' "$WEB_IMAGE"
+    printf 'cloudflared_pid=%s\n' "$(cloudflared_pid)"
+    printf 'cloudflared_ha=%s\n' "$(cloudflared_ha)"
+    printf 'HERMES_DEALS_307_DUAL_BIND_APPLY=PASS\n'
+    ;;
+
+  verify-dual)
+    [[ -f "$OVERRIDE_FILE" && ! -L "$OVERRIDE_FILE" ]] || fail 'dual-bind override file is missing or unsafe'
+    [[ "$(stat -c '%U:%G:%a' "$OVERRIDE_FILE")" == 'root:root:600' ]] || fail 'dual-bind override metadata mismatch'
+    [[ "$(stat -c '%U:%G:%a' "$STATE_FILE")" == 'root:root:600' ]] || fail 'dual-bind state metadata mismatch'
+    assert_compose_dual_model
+    verify_dual_runtime
+    printf 'mode=verify-dual\n'
+    printf 'dual_web_id=%s\n' "$(container_id "$WEB_NAME")"
+    printf 'cloudflared_pid=%s\n' "$(cloudflared_pid)"
+    printf 'cloudflared_ha=%s\n' "$(cloudflared_ha)"
+    printf 'HERMES_DEALS_307_DUAL_BIND_VERIFY=PASS\n'
+    ;;
+
+  rollback-lan)
+    [[ ${DEALS_307_ROUTE_LAN_CONFIRMED:-} == 'yes' ]] || fail 'set DEALS_307_ROUTE_LAN_CONFIRMED=yes only after confirming the Cloudflare route is still/back on the LAN origin'
+    [[ -f "$OVERRIDE_FILE" && ! -L "$OVERRIDE_FILE" ]] || fail 'dual-bind override file is missing or unsafe'
+    verify_dual_runtime
+    PRE_API="$(read_state_value PRE_API_ID)"
+    PRE_DB="$(read_state_value PRE_DB_ID)"
+    PRE_IMAGE="$(read_state_value PRE_WEB_IMAGE)"
+    PRE_CF="$(read_state_value PRE_CF_PID)"
+    "${COMPOSE[@]}" up -d --no-deps --no-build --pull never web
+    assert_common_runtime
+    assert_bindings lan
+    assert_lan_health
+    assert_loopback_closed
+    [[ "$(container_id "$API_NAME")" == "$PRE_API" ]] || fail 'api container changed during rollback'
+    [[ "$(container_id "$DB_NAME")" == "$PRE_DB" ]] || fail 'database container changed during rollback'
+    [[ "$(container_image "$WEB_NAME")" == "$PRE_IMAGE" ]] || fail 'web image changed during rollback'
+    [[ "$(cloudflared_pid)" == "$PRE_CF" ]] || fail 'cloudflared PID changed during rollback'
+    rm -f -- "$OVERRIDE_FILE" "$STATE_FILE"
+    printf 'mode=rollback-lan\n'
+    printf 'HERMES_DEALS_307_DUAL_BIND_ROLLBACK=PASS\n'
+    ;;
+esac
