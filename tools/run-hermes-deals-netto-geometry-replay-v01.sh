@@ -45,7 +45,7 @@ done
 PYMUPDF_VERSION="$(
   /usr/bin/python3 - <<'PY'
 import importlib.metadata
-import fitz
+import pymupdf
 version = importlib.metadata.version("PyMuPDF")
 if version != "1.28.0":
     raise SystemExit(f"unexpected PyMuPDF version: {version}")
@@ -76,8 +76,10 @@ payload = {
     "schema_version": 1,
     "strategy": "netto_geometry_rpi5_replay_runtime_identity_v1",
     "registered_commit_sha": expected_head,
+    "runtime_user": "andris",
     "python_executable": "/usr/bin/python3",
     "python_version": python_version,
+    "pymupdf_import_name": "pymupdf",
     "pymupdf_version": pymupdf_version,
     "n9_manifest_sha256": n9_sha256,
     "production_apply_authorized": False,
