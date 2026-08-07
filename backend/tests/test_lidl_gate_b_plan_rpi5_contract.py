@@ -13,7 +13,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "lidl-gate-b-plan-rpi5.yml"
 DISPATCHER = ROOT / "tools" / "runner" / "lidl-gate-b-plan-dispatcher.sh"
 INSTALLER = ROOT / "tools" / "runner" / "install-lidl-gate-b-plan-dispatcher.sh"
 FINALIZER = ROOT / "tools" / "runner" / "run-lidl-gate-b-plan-owner-finalizer-v01.sh"
-PLAN_BLOB = "73abec6752d251b02bf6f47379689400dee106ff"
+PLAN_BLOB = "02f85620e4c881e4ef4b518751223bfb92fd91f8"
 PLAN_VERSION = "lidl-gate-b-freeze-plan-v2-source-revision"
 APPLY_BLOB = "b8e38b52be69aa6f0cdaa5dbb3f76ccb013c772f"
 
