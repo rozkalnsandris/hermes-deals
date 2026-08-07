@@ -14,6 +14,7 @@ DISPATCHER = ROOT / "tools" / "runner" / "lidl-gate-b-plan-dispatcher.sh"
 INSTALLER = ROOT / "tools" / "runner" / "install-lidl-gate-b-plan-dispatcher.sh"
 FINALIZER = ROOT / "tools" / "runner" / "run-lidl-gate-b-plan-owner-finalizer-v01.sh"
 PLAN_BLOB = "73abec6752d251b02bf6f47379689400dee106ff"
+PLAN_VERSION = "lidl-gate-b-freeze-plan-v2-source-revision"
 APPLY_BLOB = "b8e38b52be69aa6f0cdaa5dbb3f76ccb013c772f"
 
 
@@ -84,6 +85,10 @@ def test_installer_pins_exact_blobs_without_installing_apply_capability() -> Non
 
 def test_dispatcher_runs_plan_twice_and_exports_only_sanitized_fields() -> None:
     source = text(DISPATCHER)
+    assert f'"${{planner_blob_sha:-}}" == {PLAN_BLOB}' in source
+    assert f"plan.get('plan_version') != '{PLAN_VERSION}'" in source
+    assert "543cae6923eb461038109cdc6ee98e9b64782d83" not in source
+    assert "lidl-gate-b-freeze-plan-v1" not in source
     assert source.count('run_owner python3 "$planner_path"') == 2
     assert 'cmp -s "$PLAN_A" "$PLAN_B"' in source
     assert "repeated Gate B plans are not byte-identical" in source
