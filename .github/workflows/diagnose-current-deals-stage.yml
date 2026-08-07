@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  current-deals-production-readonly:
-    name: RPi5 current-deals production read-only
+  current-deals-production-explain:
+    name: RPi5 current-deals production EXPLAIN read-only
     if: >-
       github.event.pull_request.head.ref == 'diag/233-production-stage-timing' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -23,196 +23,154 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Wait for deployed stage timing and measure
+      - name: Run exact winner query EXPLAIN ANALYZE in read-only transaction
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           from __future__ import annotations
 
-          from datetime import datetime
-          import ipaddress
           import json
-          import re
           import subprocess
-          from time import perf_counter, sleep
-          from urllib.parse import urlencode
-          from urllib.request import Request, ProxyHandler, build_opener
+
+          def output(*args: str) -> str:
+              return subprocess.run(
+                  list(args),
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+
+          web_ids = output(
+              "docker",
+              "ps",
+              "-q",
+              "--filter",
+              "label=com.docker.compose.service=web",
+          ).splitlines()
+          production_project = None
+          for container_id in web_ids:
+              if not container_id:
+                  continue
+              inspect = json.loads(output("docker", "inspect", container_id))[0]
+              bindings = inspect.get("HostConfig", {}).get("PortBindings", {})
+              http_bindings = bindings.get("80/tcp") or []
+              if any(str(item.get("HostPort")) == "9128" for item in http_bindings):
+                  production_project = (
+                      inspect.get("Config", {})
+                      .get("Labels", {})
+                      .get("com.docker.compose.project")
+                  )
+                  break
+
+          if not production_project:
+              raise SystemExit("production compose project for port 9128 not found")
+
+          api_ids = output(
+              "docker",
+              "ps",
+              "-q",
+              "--filter",
+              f"label=com.docker.compose.project={production_project}",
+              "--filter",
+              "label=com.docker.compose.service=api",
+          ).splitlines()
+          if len(api_ids) != 1:
+              raise SystemExit(
+                  f"expected exactly one production api container, found {len(api_ids)}"
+              )
+          api_id = api_ids[0]
+          print(f"RPI5_EXPLAIN_TARGET project={production_project} api_container_found=true")
+
+          script = r'''
+          from __future__ import annotations
+
+          from datetime import datetime
+          import json
           from zoneinfo import ZoneInfo
 
-          opener = build_opener(ProxyHandler({}))
-          as_of = datetime.now(ZoneInfo("Europe/Berlin")).date().isoformat()
-          expected_engine = "sql-ranked-requested-view"
+          from app.current_deals_sql_loader import _winner_metadata_query
+          from app.db import engine
 
-          def parse_local(value: str):
-              value = value.strip()
-              if value.startswith("[") and "]:" in value:
-                  host, port = value[1:].rsplit("]:", 1)
-              else:
-                  host, port = value.rsplit(":", 1)
-              if not port.isdigit():
-                  return None
-              if host in {"*", "0.0.0.0", "::", ""}:
-                  host = "127.0.0.1"
-              if "%" in host:
-                  host = host.split("%", 1)[0]
+          effective_date = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          statement = _winner_metadata_query(effective_date)
+          compiled = statement.compile(
+              dialect=engine.dialect,
+              compile_kwargs={"literal_binds": True},
+          )
+          explain_sql = (
+              "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + str(compiled)
+          )
+
+          with engine.connect() as connection:
+              transaction = connection.begin()
               try:
-                  parsed = ipaddress.ip_address(host)
-              except ValueError:
-                  return None
-              url_host = f"[{host}]" if parsed.version == 6 else host
-              return f"http://{url_host}:{int(port)}"
+                  connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                  connection.exec_driver_sql("SET LOCAL statement_timeout = '5s'")
+                  connection.exec_driver_sql("SET LOCAL lock_timeout = '1s'")
+                  read_only = connection.exec_driver_sql(
+                      "SHOW transaction_read_only"
+                  ).scalar_one()
+                  payload = connection.exec_driver_sql(explain_sql).scalar_one()
+              finally:
+                  transaction.rollback()
 
-          sockets = subprocess.run(
-              ["ss", "-H", "-ltn"],
-              check=True,
-              capture_output=True,
+          if isinstance(payload, str):
+              payload = json.loads(payload)
+          document = payload[0] if isinstance(payload, list) else payload
+          plan = document["Plan"]
+
+          print(
+              "RPI5_EXPLAIN_SUMMARY "
+              f"transaction_read_only={read_only} "
+              f"planning_ms={float(document.get('Planning Time', 0.0)):.3f} "
+              f"execution_ms={float(document.get('Execution Time', 0.0)):.3f} "
+              f"root={plan.get('Node Type')} "
+              f"rows={plan.get('Actual Rows')} loops={plan.get('Actual Loops')}"
+          )
+
+          def walk(node, depth=0):
+              pieces = [
+                  f"depth={depth}",
+                  f"node={str(node.get('Node Type', '')).replace(' ', '_')}",
+                  f"actual_total_ms={float(node.get('Actual Total Time', 0.0)):.3f}",
+                  f"actual_rows={node.get('Actual Rows', 0)}",
+                  f"loops={node.get('Actual Loops', 0)}",
+                  f"shared_hit={node.get('Shared Hit Blocks', 0)}",
+                  f"shared_read={node.get('Shared Read Blocks', 0)}",
+                  f"temp_read={node.get('Temp Read Blocks', 0)}",
+                  f"temp_written={node.get('Temp Written Blocks', 0)}",
+              ]
+              if node.get("Sort Method"):
+                  pieces.extend(
+                      [
+                          f"sort_method={str(node.get('Sort Method')).replace(' ', '_')}",
+                          f"sort_space_kb={node.get('Sort Space Used', 0)}",
+                          f"sort_space_type={str(node.get('Sort Space Type', '')).replace(' ', '_')}",
+                      ]
+                  )
+              if node.get("Index Name"):
+                  pieces.append(f"index_used={node.get('Index Name')}")
+              print("RPI5_EXPLAIN_NODE " + " ".join(pieces))
+              for child in node.get("Plans") or []:
+                  walk(child, depth + 1)
+
+          walk(plan)
+
+          assert str(read_only).lower() in {"on", "true"}
+          assert float(document.get("Execution Time", 999999.0)) < 5000.0
+          '''
+
+          completed = subprocess.run(
+              ["docker", "exec", "-i", api_id, "python", "-"],
+              input=script,
               text=True,
-          ).stdout.splitlines()
-          candidates = []
-          for line in sockets:
-              parts = line.split()
-              if len(parts) < 4:
-                  continue
-              candidate = parse_local(parts[3])
-              if candidate and candidate not in candidates:
-                  candidates.append(candidate)
-
-          def raw_fetch(base: str, path: str, timeout: float = 10.0):
-              request = Request(
-                  base + path,
-                  headers={
-                      "Cache-Control": "no-cache",
-                      "Pragma": "no-cache",
-                      "User-Agent": "hermes-deals-stage-diagnostic/1",
-                  },
-              )
-              started = perf_counter()
-              with opener.open(request, timeout=timeout) as response:
-                  body = response.read()
-                  wall_ms = (perf_counter() - started) * 1000
-                  return response.status, response.headers, body, wall_ms
-
-          base = None
-          health = None
-          for candidate in candidates:
-              try:
-                  status, _, body, _ = raw_fetch(candidate, "/api/health", timeout=0.8)
-                  payload = json.loads(body)
-              except Exception:
-                  continue
-              if status == 200 and payload.get("service") == "hermes-deals-api":
-                  base = candidate
-                  health = payload
-                  break
-          if base is None or health is None:
-              raise SystemExit("Hermes Deals local production origin not found")
-
-          print(
-              "RPI5_ORIGIN "
-              f"base={base} version={health.get('version')} phase={health.get('phase')}"
+              capture_output=True,
           )
-
-          def current_path(sort: str, limit: int = 13):
-              query = urlencode(
-                  {
-                      "as_of": as_of,
-                      "view": "current",
-                      "sort": sort,
-                      "offset": 0,
-                      "limit": limit,
-                  }
-              )
-              return f"/api/v1/deals/current?{query}"
-
-          deploy_header = ""
-          for attempt in range(19):
-              status, headers, body, wall_ms = raw_fetch(base, current_path("name", 13))
-              deploy_header = headers.get("Server-Timing", "")
-              engine = headers.get("X-Hermes-Current-Deals-Engine", "")
-              print(
-                  "RPI5_DEPLOY_WAIT "
-                  f"attempt={attempt + 1} status={status} wall_ms={wall_ms:.2f} "
-                  f"engine={engine or '(missing)'} timing={deploy_header or '(missing)'}"
-              )
-              if (
-                  status == 200
-                  and engine == expected_engine
-                  and "current-deals-rank;dur=" in deploy_header
-                  and "current-deals-cache;dur=" in deploy_header
-              ):
-                  break
-              if attempt == 18:
-                  raise AssertionError("#233 stage timing not visible in production within 180s")
-              sleep(10)
-
-          metric_re = re.compile(r"(?P<name>[a-z0-9-]+);dur=(?P<dur>[0-9.]+)(?:;desc=(?P<desc>[a-z]+))?")
-
-          def parse_timing(value: str):
-              result = {}
-              for match in metric_re.finditer(value):
-                  result[match.group("name")] = {
-                      "dur": float(match.group("dur")),
-                      "desc": match.group("desc"),
-                  }
-              return result
-
-          measurements = []
-          for index, sort in enumerate(("name", "price_asc", "price_desc", "newest", "discount_desc")):
-              limit = 17 + index
-              status, headers, body, wall_ms = raw_fetch(base, current_path(sort, limit))
-              payload = json.loads(body)
-              timing_header = headers.get("Server-Timing", "")
-              timing = parse_timing(timing_header)
-              row = {
-                  "sort": sort,
-                  "limit": limit,
-                  "status": status,
-                  "wall_ms": wall_ms,
-                  "timing": timing,
-                  "available": payload.get("available_count"),
-                  "returned": payload.get("count"),
-              }
-              measurements.append(row)
-              print(
-                  "RPI5_STAGE "
-                  f"sort={sort} limit={limit} status={status} wall_ms={wall_ms:.2f} "
-                  f"total={timing.get('current-deals-sql', {}).get('dur')} "
-                  f"cache={timing.get('current-deals-cache', {}).get('dur')} "
-                  f"cache_state={timing.get('current-deals-cache', {}).get('desc')} "
-                  f"rank={timing.get('current-deals-rank', {}).get('dur')} "
-                  f"filter={timing.get('current-deals-filter', {}).get('dur')} "
-                  f"canonical={timing.get('current-deals-canonical', {}).get('dur')} "
-                  f"model={timing.get('current-deals-model', {}).get('dur')} "
-                  f"available={row['available']} returned={row['returned']}"
-              )
-
-          warm_path = current_path("name", 17)
-          status, headers, body, warm_wall_ms = raw_fetch(base, warm_path)
-          warm_timing = parse_timing(headers.get("Server-Timing", ""))
-          print(
-              "RPI5_STAGE_WARM "
-              f"status={status} wall_ms={warm_wall_ms:.2f} "
-              f"total={warm_timing.get('current-deals-sql', {}).get('dur')} "
-              f"cache={warm_timing.get('current-deals-cache', {}).get('dur')} "
-              f"cache_state={warm_timing.get('current-deals-cache', {}).get('desc')}"
-          )
-
-          required = {
-              "current-deals-sql",
-              "current-deals-cache",
-              "current-deals-rank",
-              "current-deals-filter",
-              "current-deals-canonical",
-              "current-deals-model",
-          }
-          assert all(row["status"] == 200 for row in measurements)
-          assert all(required <= set(row["timing"]) for row in measurements)
-          assert all(
-              row["timing"]["current-deals-cache"]["desc"] == "miss"
-              for row in measurements
-          )
-          assert status == 200
-          assert warm_timing["current-deals-cache"]["desc"] == "hit"
-          assert warm_wall_ms < 250.0
+          if completed.stdout:
+              print(completed.stdout, end="")
+          if completed.stderr:
+              print(completed.stderr, end="")
+          if completed.returncode != 0:
+              raise SystemExit(completed.returncode)
           PY
