@@ -57,6 +57,40 @@ def test_workflow_queues_every_successful_main_ci_on_one_rpi5_runner() -> None:
         assert forbidden not in text
 
 
+def test_deploy_prewarms_current_week_before_public_verification() -> None:
+    text = read(WORKFLOW)
+    start = text.index("      - name: Prewarm current weekly overview")
+    end = text.index("      - name: Verify and capture public API and UI", start)
+    block = text[start:end]
+
+    assert start < end
+    for marker in (
+        'datetime.now(ZoneInfo("Europe/Berlin")).date()',
+        '"/api/v1/deals/weekly-specials?"',
+        '"week_start": week_start.isoformat()',
+        '"single_week_query_short_periods_plus_explicit_immutable_daily_evidence"',
+        'first_cache not in {"MISS", "HIT"}',
+        'warm_cache != "HIT"',
+        'warm_wall_ms >= 1000.0',
+        'warm_body != first_body',
+        '"weekly-prewarm-first.headers"',
+        '"weekly-prewarm-first.json"',
+        '"weekly-prewarm-warm.headers"',
+        '"weekly-prewarm.json"',
+        '"database_write": False',
+        'print("WEEKLY_PREWARM=PASS")',
+    ):
+        assert marker in block
+
+    assert "docker" not in block.lower()
+    assert "sudo" not in block.lower()
+    assert "DATABASE_URL" not in block
+    assert "cache.clear" not in block
+    assert "DELETE " not in block
+    assert "INSERT " not in block
+    assert "UPDATE " not in block
+
+
 def test_public_contract_retries_bounded_edge_propagation_without_weakening() -> None:
     text = read(WORKFLOW)
 
@@ -123,7 +157,7 @@ def test_embedded_workflow_python_blocks_compile() -> None:
     text = read(WORKFLOW)
     blocks = re.findall(r"<<'PY'\n(.*?)\n\s+PY", text, flags=re.DOTALL)
 
-    assert len(blocks) == 2
+    assert len(blocks) == 3
     for index, block in enumerate(blocks, start=1):
         compile(textwrap.dedent(block), f"deploy-main-block-{index}.py", "exec")
 
