@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/readme-banner.svg" alt="Hermes Deals project banner" width="960">
+  <img src="assets/branding/readme-banner.jpg" alt="Hermes Deals project banner" width="960">
 </p>
 
 # Hermes Deals
