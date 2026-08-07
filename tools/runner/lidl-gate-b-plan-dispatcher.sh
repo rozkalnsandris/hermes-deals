@@ -30,7 +30,7 @@ source "$CONF"
 [[ "${commit_sha:-}" == "$EXPECTED_SHA" ]] || fail 'requested SHA is not registered'
 [[ "${planner_path:-}" == /usr/local/libexec/hermes-deals-audits/lidl-gate-b-freeze-plan.py ]] || fail 'registered planner path mismatch'
 [[ "${planner_sha256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'registered planner SHA is invalid'
-[[ "${planner_blob_sha:-}" == 543cae6923eb461038109cdc6ee98e9b64782d83 ]] || fail 'registered planner blob mismatch'
+[[ "${planner_blob_sha:-}" == 73abec6752d251b02bf6f47379689400dee106ff ]] || fail 'registered planner blob mismatch'
 [[ "${apply_blob_sha:-}" == b8e38b52be69aa6f0cdaa5dbb3f76ccb013c772f ]] || fail 'registered apply blob mismatch'
 [[ -f "$planner_path" && ! -L "$planner_path" ]] || fail 'registered planner is missing or unsafe'
 [[ "$(stat -c '%U:%G:%a' "$planner_path")" == root:root:755 ]] || fail 'registered planner metadata mismatch'
@@ -224,7 +224,7 @@ if runner_rc == 30:
     }
 else:
     plan = json.loads(plan_path.read_text(encoding='utf-8'))
-    if plan.get('schema_version') != 1 or plan.get('plan_version') != 'lidl-gate-b-freeze-plan-v1':
+    if plan.get('schema_version') != 1 or plan.get('plan_version') != 'lidl-gate-b-freeze-plan-v2-source-revision':
         raise SystemExit('plan schema/version mismatch')
     if plan.get('result') != 'READY_TO_FREEZE' or plan.get('reason') != 'validated_gate_a_wait_source_evidence':
         raise SystemExit('plan result/reason mismatch')
