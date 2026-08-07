@@ -17,6 +17,7 @@ def test_gate_d3_workflow_is_manual_owner_only_and_sanitized():
     assert "actions/checkout" not in text
     assert "hermes-deals-aldi-gate-d3-recovery-inventory" in text
     assert "Raw page images exported: **false**" in text
+    assert "Raw stderr/exception exported: **false**" in text
     assert "Archive extraction: **false / not authorized**" in text
     assert "Production DB/deploy: **false / not authorized**" in text
 
@@ -24,10 +25,11 @@ def test_gate_d3_workflow_is_manual_owner_only_and_sanitized():
 def test_gate_d3_workflow_uses_job_level_least_privilege_and_pinned_action():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "permissions: {}" in text
-    assert "pull-requests: write" not in text
     assert "contents: write" not in text
     assert "pull-requests: read" in text
-    assert "issues: write" in text
+    assert "pull-requests: write" in text
+    assert "issues: write" not in text
+    assert text.count("pull-requests: write") == 1
     assert f"uses: actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}" in text
     assert "actions/upload-artifact@v6" not in text
     assert text.count('"X-GitHub-Api-Version": "2022-11-28"') == 2
@@ -43,6 +45,19 @@ def test_gate_d3_installer_preserves_exact_sha_audit_boundary():
     assert '"production_apply_authorized": False' in text
 
 
+def test_gate_d3_installer_normalizes_traversal_and_probes_cli_as_audit_user():
+    text = INSTALLER.read_text(encoding="utf-8")
+    assert 'AUDITS_ROOT = Path("/usr/local/libexec/hermes-deals-audits")' in text
+    assert "normalize_root_dir(AUDITS_ROOT)" in text
+    assert "normalize_root_dir(INSTALL_ROOT)" in text
+    assert "os.chmod(path, 0o755)" in text
+    assert '"/usr/bin/test", "-r", str(inventory)' in text
+    assert '"/usr/bin/python3", str(inventory), "--help"' in text
+    assert "validate_inventory_as_audit_user(inventory)" in text
+    assert 'print("INSTALL_ROOT_TRAVERSABLE_BY_AUDIT_USER=true")' in text
+    assert 'print("INVENTORY_CLI_PREFLIGHT_PASS=true")' in text
+
+
 def test_gate_d3_dispatcher_exports_only_sanitized_inventory():
     text = DISPATCHER.read_text(encoding="utf-8")
     assert 'STATE_ROOT = Path("/home/andris/.local/state/hermes-deals/aldi-perfect-shadow")' in text
@@ -52,6 +67,18 @@ def test_gate_d3_dispatcher_exports_only_sanitized_inventory():
     assert "shutil.copyfile(result, export / \"diagnostic-result.json\"" in text
     assert "extractall" not in text
     assert "tarfile" not in text
+
+
+def test_gate_d3_dispatcher_has_bounded_sanitized_failure_classification():
+    text = DISPATCHER.read_text(encoding="utf-8")
+    assert "ALLOWED_FAILURE_STAGES" in text
+    assert 'failure_stage = "inventory_cli_preflight"' in text
+    assert 'failure_stage = "inventory_execution"' in text
+    assert '"failure_stage": failure_stage' in text
+    assert '"reason_code": failure_reason' in text
+    assert '"raw_stderr_exported": False' in text
+    assert "completed.stderr.decode" not in text
+    assert "cli.stderr.decode" not in text
 
 
 def test_gate_d3_inventory_is_resource_bounded_and_streaming():
