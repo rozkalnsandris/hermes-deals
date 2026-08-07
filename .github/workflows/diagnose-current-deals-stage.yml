@@ -33,54 +33,72 @@ jobs:
           import json
           import subprocess
 
-          def output(*args: str) -> str:
-              return subprocess.run(
-                  list(args),
-                  check=True,
+          docker_prefix = None
+          for candidate in (["docker"], ["sudo", "-n", "docker"]):
+              probe = subprocess.run(
+                  candidate + ["ps", "-q"],
                   capture_output=True,
                   text=True,
-              ).stdout.strip()
+              )
+              if probe.returncode == 0:
+                  docker_prefix = candidate
+                  break
+          if docker_prefix is None:
+              raise SystemExit("runner has no permitted read-only Docker access")
+          print(
+              "RPI5_DOCKER_ACCESS "
+              f"mode={'sudo-n' if docker_prefix[0] == 'sudo' else 'direct'}"
+          )
 
-          web_ids = output(
-              "docker",
+          def docker(*args: str, input_text: str | None = None):
+              return subprocess.run(
+                  docker_prefix + list(args),
+                  input=input_text,
+                  capture_output=True,
+                  text=True,
+              )
+
+          web = docker(
               "ps",
               "-q",
               "--filter",
               "label=com.docker.compose.service=web",
-          ).splitlines()
+          )
+          if web.returncode != 0:
+              raise SystemExit("cannot list web containers")
           production_project = None
-          for container_id in web_ids:
-              if not container_id:
+          for container_id in web.stdout.splitlines():
+              inspect = docker("inspect", container_id)
+              if inspect.returncode != 0:
                   continue
-              inspect = json.loads(output("docker", "inspect", container_id))[0]
-              bindings = inspect.get("HostConfig", {}).get("PortBindings", {})
-              http_bindings = bindings.get("80/tcp") or []
-              if any(str(item.get("HostPort")) == "9128" for item in http_bindings):
+              payload = json.loads(inspect.stdout)[0]
+              bindings = payload.get("HostConfig", {}).get("PortBindings", {})
+              if any(
+                  str(item.get("HostPort")) == "9128"
+                  for item in (bindings.get("80/tcp") or [])
+              ):
                   production_project = (
-                      inspect.get("Config", {})
+                      payload.get("Config", {})
                       .get("Labels", {})
                       .get("com.docker.compose.project")
                   )
                   break
-
           if not production_project:
               raise SystemExit("production compose project for port 9128 not found")
 
-          api_ids = output(
-              "docker",
+          api = docker(
               "ps",
               "-q",
               "--filter",
               f"label=com.docker.compose.project={production_project}",
               "--filter",
               "label=com.docker.compose.service=api",
-          ).splitlines()
-          if len(api_ids) != 1:
-              raise SystemExit(
-                  f"expected exactly one production api container, found {len(api_ids)}"
-              )
+          )
+          api_ids = [item for item in api.stdout.splitlines() if item]
+          if api.returncode != 0 or len(api_ids) != 1:
+              raise SystemExit("exact production api container not found")
           api_id = api_ids[0]
-          print(f"RPI5_EXPLAIN_TARGET project={production_project} api_container_found=true")
+          print("RPI5_EXPLAIN_TARGET api_container_found=true")
 
           script = r'''
           from __future__ import annotations
@@ -98,9 +116,7 @@ jobs:
               dialect=engine.dialect,
               compile_kwargs={"literal_binds": True},
           )
-          explain_sql = (
-              "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + str(compiled)
-          )
+          explain_sql = "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + str(compiled)
 
           with engine.connect() as connection:
               transaction = connection.begin()
@@ -119,54 +135,47 @@ jobs:
               payload = json.loads(payload)
           document = payload[0] if isinstance(payload, list) else payload
           plan = document["Plan"]
-
           print(
               "RPI5_EXPLAIN_SUMMARY "
               f"transaction_read_only={read_only} "
               f"planning_ms={float(document.get('Planning Time', 0.0)):.3f} "
               f"execution_ms={float(document.get('Execution Time', 0.0)):.3f} "
-              f"root={plan.get('Node Type')} "
-              f"rows={plan.get('Actual Rows')} loops={plan.get('Actual Loops')}"
+              f"root={str(plan.get('Node Type', '')).replace(' ', '_')} "
+              f"rows={plan.get('Actual Rows')}"
           )
 
           def walk(node, depth=0):
-              pieces = [
+              fields = [
                   f"depth={depth}",
                   f"node={str(node.get('Node Type', '')).replace(' ', '_')}",
-                  f"actual_total_ms={float(node.get('Actual Total Time', 0.0)):.3f}",
-                  f"actual_rows={node.get('Actual Rows', 0)}",
+                  f"total_ms={float(node.get('Actual Total Time', 0.0)):.3f}",
+                  f"rows={node.get('Actual Rows', 0)}",
                   f"loops={node.get('Actual Loops', 0)}",
-                  f"shared_hit={node.get('Shared Hit Blocks', 0)}",
-                  f"shared_read={node.get('Shared Read Blocks', 0)}",
+                  f"hit={node.get('Shared Hit Blocks', 0)}",
+                  f"read={node.get('Shared Read Blocks', 0)}",
                   f"temp_read={node.get('Temp Read Blocks', 0)}",
                   f"temp_written={node.get('Temp Written Blocks', 0)}",
               ]
               if node.get("Sort Method"):
-                  pieces.extend(
+                  fields.extend(
                       [
-                          f"sort_method={str(node.get('Sort Method')).replace(' ', '_')}",
-                          f"sort_space_kb={node.get('Sort Space Used', 0)}",
-                          f"sort_space_type={str(node.get('Sort Space Type', '')).replace(' ', '_')}",
+                          f"sort={str(node.get('Sort Method')).replace(' ', '_')}",
+                          f"sort_kb={node.get('Sort Space Used', 0)}",
+                          f"sort_space={str(node.get('Sort Space Type', '')).replace(' ', '_')}",
                       ]
                   )
               if node.get("Index Name"):
-                  pieces.append(f"index_used={node.get('Index Name')}")
-              print("RPI5_EXPLAIN_NODE " + " ".join(pieces))
+                  fields.append(f"index={node.get('Index Name')}")
+              print("RPI5_EXPLAIN_NODE " + " ".join(fields))
               for child in node.get("Plans") or []:
                   walk(child, depth + 1)
 
           walk(plan)
-
           assert str(read_only).lower() in {"on", "true"}
           assert float(document.get("Execution Time", 999999.0)) < 5000.0
           '''
 
-          completed = subprocess.run(
-              ["docker", "exec", "-i", api_id, "python", "-"],
-              input=script,
-              text=True,
-              capture_output=True,
-          )
+          completed = docker("exec", "-i", api_id, "python", "-", input_text=script)
           if completed.stdout:
               print(completed.stdout, end="")
           if completed.stderr:
