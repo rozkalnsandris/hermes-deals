@@ -1,0 +1,351 @@
+name: Netto geometry RPi5 replay
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/netto-geometry-rpi5-replay.yml
+      - tools/run-hermes-deals-netto-geometry-replay-v01.sh
+      - tools/runner/install-netto-geometry-rpi5-replay.sh
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-geometry-rpi5-replay
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    name: Ensure Netto geometry replay label
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Create or reconcile exact replay label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          label = {
+              "name": "audit:netto-geometry-replay-v1",
+              "color": "0e8a16",
+              "description": "Run exact read-only Netto geometry corpus replay on RPi5",
+          }
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-geometry-label-bootstrap",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          url = f"https://api.github.com/repos/{repo}/labels/{encoded}"
+          payload = json.dumps(label).encode("utf-8")
+          try:
+              request = urllib.request.Request(url, data=payload, method="PATCH", headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  status = response.status
+                  action = "reconciled"
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels",
+                  data=payload,
+                  method="POST",
+                  headers=headers,
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  status = response.status
+                  action = "created"
+          print(f"LABEL={label['name']} ACTION={action} HTTP={status}")
+          PY
+
+  authorize:
+    name: Authorize merged-PR geometry replay
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-geometry-replay-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_run: ${{ steps.authorize.outputs.should_run }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      actor: ${{ steps.authorize.outputs.actor }}
+
+    steps:
+      - name: Validate owner, merged PR, main ancestry and exact CI
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.parse
+          import urllib.request
+
+          expected_repo = "rozkalnsandris/hermes-deals"
+          repo = os.environ["REPOSITORY"]
+          if repo != expected_repo:
+              raise SystemExit(f"unexpected repository: {repo}")
+          if os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("geometry replay workflow must execute from main")
+
+          event_path = pathlib.Path(os.environ["GITHUB_EVENT_PATH"])
+          if not event_path.is_file():
+              raise SystemExit("GitHub event payload file is unavailable")
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          if (event.get("label") or {}).get("name") != "audit:netto-geometry-replay-v1":
+              raise SystemExit("unexpected geometry replay label")
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"]:
+              raise SystemExit("label actor login is not allowlisted")
+          if sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("label actor numeric identity is not allowlisted")
+
+          pr_number = int((event.get("pull_request") or {}).get("number") or 0)
+          if pr_number <= 0:
+              raise SystemExit("pull request number is missing")
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-geometry-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def get_json(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          def re_full_sha(value: str) -> bool:
+              return len(value) == 40 and all(char in "0123456789abcdef" for char in value)
+
+          pr = get_json(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("geometry replays are accepted only on merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into this repository main branch")
+          merge_sha = str(pr.get("merge_commit_sha") or "")
+          if not re_full_sha(merge_sha):
+              raise SystemExit("merged pull request SHA is invalid")
+
+          comparison = get_json(
+              f"https://api.github.com/repos/{repo}/compare/{merge_sha}...main"
+          )
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged commit is not reachable from current main")
+
+          query = urllib.parse.urlencode(
+              {
+                  "head_sha": merge_sha,
+                  "event": "push",
+                  "status": "completed",
+                  "per_page": 20,
+              }
+          )
+          runs = get_json(
+              f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}"
+          ).get("workflow_runs") or []
+          exact_ci = [
+              run
+              for run in runs
+              if run.get("head_sha") == merge_sha
+              and run.get("head_branch") == "main"
+              and run.get("event") == "push"
+              and run.get("name") == "Hermes Deals CI checks"
+              and run.get("conclusion") == "success"
+          ]
+          if not exact_ci:
+              raise SystemExit("exact merged SHA has no successful main-push Hermes Deals CI checks run")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write("should_run=true\n")
+              handle.write(f"sha={merge_sha}\n")
+              handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"actor={sender['login']}\n")
+          PY
+
+  rpi5-replay:
+    name: Run registered Netto geometry replay on RPi5
+    needs:
+      - authorize
+    if: >-
+      needs.authorize.result == 'success' &&
+      needs.authorize.outputs.should_run == 'true'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Run dedicated root-owned dispatcher
+        id: dispatch
+        env:
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-netto-geometry-replay-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir/audit-evidence" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-netto-geometry-replay-dispatch \
+            "$APPROVED_SHA" \
+            "$export_dir"
+
+      - name: Upload sanitized read-only replay evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: netto-geometry-replay-v1-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record safety boundary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Netto geometry RPi5 replay"
+            echo
+            echo "- Commit: \`${{ needs.authorize.outputs.sha }}\`"
+            echo "- Production deployment: **not authorized**"
+            echo "- Database/Review write: **not authorized**"
+            echo "- Automatic approval/publish: **disabled**"
+            echo "- Promotion ready: **false by contract**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: Report result and clear replay label
+    needs:
+      - authorize
+      - rpi5-replay
+    if: >-
+      always() &&
+      needs.authorize.result == 'success' &&
+      needs.authorize.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Post machine-readable result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          AUTHORIZE_RESULT: ${{ needs.authorize.result }}
+          RPI5_RESULT: ${{ needs.rpi5-replay.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          pr_number = int(os.environ["PR_NUMBER"])
+          run_id = os.environ["RUN_ID"]
+          run_attempt = os.environ["RUN_ATTEMPT"]
+          commit_sha = os.environ["REGISTERED_SHA"]
+          actions_url = (
+              f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{run_id}/attempts/{run_attempt}"
+          )
+          artifact = f"netto-geometry-replay-v1-{commit_sha}-run-{run_id}"
+          body = (
+              f"<!-- hermes-deals-netto-geometry-replay:{run_id}:{run_attempt} -->\n"
+              "## Netto geometry RPi5 replay result\n\n"
+              f"- Trigger actor: `{os.environ['ACTOR']}`\n"
+              f"- Authorization job: **{os.environ['AUTHORIZE_RESULT']}**\n"
+              f"- RPi5 replay job: **{os.environ['RPI5_RESULT']}**\n"
+              f"- Registered commit: `{commit_sha}`\n"
+              f"- Workflow run ID: `{run_id}`\n"
+              f"- Artifact: `{artifact}`\n"
+              f"- Actions run: {actions_url}\n"
+              "- Production deployment: **not authorized**\n"
+              "- Database/Review write: **not authorized**\n"
+              "- Promotion decision: **not authorized**\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-geometry-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+              data=json.dumps({"body": body}).encode("utf-8"),
+              method="POST",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment response: {response.status}")
+
+          encoded = urllib.parse.quote("audit:netto-geometry-replay-v1", safe="")
+          remove = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels/{encoded}",
+              method="DELETE",
+              headers=headers,
+          )
+          try:
+              with urllib.request.urlopen(remove, timeout=20) as response:
+                  if response.status != 200:
+                      raise SystemExit(f"unexpected label removal response: {response.status}")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          PY
