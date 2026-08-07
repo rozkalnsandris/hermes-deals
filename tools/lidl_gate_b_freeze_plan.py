@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
@@ -21,6 +22,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 FLYER_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+STAGING_RE = re.compile(r"^\.gate-b-freeze-[0-9a-f]{16}\.staging$")
 
 
 class LidlGateBFreezePlanError(RuntimeError):
@@ -175,14 +177,57 @@ def _validate_date(value: Any, *, label: str) -> str:
     return text
 
 
+def _validate_active_private_staging(
+    staging: Path,
+    *,
+    source_pdf_sha256: str,
+    stable_identity: Mapping[str, Any],
+) -> None:
+    _require(bool(STAGING_RE.fullmatch(staging.name)), "active private staging name is invalid")
+    _require(staging.is_dir() and not staging.is_symlink(), "active private staging is missing or unsafe")
+    metadata = staging.stat(follow_symlinks=False)
+    _require(metadata.st_uid == os.geteuid(), "active private staging owner UID mismatch")
+    _require(metadata.st_gid == os.getegid(), "active private staging owner GID mismatch")
+    _require(stat.S_IMODE(metadata.st_mode) == 0o700, "active private staging mode mismatch")
+
+    expected_names = {"source.pdf", "source.json", "discovery-meta.json"}
+    actual_names = {path.name for path in staging.iterdir()}
+    _require(actual_names == expected_names, "active private staging file set mismatch")
+    for name in sorted(expected_names):
+        path = staging / name
+        _require(path.is_file() and not path.is_symlink(), f"active private staging file is unsafe: {name}")
+        file_meta = path.stat(follow_symlinks=False)
+        _require(file_meta.st_uid == os.geteuid(), f"active private staging file owner UID mismatch: {name}")
+        _require(file_meta.st_gid == os.getegid(), f"active private staging file owner GID mismatch: {name}")
+        _require(stat.S_IMODE(file_meta.st_mode) == 0o600, f"active private staging file mode mismatch: {name}")
+
+    _require(
+        _sha256_file(staging / "source.pdf") == source_pdf_sha256,
+        "active private staging PDF SHA mismatch",
+    )
+    _require(
+        _stable_source_identity((staging / "source.json").read_bytes())
+        == dict(stable_identity),
+        "active private staging stable identity mismatch",
+    )
+
+
 def _corpus_identity_conflicts(
     flyers_root: Path,
     *,
     source_pdf_sha256: str,
     stable_identity: Mapping[str, Any],
+    active_private_staging: Path | None = None,
 ) -> None:
     for flyer_dir in sorted(flyers_root.iterdir()):
         _require(not flyer_dir.is_symlink(), f"corpus child is a symlink: {flyer_dir}")
+        if active_private_staging is not None and flyer_dir == active_private_staging:
+            _validate_active_private_staging(
+                flyer_dir,
+                source_pdf_sha256=source_pdf_sha256,
+                stable_identity=stable_identity,
+            )
+            continue
         if not flyer_dir.is_dir():
             continue
         pdf = flyer_dir / "source.pdf"
@@ -414,11 +459,6 @@ def build_freeze_plan(
         "advertised region identity mismatch",
     )
 
-    _corpus_identity_conflicts(
-        flyers_root,
-        source_pdf_sha256=actual_pdf_sha256,
-        stable_identity=stable_identity,
-    )
     destination, destination_identity = _resolve_destination(
         flyers_root,
         flyer_key=flyer_key,
@@ -461,13 +501,23 @@ def build_freeze_plan(
         "destination": str(destination),
         "destination_strategy": destination_identity["strategy"],
     }
+    plan_fingerprint = _canonical_digest(plan_identity)
+    active_private_staging = (
+        flyers_root / f".gate-b-freeze-{plan_fingerprint[:16]}.staging"
+    )
+    _corpus_identity_conflicts(
+        flyers_root,
+        source_pdf_sha256=actual_pdf_sha256,
+        stable_identity=stable_identity,
+        active_private_staging=active_private_staging,
+    )
 
     return {
         "schema_version": 1,
         "plan_version": PLAN_VERSION,
         "result": "READY_TO_FREEZE",
         "reason": "validated_gate_a_wait_source_evidence",
-        "plan_fingerprint": _canonical_digest(plan_identity),
+        "plan_fingerprint": plan_fingerprint,
         "gate_a": {
             "run_dir": str(run_dir),
             "registered_commit": registered_commit,
