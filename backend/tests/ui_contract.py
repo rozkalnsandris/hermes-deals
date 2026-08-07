@@ -16,6 +16,19 @@ JS_TRAILING_WS_PATCHES = []
 
 _STYLESHEET_LINK = '<link rel="stylesheet" href="/ui/styles.css">'
 _APPLICATION_SCRIPT = '<script src="/ui/app.js"></script>'
+_BRANDING_FAVICON_BLOCK = """  <!-- hermes-branding-overlay:start -->
+  <link rel=\"icon\" type=\"image/png\" sizes=\"96x96\" href=\"/ui/assets/deals-logo.png\">
+  <link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/ui/assets/deals-logo.ico\">
+  <!-- hermes-branding-overlay:end -->
+"""
+_BRAND_LOGO = (
+    '<img class="project-logo" src="/ui/assets/deals-logo.svg" '
+    'width="34" height="34" alt="">'
+)
+_WEEKLY_BRAND_LOGO = (
+    '<img class="project-logo weekly-project-logo" '
+    'src="/ui/assets/deals-logo.svg" width="32" height="32" alt="">'
+)
 _MARKER = re.compile(
     r"/\*HERMES_UI_(?:STYLE|SCRIPT)_(?:OPEN|CLOSE|GAP):"
     r"([A-Za-z0-9+/=]+)\*/"
@@ -43,12 +56,37 @@ def _restore_tags(asset: str) -> str:
     return restored
 
 
+def _strip_branding_overlay(source: str) -> str:
+    if "hermes-branding-overlay:start" not in source:
+        return source
+    if source.count(_BRANDING_FAVICON_BLOCK) != 1:
+        raise AssertionError("UI branding favicon overlay contract is not exact")
+    if source.count(_BRAND_LOGO) != 2:
+        raise AssertionError("UI branding logo overlay contract is not exact")
+    if source.count(_WEEKLY_BRAND_LOGO) != 1:
+        raise AssertionError("UI weekly branding overlay contract is not exact")
+    restored = source.replace(_BRANDING_FAVICON_BLOCK, "", 1)
+    restored = restored.replace(_BRAND_LOGO, "")
+    restored = restored.replace(_WEEKLY_BRAND_LOGO + "\n              ", "", 1)
+    restored = restored.replace(
+        '<svg class="brand-leaf" hidden',
+        '<svg class="brand-leaf"',
+    )
+    restored = restored.replace(
+        '<svg class="weekly-brand-mark" hidden',
+        '<svg class="weekly-brand-mark"',
+        1,
+    )
+    return restored
+
+
 def read_family_ui_contract(html: str | None = None) -> str:
     source = (
         UI_INDEX_PATH.read_text(encoding="utf-8")
         if html is None
         else html
     )
+    source = _strip_branding_overlay(source)
     if source.count(_STYLESHEET_LINK) != 1:
         raise AssertionError("UI stylesheet link contract is not exact")
     if source.count(_APPLICATION_SCRIPT) != 1:
