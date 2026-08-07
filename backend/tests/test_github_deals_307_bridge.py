@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools" / "github_deals_307_bridge.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "hermes-deals-307-bridge.yml"
 RUNTIME_SHA = "654ec9739f8cea74ee8a4ee93e25e12bf06482cc"
-OPERATOR_SHA256 = "083cbd27990ebcff0d4c9cb81443318a9837f1179555d9921086f47be5cd8d4e"
+DISPATCHER = "/usr/local/sbin/hermes-deals-307-phase-c-dispatch"
 
 SPEC = importlib.util.spec_from_file_location("github_deals_307_bridge_tested", TOOL)
 assert SPEC and SPEC.loader
@@ -169,13 +169,14 @@ def test_workflow_has_narrow_issue_comment_and_runner_boundary() -> None:
     assert "- self-hosted" in text
     assert "- ARM64" in text
     assert "- hermes-deals-audit" in text
-    assert f"EXPECTED_OPERATOR_SHA256: {OPERATOR_SHA256}" in text
     assert f"== '{RUNTIME_SHA}'" in text
-    assert "issue-307-runtime/tools/runner/release/hermes-deals-web-dual-bind-cutover" in text
+    assert f"DISPATCHER={DISPATCHER}" in text
+    assert "Checkout exact reviewed Phase A runtime" not in text
+    assert "issue-307-runtime" not in text
 
-    check_pos = text.index('sudo --non-interactive "$OPERATOR" check')
-    apply_pos = text.index('sudo --non-interactive "$OPERATOR" apply-dual')
-    verify_pos = text.index('sudo --non-interactive "$OPERATOR" verify-dual')
+    check_pos = text.index('sudo --non-interactive "$DISPATCHER" check')
+    apply_pos = text.index('sudo --non-interactive "$DISPATCHER" apply-dual')
+    verify_pos = text.index('sudo --non-interactive "$DISPATCHER" verify-dual')
     assert check_pos < apply_pos < verify_pos
 
     for forbidden in (
@@ -201,14 +202,15 @@ def test_workflow_has_narrow_issue_comment_and_runner_boundary() -> None:
         assert forbidden not in text
 
 
-def test_self_hosted_job_has_read_only_github_permission_and_no_raw_comment() -> None:
+def test_self_hosted_job_has_no_github_token_and_no_raw_comment() -> None:
     parsed = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     phase = parsed["jobs"]["phase-c"]
-    assert phase["permissions"] == {"contents": "read"}
+    assert phase["permissions"] == {}
     phase_text = yaml.safe_dump(phase, sort_keys=True)
     assert "github.event.comment.body" not in phase_text
     assert "GH_TOKEN" not in phase_text
     assert "secrets." not in phase_text
+    assert "actions/checkout" not in phase_text
 
 
 def test_workflow_never_publishes_raw_operator_logs() -> None:
