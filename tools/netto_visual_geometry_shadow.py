@@ -14,6 +14,11 @@ PRICE_RE = re.compile(r"(?<!\d)(\d{1,3})[,.](\d{2})(?!\d)")
 MAJOR_PRICE_RE = re.compile(r"^\s*(\d{1,3})[.,]\s*$")
 CENTS_PRICE_RE = re.compile(r"^\s*(\d{2})\s*$")
 MEMBER_LABEL_RE = re.compile(r"(?:\bnetto\s*\+|\bnetto\s+plus\b|\bapp[- ]?preis\b)", re.I)
+MEMBER_BADGE_FILL_RGB = {(130, 59, 134), (233, 65, 144)}
+NORMAL_BADGE_FILL_RGB = {(220, 13, 21)}
+MEMBER_BADGE_MAX_AREA_RATIO = 8.0
+MEMBER_BADGE_MIN_OPACITY = 0.95
+MEMBER_BADGE_TIE_RATIO = 1.08
 REGULAR_LABEL_RE = re.compile(r"\b(?:uvp|statt|bisher)\b", re.I)
 UNIT_LABEL_RE = re.compile(
     r"(?:\b(?:100\s*g|100\s*ml|1\s*kg|1\s*l|kg|liter|stück|st\.)\b|grundpreis|einzelpreis|pfand)",
@@ -105,6 +110,14 @@ class Separator:
 
 
 @dataclass(frozen=True)
+class FilledRectangle:
+    bbox: Box
+    fill_rgb: tuple[int, int, int]
+    fill_opacity: float
+    seqno: int
+
+
+@dataclass(frozen=True)
 class PriceAnchor:
     anchor_id: str
     span_index: int
@@ -114,6 +127,7 @@ class PriceAnchor:
     bbox: Box
     font_size: float
     member_labeled: bool
+    member_badge_ambiguous: bool
     regular_labeled: bool
     unit_labeled: bool
 
@@ -271,6 +285,76 @@ def separators_from_layout(layout: Mapping[str, Any]) -> list[Separator]:
     return result
 
 
+def filled_rectangles_from_layout(layout: Mapping[str, Any]) -> list[FilledRectangle]:
+    vectors = layout.get("vectors") or {}
+    rows = vectors.get("filled_rectangles") or []
+    result: list[FilledRectangle] = []
+    for raw in rows:
+        if not isinstance(raw, Mapping):
+            raise ValueError("filled rectangle row must be an object")
+        rgb_raw = raw.get("fill_rgb")
+        if not isinstance(rgb_raw, (list, tuple)) or len(rgb_raw) != 3:
+            raise ValueError("filled rectangle RGB must contain exactly three components")
+        rgb = tuple(int(value) for value in rgb_raw)
+        if any(value < 0 or value > 255 for value in rgb):
+            raise ValueError("filled rectangle RGB component outside 0..255")
+        box = Box(
+            float(raw["x0"]),
+            float(raw["y0"]),
+            float(raw["x1"]),
+            float(raw["y1"]),
+        )
+        if box.area <= 0:
+            continue
+        result.append(
+            FilledRectangle(
+                bbox=box,
+                fill_rgb=rgb,
+                fill_opacity=float(raw.get("fill_opacity") if raw.get("fill_opacity") is not None else 1.0),
+                seqno=int(raw.get("seqno") or 0),
+            )
+        )
+    return sorted(
+        result,
+        key=lambda row: (row.bbox.area, -row.seqno, row.fill_rgb, row.bbox.y0, row.bbox.x0),
+    )
+
+
+def _badge_fill_role(rgb: tuple[int, int, int]) -> str:
+    if rgb in MEMBER_BADGE_FILL_RGB:
+        return "member"
+    if rgb in NORMAL_BADGE_FILL_RGB:
+        return "normal"
+    return "neutral"
+
+
+def _member_badge_state(
+    bbox: Box,
+    filled_rectangles: Sequence[FilledRectangle],
+) -> str:
+    if bbox.area <= 0:
+        return "none"
+    candidates: list[tuple[float, int, str, FilledRectangle]] = []
+    for row in filled_rectangles:
+        if row.fill_opacity < MEMBER_BADGE_MIN_OPACITY:
+            continue
+        if not row.bbox.contains_point(bbox.cx, bbox.cy):
+            continue
+        area_ratio = row.bbox.area / bbox.area
+        if area_ratio > MEMBER_BADGE_MAX_AREA_RATIO:
+            continue
+        candidates.append((area_ratio, -row.seqno, _badge_fill_role(row.fill_rgb), row))
+    if not candidates:
+        return "none"
+    candidates.sort(key=lambda value: (value[0], value[1], value[2], value[3].fill_rgb))
+    best_area = candidates[0][0]
+    peers = [value for value in candidates if value[0] <= best_area * MEMBER_BADGE_TIE_RATIO]
+    typed_roles = {value[2] for value in peers if value[2] in {"member", "normal"}}
+    if typed_roles == {"member", "normal"}:
+        return "ambiguous"
+    return candidates[0][2]
+
+
 def _nearby_label_box(
     anchor_box: Box,
     excluded_span_indexes: Sequence[int],
@@ -297,17 +381,23 @@ def _price_label_flags(
     component_text: str,
     spans: Sequence[TextSpan],
     separators: Sequence[Separator],
-) -> tuple[bool, bool, bool]:
-    member = bool(MEMBER_LABEL_RE.search(component_text)) or _nearby_label_box(
+    filled_rectangles: Sequence[FilledRectangle],
+) -> tuple[bool, bool, bool, bool]:
+    text_member = bool(MEMBER_LABEL_RE.search(component_text)) or _nearby_label_box(
         bbox, component_span_indexes, spans, separators, MEMBER_LABEL_RE, 45.0
     )
+    visual_member = _member_badge_state(bbox, filled_rectangles)
+    member_ambiguous = visual_member == "ambiguous" or (
+        text_member and visual_member == "normal"
+    )
+    member = (text_member or visual_member == "member") and not member_ambiguous
     regular = bool(REGULAR_LABEL_RE.search(component_text)) or _nearby_label_box(
         bbox, component_span_indexes, spans, separators, REGULAR_LABEL_RE, 52.0
     )
     unit = bool(UNIT_LABEL_RE.search(component_text)) or _nearby_label_box(
         bbox, component_span_indexes, spans, separators, UNIT_LABEL_RE, 42.0
     )
-    return member, regular, unit
+    return member, member_ambiguous, regular, unit
 
 
 def _split_price_pair_score(major: TextSpan, cents: TextSpan) -> float | None:
@@ -328,6 +418,7 @@ def _split_price_pair_score(major: TextSpan, cents: TextSpan) -> float | None:
 def price_anchors(
     spans: Sequence[TextSpan],
     separators: Sequence[Separator],
+    filled_rectangles: Sequence[FilledRectangle] = (),
 ) -> list[PriceAnchor]:
     result: list[PriceAnchor] = []
     # Use ordinary non-price text as the typography baseline. If numeric spans
@@ -368,8 +459,8 @@ def price_anchors(
             )
             if span.size < full_decimal_min_font and not direct_typed:
                 continue
-            member, regular, unit = _price_label_flags(
-                span.bbox, (span.index,), span.text, spans, separators
+            member, member_ambiguous, regular, unit = _price_label_flags(
+                span.bbox, (span.index,), span.text, spans, separators, filled_rectangles
             )
             result.append(
                 PriceAnchor(
@@ -381,6 +472,7 @@ def price_anchors(
                     bbox=span.bbox,
                     font_size=span.size,
                     member_labeled=member,
+                    member_badge_ambiguous=member_ambiguous,
                     regular_labeled=regular,
                     unit_labeled=unit,
                 )
@@ -419,8 +511,8 @@ def price_anchors(
             continue
         bbox = _union([major.bbox, cents.bbox])
         component_indexes = (major.index, cents.index)
-        member, regular, unit = _price_label_flags(
-            bbox, component_indexes, f"{major.text} {cents.text}", spans, separators
+        member, member_ambiguous, regular, unit = _price_label_flags(
+            bbox, component_indexes, f"{major.text} {cents.text}", spans, separators, filled_rectangles
         )
         result.append(
             PriceAnchor(
@@ -432,6 +524,7 @@ def price_anchors(
                 bbox=bbox,
                 font_size=max(major.size, cents.size),
                 member_labeled=member,
+                member_badge_ambiguous=member_ambiguous,
                 regular_labeled=regular,
                 unit_labeled=unit,
             )
@@ -445,8 +538,8 @@ def price_anchors(
         value = canonical_price(f"{major_match.group(1)}.00")
         if value is None:
             continue
-        member, regular, unit = _price_label_flags(
-            major.bbox, (major.index,), major.text, spans, separators
+        member, member_ambiguous, regular, unit = _price_label_flags(
+            major.bbox, (major.index,), major.text, spans, separators, filled_rectangles
         )
         result.append(
             PriceAnchor(
@@ -458,6 +551,7 @@ def price_anchors(
                 bbox=major.bbox,
                 font_size=major.size,
                 member_labeled=member,
+                member_badge_ambiguous=member_ambiguous,
                 regular_labeled=regular,
                 unit_labeled=unit,
             )
@@ -601,7 +695,8 @@ def assign_text(
 def analyze_layout(layout: Mapping[str, Any]) -> dict[str, Any]:
     spans = spans_from_layout(layout)
     separators = separators_from_layout(layout)
-    anchors = price_anchors(spans, separators)
+    filled_rectangles = filled_rectangles_from_layout(layout)
+    anchors = price_anchors(spans, separators, filled_rectangles)
     groups = build_price_groups(anchors, separators)
     assignments, ambiguous_spans, scored = assign_text(spans, groups, separators, anchors)
     by_anchor = {row.anchor_id: row for row in anchors}
@@ -644,7 +739,10 @@ def analyze_layout(layout: Mapping[str, Any]) -> dict[str, Any]:
         )
         normal = [
             row for row in group_anchors
-            if not row.member_labeled and not row.regular_labeled and not row.unit_labeled
+            if not row.member_labeled
+            and not row.member_badge_ambiguous
+            and not row.regular_labeled
+            and not row.unit_labeled
         ]
         member = [row for row in group_anchors if row.member_labeled]
         regular = [row for row in group_anchors if row.regular_labeled]
@@ -656,6 +754,8 @@ def analyze_layout(layout: Mapping[str, Any]) -> dict[str, Any]:
             and _assignment_cost(span, group) <= 180.0
         ]
         reasons: list[str] = []
+        if any(row.member_badge_ambiguous for row in group_anchors):
+            reasons.append("member_price_badge_ambiguous")
         if len(normal) != 1:
             reasons.append("normal_price_ambiguous_or_missing")
         if not title_candidates:
@@ -772,7 +872,21 @@ def extract_layout_from_pdf(pdf_path: Path, page_number: int) -> dict[str, Any]:
         horizontal: list[dict[str, float]] = []
         vertical: list[dict[str, float]] = []
         rectangles: list[dict[str, float]] = []
+        filled_rectangles: list[dict[str, Any]] = []
         for drawing in page.get_drawings():
+            fill = drawing.get("fill")
+            fill_rgb = None
+            if fill is not None and len(fill) >= 3:
+                fill_rgb = [
+                    max(0, min(255, round(float(value) * 255)))
+                    for value in fill[:3]
+                ]
+            fill_opacity = float(
+                drawing.get("fill_opacity")
+                if drawing.get("fill_opacity") is not None
+                else 1.0
+            )
+            seqno = int(drawing.get("seqno") or 0)
             for item in drawing.get("items", []):
                 kind = item[0]
                 if kind == "l" and len(item) >= 3:
@@ -790,14 +904,22 @@ def extract_layout_from_pdf(pdf_path: Path, page_number: int) -> dict[str, Any]:
                         vertical.append(row)
                 elif kind == "re" and len(item) >= 2:
                     rect = item[1]
-                    rectangles.append(
-                        {
-                            "x0": round(float(rect.x0), 3),
-                            "y0": round(float(rect.y0), 3),
-                            "x1": round(float(rect.x1), 3),
-                            "y1": round(float(rect.y1), 3),
-                        }
-                    )
+                    rect_row = {
+                        "x0": round(float(rect.x0), 3),
+                        "y0": round(float(rect.y0), 3),
+                        "x1": round(float(rect.x1), 3),
+                        "y1": round(float(rect.y1), 3),
+                    }
+                    rectangles.append(rect_row)
+                    if fill_rgb is not None:
+                        filled_rectangles.append(
+                            {
+                                **rect_row,
+                                "fill_rgb": fill_rgb,
+                                "fill_opacity": round(fill_opacity, 4),
+                                "seqno": seqno,
+                            }
+                        )
         return {
             "schema_version": 1,
             "page": {
@@ -811,6 +933,7 @@ def extract_layout_from_pdf(pdf_path: Path, page_number: int) -> dict[str, Any]:
                 "horizontal_lines": horizontal,
                 "vertical_lines": vertical,
                 "rectangles": rectangles,
+                "filled_rectangles": filled_rectangles,
             },
         }
     finally:
