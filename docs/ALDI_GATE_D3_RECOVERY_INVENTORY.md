@@ -1,6 +1,7 @@
 # ALDI Gate D3 immutable recovery inventory
 
-Issue: #266
+Issue: #266  
+Hardening: #270
 
 ## Upstream evidence
 
@@ -54,17 +55,39 @@ Each page must be a regular plausible JPEG, PNG or WebP file of at least 10,000 
 
 The tool computes a deterministic identity over page label, page number, byte size, SHA256 and image format. It does not create a replacement page manifest in this gate.
 
-## Archive safety
+## Archive and resource safety
 
-Tar archives are inspected without extraction. Before any member is considered, Gate D3 rejects archives containing:
+Tar archives are inspected without filesystem extraction. Before any member is considered, Gate D3 rejects archives containing:
 
 - absolute or traversing paths;
 - duplicate member names;
 - symlinks or hardlinks;
 - device or FIFO members;
-- unsupported member types.
+- unsupported member types;
+- an archive file, member count, member name, member size or aggregate uncompressed size above the fixed inventory budget.
 
-Raw member bytes are read only in memory for SHA/image validation and are never exported.
+Page image validation is also bounded:
+
+- each candidate page has a maximum byte size;
+- the total page bytes hashed from one archive have a fixed upper bound;
+- directory and tar page images are hashed in fixed-size streaming chunks rather than loaded fully into memory.
+
+The active limits are emitted as sanitized `resource_limits` metadata in the result so a later audit can prove which budget was enforced. Raw member bytes are never exported.
+
+These limits are intentionally fail-closed. A retained archive that exceeds them is not treated as a recovery candidate and must be handled by a separately reviewed recovery path rather than weakening the inventory gate.
+
+## GitHub Actions hardening
+
+Before the first real Gate D3 RPi5 execution, issue #270 narrows the execution boundary further:
+
+- workflow default permissions are empty;
+- the hosted authorization job receives only `contents: read` and `pull-requests: read`;
+- the RPi5 self-hosted job receives no repository `GITHUB_TOKEN` permissions;
+- the hosted report job receives only `issues: write`;
+- direct GitHub REST calls pin API version `2022-11-28` explicitly;
+- `actions/upload-artifact` is pinned to the exact immutable action commit SHA already resolved by the verified RPi5 runner, not a mutable major-version tag.
+
+This hardening does not change Gate D3 inventory decisions or the frozen 49+41 identity contract.
 
 ## Decisions
 
@@ -76,18 +99,18 @@ A positive inventory result does not authorize extraction, manifest regeneration
 
 ## Post-merge execution
 
-Synchronize only `/home/andris/hermes-deals-audit-source` to the exact squash-merge SHA and install:
+Use the exact squash-merge SHA that includes the #270 hardening, not the earlier #268 merge SHA. Synchronize only `/home/andris/hermes-deals-audit-source` to that exact merge and install:
 
 ```bash
-sudo python3 /home/andris/hermes-deals-audit-source/tools/runner/install-aldi-gate-d3-recovery-inventory.py <MERGE_SHA>
+sudo python3 /home/andris/hermes-deals-audit-source/tools/runner/install-aldi-gate-d3-recovery-inventory.py <HARDENED_MERGE_SHA>
 ```
 
-Then run the separately owner-authorized workflow:
+Then run the separately owner-authorized workflow with the merged hardening PR number:
 
 ```bash
 gh workflow run aldi-gate-d3-recovery-inventory-rpi5.yml \
   --repo rozkalnsandris/hermes-deals \
-  -f pr_number=<MERGED_PR_NUMBER>
+  -f pr_number=<HARDENING_PR_NUMBER>
 ```
 
 ## Safety

@@ -4,6 +4,7 @@ from hashlib import sha256
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +39,7 @@ def test_directory_family_is_recovered_without_original_a30_path(tmp_path: Path)
     assert payload["complete_recovery_sources"][0]["source"] == "moved/run/raw/page-images"
     assert payload["raw_evidence_exported"] is False
     assert payload["safety"]["manifest_regeneration_authorized"] is False
+    assert payload["resource_limits"]["max_page_image_bytes"] == MODULE.MAX_PAGE_IMAGE_BYTES
 
 
 def test_partial_directory_is_not_promoted(tmp_path: Path):
@@ -47,6 +49,14 @@ def test_partial_directory_is_not_promoted(tmp_path: Path):
     assert payload["decision"] == "NO_RECOVERY_CANDIDATE"
     assert payload["directory_candidate_count"] == 1
     assert payload["directory_candidates"][0]["preview_count"] == 40
+
+
+def test_oversized_directory_page_is_rejected_without_unbounded_read(tmp_path: Path, monkeypatch):
+    make_family(tmp_path)
+    monkeypatch.setattr(MODULE, "MAX_PAGE_IMAGE_BYTES", 10_000)
+    payload = MODULE.build_inventory(tmp_path)
+    assert payload["decision"] == "NO_RECOVERY_CANDIDATE"
+    assert payload["directory_candidates"][0]["invalid_file_count"] == 90
 
 
 def test_manifest_outside_original_path_is_inventory_only(tmp_path: Path):
@@ -65,6 +75,7 @@ def test_safe_tar_family_is_detected_without_extraction(tmp_path: Path):
     archive = tmp_path / "retained-a30.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(page_images.parent.parent, arcname="backup/legacy")
+    shutil.rmtree(source)
     payload = MODULE.build_inventory(tmp_path)
     archive_rows = [item for item in payload["archives"] if item["path"] == "retained-a30.tar.gz"]
     assert len(archive_rows) == 1
@@ -84,6 +95,35 @@ def test_unsafe_tar_symlink_is_rejected(tmp_path: Path):
     row = next(item for item in payload["archives"] if item["path"] == "unsafe.tgz")
     assert row["safe"] is False
     assert row["unsafe_reason"] == "unsafe_member_type"
+
+
+def test_tar_member_count_budget_fails_closed(tmp_path: Path, monkeypatch):
+    archive = tmp_path / "too-many.tgz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for name in ("one.txt", "two.txt"):
+            info = tarfile.TarInfo(name)
+            info.size = 1
+            tar.addfile(info, fileobj=__import__("io").BytesIO(b"x"))
+    monkeypatch.setattr(MODULE, "MAX_ARCHIVE_MEMBER_COUNT", 1)
+    payload = MODULE.build_inventory(tmp_path)
+    row = payload["archives"][0]
+    assert row["safe"] is False
+    assert row["unsafe_reason"] == "archive_member_count_budget_exceeded"
+
+
+def test_tar_page_hash_budget_fails_closed(tmp_path: Path, monkeypatch):
+    source = tmp_path / "source"
+    page_images = make_family(source, "legacy")
+    archive = tmp_path / "retained-a30.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(page_images.parent.parent, arcname="backup/legacy")
+    shutil.rmtree(source)
+    monkeypatch.setattr(MODULE, "MAX_PAGE_HASH_BYTES_PER_ARCHIVE", 10_000)
+    payload = MODULE.build_inventory(tmp_path)
+    row = payload["archives"][0]
+    assert row["safe"] is False
+    assert row["unsafe_reason"] == "page_hash_budget_exceeded"
+    assert payload["decision"] == "NO_RECOVERY_CANDIDATE"
 
 
 def test_exact_a21_archive_is_never_a_recovery_candidate(tmp_path: Path, monkeypatch):

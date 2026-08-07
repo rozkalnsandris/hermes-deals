@@ -4,6 +4,8 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "aldi-gate-d3-recovery-inventory-rpi5.yml"
 INSTALLER = ROOT / "tools" / "runner" / "install-aldi-gate-d3-recovery-inventory.py"
 DISPATCHER = ROOT / "tools" / "runner" / "aldi_gate_d3_recovery_inventory_dispatch.py"
+INVENTORY = ROOT / "tools" / "aldi_gate_d3_recovery_inventory.py"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 def test_gate_d3_workflow_is_manual_owner_only_and_sanitized():
@@ -17,6 +19,18 @@ def test_gate_d3_workflow_is_manual_owner_only_and_sanitized():
     assert "Raw page images exported: **false**" in text
     assert "Archive extraction: **false / not authorized**" in text
     assert "Production DB/deploy: **false / not authorized**" in text
+
+
+def test_gate_d3_workflow_uses_job_level_least_privilege_and_pinned_action():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "permissions: {}" in text
+    assert "pull-requests: write" not in text
+    assert "contents: write" not in text
+    assert "pull-requests: read" in text
+    assert "issues: write" in text
+    assert f"uses: actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}" in text
+    assert "actions/upload-artifact@v6" not in text
+    assert text.count('"X-GitHub-Api-Version": "2022-11-28"') == 2
 
 
 def test_gate_d3_installer_preserves_exact_sha_audit_boundary():
@@ -38,3 +52,15 @@ def test_gate_d3_dispatcher_exports_only_sanitized_inventory():
     assert "shutil.copyfile(result, export / \"diagnostic-result.json\"" in text
     assert "extractall" not in text
     assert "tarfile" not in text
+
+
+def test_gate_d3_inventory_is_resource_bounded_and_streaming():
+    text = INVENTORY.read_text(encoding="utf-8")
+    assert "MAX_ARCHIVE_MEMBER_COUNT" in text
+    assert "MAX_ARCHIVE_TOTAL_REGULAR_BYTES" in text
+    assert "MAX_PAGE_IMAGE_BYTES" in text
+    assert "MAX_PAGE_HASH_BYTES_PER_ARCHIVE" in text
+    assert "stream_image_handle" in text
+    assert "extracted.read()" not in text
+    assert "path.read_bytes()" not in text
+    assert "extractall" not in text

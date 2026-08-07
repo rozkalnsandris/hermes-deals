@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import stat
 import tarfile
 
 MODE = "ALDI_GATE_D3_RECOVERY_INVENTORY_V01"
@@ -20,6 +19,15 @@ DECISIONS = {
     "NO_RECOVERY_CANDIDATE",
     "AMBIGUOUS_RECOVERY_CANDIDATES",
 }
+
+MAX_ARCHIVE_FILE_BYTES = 4 * 1024 * 1024 * 1024
+MAX_ARCHIVE_MEMBER_COUNT = 20_000
+MAX_ARCHIVE_MEMBER_NAME_BYTES = 4096
+MAX_ARCHIVE_REGULAR_MEMBER_BYTES = 256 * 1024 * 1024
+MAX_ARCHIVE_TOTAL_REGULAR_BYTES = 8 * 1024 * 1024 * 1024
+MAX_PAGE_IMAGE_BYTES = 32 * 1024 * 1024
+MAX_PAGE_HASH_BYTES_PER_ARCHIVE = 1024 * 1024 * 1024
+READ_CHUNK_BYTES = 1024 * 1024
 
 
 class InventoryError(RuntimeError):
@@ -34,19 +42,53 @@ def require(condition: bool, message: str) -> None:
 def sha_file(path: Path) -> str:
     digest = sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        for chunk in iter(lambda: handle.read(READ_CHUNK_BYTES), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def image_format(data: bytes) -> str | None:
-    if data.startswith(b"\xff\xd8"):
+def image_format(prefix: bytes) -> str | None:
+    if prefix.startswith(b"\xff\xd8"):
         return "jpeg"
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+    if prefix.startswith(b"\x89PNG\r\n\x1a\n"):
         return "png"
-    if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
+    if prefix.startswith(b"RIFF") and len(prefix) >= 12 and prefix[8:12] == b"WEBP":
         return "webp"
     return None
+
+
+def stream_image_handle(handle, expected_size: int) -> tuple[str, str] | None:
+    if expected_size < 10_000 or expected_size > MAX_PAGE_IMAGE_BYTES:
+        return None
+    digest = sha256()
+    prefix = bytearray()
+    total = 0
+    while True:
+        chunk = handle.read(READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > expected_size or total > MAX_PAGE_IMAGE_BYTES:
+            return None
+        digest.update(chunk)
+        if len(prefix) < 12:
+            prefix.extend(chunk[: 12 - len(prefix)])
+    if total != expected_size:
+        return None
+    fmt = image_format(bytes(prefix))
+    if fmt is None:
+        return None
+    return digest.hexdigest(), fmt
+
+
+def stream_image_file(path: Path) -> tuple[int, str, str] | None:
+    size = path.stat().st_size
+    with path.open("rb") as handle:
+        result = stream_image_handle(handle, size)
+    if result is None:
+        return None
+    digest, fmt = result
+    return size, digest, fmt
 
 
 def safe_relative(path: Path, root: Path) -> str:
@@ -124,18 +166,21 @@ def collect_directory_family(page_images: Path, root: Path) -> dict:
                 complete = False
                 continue
             page = int(match.group(1))
-            data = path.read_bytes()
-            fmt = image_format(data)
-            if len(data) < 10_000 or fmt is None:
+            try:
+                image = stream_image_file(path)
+            except OSError:
+                image = None
+            if image is None:
                 candidate["invalid_file_count"] += 1
                 complete = False
                 continue
+            size, digest, fmt = image
             matched.append(page)
             canonical.append({
                 "label": label,
                 "page_number": page,
-                "bytes": len(data),
-                "sha256": sha256(data).hexdigest(),
+                "bytes": size,
+                "sha256": digest,
                 "format": fmt,
             })
         candidate[f"{label}_count"] = len(matched)
@@ -167,6 +212,14 @@ def archive_inventory(path: Path, root: Path) -> dict:
     if not path.is_file() or path.is_symlink():
         result["unsafe_reason"] = "not_regular_file"
         return result
+    try:
+        archive_size = path.stat().st_size
+    except OSError:
+        result["unsafe_reason"] = "archive_stat_failed"
+        return result
+    if archive_size > MAX_ARCHIVE_FILE_BYTES:
+        result["unsafe_reason"] = "archive_file_size_budget_exceeded"
+        return result
     digest = sha_file(path)
     result["sha256"] = digest
     if digest == A21_ARCHIVE_SHA256:
@@ -175,12 +228,21 @@ def archive_inventory(path: Path, root: Path) -> dict:
         return result
     try:
         with tarfile.open(path, "r:*") as archive:
-            members = archive.getmembers()
-            names = [member.name for member in members]
-            if len(names) != len(set(names)):
-                result["unsafe_reason"] = "duplicate_member_name"
-                return result
-            for member in members:
+            members = []
+            names = set()
+            total_regular_bytes = 0
+            for member in archive:
+                if len(members) >= MAX_ARCHIVE_MEMBER_COUNT:
+                    result["unsafe_reason"] = "archive_member_count_budget_exceeded"
+                    return result
+                name_bytes = len(member.name.encode("utf-8", "surrogateescape"))
+                if name_bytes > MAX_ARCHIVE_MEMBER_NAME_BYTES:
+                    result["unsafe_reason"] = "archive_member_name_budget_exceeded"
+                    return result
+                if member.name in names:
+                    result["unsafe_reason"] = "duplicate_member_name"
+                    return result
+                names.add(member.name)
                 if not safe_tar_name(member.name):
                     result["unsafe_reason"] = "unsafe_member_path"
                     return result
@@ -190,6 +252,16 @@ def archive_inventory(path: Path, root: Path) -> dict:
                 if not (member.isfile() or member.isdir()):
                     result["unsafe_reason"] = "unsupported_member_type"
                     return result
+                if member.isfile():
+                    if member.size < 0 or member.size > MAX_ARCHIVE_REGULAR_MEMBER_BYTES:
+                        result["unsafe_reason"] = "archive_member_size_budget_exceeded"
+                        return result
+                    total_regular_bytes += member.size
+                    if total_regular_bytes > MAX_ARCHIVE_TOTAL_REGULAR_BYTES:
+                        result["unsafe_reason"] = "archive_total_size_budget_exceeded"
+                        return result
+                members.append(member)
+
             result["manifest_member_count"] = sum(
                 1 for member in members
                 if member.isfile() and PurePosixPath(member.name).name == "page-image-manifest.json"
@@ -212,32 +284,46 @@ def archive_inventory(path: Path, root: Path) -> dict:
                 if not match:
                     continue
                 groups[prefix][parts[0]][int(match.group(1))] = member
+
             identities = []
+            page_hash_bytes = 0
             for prefix in sorted(groups):
                 group = groups[prefix]
                 if sorted(group["current"]) != list(range(1, 50)):
                     continue
                 if sorted(group["preview"]) != list(range(1, 42)):
                     continue
+                candidate_bytes = sum(
+                    member.size
+                    for label in ("current", "preview")
+                    for member in group[label].values()
+                )
+                if candidate_bytes > MAX_PAGE_HASH_BYTES_PER_ARCHIVE - page_hash_bytes:
+                    result["unsafe_reason"] = "page_hash_budget_exceeded"
+                    return result
+                page_hash_bytes += candidate_bytes
                 canonical = []
                 valid = True
                 for label, expected in (("current", 49), ("preview", 41)):
                     for page_number in range(1, expected + 1):
                         member = group[label][page_number]
+                        if member.size < 10_000 or member.size > MAX_PAGE_IMAGE_BYTES:
+                            valid = False
+                            break
                         extracted = archive.extractfile(member)
                         if extracted is None:
                             valid = False
                             break
-                        data = extracted.read()
-                        fmt = image_format(data)
-                        if len(data) < 10_000 or fmt is None:
+                        image = stream_image_handle(extracted, member.size)
+                        if image is None:
                             valid = False
                             break
+                        digest, fmt = image
                         canonical.append({
                             "label": label,
                             "page_number": page_number,
-                            "bytes": len(data),
-                            "sha256": sha256(data).hexdigest(),
+                            "bytes": member.size,
+                            "sha256": digest,
                             "format": fmt,
                         })
                     if not valid:
@@ -305,6 +391,15 @@ def build_inventory(root: Path) -> dict:
         "archives": archives,
         "complete_recovery_sources": complete,
         "complete_identities": identities,
+        "resource_limits": {
+            "max_archive_file_bytes": MAX_ARCHIVE_FILE_BYTES,
+            "max_archive_member_count": MAX_ARCHIVE_MEMBER_COUNT,
+            "max_archive_member_name_bytes": MAX_ARCHIVE_MEMBER_NAME_BYTES,
+            "max_archive_regular_member_bytes": MAX_ARCHIVE_REGULAR_MEMBER_BYTES,
+            "max_archive_total_regular_bytes": MAX_ARCHIVE_TOTAL_REGULAR_BYTES,
+            "max_page_image_bytes": MAX_PAGE_IMAGE_BYTES,
+            "max_page_hash_bytes_per_archive": MAX_PAGE_HASH_BYTES_PER_ARCHIVE,
+        },
         "next_step": "bind_recovered_immutable_family" if decision == "RECOVERY_CANDIDATE_FOUND" else (
             "resolve_recovery_candidate_ambiguity" if decision == "AMBIGUOUS_RECOVERY_CANDIDATES" else "manual_evidence_recovery_required"
         ),
