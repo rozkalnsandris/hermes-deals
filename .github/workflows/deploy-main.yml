@@ -145,6 +145,255 @@ jobs:
             "$TARGET_SHA" \
             "$evidence_dir"
 
+      - name: Prewarm current weekly overview
+        if: success()
+        env:
+          EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -d "$EVIDENCE_DIR" && ! -L "$EVIDENCE_DIR" ]]
+
+          python3 - "$EVIDENCE_DIR" <<'PY'
+          from __future__ import annotations
+
+          from datetime import datetime, timedelta
+          import ipaddress
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+          from time import perf_counter
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
+
+          evidence_dir = Path(sys.argv[1])
+          if not evidence_dir.is_dir() or evidence_dir.is_symlink():
+              raise SystemExit("weekly prewarm evidence directory is unsafe")
+
+          opener = build_opener(ProxyHandler({}))
+          request_headers = {
+              "Accept": "application/json",
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache",
+              "User-Agent": "hermes-deals-deploy-weekly-prewarm/1",
+          }
+          source_contract = (
+              "single_week_query_short_periods_plus_explicit_immutable_daily_evidence"
+          )
+
+          def parse_local(value: str) -> str | None:
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit():
+                  return None
+              if host in {"*", "0.0.0.0", "::", ""}:
+                  host = "127.0.0.1"
+              if "%" in host:
+                  host = host.split("%", 1)[0]
+              try:
+                  parsed = ipaddress.ip_address(host)
+              except ValueError:
+                  return None
+              port_number = int(port)
+              if not 1 <= port_number <= 65535:
+                  return None
+              url_host = f"[{parsed.compressed}]" if parsed.version == 6 else parsed.compressed
+              return f"http://{url_host}:{port_number}"
+
+          sockets = subprocess.run(
+              ["ss", "-H", "-ltn"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          candidates: list[str] = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) < 4:
+                  continue
+              candidate = parse_local(parts[3])
+              if candidate and candidate not in candidates:
+                  candidates.append(candidate)
+
+          def request(base: str, path: str, timeout: float):
+              started = perf_counter()
+              try:
+                  with opener.open(
+                      Request(base + path, headers=request_headers),
+                      timeout=timeout,
+                  ) as response:
+                      body = response.read()
+                      status = response.status
+                      headers = response.headers
+              except HTTPError as exc:
+                  body = exc.read()
+                  status = exc.code
+                  headers = exc.headers
+              except URLError as exc:
+                  raise RuntimeError(
+                      f"local request failed: {exc.reason}"
+                  ) from exc
+              elapsed_ms = (perf_counter() - started) * 1000
+              return status, headers, body, elapsed_ms
+
+          origin = None
+          health = None
+          for candidate in candidates:
+              try:
+                  status, _, body, _ = request(candidate, "/api/health", 0.8)
+                  payload = json.loads(body)
+              except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
+                  continue
+              if (
+                  status == 200
+                  and payload.get("status") == "ok"
+                  and payload.get("service") == "hermes-deals-api"
+              ):
+                  origin = candidate
+                  health = payload
+                  break
+          if origin is None or health is None:
+              raise SystemExit("Hermes Deals local production origin not found")
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          expected_dates = [
+              (week_start + timedelta(days=offset)).isoformat()
+              for offset in range(7)
+          ]
+          weekly_path = "/api/v1/deals/weekly-specials?" + urlencode(
+              {"week_start": week_start.isoformat()}
+          )
+
+          def write_headers(path: Path, status: int, headers) -> None:
+              lines = [f"HTTP-STATUS: {status}"]
+              lines.extend(f"{key}: {value}" for key, value in headers.items())
+              path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+          first_status, first_headers, first_body, first_wall_ms = request(
+              origin,
+              weekly_path,
+              15.0,
+          )
+          write_headers(
+              evidence_dir / "weekly-prewarm-first.headers",
+              first_status,
+              first_headers,
+          )
+          (evidence_dir / "weekly-prewarm-first.json").write_bytes(first_body)
+          if first_status != 200:
+              raise SystemExit(
+                  f"weekly prewarm returned HTTP {first_status}"
+              )
+          if first_wall_ms >= 15_000.0:
+              raise SystemExit("weekly prewarm exceeded the 15 second safety budget")
+
+          try:
+              weekly = json.loads(first_body)
+          except json.JSONDecodeError as exc:
+              raise SystemExit("weekly prewarm response is not JSON") from exc
+          if weekly.get("week_start") != week_start.isoformat():
+              raise SystemExit("weekly prewarm returned the wrong week_start")
+          if weekly.get("week_end") != expected_dates[-1]:
+              raise SystemExit("weekly prewarm returned the wrong week_end")
+          if weekly.get("timezone") != "Europe/Berlin":
+              raise SystemExit("weekly prewarm returned the wrong timezone")
+          if weekly.get("source_contract") != source_contract:
+              raise SystemExit("weekly prewarm source contract mismatch")
+          days = weekly.get("days")
+          if not isinstance(days, list) or len(days) != 7:
+              raise SystemExit("weekly prewarm did not return seven days")
+          if [str(day.get("date")) for day in days] != expected_dates:
+              raise SystemExit("weekly prewarm day sequence is invalid")
+          calculated_count = sum(
+              len(day.get("deals") or [])
+              for day in days
+              if isinstance(day, dict)
+          )
+          if int(weekly.get("count", -1)) != calculated_count:
+              raise SystemExit("weekly prewarm count does not match day payloads")
+          first_cache = str(first_headers.get("X-Hermes-Weekly-Cache") or "")
+          if first_cache not in {"MISS", "HIT"}:
+              raise SystemExit("weekly prewarm cache state is invalid")
+          etag = str(first_headers.get("ETag") or "")
+          if not etag:
+              raise SystemExit("weekly prewarm response has no ETag")
+
+          warm_status, warm_headers, warm_body, warm_wall_ms = request(
+              origin,
+              weekly_path,
+              5.0,
+          )
+          write_headers(
+              evidence_dir / "weekly-prewarm-warm.headers",
+              warm_status,
+              warm_headers,
+          )
+          if warm_status != 200:
+              raise SystemExit(
+                  f"weekly warm verification returned HTTP {warm_status}"
+              )
+          warm_cache = str(warm_headers.get("X-Hermes-Weekly-Cache") or "")
+          if warm_cache != "HIT":
+              raise SystemExit("weekly warm verification was not a server cache HIT")
+          if warm_wall_ms >= 1000.0:
+              raise SystemExit("weekly warm verification exceeded one second")
+          if warm_body != first_body:
+              raise SystemExit("weekly warm verification body changed")
+          if str(warm_headers.get("ETag") or "") != etag:
+              raise SystemExit("weekly warm verification ETag changed")
+
+          timing_match = re.search(
+              r"weekly;dur=([0-9.]+)",
+              str(first_headers.get("Server-Timing") or ""),
+          )
+          warm_timing_match = re.search(
+              r"weekly;dur=([0-9.]+)",
+              str(warm_headers.get("Server-Timing") or ""),
+          )
+          report = {
+              "result": "PASS",
+              "week_start": week_start.isoformat(),
+              "week_end": expected_dates[-1],
+              "count": calculated_count,
+              "body_bytes": len(first_body),
+              "first_cache": first_cache,
+              "first_wall_ms": round(first_wall_ms, 2),
+              "first_server_ms": (
+                  float(timing_match.group(1)) if timing_match else None
+              ),
+              "warm_cache": warm_cache,
+              "warm_wall_ms": round(warm_wall_ms, 2),
+              "warm_server_ms": (
+                  float(warm_timing_match.group(1))
+                  if warm_timing_match
+                  else None
+              ),
+              "health_version": health.get("version"),
+              "health_phase": health.get("phase"),
+              "source_contract": source_contract,
+              "etag_present": True,
+              "database_write": False,
+          }
+          (evidence_dir / "weekly-prewarm.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(f"WEEKLY_PREWARM_WEEK_START={week_start.isoformat()}")
+          print(f"WEEKLY_PREWARM_FIRST_CACHE={first_cache}")
+          print(f"WEEKLY_PREWARM_FIRST_WALL_MS={first_wall_ms:.2f}")
+          print("WEEKLY_PREWARM_WARM_CACHE=HIT")
+          print(f"WEEKLY_PREWARM_WARM_WALL_MS={warm_wall_ms:.2f}")
+          print("WEEKLY_PREWARM=PASS")
+          PY
+
       - name: Verify and capture public API and UI
         if: success()
         env:
