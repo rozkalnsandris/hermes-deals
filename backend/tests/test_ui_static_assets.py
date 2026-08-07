@@ -11,12 +11,14 @@ from tests.ui_contract import (
     ORIGINAL_INDEX_SHA256,
     UI_APP_PATH,
     UI_STYLE_PATH,
+    UI_WEEKLY_BRIDGE_PATH,
     read_family_ui_contract,
 )
 
 
 EXPECTED_CSS_SHA256 = "f02517db802d9e6a58ea22e35fc8ee2023308ce074474eea90d638b90aac1a88"
 EXPECTED_JS_SHA256 = "5e8e7b2f94a8ba9cca4e22be5ed0c189e996f40d137231fa27ca34e9efcd7b04"
+EXPECTED_WEEKLY_BRIDGE_SHA256 = "6501a7ae2d3998ce1716c6710d97e7afcbac2d493991c2cdd6ebe57b324976fe"
 
 
 def test_ui_html_uses_external_static_assets() -> None:
@@ -25,7 +27,11 @@ def test_ui_html_uses_external_static_assets() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert 'href="/ui/styles.css"' in response.text
+    assert 'src="/ui/weekly-payload-bridge.js"' in response.text
     assert 'src="/ui/app.js"' in response.text
+    assert response.text.index('src="/ui/weekly-payload-bridge.js"') < response.text.index(
+        'src="/ui/app.js"'
+    )
     assert "<style" not in response.text
     assert "<script>" not in response.text
     assert 'content="reference-v11-explicit-daily-special-api"' in response.text
@@ -76,6 +82,29 @@ def test_ui_application_route_and_content_identity() -> None:
         b"URLSearchParams",
     ):
         assert marker in response.content
+
+
+def test_ui_weekly_payload_bridge_route_and_content_identity() -> None:
+    response = TestClient(app).get("/ui/weekly-payload-bridge.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/javascript"
+    )
+    assert sha256(response.content).hexdigest() == EXPECTED_WEEKLY_BRIDGE_SHA256
+    assert sha256(UI_WEEKLY_BRIDGE_PATH.read_bytes()).hexdigest() == EXPECTED_WEEKLY_BRIDGE_SHA256
+    for marker in (
+        b"/api/v1/deals/weekly-specials/ui",
+        b"normalized_unique_deals_by_id_v1",
+        b"deal_ids",
+        b"new Proxy(response",
+        b"return { ...payload, days }",
+    ):
+        assert marker in response.content
+    assert not any(
+        line.endswith((b" ", b"\t"))
+        for line in response.content.splitlines()
+    )
 
 
 def test_legacy_contract_reconstructs_original_index_exactly() -> None:

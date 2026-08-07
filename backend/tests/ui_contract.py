@@ -10,11 +10,13 @@ UI_DIR = Path(__file__).resolve().parents[1] / "app" / "ui"
 UI_INDEX_PATH = UI_DIR / "index.html"
 UI_STYLE_PATH = UI_DIR / "styles.css"
 UI_APP_PATH = UI_DIR / "app.js"
+UI_WEEKLY_BRIDGE_PATH = UI_DIR / "weekly-payload-bridge.js"
 ORIGINAL_INDEX_SHA256 = "6212cc9c923650c1f6fa4ed25adb3a3dcc37dde1faab7e3bc48e45de8de93164"
 CSS_TRAILING_WS_PATCHES = [(19626, 'ICA=')]
 JS_TRAILING_WS_PATCHES = []
 
 _STYLESHEET_LINK = '<link rel="stylesheet" href="/ui/styles.css">'
+_WEEKLY_PAYLOAD_BRIDGE_SCRIPT = '<script src="/ui/weekly-payload-bridge.js"></script>'
 _APPLICATION_SCRIPT = '<script src="/ui/app.js"></script>'
 _MARKER = re.compile(
     r"/\*HERMES_UI_(?:STYLE|SCRIPT)_(?:OPEN|CLOSE|GAP):"
@@ -51,8 +53,12 @@ def read_family_ui_contract(html: str | None = None) -> str:
     )
     if source.count(_STYLESHEET_LINK) != 1:
         raise AssertionError("UI stylesheet link contract is not exact")
+    if source.count(_WEEKLY_PAYLOAD_BRIDGE_SCRIPT) != 1:
+        raise AssertionError("UI weekly payload bridge contract is not exact")
     if source.count(_APPLICATION_SCRIPT) != 1:
         raise AssertionError("UI application script contract is not exact")
+    if source.index(_WEEKLY_PAYLOAD_BRIDGE_SCRIPT) > source.index(_APPLICATION_SCRIPT):
+        raise AssertionError("UI weekly payload bridge must load before the application")
 
     styles = _restore_tags(
         _restore_trailing_horizontal_whitespace(
@@ -66,7 +72,8 @@ def read_family_ui_contract(html: str | None = None) -> str:
             JS_TRAILING_WS_PATCHES,
         )
     )
-    return source.replace(
+    legacy_source = source.replace(_WEEKLY_PAYLOAD_BRIDGE_SCRIPT, "", 1)
+    return legacy_source.replace(
         _STYLESHEET_LINK,
         styles,
         1,
