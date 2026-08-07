@@ -1,116 +1,158 @@
-name: Diagnose #256 production deploy
+name: Diagnose #256 weekly post-prewarm latency
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
-  inspect:
-    name: Inspect target deploy run
+  verify:
+    name: Verify parser-warm weekly MISS
     if: >-
       github.event.pull_request.head.ref == 'diag/256-inspect-weekly-prewarm-deploy' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login == 'rozkalnsandris'
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-release]
+    timeout-minutes: 5
     steps:
-      - name: Wait for #256 deploy completion
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          TARGET_SHA: 0b0eae46cf269d697d85698e5f3abc540a635c45
+      - name: Wait for natural weekly cache MISS and measure
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           from __future__ import annotations
 
+          from datetime import datetime, timedelta
+          import ipaddress
           import json
-          import os
-          import time
-          import urllib.request
+          import re
+          import subprocess
+          from time import perf_counter, sleep
+          from urllib.parse import urlencode
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
 
-          repo = os.environ["REPOSITORY"]
-          target = os.environ["TARGET_SHA"]
-          headers = {
-              "Accept": "application/vnd.github+json",
-              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-              "X-GitHub-Api-Version": "2022-11-28",
-              "User-Agent": "hermes-deals-deploy-inspector/1",
-          }
+          opener = build_opener(ProxyHandler({}))
 
-          def get_json(url: str):
-              with urllib.request.urlopen(
-                  urllib.request.Request(url, headers=headers),
-                  timeout=20,
-              ) as response:
-                  return json.load(response)
-
-          selected = None
-          for attempt in range(61):
-              payload = get_json(
-                  f"https://api.github.com/repos/{repo}/actions/workflows/deploy-main.yml/runs?per_page=50"
-              )
-              matches = [
-                  row for row in (payload.get("workflow_runs") or [])
-                  if row.get("head_sha") == target
-                  and row.get("event") == "workflow_run"
-              ]
-              if matches:
-                  selected = max(matches, key=lambda row: int(row.get("id") or 0))
-                  print(
-                      "TARGET_DEPLOY "
-                      f"attempt={attempt + 1} id={selected.get('id')} "
-                      f"run_number={selected.get('run_number')} "
-                      f"status={selected.get('status')} "
-                      f"conclusion={selected.get('conclusion')}"
-                  )
-                  if selected.get("status") == "completed":
-                      break
+          def parse_local(value: str):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
               else:
-                  print(f"TARGET_DEPLOY attempt={attempt + 1} status=NOT_FOUND")
-              time.sleep(10)
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit():
+                  return None
+              if host in {"*", "0.0.0.0", "::", ""}:
+                  host = "127.0.0.1"
+              if "%" in host:
+                  host = host.split("%", 1)[0]
+              try:
+                  parsed = ipaddress.ip_address(host)
+              except ValueError:
+                  return None
+              url_host = f"[{parsed.compressed}]" if parsed.version == 6 else parsed.compressed
+              return f"http://{url_host}:{int(port)}"
 
-          if not selected:
-              raise SystemExit("target deploy run not found")
-          if selected.get("status") != "completed":
-              raise SystemExit("target deploy did not complete within wait budget")
-
-          run_id = int(selected["id"])
-          jobs = get_json(
-              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"
-          ).get("jobs") or []
-          for job in jobs:
-              print(
-                  "TARGET_DEPLOY_JOB "
-                  f"id={job.get('id')} name={job.get('name')} "
-                  f"status={job.get('status')} conclusion={job.get('conclusion')}"
+          def fetch(base: str, path: str, timeout: float = 10.0):
+              request = Request(
+                  base + path,
+                  headers={
+                      "Accept": "application/json",
+                      "Cache-Control": "no-cache",
+                      "Pragma": "no-cache",
+                      "User-Agent": "hermes-deals-post-prewarm-diagnostic/1",
+                  },
               )
-              for step in job.get("steps") or []:
-                  print(
-                      "TARGET_DEPLOY_STEP "
-                      f"job_id={job.get('id')} number={step.get('number')} "
-                      f"name={step.get('name')} conclusion={step.get('conclusion')}"
-                  )
+              started = perf_counter()
+              with opener.open(request, timeout=timeout) as response:
+                  body = response.read()
+                  wall_ms = (perf_counter() - started) * 1000
+                  return response.status, response.headers, body, wall_ms
 
-          artifacts = get_json(
-              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"
-          ).get("artifacts") or []
-          for artifact in artifacts:
+          sockets = subprocess.run(
+              ["ss", "-H", "-ltn"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) < 4:
+                  continue
+              candidate = parse_local(parts[3])
+              if candidate and candidate not in candidates:
+                  candidates.append(candidate)
+
+          base = None
+          health = None
+          for candidate in candidates:
+              try:
+                  status, _, body, _ = fetch(candidate, "/api/health", 0.8)
+                  payload = json.loads(body)
+              except Exception:
+                  continue
+              if (
+                  status == 200
+                  and payload.get("status") == "ok"
+                  and payload.get("service") == "hermes-deals-api"
+              ):
+                  base = candidate
+                  health = payload
+                  break
+          if base is None or health is None:
+              raise SystemExit("production origin not found")
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          path = "/api/v1/deals/weekly-specials?" + urlencode(
+              {"week_start": week_start.isoformat()}
+          )
+          timing_re = re.compile(r"weekly;dur=([0-9.]+)")
+
+          miss = None
+          for attempt in range(21):
+              status, headers, body, wall_ms = fetch(base, path)
+              cache = str(headers.get("X-Hermes-Weekly-Cache") or "")
+              timing_match = timing_re.search(str(headers.get("Server-Timing") or ""))
+              server_ms = float(timing_match.group(1)) if timing_match else None
               print(
-                  "TARGET_DEPLOY_ARTIFACT "
-                  f"id={artifact.get('id')} name={artifact.get('name')} "
-                  f"size={artifact.get('size_in_bytes')} expired={artifact.get('expired')}"
+                  "POST_PREWARM_WAIT "
+                  f"attempt={attempt + 1} status={status} cache={cache or '(missing)'} "
+                  f"wall_ms={wall_ms:.2f} server_ms={server_ms}"
               )
+              assert status == 200
+              if cache == "MISS":
+                  miss = (headers, body, wall_ms, server_ms)
+                  break
+              sleep(2)
+
+          if miss is None:
+              raise AssertionError("weekly response cache did not naturally expire within 40 seconds")
+
+          miss_headers, miss_body, miss_wall_ms, miss_server_ms = miss
+          payload = json.loads(miss_body)
+          status, warm_headers, warm_body, warm_wall_ms = fetch(base, path)
+          warm_cache = str(warm_headers.get("X-Hermes-Weekly-Cache") or "")
+          warm_match = timing_re.search(str(warm_headers.get("Server-Timing") or ""))
+          warm_server_ms = float(warm_match.group(1)) if warm_match else None
 
           print(
-              "TARGET_DEPLOY_RESULT "
-              f"id={run_id} conclusion={selected.get('conclusion')}"
+              "POST_PREWARM_SUMMARY "
+              f"week_start={week_start.isoformat()} count={payload.get('count')} "
+              f"miss_wall_ms={miss_wall_ms:.2f} miss_server_ms={miss_server_ms} "
+              f"warm_wall_ms={warm_wall_ms:.2f} warm_server_ms={warm_server_ms} "
+              f"warm_cache={warm_cache} version={health.get('version')} phase={health.get('phase')}"
           )
-          if selected.get("conclusion") != "success":
-              raise SystemExit("target deploy failed")
+
+          assert payload.get("week_start") == week_start.isoformat()
+          assert payload.get("source_contract") == "single_week_query_short_periods_plus_explicit_immutable_daily_evidence"
+          assert miss_server_ms is not None
+          assert miss_wall_ms < 1000.0
+          assert status == 200
+          assert warm_cache == "HIT"
+          assert warm_wall_ms < 250.0
+          assert warm_body == miss_body
           PY
