@@ -1,0 +1,265 @@
+name: Hermes Deals #307 Phase C bridge
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-307-phase-c
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner command
+    if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/hermes-307 ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      runtime_sha: ${{ steps.authorize.outputs.runtime_sha }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+
+    steps:
+      - name: Checkout default-branch authorizer
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate exact issue, owner and command
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_deals_307_bridge.py
+
+  phase-c:
+    name: Apply reviewed Deals 9128 dual bind
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.operation == 'apply-dual'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.run.outputs.result }}
+      reason: ${{ steps.run.outputs.reason }}
+      check_pass: ${{ steps.run.outputs.check_pass }}
+      apply_pass: ${{ steps.run.outputs.apply_pass }}
+      verify_pass: ${{ steps.run.outputs.verify_pass }}
+      rollback_verified: ${{ steps.run.outputs.rollback_verified }}
+      production_git_unchanged: ${{ steps.run.outputs.production_git_unchanged }}
+      production_head: ${{ steps.run.outputs.production_head }}
+
+    steps:
+      - name: Checkout exact reviewed Phase A runtime
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.runtime_sha }}
+          path: issue-307-runtime
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run exact guarded Phase C operator
+        id: run
+        shell: bash
+        env:
+          EXPECTED_RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
+          EXPECTED_OPERATOR_SHA256: 083cbd27990ebcff0d4c9cb81443318a9837f1179555d9921086f47be5cd8d4e
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          PROD=/home/andris/hermes-deals
+          OPERATOR="$GITHUB_WORKSPACE/issue-307-runtime/tools/runner/release/hermes-deals-web-dual-bind-cutover"
+          LOG_DIR="$RUNNER_TEMP/hermes-deals-307-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          CHECK_LOG="$LOG_DIR/check.log"
+          APPLY_LOG="$LOG_DIR/apply.log"
+          VERIFY_LOG="$LOG_DIR/verify.log"
+          RECOVERY_LOG="$LOG_DIR/recovery-check.log"
+          install -d -m 0700 "$LOG_DIR"
+
+          emit() {
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
+          }
+
+          emit result BLOCKED_BEFORE_APPLY
+          emit reason preflight_not_completed
+          emit check_pass false
+          emit apply_pass false
+          emit verify_pass false
+          emit rollback_verified false
+          emit production_git_unchanged false
+          emit production_head unknown
+
+          [[ "$EXPECTED_RUNTIME_SHA" == '654ec9739f8cea74ee8a4ee93e25e12bf06482cc' ]]
+          [[ -f "$OPERATOR" && ! -L "$OPERATOR" ]]
+          printf '%s  %s\n' "$EXPECTED_OPERATOR_SHA256" "$OPERATOR" | sha256sum -c - >/dev/null
+          [[ -d "$PROD/.git" && ! -L "$PROD" ]]
+
+          HEAD_BEFORE="$(git -C "$PROD" rev-parse HEAD)"
+          [[ "$HEAD_BEFORE" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$(git -C "$PROD" status --porcelain=v1 --untracked-files=all)" ]]
+          emit production_head "$HEAD_BEFORE"
+
+          set +e
+          sudo --non-interactive "$OPERATOR" check >"$CHECK_LOG" 2>&1
+          CHECK_RC=$?
+          set -e
+          if [[ "$CHECK_RC" -ne 0 ]]; then
+            if grep -Eqi 'password is required|a password is required|not allowed to run sudo' "$CHECK_LOG"; then
+              emit reason exact_operator_sudo_not_authorized
+            else
+              emit reason operator_check_failed
+            fi
+            exit 1
+          fi
+          grep -Fx 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS' "$CHECK_LOG" >/dev/null
+          emit check_pass true
+
+          set +e
+          sudo --non-interactive "$OPERATOR" apply-dual >"$APPLY_LOG" 2>&1
+          APPLY_RC=$?
+          set -e
+          if [[ "$APPLY_RC" -ne 0 ]]; then
+            ROLLBACK_VERIFIED=false
+            if grep -Fx 'AUTO_ROLLBACK_TO_LAN=PASS' "$APPLY_LOG" >/dev/null; then
+              set +e
+              sudo --non-interactive "$OPERATOR" check >"$RECOVERY_LOG" 2>&1
+              RECOVERY_RC=$?
+              set -e
+              if [[ "$RECOVERY_RC" -eq 0 ]] && grep -Fx 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS' "$RECOVERY_LOG" >/dev/null; then
+                ROLLBACK_VERIFIED=true
+              fi
+            fi
+
+            HEAD_AFTER="$(git -C "$PROD" rev-parse HEAD)"
+            STATUS_AFTER="$(git -C "$PROD" status --porcelain=v1 --untracked-files=all)"
+            if [[ "$HEAD_AFTER" == "$HEAD_BEFORE" && -z "$STATUS_AFTER" ]]; then
+              emit production_git_unchanged true
+            fi
+            emit rollback_verified "$ROLLBACK_VERIFIED"
+            if [[ "$ROLLBACK_VERIFIED" == true ]]; then
+              emit result APPLY_FAILED_ROLLBACK_VERIFIED
+              emit reason operator_apply_failed_and_lan_state_was_verified
+            else
+              emit result APPLY_FAILED_STATE_REQUIRES_REVIEW
+              emit reason operator_apply_failed_without_verified_rollback
+            fi
+            exit 1
+          fi
+          grep -Fx 'HERMES_DEALS_307_DUAL_BIND_APPLY=PASS' "$APPLY_LOG" >/dev/null
+          emit apply_pass true
+
+          set +e
+          sudo --non-interactive "$OPERATOR" verify-dual >"$VERIFY_LOG" 2>&1
+          VERIFY_RC=$?
+          set -e
+          if [[ "$VERIFY_RC" -ne 0 ]]; then
+            emit result POST_APPLY_VERIFY_FAILED
+            emit reason dual_bind_apply_passed_but_followup_verify_failed
+            exit 1
+          fi
+          grep -Fx 'HERMES_DEALS_307_DUAL_BIND_VERIFY=PASS' "$VERIFY_LOG" >/dev/null
+          emit verify_pass true
+
+          HEAD_AFTER="$(git -C "$PROD" rev-parse HEAD)"
+          STATUS_AFTER="$(git -C "$PROD" status --porcelain=v1 --untracked-files=all)"
+          [[ "$HEAD_AFTER" == "$HEAD_BEFORE" ]]
+          [[ -z "$STATUS_AFTER" ]]
+          emit production_git_unchanged true
+          emit result PASS
+          emit reason reviewed_dual_bind_is_active_and_verified
+
+          rm -f -- "$CHECK_LOG" "$APPLY_LOG" "$VERIFY_LOG" "$RECOVERY_LOG"
+          rmdir "$LOG_DIR" 2>/dev/null || true
+
+  report:
+    name: Report sanitized Phase C result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - phase-c
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment sanitized result on issue 307
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
+          PHASE_JOB_RESULT: ${{ needs.phase-c.result }}
+          RESULT: ${{ needs.phase-c.outputs.result }}
+          REASON: ${{ needs.phase-c.outputs.reason }}
+          CHECK_PASS: ${{ needs.phase-c.outputs.check_pass }}
+          APPLY_PASS: ${{ needs.phase-c.outputs.apply_pass }}
+          VERIFY_PASS: ${{ needs.phase-c.outputs.verify_pass }}
+          ROLLBACK_VERIFIED: ${{ needs.phase-c.outputs.rollback_verified }}
+          PRODUCTION_GIT_UNCHANGED: ${{ needs.phase-c.outputs.production_git_unchanged }}
+          PRODUCTION_HEAD: ${{ needs.phase-c.outputs.production_head }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          def clean(name: str, fallback: str = "unavailable") -> str:
+              value = os.environ.get(name) or fallback
+              return value.replace("`", "").replace("\n", " ").replace("\r", " ")[:160]
+
+          body = (
+              "## #307 GitHub Phase C bridge result\n\n"
+              f"- command comment: `{clean('COMMENT_ID')}`\n"
+              f"- registered runtime SHA: `{clean('RUNTIME_SHA')}`\n"
+              f"- workflow job: `{clean('PHASE_JOB_RESULT')}`\n"
+              f"- result: `{clean('RESULT')}`\n"
+              f"- reason: `{clean('REASON')}`\n"
+              f"- preflight/check PASS: `{clean('CHECK_PASS')}`\n"
+              f"- dual-bind apply PASS: `{clean('APPLY_PASS')}`\n"
+              f"- dual-bind verify PASS: `{clean('VERIFY_PASS')}`\n"
+              f"- rollback verified if apply failed: `{clean('ROLLBACK_VERIFIED')}`\n"
+              f"- production Git unchanged: `{clean('PRODUCTION_GIT_UNCHANGED')}`\n"
+              f"- production checkout HEAD: `{clean('PRODUCTION_HEAD')}`\n"
+              f"- workflow: {clean('RUN_URL')}\n\n"
+              "Safety boundary: no Cloudflare route/Access/token action, UFW mutation, DB/Review/collector/API deploy, "
+              "or shared cloudflared lifecycle action is exposed by this bridge. Raw operator logs are not published."
+          )
+          payload = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-307-bridge-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
