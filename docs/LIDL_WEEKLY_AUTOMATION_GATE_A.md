@@ -21,7 +21,7 @@ The Gate A controller converts that detailed result into one of four operational
 
 - `READY` — a new exact source/parser/review-profile combination requires a new shadow execution and later immutable snapshot handling;
 - `NO_OP` — the exact source, parser, scan and reviewed profile match a previously completed Gate A manifest;
-- `WAIT` — the source, scan or reviewed profile is not available yet;
+- `WAIT` — the source, source review, scan or reviewed profile is not available yet;
 - `BLOCKED` — source or parser drift, an unsafe flag, malformed prior evidence or an unsupported state was detected.
 
 ## Deterministic unchanged-source identity
@@ -33,12 +33,24 @@ For a `READY` one-shot result, the controller hashes a canonical object containi
 - authoritative scan identifier;
 - source PDF SHA256;
 - stable source identity SHA256;
+- canonical parser-input identity SHA256 represented by the immutable source/scan;
 - canonical parser version and SHA256;
 - complete reviewed target profile.
 
 A previous Gate A manifest can be supplied with `--previous-manifest`. The controller returns `NO_OP` only when the fingerprint is identical and the previous manifest has the exact controller version, a completed `READY`/`NO_OP` state and all write-authority flags disabled.
 
-A parser change or reviewed-profile change therefore cannot be hidden by an unchanged PDF.
+A parser change, canonical parser-input change or reviewed-profile change therefore cannot be hidden by an unchanged PDF.
+
+## Same-PDF source refresh boundary
+
+The official Schwarz `source.json` may refresh while the PDF and stable flyer identity stay unchanged. Gate A distinguishes harmless raw-byte churn from parser-relevant drift:
+
+- top-level `dateTime` and `warnings` are treated as volatile metadata and excluded from the canonical parser-input identity;
+- if only those volatile fields change, the live raw SHA may differ while the canonical parser-input identity remains unchanged;
+- if parser-relevant source content changes for the same PDF/stable flyer identity, the one-shot returns `WAIT_SOURCE_REVIEW` before using the old scan;
+- the controller maps `WAIT_SOURCE_REVIEW` to observable `WAIT`, with no retry or write authority.
+
+A parser-relevant same-PDF refresh requires a separately reviewed source-refresh and new authoritative scan path before it can become a new exact `READY` input. The existing frozen scan is never silently reused for changed parser input.
 
 ## Command shape
 

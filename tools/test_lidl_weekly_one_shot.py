@@ -6,7 +6,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from lidl_weekly_one_shot import find_corpus_match, source_readiness
+from lidl_weekly_one_shot import (
+    EXIT_CODES,
+    _parser_input_identity,
+    find_corpus_match,
+    source_readiness,
+)
 
 
 def source_payload(*, date_time: str, flyer_id: str = "flyer-1") -> bytes:
@@ -92,6 +97,11 @@ class LidlWeeklyOneShotTest(unittest.TestCase):
             assert match is not None
             self.assertEqual(match.flyer_key, "family-next")
             self.assertEqual(match.scan, "scan-0003")
+            self.assertFalse(match.parser_input_changed)
+            self.assertEqual(
+                match.parser_input_identity_sha256,
+                match.live_parser_input_identity_sha256,
+            )
 
     def test_nonmatching_corpus_returns_none(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -125,8 +135,100 @@ class LidlWeeklyOneShotTest(unittest.TestCase):
             self.assertIsNotNone(match)
             assert match is not None
             self.assertTrue(match.raw_refresh)
+            self.assertFalse(match.parser_input_changed)
             self.assertNotEqual(match.source_raw_sha256, match.live_raw_sha256)
+            self.assertEqual(
+                match.parser_input_identity_sha256,
+                match.live_parser_input_identity_sha256,
+            )
             self.assertEqual(len(match.stable_source_identity_sha256), 64)
+
+    def test_top_level_warning_refresh_does_not_change_parser_input(self) -> None:
+        first = json.loads(
+            source_payload(date_time="2026-07-28T10:00:00+00:00")
+        )
+        second = json.loads(
+            source_payload(date_time="2026-07-30T15:20:13+00:00")
+        )
+        first["warnings"] = ["first volatile warning"]
+        second["warnings"] = ["different volatile warning"]
+        self.assertEqual(
+            _parser_input_identity(json.dumps(first, sort_keys=True).encode("utf-8")),
+            _parser_input_identity(json.dumps(second, sort_keys=True).encode("utf-8")),
+        )
+
+    def test_same_pdf_product_metadata_refresh_requires_source_review(self) -> None:
+        with TemporaryDirectory() as temporary:
+            corpus = Path(temporary)
+            flyer = corpus / "flyers" / "family-next"
+            flyer.mkdir(parents=True)
+            pdf = b"%PDF-stable-product-refresh"
+            corpus_payload = json.loads(
+                source_payload(date_time="2026-07-28T10:00:00+00:00")
+            )
+            live_payload = json.loads(json.dumps(corpus_payload))
+            corpus_payload["flyer"]["products"] = {
+                "p1": {"productId": "p1", "title": "Milch"}
+            }
+            live_payload["flyer"]["products"] = {
+                "p1": {"productId": "p1", "title": "Vollmilch"}
+            }
+            corpus_raw = json.dumps(corpus_payload, sort_keys=True).encode("utf-8")
+            live_raw = json.dumps(live_payload, sort_keys=True).encode("utf-8")
+            (flyer / "source.pdf").write_bytes(pdf)
+            (flyer / "source.json").write_bytes(corpus_raw)
+
+            match = find_corpus_match(
+                corpus,
+                pdf_sha256=sha256(pdf).hexdigest(),
+                live_source_json=live_raw,
+            )
+            self.assertIsNotNone(match)
+            assert match is not None
+            self.assertTrue(match.raw_refresh)
+            self.assertTrue(match.parser_input_changed)
+            self.assertNotEqual(
+                match.parser_input_identity_sha256,
+                match.live_parser_input_identity_sha256,
+            )
+
+    def test_same_pdf_product_binding_refresh_requires_source_review(self) -> None:
+        with TemporaryDirectory() as temporary:
+            corpus = Path(temporary)
+            flyer = corpus / "flyers" / "family-next"
+            flyer.mkdir(parents=True)
+            pdf = b"%PDF-stable-binding-refresh"
+            corpus_payload = json.loads(
+                source_payload(date_time="2026-07-28T10:00:00+00:00")
+            )
+            live_payload = json.loads(json.dumps(corpus_payload))
+            live_payload["flyer"]["pages"][0]["links"].append(
+                {
+                    "displayType": "product",
+                    "left": 10,
+                    "top": 20,
+                    "width": 30,
+                    "height": 40,
+                    "productDetails": {"productId": "p1", "title": "Milch"},
+                }
+            )
+            corpus_raw = json.dumps(corpus_payload, sort_keys=True).encode("utf-8")
+            live_raw = json.dumps(live_payload, sort_keys=True).encode("utf-8")
+            (flyer / "source.pdf").write_bytes(pdf)
+            (flyer / "source.json").write_bytes(corpus_raw)
+
+            match = find_corpus_match(
+                corpus,
+                pdf_sha256=sha256(pdf).hexdigest(),
+                live_source_json=live_raw,
+            )
+            self.assertIsNotNone(match)
+            assert match is not None
+            self.assertTrue(match.parser_input_changed)
+
+    def test_source_review_wait_has_distinct_exit_code(self) -> None:
+        self.assertEqual(EXIT_CODES["WAIT_SOURCE_REVIEW"], 23)
+        self.assertNotEqual(EXIT_CODES["WAIT_SOURCE_REVIEW"], EXIT_CODES["WAIT_SCAN"])
 
     def test_same_pdf_with_different_stable_identity_fails_closed(self) -> None:
         with TemporaryDirectory() as temporary:

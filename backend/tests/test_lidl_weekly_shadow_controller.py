@@ -12,6 +12,7 @@ CONTROLLER = ROOT / "tools" / "lidl_weekly_shadow_controller.py"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
+SHA_D = "d" * 64
 
 
 def load_controller():
@@ -25,7 +26,12 @@ def load_controller():
     return module
 
 
-def ready_status(*, parser_sha: str = SHA_C, profile_version: int = 1) -> dict:
+def ready_status(
+    *,
+    parser_sha: str = SHA_C,
+    parser_input_sha: str = SHA_D,
+    profile_version: int = 1,
+) -> dict:
     return {
         "result": "READY",
         "reason": "selected_store_source_scan_profile_and_v631_ready",
@@ -36,6 +42,7 @@ def ready_status(*, parser_sha: str = SHA_C, profile_version: int = 1) -> dict:
             "scan": "scan-0001",
             "source_pdf_sha256": SHA_A,
             "stable_source_identity_sha256": SHA_B,
+            "parser_input_identity_sha256": parser_input_sha,
         },
         "review_profile": {
             "schema_version": profile_version,
@@ -106,13 +113,17 @@ def test_same_exact_input_is_deterministic_safe_no_op() -> None:
     assert second["shadow_execution_required"] is False
 
 
-def test_parser_or_review_profile_change_requires_new_shadow_execution() -> None:
+def test_parser_profile_or_parser_input_change_requires_new_shadow_execution() -> None:
     controller = load_controller()
     baseline = controller.evaluate_one_shot_status(ready_status())
     previous = previous_manifest(baseline["execution_fingerprint"], result="NO_OP")
 
     parser_change = controller.evaluate_one_shot_status(
-        ready_status(parser_sha="d" * 64),
+        ready_status(parser_sha="e" * 64),
+        previous_manifest=previous,
+    )
+    parser_input_change = controller.evaluate_one_shot_status(
+        ready_status(parser_input_sha="f" * 64),
         previous_manifest=previous,
     )
     profile_change = controller.evaluate_one_shot_status(
@@ -121,12 +132,17 @@ def test_parser_or_review_profile_change_requires_new_shadow_execution() -> None
     )
 
     assert parser_change["result"] == "READY"
+    assert parser_input_change["result"] == "READY"
     assert profile_change["result"] == "READY"
     assert parser_change["execution_fingerprint"] != baseline["execution_fingerprint"]
+    assert parser_input_change["execution_fingerprint"] != baseline["execution_fingerprint"]
     assert profile_change["execution_fingerprint"] != baseline["execution_fingerprint"]
 
 
-@pytest.mark.parametrize("one_shot_result", ["WAIT_SOURCE", "WAIT_SCAN", "WAIT_PROFILE"])
+@pytest.mark.parametrize(
+    "one_shot_result",
+    ["WAIT_SOURCE", "WAIT_SCAN", "WAIT_PROFILE", "WAIT_SOURCE_REVIEW"],
+)
 def test_wait_states_are_observable_without_retry_authority(one_shot_result: str) -> None:
     controller = load_controller()
     status = ready_status()
@@ -180,6 +196,18 @@ def test_ready_status_requires_complete_content_addressed_identity() -> None:
     with pytest.raises(
         controller.LidlWeeklyShadowControllerError,
         match="READY fingerprint field is missing",
+    ):
+        controller.evaluate_one_shot_status(status)
+
+
+def test_ready_status_requires_parser_input_identity() -> None:
+    controller = load_controller()
+    status = ready_status()
+    status["corpus_match"]["parser_input_identity_sha256"] = ""
+
+    with pytest.raises(
+        controller.LidlWeeklyShadowControllerError,
+        match="READY fingerprint field is missing: parser_input_identity_sha256",
     ):
         controller.evaluate_one_shot_status(status)
 
