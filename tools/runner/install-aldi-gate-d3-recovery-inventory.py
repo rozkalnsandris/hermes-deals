@@ -18,7 +18,8 @@ AUDIT_USER = "andris"
 AUDIT_HOME = "/home/andris"
 RUNNER_USER = "github-runner"
 AUDIT = "aldi-gate-d3-recovery-inventory"
-INSTALL_ROOT = Path("/usr/local/libexec/hermes-deals-audits/aldi-gate-d3-recovery-inventory")
+AUDITS_ROOT = Path("/usr/local/libexec/hermes-deals-audits")
+INSTALL_ROOT = AUDITS_ROOT / "aldi-gate-d3-recovery-inventory"
 INVENTORY_SOURCE = REPO / "tools/aldi_gate_d3_recovery_inventory.py"
 DISPATCH_SOURCE = REPO / "tools/runner/aldi_gate_d3_recovery_inventory_dispatch.py"
 DISPATCH_DST = Path("/usr/local/sbin/hermes-deals-aldi-gate-d3-recovery-inventory")
@@ -62,7 +63,14 @@ def audit_git(*args: str) -> bytes:
         "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "GIT_OPTIONAL_LOCKS=0",
         "/usr/bin/git", "-C", str(REPO), *args,
     ]
-    completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    completed = subprocess.run(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+    )
     require(completed.returncode == 0, f"audit git failed: {args[0]}")
     require(not completed.stderr, f"audit git emitted stderr: {args[0]}")
     return completed.stdout
@@ -77,6 +85,63 @@ def validate_repo(commit_sha: str) -> tuple[str, int, int, str]:
     return before
 
 
+def normalize_root_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o755)
+    require(path.is_dir() and not path.is_symlink(), f"unsafe install directory: {path.name}")
+    os.chown(path, 0, 0)
+    os.chmod(path, 0o755)
+    info = path.stat()
+    require(info.st_uid == 0 and info.st_gid == 0, f"install directory owner mismatch: {path.name}")
+    require(stat.S_IMODE(info.st_mode) == 0o755, f"install directory mode mismatch: {path.name}")
+
+
+def install_files(commit_sha: str) -> tuple[Path, str]:
+    normalize_root_dir(AUDITS_ROOT)
+    normalize_root_dir(INSTALL_ROOT)
+    target = INSTALL_ROOT / commit_sha
+    require(not target.exists(), "inventory target already exists")
+    target.mkdir(mode=0o755)
+    os.chown(target, 0, 0)
+    os.chmod(target, 0o755)
+    try:
+        inventory = target / "aldi_gate_d3_recovery_inventory.py"
+        shutil.copyfile(INVENTORY_SOURCE, inventory, follow_symlinks=False)
+        os.chown(inventory, 0, 0)
+        os.chmod(inventory, 0o444)
+        return inventory, sha_file(inventory)
+    except Exception:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+
+
+def validate_inventory_as_audit_user(inventory: Path) -> None:
+    readable = subprocess.run(
+        ["/usr/sbin/runuser", "-u", AUDIT_USER, "--", "/usr/bin/test", "-r", str(inventory)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=30,
+    )
+    require(readable.returncode == 0, "installed inventory is not readable by audit user")
+    cli = subprocess.run(
+        [
+            "/usr/sbin/runuser", "-u", AUDIT_USER, "--",
+            "/usr/bin/env", "-i",
+            f"HOME={AUDIT_HOME}", f"USER={AUDIT_USER}", f"LOGNAME={AUDIT_USER}",
+            "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8",
+            "/usr/bin/python3", str(inventory), "--help",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+    )
+    require(cli.returncode == 0, "installed inventory CLI preflight failed for audit user")
+    require(not cli.stderr, "installed inventory CLI preflight emitted stderr")
+
+
 def validate_runner() -> None:
     active = subprocess.run(["/usr/bin/systemctl", "is-active", "--quiet", RUNNER_SERVICE], check=False)
     require(active.returncode == 0, "audit runner inactive")
@@ -85,24 +150,11 @@ def validate_runner() -> None:
     require("docker" not in groups, "github-runner is in docker group")
 
 
-def install_files(commit_sha: str) -> tuple[Path, str]:
-    target = INSTALL_ROOT / commit_sha
-    require(not target.exists(), "inventory target already exists")
-    target.mkdir(parents=True, mode=0o755)
-    try:
-        inventory = target / "aldi_gate_d3_recovery_inventory.py"
-        shutil.copyfile(INVENTORY_SOURCE, inventory, follow_symlinks=False)
-        os.chmod(inventory, 0o444)
-        return inventory, sha_file(inventory)
-    except Exception:
-        shutil.rmtree(target, ignore_errors=True)
-        raise
-
-
 def install_dispatcher(commit_sha: str, inventory: Path, inventory_sha: str) -> None:
     DISPATCH_DST.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_DST.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(DISPATCH_SOURCE, DISPATCH_DST, follow_symlinks=False)
+    os.chown(DISPATCH_DST, 0, 0)
     os.chmod(DISPATCH_DST, 0o755)
     config = {
         "schema_version": 1,
@@ -118,6 +170,7 @@ def install_dispatcher(commit_sha: str, inventory: Path, inventory_sha: str) -> 
         "production_apply_authorized": False,
     }
     CONFIG_DST.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.chown(CONFIG_DST, 0, 0)
     os.chmod(CONFIG_DST, 0o600)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir="/etc/sudoers.d") as handle:
         handle.write(f"{RUNNER_USER} ALL=(root) NOPASSWD: {DISPATCH_DST} *\n")
@@ -127,6 +180,7 @@ def install_dispatcher(commit_sha: str, inventory: Path, inventory_sha: str) -> 
         check = subprocess.run(["/usr/sbin/visudo", "-cf", str(temp)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         require(check.returncode == 0, "sudoers validation failed")
         os.replace(temp, SUDOERS_DST)
+        os.chown(SUDOERS_DST, 0, 0)
         os.chmod(SUDOERS_DST, 0o440)
     finally:
         if temp.exists():
@@ -145,12 +199,15 @@ def main() -> int:
         before = validate_repo(commit_sha)
         validate_runner()
         inventory, inventory_sha = install_files(commit_sha)
+        validate_inventory_as_audit_user(inventory)
         install_dispatcher(commit_sha, inventory, inventory_sha)
         require(index_snapshot() == before, "audit repo index changed during installation")
         print("INSTALL_RESULT=PASS")
         print(f"AUDIT={AUDIT}")
         print(f"REGISTERED_COMMIT={commit_sha}")
         print(f"INVENTORY_SHA256={inventory_sha}")
+        print("INSTALL_ROOT_TRAVERSABLE_BY_AUDIT_USER=true")
+        print("INVENTORY_CLI_PREFLIGHT_PASS=true")
         print("INSTALLER_INDEX_OWNERSHIP_PRESERVED=true")
         print("RUNNER_HAS_DOCKER_GROUP=false")
         print("RAW_EVIDENCE_EXPORT_AUTHORIZED=false")
