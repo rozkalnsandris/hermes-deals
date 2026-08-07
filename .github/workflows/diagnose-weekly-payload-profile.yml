@@ -1,0 +1,207 @@
+name: Diagnose weekly payload profile
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly:
+    name: RPi5 weekly payload aggregate profile
+    if: >-
+      github.event.pull_request.head.ref == 'diag/260-weekly-payload-profile' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'rozkalnsandris'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-release]
+    timeout-minutes: 5
+    steps:
+      - name: Measure aggregate JSON field cost
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          from collections import Counter
+          from datetime import datetime, timedelta
+          import gzip
+          import ipaddress
+          import json
+          import subprocess
+          from time import perf_counter
+          from urllib.parse import urlencode
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
+
+          opener = build_opener(ProxyHandler({}))
+          UI_REQUIRED = {
+              "offer_candidate_id",
+              "source_chain",
+              "product_name_raw",
+              "brand_raw",
+              "package_text_raw",
+              "price_eur",
+              "regular_price_eur",
+              "unit_price_eur",
+              "unit_label",
+              "pricing_mode",
+              "discount_percent",
+              "app_price_eur",
+              "valid_from",
+              "valid_until",
+              "app_valid_from",
+              "app_valid_until",
+              "source_url",
+              "source_image_url",
+              "canonical_product_id",
+              "canonical_comparable",
+              "is_daily_special",
+              "special_valid_on",
+              "special_confidence",
+              "deposit_eur",
+          }
+
+          def parse_local(value: str):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit():
+                  return None
+              if host in {"*", "0.0.0.0", "::", ""}:
+                  host = "127.0.0.1"
+              if "%" in host:
+                  host = host.split("%", 1)[0]
+              try:
+                  parsed = ipaddress.ip_address(host)
+              except ValueError:
+                  return None
+              url_host = f"[{parsed.compressed}]" if parsed.version == 6 else parsed.compressed
+              return f"http://{url_host}:{int(port)}"
+
+          def fetch(base: str, path: str, timeout: float = 10.0):
+              request = Request(
+                  base + path,
+                  headers={
+                      "Accept": "application/json",
+                      "Cache-Control": "no-cache",
+                      "Pragma": "no-cache",
+                      "User-Agent": "hermes-deals-weekly-payload-profile/1",
+                  },
+              )
+              started = perf_counter()
+              with opener.open(request, timeout=timeout) as response:
+                  body = response.read()
+                  return response.status, response.headers, body, (perf_counter() - started) * 1000
+
+          sockets = subprocess.run(
+              ["ss", "-H", "-ltn"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) >= 4:
+                  candidate = parse_local(parts[3])
+                  if candidate and candidate not in candidates:
+                      candidates.append(candidate)
+
+          base = None
+          for candidate in candidates:
+              try:
+                  status, _, body, _ = fetch(candidate, "/api/health", 0.8)
+                  health = json.loads(body)
+              except Exception:
+                  continue
+              if status == 200 and health.get("status") == "ok" and health.get("service") == "hermes-deals-api":
+                  base = candidate
+                  break
+          if base is None:
+              raise SystemExit("production origin not found")
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          path = "/api/v1/deals/weekly-specials?" + urlencode({"week_start": week_start.isoformat()})
+          status, headers, body, wall_ms = fetch(base, path)
+          if status != 200:
+              raise SystemExit(f"weekly endpoint returned HTTP {status}")
+          payload = json.loads(body)
+          if payload.get("source_contract") != "single_week_query_short_periods_plus_explicit_immutable_daily_evidence":
+              raise SystemExit("weekly source contract mismatch")
+
+          deals = [deal for day in payload.get("days") or [] for deal in day.get("deals") or []]
+          if len(deals) != int(payload.get("count", -1)):
+              raise SystemExit("weekly deal count mismatch")
+
+          compact_json = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+          def transform_deals(mode: str):
+              out = dict(payload)
+              out_days = []
+              for day in payload.get("days") or []:
+                  next_day = dict(day)
+                  rows = []
+                  for deal in day.get("deals") or []:
+                      if mode == "non_null":
+                          rows.append({key: value for key, value in deal.items() if value is not None})
+                      elif mode == "ui_required":
+                          rows.append({key: value for key, value in deal.items() if key in UI_REQUIRED})
+                      elif mode == "ui_required_non_null":
+                          rows.append({key: value for key, value in deal.items() if key in UI_REQUIRED and value is not None})
+                      else:
+                          raise ValueError(mode)
+                  next_day["deals"] = rows
+                  out_days.append(next_day)
+              out["days"] = out_days
+              return out
+
+          variants = {
+              "original": body,
+              "canonical_compact": compact_json(payload),
+              "non_null": compact_json(transform_deals("non_null")),
+              "ui_required": compact_json(transform_deals("ui_required")),
+              "ui_required_non_null": compact_json(transform_deals("ui_required_non_null")),
+          }
+
+          key_count = Counter()
+          null_count = Counter()
+          approx_bytes = Counter()
+          for deal in deals:
+              for key, value in deal.items():
+                  key_count[key] += 1
+                  if value is None:
+                      null_count[key] += 1
+                  encoded = compact_json({key: value})
+                  approx_bytes[key] += max(0, len(encoded) - 2)
+
+          original_size = len(variants["original"])
+          print(
+              "WEEKLY_PAYLOAD_SUMMARY "
+              f"week_start={week_start.isoformat()} deals={len(deals)} "
+              f"cache={headers.get('X-Hermes-Weekly-Cache')} wall_ms={wall_ms:.2f} "
+              f"original_bytes={original_size} original_gzip_bytes={len(gzip.compress(variants['original']))}"
+          )
+          for name in ("canonical_compact", "non_null", "ui_required", "ui_required_non_null"):
+              raw = variants[name]
+              print(
+                  "WEEKLY_PAYLOAD_VARIANT "
+                  f"name={name} bytes={len(raw)} ratio={len(raw)/original_size:.3f} "
+                  f"gzip_bytes={len(gzip.compress(raw))} gzip_ratio={len(gzip.compress(raw))/len(gzip.compress(variants['original'])):.3f}"
+              )
+
+          print("WEEKLY_PAYLOAD_FIELDS count=" + str(len(key_count)))
+          for key, size in approx_bytes.most_common():
+              print(
+                  "WEEKLY_PAYLOAD_FIELD "
+                  f"key={key} occurrences={key_count[key]} nulls={null_count[key]} approx_bytes={size}"
+              )
+
+          missing = sorted(UI_REQUIRED - set(key_count))
+          print("WEEKLY_UI_PROFILE_FIELDS count=" + str(len(UI_REQUIRED)) + " missing=" + (",".join(missing) if missing else "none"))
+          assert not missing
+          PY
