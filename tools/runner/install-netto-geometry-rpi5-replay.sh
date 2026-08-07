@@ -87,9 +87,18 @@ for value in sys.argv[1:]:
     path = Path(value)
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
 PY
-/usr/bin/python3 - <<'PY'
+# PyMuPDF belongs to the unprivileged replay runtime. Validate the exact
+# interpreter as the exact OS user that will execute the workload; root's
+# Python environment is intentionally irrelevant here.
+runuser -u andris -- /usr/bin/env -i \
+  HOME=/home/andris \
+  USER=andris \
+  LOGNAME=andris \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  PYTHONDONTWRITEBYTECODE=1 \
+  /usr/bin/python3 - <<'PY'
 import importlib.metadata
-import fitz
+import pymupdf
 version = importlib.metadata.version("PyMuPDF")
 if version != "1.28.0":
     raise SystemExit(f"PyMuPDF 1.28.0 required, found {version}")
@@ -185,9 +194,18 @@ for pair in \
   [[ "$(sha256sum "$path" | awk '{print $1}')" == "$expected_hash" ]] || fail "registered runtime member content drift: $path"
 done
 
-/usr/bin/python3 - <<'PY'
+# The dispatcher is root-owned, but the PDF workload is not. Dependency
+# validation must therefore run as andris with the same clean runtime identity
+# used below for the replay itself.
+runuser -u andris -- /usr/bin/env -i \
+  HOME=/home/andris \
+  USER=andris \
+  LOGNAME=andris \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  PYTHONDONTWRITEBYTECODE=1 \
+  /usr/bin/python3 - <<'PY'
 import importlib.metadata
-import fitz
+import pymupdf
 version = importlib.metadata.version("PyMuPDF")
 if version != "1.28.0":
     raise SystemExit(f"PyMuPDF 1.28.0 required, found {version}")
@@ -332,7 +350,7 @@ visudo -cf "$SUDOERS" >/dev/null
 systemctl is-active --quiet "$RUNNER_SERVICE" || fail "GitHub Actions audit runner service is not active"
 sudo -l -U github-runner | grep -Fq "$DISPATCHER" || fail "dedicated geometry replay dispatcher sudo rule was not installed"
 
-printf 'INSTALL_RESULT=PASS\nAUDIT=netto-geometry-replay-v1\nCOMMIT_SHA=%s\nSOURCE_REPO=%s\nRUNNER_SHA256=%s\nREPLAY_TOOL_SHA256=%s\nPARSER_TOOL_SHA256=%s\nN10_SHA256=%s\nDISPATCHER_SHA256=%s\nPYMUPDF_VERSION=1.28.0\nRUNNER_HAS_DOCKER_GROUP=false\nPRODUCTION_APPLY_AUTHORIZED=false\n' \
+printf 'INSTALL_RESULT=PASS\nAUDIT=netto-geometry-replay-v1\nCOMMIT_SHA=%s\nSOURCE_REPO=%s\nRUNNER_SHA256=%s\nREPLAY_TOOL_SHA256=%s\nPARSER_TOOL_SHA256=%s\nN10_SHA256=%s\nDISPATCHER_SHA256=%s\nPYMUPDF_VERSION=1.28.0\nPYMUPDF_RUNTIME_USER=andris\nPYMUPDF_PYTHON=/usr/bin/python3\nRUNNER_HAS_DOCKER_GROUP=false\nPRODUCTION_APPLY_AUTHORIZED=false\n' \
   "$EXPECTED_SHA" \
   "$SOURCE_REPO" \
   "$RUNNER_SHA" \
