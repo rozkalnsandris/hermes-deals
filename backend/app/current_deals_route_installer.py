@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import current_deals_fast_route as fast_route
 from app.current_deals_sql_loader import (
+    capture_rank_substage_timings,
     load_sql_ranked_state_rows,
     materialize_only,
 )
@@ -24,6 +25,11 @@ _STAGE_METRICS = (
     ("filter-sort", "current-deals-filter"),
     ("canonical", "current-deals-canonical"),
     ("model", "current-deals-model"),
+)
+_RANK_SUBSTAGE_METRICS = (
+    ("winner", "current-deals-winner"),
+    ("rescue", "current-deals-rescue"),
+    ("materialize", "current-deals-materialize"),
 )
 
 # Keep the public response/filtering implementation in one place while
@@ -49,6 +55,7 @@ def _duration(timings: dict[str, object], key: str) -> float | None:
 def _server_timing_header(
     total_ms: float,
     timings: dict[str, object],
+    rank_timings: dict[str, float] | None = None,
 ) -> str:
     # Preserve the legacy leading metric while adding standards-compliant
     # comma-separated backend stages. Generic stage names intentionally avoid
@@ -66,8 +73,14 @@ def _server_timing_header(
 
     for timing_key, metric_name in _STAGE_METRICS:
         stage_ms = _duration(timings, timing_key)
-        if stage_ms is not None:
-            metrics.append(f"{metric_name};dur={stage_ms:.1f}")
+        if stage_ms is None:
+            continue
+        metrics.append(f"{metric_name};dur={stage_ms:.1f}")
+        if timing_key == "rank" and rank_timings:
+            for substage_key, substage_metric in _RANK_SUBSTAGE_METRICS:
+                substage_ms = _duration(rank_timings, substage_key)
+                if substage_ms is not None:
+                    metrics.append(f"{substage_metric};dur={substage_ms:.1f}")
 
     return ", ".join(metrics)
 
@@ -97,25 +110,27 @@ def installed_fast_current_deals(
 
     started = perf_counter()
     with fast_route.capture_current_deals_timings() as timings:
-        with materialize_only(view):
-            payload = fast_route.fast_current_deals(
-                as_of=as_of,
-                q=q,
-                retailer=retailer,
-                view=view,
-                app_only=app_only,
-                coupon_only=coupon_only,
-                discount_only=discount_only,
-                image_only=image_only,
-                sort=sort,
-                offset=offset,
-                limit=limit,
-                db=db,
-            )
+        with capture_rank_substage_timings() as rank_timings:
+            with materialize_only(view):
+                payload = fast_route.fast_current_deals(
+                    as_of=as_of,
+                    q=q,
+                    retailer=retailer,
+                    view=view,
+                    app_only=app_only,
+                    coupon_only=coupon_only,
+                    discount_only=discount_only,
+                    image_only=image_only,
+                    sort=sort,
+                    offset=offset,
+                    limit=limit,
+                    db=db,
+                )
     duration_ms = (perf_counter() - started) * 1000
     response.headers["Server-Timing"] = _server_timing_header(
         duration_ms,
         timings,
+        rank_timings,
     )
     response.headers["Cache-Control"] = (
         "private, max-age=15, stale-while-revalidate=45"

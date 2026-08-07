@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from time import perf_counter
 from typing import Any, Iterator
 from uuid import UUID
 
@@ -17,6 +18,10 @@ from app.models import OfferCandidateRecord
 _ACTIVE_STATES = frozenset({"current", "upcoming"})
 _MATERIALIZE_STATE: ContextVar[str | None] = ContextVar(
     "hermes_current_deals_materialize_state",
+    default=None,
+)
+_RANK_SUBSTAGE_TIMINGS: ContextVar[dict[str, float] | None] = ContextVar(
+    "hermes_current_deals_rank_substage_timings",
     default=None,
 )
 
@@ -55,6 +60,24 @@ def materialize_only(state: str) -> Iterator[None]:
         yield
     finally:
         _MATERIALIZE_STATE.reset(token)
+
+
+@contextmanager
+def capture_rank_substage_timings() -> Iterator[dict[str, float]]:
+    """Capture request-local timing for the SQL rank loader internals."""
+
+    timings: dict[str, float] = {}
+    token = _RANK_SUBSTAGE_TIMINGS.set(timings)
+    try:
+        yield timings
+    finally:
+        _RANK_SUBSTAGE_TIMINGS.reset(token)
+
+
+def _record_rank_substage(name: str, started: float) -> None:
+    timings = _RANK_SUBSTAGE_TIMINGS.get()
+    if timings is not None:
+        timings[name] = (perf_counter() - started) * 1000
 
 
 def _state_expression(effective_date: date):
@@ -260,6 +283,7 @@ def load_sql_ranked_state_rows(
     are loaded only for the current *or* upcoming view being rendered.
     """
 
+    winner_started = perf_counter()
     result = db.execute(_winner_metadata_query(effective_date)).all()
     winners = [
         _WinnerMeta(
@@ -278,8 +302,13 @@ def load_sql_ranked_state_rows(
         )
         for row in result
     ]
-    visible = _suppress_physical_rescue_duplicates(winners)
+    _record_rank_substage("winner", winner_started)
 
+    rescue_started = perf_counter()
+    visible = _suppress_physical_rescue_duplicates(winners)
+    _record_rank_substage("rescue", rescue_started)
+
+    materialize_started = perf_counter()
     requested_state = _MATERIALIZE_STATE.get()
     materialized_states = (
         frozenset({requested_state})
@@ -312,4 +341,5 @@ def load_sql_ranked_state_rows(
                     _InactiveWinner(source_chain=winner.source_chain),
                 )
             )
+    _record_rank_substage("materialize", materialize_started)
     return state_rows
