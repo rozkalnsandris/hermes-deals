@@ -561,6 +561,12 @@ def _normalize_ui_payload(payload: WeeklySpecialsOut) -> WeeklyUiSpecialsOut:
     )
 
 
+def _ui_payload_body(payload: WeeklySpecialsOut) -> bytes:
+    return _normalize_ui_payload(payload).model_dump_json(
+        exclude_none=True
+    ).encode("utf-8")
+
+
 def _cache_headers(
     etag: str,
     elapsed_ms: float,
@@ -664,6 +670,12 @@ def weekly_specials(
 
     _assert_read_only_session(db)
     payload = _build_payload(db, week_start)
+    ui_body = _ui_payload_body(payload)
+    _store_weekly_response(
+        cache=_UI_CACHE,
+        week_start=week_start,
+        body=ui_body,
+    )
     body = payload.model_dump_json().encode("utf-8")
     etag = _store_weekly_response(
         cache=_CACHE,
@@ -709,8 +721,7 @@ def weekly_specials_ui(
         return cached_response
 
     _assert_read_only_session(db)
-    payload = _normalize_ui_payload(_build_payload(db, week_start))
-    body = payload.model_dump_json(exclude_none=True).encode("utf-8")
+    body = _ui_payload_body(_build_payload(db, week_start))
     etag = _store_weekly_response(
         cache=_UI_CACHE,
         week_start=week_start,
