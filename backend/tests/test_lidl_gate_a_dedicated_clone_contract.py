@@ -31,6 +31,14 @@ def test_lidl_dedicated_clone_keeps_unprivileged_read_only_git_checks() -> None:
     assert "runuser -u andris -- env HOME=/home/andris GIT_OPTIONAL_LOCKS=0" in installer
     assert "GIT_OPTIONAL_LOCKS=0 git -C" in finalizer
 
-    for text in (runner, installer, finalizer):
-        assert "audit repository origin is not allowlisted" in text or "audit origin is not allowlisted" in text
-        assert "audit Git index" in text
+    assert "audit origin is not allowlisted" in runner
+    assert "AUDIT_INDEX_SHA_BEFORE=" in runner
+    assert "AUDIT_GIT_INDEX_UNCHANGED=true" in runner
+
+    assert "audit origin is not allowlisted" in installer
+    assert "INDEX_SHA_BEFORE=" in installer
+    assert "AUDIT_GIT_INDEX_UNCHANGED=true" in installer
+
+    assert "audit repository origin is not allowlisted" in finalizer
+    assert "AUDIT_INDEX_REGISTERED=" in finalizer
+    assert "AUDIT_INDEX_STATE_REGISTERED=" in finalizer
