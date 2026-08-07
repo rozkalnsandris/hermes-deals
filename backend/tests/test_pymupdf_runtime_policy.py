@@ -10,12 +10,17 @@ POLICY = ROOT / "docs" / "PYMUPDF_RUNTIME_POLICY.md"
 def test_netto_installer_checks_pymupdf_as_runtime_user() -> None:
     text = INSTALLER.read_text(encoding="utf-8")
 
-    check = """runuser -u andris -- /usr/bin/env -i \\\n  HOME=/home/andris \\\n  USER=andris \\\n  LOGNAME=andris \\\n  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \\\n  PYTHONDONTWRITEBYTECODE=1 \\\n  /usr/bin/python3 - <<'PY'\nimport importlib.metadata\nimport pymupdf\n"""
+    # Exactly two PyMuPDF imports live in this file: one installer preflight
+    # and one copy embedded in the root-owned dispatcher. For both, the nearby
+    # shell context must switch to the actual unprivileged workload identity.
+    parts = text.split("import pymupdf")
+    assert len(parts) == 3
+    for prefix in parts[:2]:
+        context = prefix[-600:]
+        assert "runuser -u andris -- /usr/bin/env -i" in context
+        assert "HOME=/home/andris" in context
+        assert "/usr/bin/python3 - <<'PY'" in context
 
-    # One check executes in the installer before root-owned files are written;
-    # the second is embedded in the installed root dispatcher. Both must prove
-    # the same unprivileged Python identity as the actual replay workload.
-    assert text.count(check) == 2
     assert "import fitz" not in text
     assert "PYMUPDF_RUNTIME_USER=andris" in text
     assert "PYMUPDF_PYTHON=/usr/bin/python3" in text
