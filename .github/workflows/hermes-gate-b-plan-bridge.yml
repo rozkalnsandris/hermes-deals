@@ -1,0 +1,246 @@
+name: Hermes Lidl Gate B plan bridge
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-gate-b-plan-bridge
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize owner Gate B plan command
+    if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/hermes-gate-b-plan ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      gate_a_run_id: ${{ steps.authorize.outputs.gate_a_run_id }}
+      gate_a_run_attempt: ${{ steps.authorize.outputs.gate_a_run_attempt }}
+      gate_a_run_key: ${{ steps.authorize.outputs.gate_a_run_key }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+
+    steps:
+      - name: Checkout default-branch bridge code
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Validate exact owner command and Gate B runtime
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_gate_b_plan_bridge.py
+
+  rpi5-plan:
+    name: Run allowlisted Gate B read-only planner on RPi5
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 30
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      reason: ${{ steps.inspect.outputs.reason }}
+      plan_fingerprint: ${{ steps.inspect.outputs.plan_fingerprint }}
+      destination_name: ${{ steps.inspect.outputs.destination_name }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+
+    steps:
+      - name: Create private artifact directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-lidl-gate-b-plan-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run fixed root-owned Gate B plan dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          GATE_A_RUN_ID: ${{ needs.authorize.outputs.gate_a_run_id }}
+          GATE_A_RUN_ATTEMPT: ${{ needs.authorize.outputs.gate_a_run_attempt }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-gate-b-plan-dispatch \
+            "$REGISTERED_SHA" "$GATE_A_RUN_ID" "$GATE_A_RUN_ATTEMPT" "$ARTIFACT_DIR"
+          runner_rc=$?
+          set -e
+          echo "runner_rc=$runner_rc" >> "$GITHUB_OUTPUT"
+          if [[ "$runner_rc" -ne 0 && "$runner_rc" -ne 30 ]]; then
+            echo "unexpected Gate B plan dispatcher exit code: $runner_rc" >&2
+            exit 1
+          fi
+
+      - name: Inspect sanitized Gate B plan evidence
+        id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          EXPECTED_RUN_KEY: ${{ needs.authorize.outputs.gate_a_run_key }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          root = Path(os.environ["ARTIFACT_DIR"]) / "audit-evidence"
+          manifest = json.loads(
+              (root / "dispatcher-evidence-manifest.json").read_text(encoding="utf-8")
+          )
+          summary = json.loads(
+              (root / "gate-b-plan-summary.json").read_text(encoding="utf-8")
+          )
+          expected = {
+              "audit": "lidl-gate-b-plan",
+              "commit_sha": os.environ["EXPECTED_SHA"],
+              "gate_a_run_key": os.environ["EXPECTED_RUN_KEY"],
+              "sanitization_passed": True,
+              "corpus_write_authorized": False,
+              "parser_scan_authorized": False,
+              "database_write_authorized": False,
+              "review_write_authorized": False,
+              "production_publish_authorized": False,
+              "production_deploy_authorized": False,
+              "systemd_change_authorized": False,
+              "automatic_retry_authorized": False,
+              "gate_c_d_authorized": False,
+          }
+          for key, value in expected.items():
+              if manifest.get(key) != value:
+                  raise SystemExit(f"dispatcher manifest mismatch: {key}")
+
+          state = str(summary.get("result") or "")
+          if state not in {"READY_TO_FREEZE", "BLOCKED"}:
+              raise SystemExit("unsupported Gate B plan result")
+          runner_rc = int(os.environ["RUNNER_RC"])
+          if state == "READY_TO_FREEZE" and runner_rc != 0:
+              raise SystemExit("READY_TO_FREEZE result/exit mismatch")
+          if state == "BLOCKED" and runner_rc != 30:
+              raise SystemExit("BLOCKED result/exit mismatch")
+
+          fingerprint = str(summary.get("plan_fingerprint") or "")
+          if state == "READY_TO_FREEZE":
+              if re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+                  raise SystemExit("plan fingerprint is invalid")
+          elif fingerprint:
+              raise SystemExit("BLOCKED result must not expose a fingerprint")
+
+          destination = str(summary.get("destination_name") or "")
+          if state == "READY_TO_FREEZE" and not destination:
+              raise SystemExit("destination name is missing")
+          if state == "BLOCKED" and destination:
+              raise SystemExit("BLOCKED result must not expose a destination")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"result={state}\n")
+              reason = str(summary.get("reason") or "").replace("\n", " ")[:240]
+              handle.write(f"reason={reason}\n")
+              handle.write(f"plan_fingerprint={fingerprint}\n")
+              handle.write(f"destination_name={destination}\n")
+          PY
+
+      - name: Upload sanitized Gate B plan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-gate-b-plan-bridge-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/audit-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    name: Report sanitized Gate B plan bridge result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - rpi5-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment result on command issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          RUNTIME_PR: ${{ needs.authorize.outputs.pr_number }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          GATE_A_RUN_KEY: ${{ needs.authorize.outputs.gate_a_run_key }}
+          RESULT: ${{ needs.rpi5-plan.outputs.result }}
+          REASON: ${{ needs.rpi5-plan.outputs.reason }}
+          PLAN_FINGERPRINT: ${{ needs.rpi5-plan.outputs.plan_fingerprint }}
+          DESTINATION_NAME: ${{ needs.rpi5-plan.outputs.destination_name }}
+          RUNNER_RC: ${{ needs.rpi5-plan.outputs.runner_rc }}
+          PLAN_JOB_RESULT: ${{ needs.rpi5-plan.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          body = (
+              "## Hermes Gate B plan bridge result\n\n"
+              f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+              f"- workflow job: `{os.environ['PLAN_JOB_RESULT']}`\n"
+              f"- result: `{os.environ.get('RESULT') or 'UNAVAILABLE'}`\n"
+              f"- reason: `{os.environ.get('REASON') or 'inspection did not complete'}`\n"
+              f"- runtime PR / SHA: `#{os.environ['RUNTIME_PR']}` / `{os.environ['REGISTERED_SHA']}`\n"
+              f"- retained Gate A run: `{os.environ['GATE_A_RUN_KEY']}`\n"
+              f"- plan fingerprint: `{os.environ.get('PLAN_FINGERPRINT') or 'none'}`\n"
+              f"- destination: `{os.environ.get('DESTINATION_NAME') or 'none'}`\n"
+              f"- dispatcher exit code: `{os.environ.get('RUNNER_RC') or 'unknown'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              "Safety: read-only planning only. No corpus write, authorization file, "
+              "parser scan, DB/Review write, publication, deploy, systemd change, "
+              "retry or Gate C/D action was authorized."
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=json.dumps({"body": body}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-gate-b-plan-bridge-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
