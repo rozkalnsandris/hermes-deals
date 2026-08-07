@@ -20,6 +20,7 @@ from app.aldi_nord_daily_special import (
     AldiNordDailySpecialError,
     cached_aldi_nord_daily_specials,
 )
+from app.branding_overlay_api import router as branding_router
 from app.completeness_rescue_read import (
     dedupe_completeness_rescue_publications,
 )
@@ -34,6 +35,7 @@ from app.netto_daily_special_api import (
 
 
 router = APIRouter()
+router.include_router(branding_router)
 _TIMEZONE = "Europe/Berlin"
 _WEEK_DAYS = 7
 _SPECIAL_MAX_DAYS = 3
