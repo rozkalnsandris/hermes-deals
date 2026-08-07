@@ -37,7 +37,9 @@ EXIT_CODES = {
     WAIT_STATE: 20,
     BLOCKED_STATE: 30,
 }
-WAIT_RESULTS = frozenset({"WAIT_SOURCE", "WAIT_SCAN", "WAIT_PROFILE"})
+WAIT_RESULTS = frozenset(
+    {"WAIT_SOURCE", "WAIT_SCAN", "WAIT_PROFILE", "WAIT_SOURCE_REVIEW"}
+)
 BLOCKED_RESULTS = frozenset({"BLOCKED_SOURCE_DRIFT", "BLOCKED_PARSER_DRIFT"})
 SAFETY_FLAGS = (
     "dry_run",
@@ -114,6 +116,9 @@ def _ready_fingerprint(status: Mapping[str, Any]) -> str:
         "stable_source_identity_sha256": str(
             corpus_match.get("stable_source_identity_sha256") or ""
         ),
+        "parser_input_identity_sha256": str(
+            corpus_match.get("parser_input_identity_sha256") or ""
+        ),
         "parser_version": str(status.get("parser_version") or ""),
         "parser_sha256": str(status.get("parser_sha256") or ""),
         "review_profile": dict(review_profile),
@@ -124,14 +129,21 @@ def _ready_fingerprint(status: Mapping[str, Any]) -> str:
         "scan",
         "source_pdf_sha256",
         "stable_source_identity_sha256",
+        "parser_input_identity_sha256",
         "parser_version",
         "parser_sha256",
     ):
         _require(bool(identity[key]), f"READY fingerprint field is missing: {key}")
-    for key in ("source_pdf_sha256", "stable_source_identity_sha256", "parser_sha256"):
+    for key in (
+        "source_pdf_sha256",
+        "stable_source_identity_sha256",
+        "parser_input_identity_sha256",
+        "parser_sha256",
+    ):
         value = str(identity[key])
         _require(
-            len(value) == 64 and all(character in "0123456789abcdef" for character in value),
+            len(value) == 64
+            and all(character in "0123456789abcdef" for character in value),
             f"READY fingerprint field is not SHA256: {key}",
         )
     return _canonical_digest(identity)
