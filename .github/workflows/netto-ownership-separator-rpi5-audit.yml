@@ -228,7 +228,11 @@ jobs:
     needs:
       - authorize
       - rpi5-audit
-    if: always() && github.event_name == 'pull_request_target'
+    if: >-
+      always() &&
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-ownership-separator-v1'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -240,7 +244,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
           AUTHORIZE_RESULT: ${{ needs.authorize.result }}
           AUDIT_RESULT: ${{ needs.rpi5-audit.result }}
