@@ -115,6 +115,25 @@ These are deployed/reviewed pins, not a claim that every pin will always remain 
 `make clean` deliberately preserves `data/raw/`, `audit/`, `.codex/evidence/`,
 local databases and backup archives.
 
+## Shared ingress ownership
+
+`deals.rozkalns.net` is an Access-protected published application, but the
+shared Cloudflare Tunnel connector is **not** part of Hermes Deals.
+
+- `RPi5_main` owns the host systemd `cloudflared.service` and its credential;
+- Cloudflare remotely manages the published route and Access policy;
+- Hermes Deals owns only its application origin and its local/public health
+  verification;
+- Hermes Deals deploy, rollback, diagnostics and monitoring must never install,
+  restart, replace, reconcile or roll back the shared connector;
+- no shared Tunnel credential belongs in this repository, its Compose runtime,
+  GitHub issues/PRs or deployment evidence.
+
+A Tunnel/public-edge failure may be diagnosed from this repository, but any
+connector lifecycle action belongs to host infrastructure. Historical incident
+instructions that assumed an application-owned Cloudflared runtime are
+superseded by this boundary.
+
 ## Operations runbooks
 
 - [Cloudflare Access service authentication for automated deploy checks](docs/operations/CLOUDFLARE_ACCESS_SERVICE_AUTH.md) — diagnose Access sign-in HTML, configure Service Tokens and GitHub secrets, verify automatic RPi5 deploys, and rotate credentials safely.
