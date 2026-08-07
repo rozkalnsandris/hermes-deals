@@ -62,6 +62,21 @@ def test_workflow_uses_least_privilege_and_immutable_artifact_action() -> None:
     ) in source
 
 
+def test_report_metadata_failures_cannot_mask_successful_replay_evidence() -> None:
+    source = text(WORKFLOW)
+    report = source.split("\n  report:\n", 1)[1]
+    assert "Report metadata without masking replay evidence" in report
+    assert "def best_effort_comment()" in report
+    assert "def best_effort_label_cleanup()" in report
+    assert "best_effort_comment()" in report
+    assert "best_effort_label_cleanup()" in report
+    assert "error.read(2048)" in report
+    assert "REPORT_COMMENT=FAIL" in report
+    assert "REPLAY_LABEL_CLEANUP=FAIL" in report
+    assert "REPORT_METADATA_BEST_EFFORT=PASS" in report
+    assert "raise" not in report
+
+
 def test_runner_is_exact_evidence_only_and_fail_closed() -> None:
     source = text(RUNNER)
     assert "/usr/bin/python3" in source
