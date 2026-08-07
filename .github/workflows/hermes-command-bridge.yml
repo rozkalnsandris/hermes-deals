@@ -1,0 +1,262 @@
+name: Hermes Deals command bridge
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-command-bridge-lidl-gate-a
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize allowlisted owner command
+    if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/hermes-bridge ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      target: ${{ steps.authorize.outputs.target }}
+      as_of: ${{ steps.authorize.outputs.as_of }}
+      use_previous: ${{ steps.authorize.outputs.use_previous }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+
+    steps:
+      - name: Checkout default-branch bridge code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate exact command and merged runtime PR
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_command_bridge.py
+
+  lidl-gate-a:
+    name: Run allowlisted Lidl Gate A on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.operation == 'lidl-gate-a'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      reason: ${{ steps.inspect.outputs.reason }}
+      fingerprint: ${{ steps.inspect.outputs.fingerprint }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+
+    steps:
+      - name: Create private artifact directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-lidl-gate-a-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run fixed root-owned dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          TARGET: ${{ needs.authorize.outputs.target }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          USE_PREVIOUS: ${{ needs.authorize.outputs.use_previous }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-weekly-gate-a-dispatch \
+            "$REGISTERED_SHA" "$TARGET" "$AS_OF" "$USE_PREVIOUS" "$ARTIFACT_DIR"
+          runner_rc=$?
+          set -e
+          echo "runner_rc=$runner_rc" >> "$GITHUB_OUTPUT"
+          if [[ "$runner_rc" -ne 0 && "$runner_rc" -ne 30 ]]; then
+            echo "unexpected dispatcher exit code: $runner_rc" >&2
+          fi
+
+      - name: Inspect sanitized Gate A evidence
+        id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          EXPECTED_TARGET: ${{ needs.authorize.outputs.target }}
+          EXPECTED_AS_OF: ${{ needs.authorize.outputs.as_of }}
+          EXPECTED_PREVIOUS: ${{ needs.authorize.outputs.use_previous }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["ARTIFACT_DIR"]) / "audit-evidence"
+          manifest = json.loads((root / "dispatcher-evidence-manifest.json").read_text(encoding="utf-8"))
+          summary = json.loads((root / "gate-a-summary.json").read_text(encoding="utf-8"))
+          expected = {
+              "audit": "lidl-weekly-gate-a",
+              "commit_sha": os.environ["EXPECTED_SHA"],
+              "target": os.environ["EXPECTED_TARGET"],
+              "as_of": os.environ["EXPECTED_AS_OF"],
+              "use_previous": os.environ["EXPECTED_PREVIOUS"] == "true",
+              "sanitization_passed": True,
+              "production_apply_authorized": False,
+          }
+          for key, value in expected.items():
+              if manifest.get(key) != value:
+                  raise SystemExit(f"dispatcher manifest mismatch: {key}")
+          state = str(summary.get("result") or "")
+          if state not in {"READY", "NO_OP", "WAIT", "BLOCKED"}:
+              raise SystemExit("unsupported Gate A result")
+          runner_rc = int(os.environ["RUNNER_RC"])
+          if state == "BLOCKED" and runner_rc != 30:
+              raise SystemExit("BLOCKED result/exit mismatch")
+          if state != "BLOCKED" and runner_rc != 0:
+              raise SystemExit("non-BLOCKED result/exit mismatch")
+          for key in (
+              "corpus_write_authorized",
+              "database_write_authorized",
+              "review_write_authorized",
+              "production_publish_authorized",
+              "production_deploy_authorized",
+              "systemd_change_authorized",
+              "bounded_retry_authorized",
+          ):
+              if summary.get(key) is not False:
+                  raise SystemExit(f"unsafe Gate A authority flag: {key}")
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          fingerprint = str(summary.get("execution_fingerprint") or "")
+          reason = str(summary.get("reason") or "").replace("\n", " ")[:240]
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"result={state}\n")
+              handle.write(f"reason={reason}\n")
+              handle.write(f"fingerprint={fingerprint}\n")
+          PY
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-command-bridge-lidl-gate-a-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/audit-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Enforce Gate A blocker
+        if: always()
+        env:
+          RESULT: ${{ steps.inspect.outputs.result }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RESULT" != "BLOCKED" ]] || {
+            echo "Gate A failed closed with BLOCKED." >&2
+            exit 1
+          }
+          [[ "$RUNNER_RC" == "0" ]] || {
+            echo "Gate A dispatcher failed with exit $RUNNER_RC." >&2
+            exit 1
+          }
+
+  report:
+    name: Report sanitized bridge result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - lidl-gate-a
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment result on command issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          OPERATION: ${{ needs.authorize.outputs.operation }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          TARGET: ${{ needs.authorize.outputs.target }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          USE_PREVIOUS: ${{ needs.authorize.outputs.use_previous }}
+          RESULT: ${{ needs.lidl-gate-a.outputs.result }}
+          REASON: ${{ needs.lidl-gate-a.outputs.reason }}
+          FINGERPRINT: ${{ needs.lidl-gate-a.outputs.fingerprint }}
+          RUNNER_RC: ${{ needs.lidl-gate-a.outputs.runner_rc }}
+          AUDIT_JOB_RESULT: ${{ needs.lidl-gate-a.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ.get("RESULT") or "UNAVAILABLE"
+          reason = os.environ.get("REASON") or "evidence inspection did not complete"
+          fingerprint = os.environ.get("FINGERPRINT") or "none"
+          body = (
+              "## Hermes command bridge result\n\n"
+              f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+              f"- operation: `{os.environ['OPERATION']}`\n"
+              f"- workflow job: `{os.environ['AUDIT_JOB_RESULT']}`\n"
+              f"- Gate A state: `{result}`\n"
+              f"- reason: `{reason}`\n"
+              f"- runtime PR / SHA: `#{os.environ['PR_NUMBER']}` / `{os.environ['REGISTERED_SHA']}`\n"
+              f"- target / as-of: `{os.environ['TARGET']}` / `{os.environ['AS_OF']}`\n"
+              f"- previous manifest requested: `{os.environ['USE_PREVIOUS']}`\n"
+              f"- execution fingerprint: `{fingerprint}`\n"
+              f"- dispatcher exit code: `{os.environ.get('RUNNER_RC') or 'unknown'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              "Safety: the bridge exposes no arbitrary shell command and authorized no "
+              "production DB write, Review write, publication, deploy, systemd change, "
+              "or automatic retry."
+          )
+          payload = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-command-bridge-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
