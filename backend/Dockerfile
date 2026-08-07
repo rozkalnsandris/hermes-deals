@@ -17,12 +17,12 @@ COPY app ./app
 # receives a self-contained HTML document so nginx needs to proxy only /ui.
 RUN python -m app.ui_bundle --ui-dir /app/app/ui
 
-# Release-control worktrees are intentionally private (0700/0600). Docker COPY
-# preserves local build-context modes, so normalize runtime source readability
-# after all generated UI files exist. This keeps non-root collector execution
-# independent of the staging umask without making source files executable.
-RUN chmod -R a+rX /app/app /app/alembic \
-    && chmod a+r /app/alembic.ini
+# Local build contexts preserve source permission metadata. Normalize the final
+# runtime tree to exact modes after generated UI files exist so non-root
+# collectors can read/traverse it and the image is independent of source umask.
+RUN find /app/app /app/alembic -type d -exec chmod 0755 {} + \
+    && find /app/app /app/alembic -type f -exec chmod 0644 {} + \
+    && chmod 0644 /app/alembic.ini
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
