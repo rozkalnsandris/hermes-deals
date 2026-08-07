@@ -22,11 +22,18 @@ def test_dockerfile_normalizes_runtime_permissions_after_ui_bundle() -> None:
         "RUN chmod -R a+rX /app/app /app/alembic \\\n"
         "    && chmod a+r /app/alembic.ini"
     )
+    expose = "EXPOSE 8000"
 
     assert copy_app in text
     assert bundle in text
     assert normalize in text
-    assert text.index(copy_app) < text.index(bundle) < text.index(normalize)
+    assert expose in text
+    assert (
+        text.index(copy_app)
+        < text.index(bundle)
+        < text.index(normalize)
+        < text.index(expose)
+    )
 
 
 def test_runtime_permission_command_repairs_private_release_context(tmp_path: Path) -> None:
