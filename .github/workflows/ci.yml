@@ -1,4 +1,4 @@
-name: Hermes Deals CI
+name: Hermes Deals CI checks
 
 on:
   pull_request:
