@@ -1,0 +1,147 @@
+name: Diagnose weekly payload normalization
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly:
+    name: RPi5 weekly payload dedup profile
+    if: >-
+      github.event.pull_request.head.ref == 'diag/260-weekly-payload-profile' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'rozkalnsandris'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-release]
+    timeout-minutes: 5
+    steps:
+      - name: Measure unique-deal normalization size
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          from datetime import datetime, timedelta
+          import gzip
+          import ipaddress
+          import json
+          import subprocess
+          from urllib.parse import urlencode
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
+
+          UI_REQUIRED = {
+              "offer_candidate_id", "source_chain", "product_name_raw",
+              "brand_raw", "package_text_raw", "price_eur",
+              "regular_price_eur", "unit_price_eur", "unit_label",
+              "pricing_mode", "discount_percent", "app_price_eur",
+              "valid_from", "valid_until", "app_valid_from",
+              "app_valid_until", "source_url", "source_image_url",
+              "canonical_product_id", "canonical_comparable",
+              "is_daily_special", "special_valid_on",
+              "special_confidence", "deposit_eur",
+          }
+          opener = build_opener(ProxyHandler({}))
+
+          def parse_local(value: str):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit(): return None
+              if host in {"*", "0.0.0.0", "::", ""}: host = "127.0.0.1"
+              if "%" in host: host = host.split("%", 1)[0]
+              try: parsed = ipaddress.ip_address(host)
+              except ValueError: return None
+              return f"http://{'[' + parsed.compressed + ']' if parsed.version == 6 else parsed.compressed}:{int(port)}"
+
+          def fetch(base: str, path: str):
+              request = Request(base + path, headers={
+                  "Accept": "application/json", "Cache-Control": "no-cache",
+                  "Pragma": "no-cache", "User-Agent": "hermes-weekly-normalization-profile/1",
+              })
+              with opener.open(request, timeout=10) as response:
+                  return response.status, response.read()
+
+          sockets = subprocess.run(["ss", "-H", "-ltn"], check=True, capture_output=True, text=True).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) >= 4:
+                  candidate = parse_local(parts[3])
+                  if candidate and candidate not in candidates: candidates.append(candidate)
+
+          base = None
+          for candidate in candidates:
+              try:
+                  status, body = fetch(candidate, "/api/health")
+                  health = json.loads(body)
+              except Exception:
+                  continue
+              if status == 200 and health.get("service") == "hermes-deals-api":
+                  base = candidate
+                  break
+          if base is None: raise SystemExit("production origin not found")
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          status, body = fetch(base, "/api/v1/deals/weekly-specials?" + urlencode({"week_start": week_start.isoformat()}))
+          if status != 200: raise SystemExit(f"weekly HTTP {status}")
+          payload = json.loads(body)
+          days = payload.get("days") or []
+          flat = [deal for day in days for deal in day.get("deals") or []]
+          unique = {}
+          for deal in flat:
+              unique.setdefault(str(deal["offer_candidate_id"]), deal)
+
+          compact = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+          def slim(deal):
+              return {k: v for k, v in deal.items() if k in UI_REQUIRED and v is not None}
+
+          normalized_full = {
+              "week_start": payload["week_start"],
+              "week_end": payload["week_end"],
+              "timezone": payload["timezone"],
+              "count": payload["count"],
+              "source_contract": payload["source_contract"],
+              "deals": list(unique.values()),
+              "days": [
+                  {"date": day["date"], "deal_ids": [str(deal["offer_candidate_id"]) for deal in day.get("deals") or []]}
+                  for day in days
+              ],
+          }
+          normalized_non_null = dict(normalized_full)
+          normalized_non_null["deals"] = [
+              {k: v for k, v in deal.items() if v is not None}
+              for deal in unique.values()
+          ]
+          normalized_ui = dict(normalized_full)
+          normalized_ui["deals"] = [slim(deal) for deal in unique.values()]
+
+          variants = {
+              "original": body,
+              "normalized_full": compact(normalized_full),
+              "normalized_non_null": compact(normalized_non_null),
+              "normalized_ui_non_null": compact(normalized_ui),
+          }
+          original_gzip = len(gzip.compress(body))
+          duplicate_entries = len(flat) - len(unique)
+          print(
+              "WEEKLY_NORMALIZATION_SUMMARY "
+              f"week_start={week_start.isoformat()} day_entries={len(flat)} unique_deals={len(unique)} "
+              f"duplicate_day_entries={duplicate_entries} duplication_ratio={len(flat)/max(1,len(unique)):.3f}"
+          )
+          for name, raw in variants.items():
+              print(
+                  "WEEKLY_NORMALIZATION_VARIANT "
+                  f"name={name} bytes={len(raw)} ratio={len(raw)/len(body):.3f} "
+                  f"gzip_bytes={len(gzip.compress(raw))} gzip_ratio={len(gzip.compress(raw))/original_gzip:.3f}"
+              )
+          assert len(flat) == int(payload["count"])
+          assert len(unique) <= len(flat)
+          PY
