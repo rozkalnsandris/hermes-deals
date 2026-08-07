@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "strategy": "netto_n2_independent_ownership_summary_v1",
+  "source_completed_independent_ledger_sha256": "2fb5c5675d2b05b53da1f37cf4d1f66d32d152f3c7d77c0786d0400b5d30330a",
+  "source_adjudication_sha256": "59319ade8a5164b036a4f68474c36d46568c09dd9034e380c6928c15d2331088",
+  "source_n9_fixture_manifest_sha256": "2b180d67af4c5d1e586704088e3d685cff21ae2e12f3052254daf4553dd4e147",
+  "cell_count": 100,
+  "single_source_count": 88,
+  "mixed_source_count": 10,
+  "excluded_control_count": 2,
+  "mixed_cell_ids": [
+    "2073a7926a2caacc0f257767",
+    "8fb9bcf66635ef3f7ea48f37",
+    "9fe6a79f59168e85ff6657a5",
+    "a61a88509e5033091a047062",
+    "a83fb61598cbceda36c60adc",
+    "aa0f536b410f09e7a217fbb1",
+    "accc5b80ea92d1ee9495fc55",
+    "b96e8863f348bd632f74db8f",
+    "beea6693263e14fc6adca1c6",
+    "e55ba4e36345788add2001df"
+  ],
+  "excluded_control_cell_ids": [
+    "619e022fb1d7ceb380bacf6e",
+    "b21bcbac97f759564285ae49"
+  ],
+  "truth_use_contract": "adjudication_only_not_parser_or_geometry_selection"
+}
