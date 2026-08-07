@@ -10,7 +10,7 @@ from typing import Any, Iterator
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models import OfferCandidateRecord
 
@@ -51,7 +51,7 @@ class _InactiveWinner:
 
 @contextmanager
 def materialize_only(state: str) -> Iterator[None]:
-    """Materialize full ORM rows only for one public availability view."""
+    """Materialize ORM rows only for one public availability view."""
 
     if state not in _ACTIVE_STATES:
         raise ValueError(f"unsupported materialization state: {state}")
@@ -279,8 +279,11 @@ def load_sql_ranked_state_rows(
 
     Ranking runs over identity/date columns. Winner-only metadata is then used
     for the narrow completeness-rescue policy. In production, the route sets a
-    context-local requested state, so full ORM objects (and ``raw_payload``)
-    are loaded only for the current *or* upcoming view being rendered.
+    context-local requested state, so full public-path ORM columns are loaded
+    only for the current *or* upcoming view being rendered. ``raw_payload`` is
+    intentionally deferred with raiseload because rescue classification is
+    already captured in winner metadata and the public route does not consume
+    the raw source document.
     """
 
     winner_started = perf_counter()
@@ -323,9 +326,11 @@ def load_sql_ranked_state_rows(
     active_by_id: dict[UUID, OfferCandidateRecord] = {}
     if active_ids:
         active_rows = db.scalars(
-            select(OfferCandidateRecord).where(
-                OfferCandidateRecord.id.in_(active_ids)
+            select(OfferCandidateRecord)
+            .options(
+                defer(OfferCandidateRecord.raw_payload, raiseload=True)
             )
+            .where(OfferCandidateRecord.id.in_(active_ids))
         ).all()
         active_by_id = {row.id: row for row in active_rows}
 
