@@ -1,0 +1,218 @@
+name: Diagnose current deals production stages
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  current-deals-production-readonly:
+    name: RPi5 current-deals production read-only
+    if: >-
+      github.event.pull_request.head.ref == 'diag/233-production-stage-timing' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'rozkalnsandris'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-release
+    timeout-minutes: 5
+
+    steps:
+      - name: Wait for deployed stage timing and measure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          from datetime import datetime
+          import ipaddress
+          import json
+          import re
+          import subprocess
+          from time import perf_counter, sleep
+          from urllib.parse import urlencode
+          from urllib.request import Request, ProxyHandler, build_opener
+          from zoneinfo import ZoneInfo
+
+          opener = build_opener(ProxyHandler({}))
+          as_of = datetime.now(ZoneInfo("Europe/Berlin")).date().isoformat()
+          expected_engine = "sql-ranked-requested-view"
+
+          def parse_local(value: str):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit():
+                  return None
+              if host in {"*", "0.0.0.0", "::", ""}:
+                  host = "127.0.0.1"
+              if "%" in host:
+                  host = host.split("%", 1)[0]
+              try:
+                  parsed = ipaddress.ip_address(host)
+              except ValueError:
+                  return None
+              url_host = f"[{host}]" if parsed.version == 6 else host
+              return f"http://{url_host}:{int(port)}"
+
+          sockets = subprocess.run(
+              ["ss", "-H", "-ltn"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) < 4:
+                  continue
+              candidate = parse_local(parts[3])
+              if candidate and candidate not in candidates:
+                  candidates.append(candidate)
+
+          def raw_fetch(base: str, path: str, timeout: float = 10.0):
+              request = Request(
+                  base + path,
+                  headers={
+                      "Cache-Control": "no-cache",
+                      "Pragma": "no-cache",
+                      "User-Agent": "hermes-deals-stage-diagnostic/1",
+                  },
+              )
+              started = perf_counter()
+              with opener.open(request, timeout=timeout) as response:
+                  body = response.read()
+                  wall_ms = (perf_counter() - started) * 1000
+                  return response.status, response.headers, body, wall_ms
+
+          base = None
+          health = None
+          for candidate in candidates:
+              try:
+                  status, _, body, _ = raw_fetch(candidate, "/api/health", timeout=0.8)
+                  payload = json.loads(body)
+              except Exception:
+                  continue
+              if status == 200 and payload.get("service") == "hermes-deals-api":
+                  base = candidate
+                  health = payload
+                  break
+          if base is None or health is None:
+              raise SystemExit("Hermes Deals local production origin not found")
+
+          print(
+              "RPI5_ORIGIN "
+              f"base={base} version={health.get('version')} phase={health.get('phase')}"
+          )
+
+          def current_path(sort: str, limit: int = 13):
+              query = urlencode(
+                  {
+                      "as_of": as_of,
+                      "view": "current",
+                      "sort": sort,
+                      "offset": 0,
+                      "limit": limit,
+                  }
+              )
+              return f"/api/v1/deals/current?{query}"
+
+          deploy_header = ""
+          for attempt in range(19):
+              status, headers, body, wall_ms = raw_fetch(base, current_path("name", 13))
+              deploy_header = headers.get("Server-Timing", "")
+              engine = headers.get("X-Hermes-Current-Deals-Engine", "")
+              print(
+                  "RPI5_DEPLOY_WAIT "
+                  f"attempt={attempt + 1} status={status} wall_ms={wall_ms:.2f} "
+                  f"engine={engine or '(missing)'} timing={deploy_header or '(missing)'}"
+              )
+              if (
+                  status == 200
+                  and engine == expected_engine
+                  and "current-deals-rank;dur=" in deploy_header
+                  and "current-deals-cache;dur=" in deploy_header
+              ):
+                  break
+              if attempt == 18:
+                  raise AssertionError("#233 stage timing not visible in production within 180s")
+              sleep(10)
+
+          metric_re = re.compile(r"(?P<name>[a-z0-9-]+);dur=(?P<dur>[0-9.]+)(?:;desc=(?P<desc>[a-z]+))?")
+
+          def parse_timing(value: str):
+              result = {}
+              for match in metric_re.finditer(value):
+                  result[match.group("name")] = {
+                      "dur": float(match.group("dur")),
+                      "desc": match.group("desc"),
+                  }
+              return result
+
+          measurements = []
+          for index, sort in enumerate(("name", "price_asc", "price_desc", "newest", "discount_desc")):
+              limit = 17 + index
+              status, headers, body, wall_ms = raw_fetch(base, current_path(sort, limit))
+              payload = json.loads(body)
+              timing_header = headers.get("Server-Timing", "")
+              timing = parse_timing(timing_header)
+              row = {
+                  "sort": sort,
+                  "limit": limit,
+                  "status": status,
+                  "wall_ms": wall_ms,
+                  "timing": timing,
+                  "available": payload.get("available_count"),
+                  "returned": payload.get("count"),
+              }
+              measurements.append(row)
+              print(
+                  "RPI5_STAGE "
+                  f"sort={sort} limit={limit} status={status} wall_ms={wall_ms:.2f} "
+                  f"total={timing.get('current-deals-sql', {}).get('dur')} "
+                  f"cache={timing.get('current-deals-cache', {}).get('dur')} "
+                  f"cache_state={timing.get('current-deals-cache', {}).get('desc')} "
+                  f"rank={timing.get('current-deals-rank', {}).get('dur')} "
+                  f"filter={timing.get('current-deals-filter', {}).get('dur')} "
+                  f"canonical={timing.get('current-deals-canonical', {}).get('dur')} "
+                  f"model={timing.get('current-deals-model', {}).get('dur')} "
+                  f"available={row['available']} returned={row['returned']}"
+              )
+
+          warm_path = current_path("name", 17)
+          status, headers, body, warm_wall_ms = raw_fetch(base, warm_path)
+          warm_timing = parse_timing(headers.get("Server-Timing", ""))
+          print(
+              "RPI5_STAGE_WARM "
+              f"status={status} wall_ms={warm_wall_ms:.2f} "
+              f"total={warm_timing.get('current-deals-sql', {}).get('dur')} "
+              f"cache={warm_timing.get('current-deals-cache', {}).get('dur')} "
+              f"cache_state={warm_timing.get('current-deals-cache', {}).get('desc')}"
+          )
+
+          required = {
+              "current-deals-sql",
+              "current-deals-cache",
+              "current-deals-rank",
+              "current-deals-filter",
+              "current-deals-canonical",
+              "current-deals-model",
+          }
+          assert all(row["status"] == 200 for row in measurements)
+          assert all(required <= set(row["timing"]) for row in measurements)
+          assert all(
+              row["timing"]["current-deals-cache"]["desc"] == "miss"
+              for row in measurements
+          )
+          assert status == 200
+          assert warm_timing["current-deals-cache"]["desc"] == "hit"
+          assert warm_wall_ms < 250.0
+          PY
