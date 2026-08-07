@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="backend/app/ui/assets/deals-logo.svg" alt="Hermes Deals logo" width="160">
+  <img src="assets/branding/readme-banner.svg" alt="Hermes Deals project banner" width="960">
 </p>
 
 # Hermes Deals
