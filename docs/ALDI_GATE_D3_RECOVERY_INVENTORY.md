@@ -1,7 +1,8 @@
 # ALDI Gate D3 immutable recovery inventory
 
 Issue: #266  
-Hardening: #270
+Hardening: #270  
+Execution recovery: #280
 
 ## Upstream evidence
 
@@ -78,16 +79,25 @@ These limits are intentionally fail-closed. A retained archive that exceeds them
 
 ## GitHub Actions hardening
 
-Before the first real Gate D3 RPi5 execution, issue #270 narrows the execution boundary further:
+Before the first real Gate D3 RPi5 execution, issue #270 narrowed the execution boundary:
 
 - workflow default permissions are empty;
 - the hosted authorization job receives only `contents: read` and `pull-requests: read`;
-- the RPi5 self-hosted job receives no repository `GITHUB_TOKEN` permissions;
-- the hosted report job receives only `issues: write`;
+- the RPi5 self-hosted job receives no repository `GITHUB_TOKEN` write permissions;
 - direct GitHub REST calls pin API version `2022-11-28` explicitly;
-- `actions/upload-artifact` is pinned to the exact immutable action commit SHA already resolved by the verified RPi5 runner, not a mutable major-version tag.
+- `actions/upload-artifact` is pinned to an exact immutable action commit SHA, not a mutable major-version tag.
 
-This hardening does not change Gate D3 inventory decisions or the frozen 49+41 identity contract.
+The first hardened execution run `31172026468` proved these boundaries were active, but the inventory subprocess returned status `2` before a result was produced. The sanitized artifact `8991341287` contained only failure metadata and exit-code files; no page bytes, stderr or raw exception were exported. The hosted report job also received HTTP 403 while using only `issues: write` against a merged pull request.
+
+Issue #280 therefore adds a second execution hardening layer without changing inventory semantics:
+
+- `/usr/local/libexec/hermes-deals-audits` and the Gate D3 install root are normalized and verified as root-owned mode `0755`;
+- each commit directory is root-owned mode `0755` and the inventory file remains immutable/read-only;
+- the installer verifies the installed inventory is readable by user `andris` and executes its `--help` CLI under the same clean `runuser` environment before reporting PASS;
+- the dispatcher repeats a CLI preflight before the real inventory scan;
+- any fail-closed dispatcher result exports only bounded fields: `error_type`, `failure_stage` and `reason_code`; raw stderr and raw exception remain forbidden;
+- the RPi5 job remains `permissions: {}`;
+- the hosted PR report job uses only `pull-requests: write`, the PR-specific accepted permission for the conversation-comment endpoint in this repository.
 
 ## Decisions
 
@@ -99,18 +109,23 @@ A positive inventory result does not authorize extraction, manifest regeneration
 
 ## Post-merge execution
 
-Use the exact squash-merge SHA that includes the #270 hardening, not the earlier #268 merge SHA. Synchronize only `/home/andris/hermes-deals-audit-source` to that exact merge and install:
+Use the exact squash-merge SHA that includes the #280 execution recovery fix. Synchronize only `/home/andris/hermes-deals-audit-source` to that exact merge and install:
 
 ```bash
-sudo python3 /home/andris/hermes-deals-audit-source/tools/runner/install-aldi-gate-d3-recovery-inventory.py <HARDENED_MERGE_SHA>
+sudo python3 /home/andris/hermes-deals-audit-source/tools/runner/install-aldi-gate-d3-recovery-inventory.py <EXECUTION_FIX_MERGE_SHA>
 ```
 
-Then run the separately owner-authorized workflow with the merged hardening PR number:
+A valid installer must now also print:
+
+- `INSTALL_ROOT_TRAVERSABLE_BY_AUDIT_USER=true`;
+- `INVENTORY_CLI_PREFLIGHT_PASS=true`.
+
+Then run the separately owner-authorized workflow with the merged #280 PR number:
 
 ```bash
 gh workflow run aldi-gate-d3-recovery-inventory-rpi5.yml \
   --repo rozkalnsandris/hermes-deals \
-  -f pr_number=<HARDENING_PR_NUMBER>
+  -f pr_number=<EXECUTION_FIX_PR_NUMBER>
 ```
 
 ## Safety
