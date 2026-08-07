@@ -1,0 +1,180 @@
+name: ALDI Gate D3 recovery inventory RPi5
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Merged PR registering Gate D3 recovery inventory
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: hermes-deals-aldi-gate-d3-recovery-inventory
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr: ${{ steps.auth.outputs.pr }}
+    steps:
+      - id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          PR: ${{ inputs.pr_number }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          if os.environ["ACTOR"] != "rozkalnsandris" or os.environ["ACTOR_ID"] != "277435981":
+              raise SystemExit("owner required")
+          number = os.environ["PR"]
+          if not number.isdigit():
+              raise SystemExit("numeric PR required")
+          headers = {"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"}
+          def get(url):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+          pr = get(f"https://api.github.com/repos/{os.environ['REPO']}/pulls/{number}")
+          if not pr.get("merged") or pr["base"]["ref"] != "main":
+              raise SystemExit("merged main PR required")
+          sha = pr["merge_commit_sha"]
+          compare = get(f"https://api.github.com/repos/{os.environ['REPO']}/compare/{sha}...main")
+          if compare.get("merge_base_commit", {}).get("sha") != sha:
+              raise SystemExit("registered merge SHA is not ancestor of current main")
+          tree = get(f"https://api.github.com/repos/{os.environ['REPO']}/git/trees/{sha}?recursive=1")
+          paths = {item["path"] for item in tree["tree"] if item.get("type") == "blob"}
+          required = {
+              ".github/workflows/aldi-gate-d3-recovery-inventory-rpi5.yml",
+              "tools/aldi_gate_d3_recovery_inventory.py",
+              "tools/runner/aldi_gate_d3_recovery_inventory_dispatch.py",
+              "tools/runner/install-aldi-gate-d3-recovery-inventory.py",
+          }
+          missing = sorted(required - paths)
+          if missing:
+              raise SystemExit(f"registered Gate D3 files missing: {missing}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr={number}\n")
+          PY
+
+  rpi5:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 15
+    outputs:
+      decision: ${{ steps.result.outputs.decision }}
+      fingerprint: ${{ steps.result.outputs.fingerprint }}
+      directories: ${{ steps.result.outputs.directories }}
+      archives: ${{ steps.result.outputs.archives }}
+      complete: ${{ steps.result.outputs.complete }}
+      identities: ${{ steps.result.outputs.identities }}
+      failure_type: ${{ steps.result.outputs.failure_type }}
+    steps:
+      - id: run
+        env:
+          SHA: ${{ needs.authorize.outputs.sha }}
+        run: |
+          out="${RUNNER_TEMP}/hermes-deals-aldi-gate-d3-recovery-inventory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$out"
+          echo "artifact_dir=$out" >> "$GITHUB_OUTPUT"
+          rc=0
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-gate-d3-recovery-inventory "$SHA" "$out" || rc=$?
+          echo "$rc" > "$out/runner-dispatch-exit-code.txt"
+          exit "$rc"
+      - id: result
+        if: always() && steps.run.outputs.artifact_dir != ''
+        env:
+          OUT: ${{ steps.run.outputs.artifact_dir }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          out = Path(os.environ["OUT"])
+          result = out / "diagnostic-result.json"
+          failure = out / "diagnostic-failure.json"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              if result.is_file():
+                  payload = json.loads(result.read_text(encoding="utf-8"))
+                  handle.write(f"decision={payload.get('decision', '')}\n")
+                  handle.write(f"fingerprint={payload.get('diagnostic_fingerprint', '')}\n")
+                  handle.write(f"directories={payload.get('directory_candidate_count', 0)}\n")
+                  handle.write(f"archives={payload.get('archive_count', 0)}\n")
+                  handle.write(f"complete={payload.get('complete_recovery_source_count', 0)}\n")
+                  handle.write(f"identities={payload.get('distinct_complete_identity_count', 0)}\n")
+                  handle.write("failure_type=\n")
+              elif failure.is_file():
+                  payload = json.loads(failure.read_text(encoding="utf-8"))
+                  handle.write("decision=INVENTORY_EXECUTION_BLOCKED\n")
+                  handle.write("fingerprint=\ndirectories=0\narchives=0\ncomplete=0\nidentities=0\n")
+                  handle.write(f"failure_type={payload.get('error_type', '')}\n")
+          PY
+      - if: always() && steps.run.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: aldi-gate-d3-recovery-inventory-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.run.outputs.artifact_dir }}
+          retention-days: 30
+          if-no-files-found: error
+
+  report:
+    if: always() && needs.authorize.result == 'success'
+    needs: [authorize, rpi5]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.authorize.outputs.pr }}
+          SHA: ${{ needs.authorize.outputs.sha }}
+          JOB_RESULT: ${{ needs.rpi5.result }}
+          DECISION: ${{ needs.rpi5.outputs.decision }}
+          FINGERPRINT: ${{ needs.rpi5.outputs.fingerprint }}
+          DIRECTORIES: ${{ needs.rpi5.outputs.directories }}
+          ARCHIVES: ${{ needs.rpi5.outputs.archives }}
+          COMPLETE: ${{ needs.rpi5.outputs.complete }}
+          IDENTITIES: ${{ needs.rpi5.outputs.identities }}
+          FAILURE_TYPE: ${{ needs.rpi5.outputs.failure_type }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          body = (
+              "## ALDI Gate D3 recovery inventory\n\n"
+              f"- Runner result: **{os.environ['JOB_RESULT']}**\n"
+              f"- Inventory decision: **{os.environ.get('DECISION') or 'unavailable'}**\n"
+              f"- Registered commit: `{os.environ['SHA']}`\n"
+              f"- Inventory fingerprint: `{os.environ.get('FINGERPRINT') or 'unavailable'}`\n"
+              f"- Directory candidates: `{os.environ.get('DIRECTORIES') or '0'}`\n"
+              f"- Retained archives inspected: `{os.environ.get('ARCHIVES') or '0'}`\n"
+              f"- Complete 49+41 recovery sources: `{os.environ.get('COMPLETE') or '0'}`\n"
+              f"- Distinct complete identities: `{os.environ.get('IDENTITIES') or '0'}`\n"
+              f"- Sanitized failure type: `{os.environ.get('FAILURE_TYPE') or 'none'}`\n"
+              f"- Workflow run: `{os.environ['RUN_ID']}`\n"
+              "- Raw page images exported: **false**\n"
+              "- Archive extraction: **false / not authorized**\n"
+              "- Corpus/manifest mutation: **false / not authorized**\n"
+              "- Gate D review-pack execution: **false / not authorized**\n"
+              "- Production DB/deploy: **false / not authorized**\n"
+          )
+          headers = {"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"}
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR']}/comments",
+              data=json.dumps({"body": body}).encode(), headers=headers, method="POST"
+          )
+          urllib.request.urlopen(request, timeout=20).read()
+          PY
