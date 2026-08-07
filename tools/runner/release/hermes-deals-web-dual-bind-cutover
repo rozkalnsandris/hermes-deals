@@ -86,11 +86,13 @@ web_bindings_json() {
 
 assert_bindings() {
   local expected="$1"
-  web_bindings_json | python3 - "$expected" <<'PY'
+  local payload
+  payload="$(web_bindings_json)"
+  python3 - "$expected" "$payload" <<'PY'
 import json
 import sys
 expected_mode = sys.argv[1]
-rows = json.load(sys.stdin)
+rows = json.loads(sys.argv[2])
 if set(rows) != {'80/tcp'} or not isinstance(rows['80/tcp'], list):
     raise SystemExit(2)
 actual = {
@@ -115,10 +117,12 @@ PY
 }
 
 assert_compose_dual_model() {
-  "${DUAL_COMPOSE[@]}" config --format json | python3 - <<'PY'
+  local model
+  model="$("${DUAL_COMPOSE[@]}" config --format json)"
+  python3 - "$model" <<'PY'
 import json
 import sys
-model = json.load(sys.stdin)
+model = json.loads(sys.argv[1])
 web = model.get('services', {}).get('web')
 if not isinstance(web, dict):
     raise SystemExit('web service missing from resolved Compose model')
