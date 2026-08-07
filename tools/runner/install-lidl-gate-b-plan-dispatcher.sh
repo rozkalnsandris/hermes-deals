@@ -20,7 +20,7 @@ INSTALLED_PLAN='/usr/local/libexec/hermes-deals-audits/lidl-gate-b-freeze-plan.p
 DISPATCHER='/usr/local/sbin/hermes-deals-lidl-gate-b-plan-dispatch'
 CONF='/etc/hermes-deals-audits.d/lidl-gate-b-plan.conf'
 SUDOERS='/etc/sudoers.d/hermes-deals-lidl-gate-b-plan'
-EXPECTED_PLAN_BLOB='543cae6923eb461038109cdc6ee98e9b64782d83'
+EXPECTED_PLAN_BLOB='73abec6752d251b02bf6f47379689400dee106ff'
 EXPECTED_APPLY_BLOB='b8e38b52be69aa6f0cdaa5dbb3f76ccb013c772f'
 
 for user in andris github-runner; do id "$user" >/dev/null 2>&1 || fail "required user is missing: $user"; done
