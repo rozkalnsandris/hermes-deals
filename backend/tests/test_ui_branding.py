@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from hashlib import sha256
+from pathlib import Path
 import struct
 
 from fastapi.testclient import TestClient
@@ -10,6 +12,17 @@ from tests.ui_contract import ORIGINAL_INDEX_SHA256, ui_response_contract
 
 
 client = TestClient(app)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_readme_shows_versioned_project_logo_at_top() -> None:
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    logo = 'src="backend/app/ui/assets/deals-logo.svg"'
+    banner = 'src="assets/branding/readme-banner.jpg"'
+
+    assert logo in readme
+    assert banner in readme
+    assert readme.index(logo) < readme.index(banner) < readme.index("# Hermes Deals")
 
 
 def test_main_ui_uses_versioned_project_logo_and_favicons() -> None:
@@ -64,8 +77,6 @@ def test_png_branding_asset_is_exact_embedded_96px_source() -> None:
 
     marker = b'href="data:image/png;base64,'
     encoded = svg.content.split(marker, 1)[1].split(b'"', 1)[0]
-    import base64
-
     assert base64.b64decode(encoded, validate=True) == png.content
 
 
