@@ -81,7 +81,7 @@ class LidlGateBFreezeApplyTest(unittest.TestCase):
             )
         return {
             "schema_version": 1,
-            "plan_version": "lidl-gate-b-freeze-plan-v1",
+            "plan_version": MODULE.PLAN_VERSION,
             "result": "READY_TO_FREEZE",
             "reason": "validated_gate_a_wait_source_evidence",
             "plan_fingerprint": self.fingerprint,

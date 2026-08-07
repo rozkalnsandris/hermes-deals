@@ -4,7 +4,7 @@ Issue: #24
 
 ## Purpose
 
-Gate A completed its first exact-SHA RPi5 run and returned the expected observable state:
+Gate A can return the observable state:
 
 - result: `WAIT`;
 - one-shot result: `WAIT_SOURCE`;
@@ -12,7 +12,9 @@ Gate A completed its first exact-SHA RPi5 run and returned the expected observab
 - selected physical-store source: available and usable;
 - corpus mutation: not authorized.
 
-This Gate B preparation adds a deterministic read-only planner for that exact state. It validates the retained private Gate A evidence and produces a content-bound plan for freezing the source later. It does not copy or create anything inside the immutable corpus.
+The Gate B planner validates retained private Gate A evidence and produces a deterministic content-bound plan for freezing that exact source later. It does not copy or create anything inside the immutable corpus.
+
+The planner also supports an official Lidl source revision for an already-frozen logical flyer. Lidl may keep the same flyer identifier, official flyer ID, viewer path, validity window, advertised regions and page count while publishing a new document path and new PDF bytes. Such a revision must be retained beside the old immutable source; the old source is never overwritten.
 
 ## Accepted input
 
@@ -51,10 +53,35 @@ The planner requires all of the following:
 - official flyer ID, validity window, advertised regions and page count agree with the stable source identity derived from `source.json`;
 - the proposed flyer key is path-safe;
 - the authoritative corpus root and all inspected corpus children are non-symlink directories/files;
-- no corpus flyer already contains the same PDF identity or the same stable source identity;
-- the proposed destination does not already exist.
+- no corpus flyer already contains the same PDF identity or the same full stable source identity.
 
 Any mismatch blocks the plan.
+
+## Destination strategy
+
+For the first immutable source of a flyer, the destination remains the canonical flyer identifier:
+
+```text
+flyers/<flyer-key>/
+```
+
+If that base directory already exists, the planner permits a new source revision only when the existing base source and the live source have the same logical identity after removing only `document_path`, and the two `document_path` values are different. The logical identity therefore still binds:
+
+- official flyer ID;
+- viewer path;
+- validity start/end;
+- advertised regions;
+- page count.
+
+A validated revision receives a deterministic content-addressed sibling:
+
+```text
+flyers/<flyer-key>--src-<first-12-hex-of-pdf-sha256>/
+```
+
+The revision path must not already exist. An unrelated flyer occupying the base key, an unsafe or incomplete base source, an unchanged document path, an exact PDF duplicate, a full stable-identity duplicate, or an occupied revision destination all fail closed.
+
+This preserves every earlier immutable revision. Gate A is compatible with revision siblings because corpus matching is based on exact PDF SHA-256 followed by stable-source-identity verification, not on the directory name.
 
 ## Output
 
@@ -68,10 +95,12 @@ reason=validated_gate_a_wait_source_evidence
 The JSON includes:
 
 - the exact Gate A commit, image ID, target and Berlin date;
-- the source flyer key, validity window, region, page count and official ID;
+- the logical source flyer key, validity window, region, page count and official ID;
 - PDF, raw JSON and stable source identity SHA-256 values;
 - the exact proposed corpus destination and source/destination file map;
-- a deterministic plan fingerprint;
+- `destination.strategy`, either `base_flyer_key` or `content_addressed_source_revision`;
+- the base flyer key and, for revisions, the prior/live document paths;
+- a deterministic plan fingerprint bound to the destination strategy;
 - an exclusive-create apply contract;
 - explicit `separate_owner_authorization_required=true`.
 
@@ -106,6 +135,7 @@ bounded_retry_authorized=false
 This change does not:
 
 - copy source files into the corpus;
+- replace or modify an existing immutable flyer revision;
 - create a scan;
 - run the parser;
 - seed or approve Review rows;
@@ -115,4 +145,4 @@ This change does not:
 - install or activate a timer;
 - authorize Gate C or Gate D.
 
-A separate owner-authorized Gate B apply step must consume one reviewed exact plan, use private staging plus exclusive destination creation, verify every copied SHA-256, and fail closed without touching an existing corpus family.
+A separate owner-authorized Gate B apply step must consume one reviewed exact plan, use private staging plus exclusive destination creation, verify every copied SHA-256, and fail closed without touching an existing corpus family or revision.
