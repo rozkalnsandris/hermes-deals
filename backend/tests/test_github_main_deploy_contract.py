@@ -54,6 +54,7 @@ def test_workflow_requires_explicit_owner_exact_sha_dispatch() -> None:
         'row.get("event") == "push"',
         'row.get("head_branch") == "main"',
         'row.get("head_sha") == target_sha',
+        'row.get("status") == "completed"',
         'row.get("conclusion") == "success"',
         "/usr/local/sbin/hermes-deals-deploy-main",
         "hermes-deals-release",
@@ -67,66 +68,123 @@ def test_workflow_requires_explicit_owner_exact_sha_dispatch() -> None:
     assert "actions/upload-artifact@v6" not in text
 
 
-def test_deploy_prewarms_current_week_without_write_path() -> None:
+def test_deploy_prewarms_current_week_without_weakening_existing_contract() -> None:
     text = read(WORKFLOW)
     start = text.index("      - name: Prewarm and verify current weekly overview")
     end = text.index("      - name: Verify public API and UI through Cloudflare Access", start)
     block = text[start:end]
 
     for marker in (
-        'ZoneInfo("Europe/Berlin")',
+        'datetime.now(ZoneInfo("Europe/Berlin")).date()',
         '"/api/v1/deals/weekly-specials?"',
         '"week_start": week_start.isoformat()',
-        '"X-Hermes-Weekly-Cache"',
-        '!= "HIT"',
-        "warm_ms >= 1000.0",
+        '"single_week_query_short_periods_plus_explicit_immutable_daily_evidence"',
+        'first_cache not in {"MISS", "HIT"}',
+        'warm_cache != "HIT"',
+        'warm_wall_ms >= 1000.0',
+        'warm_body != first_body',
+        '"weekly-prewarm-first.headers"',
+        '"weekly-prewarm-first.json"',
+        '"weekly-prewarm-warm.headers"',
+        '"weekly-prewarm-warm.json"',
+        '"weekly-prewarm.json"',
+        '"weekly prewarm response has no ETag"',
+        '"weekly warm verification ETag changed"',
+        '"weekly prewarm source contract mismatch"',
+        '"weekly prewarm day sequence is invalid"',
+        '"weekly prewarm count does not match day payloads"',
         '"database_write": False',
         'print("WEEKLY_PREWARM=PASS")',
+        'deploy_log = evidence_dir / "deploy.log"',
         'line.startswith("LOCAL_HEALTH_URL=")',
         'parsed.path != "/api/health"',
-        "address.is_loopback or address.is_private or address.is_link_local",
+        '"deploy helper LOCAL_HEALTH_URL did not validate"',
+        "address.is_loopback",
+        "address.is_private",
+        "address.is_link_local",
     ):
         assert marker in block
 
     assert "docker" not in block.lower()
     assert "sudo" not in block.lower()
     assert "DATABASE_URL" not in block
+    assert "cache.clear" not in block
+    assert "DELETE " not in block
     assert "INSERT " not in block
     assert "UPDATE " not in block
-    assert "DELETE " not in block
 
 
-def test_public_contract_stays_strict_and_cloudflare_authenticated() -> None:
+def test_public_contract_retries_bounded_edge_propagation_without_weakening() -> None:
     text = read(WORKFLOW)
 
     for marker in (
         'PUBLIC_VERIFY_MAX_ATTEMPTS: "6"',
         'PUBLIC_VERIFY_DELAY_SECONDS: "5"',
-        "CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}",
-        "CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}",
-        '"CF-Access-Client-Id": access_client_id',
-        '"CF-Access-Client-Secret": access_client_secret',
-        "https://deals.rozkalns.net/api/health?",
-        "https://deals.rozkalns.net/ui?",
-        "https://deals.rozkalns.net/ui/review?",
-        "public contract HTTP status mismatch",
-        "public health payload is invalid",
+        '"Cache-Control": "no-cache"',
+        '"Pragma": "no-cache"',
+        '"deploy_sha": target_sha',
+        'f"public-attempt-{attempt:02d}"',
+        '"validation.json"',
+        '"validation.err"',
+        '"public-verification-attempt.txt"',
+        "PUBLIC_VERIFY_ATTEMPT=",
+        "time.sleep(delay_seconds)",
+        "public API/UI contract failed after",
+        "public health response has the wrong content type",
+        "public UI response has the wrong content type",
+        "public Review response has the wrong content type",
+        "public UI body is unexpectedly small",
+        "public Review body is unexpectedly small",
         "public UI is missing required markers",
         "public UI still depends on external assets",
+        'hermes-production-bundle" content="inline-v1',
+        'data-hermes-production-bundle="styles.css"',
+        'data-hermes-production-bundle="app.js"',
+        'content="reference-v11-explicit-daily-special-api"',
+        'content="weekly-overview-v6-active-retailer-compaction"',
+        'content="netto-daily-quality-v1"',
+        'class="ui2-shell reference-app"',
+        "--accent:#246b45",
         'href="/ui/styles.css"',
         'src="/ui/app.js"',
-        "PUBLIC_API_HEALTH=PASS",
-        "PUBLIC_UI_BUNDLE=PASS",
-        "PUBLIC_REVIEW=PASS",
-        "PUBLIC_CLOUDFLARE_ACCESS=PASS",
-        "public API/UI contract failed after",
+        '"external_ui_assets_required": False',
+        'shutil.copy2(result_path, evidence_dir / "public-ui-check.json")',
     ):
         assert marker in text
 
+    assert "if not 1 <= max_attempts <= 10" in text
+    assert "if not 0 <= delay_seconds <= 30" in text
+
+
+def test_public_contract_uses_cloudflare_access_service_secrets_safely() -> None:
+    text = read(WORKFLOW)
+
+    for marker in (
+        "CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}",
+        "CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}",
+        'os.environ.get("CF_ACCESS_CLIENT_ID", "")',
+        'os.environ.get("CF_ACCESS_CLIENT_SECRET", "")',
+        '"CF-Access-Client-Id": access_client_id',
+        '"CF-Access-Client-Secret": access_client_secret',
+        "Cloudflare Access service credentials are missing",
+        "Cloudflare Access client ID is invalid",
+        "Cloudflare Access client secret is invalid",
+        '"cloudflare_access_service_auth": True',
+        "PUBLIC_CLOUDFLARE_ACCESS=PASS",
+    ):
+        assert marker in text
+
+    assert "access_client_id =" in text
+    assert "access_client_secret =" in text
+    assert "if not access_client_id or not access_client_secret" in text
+    assert "request_headers" in text
+    assert "write_headers" in text
     assert "print(access_client_id)" not in text
     assert "print(access_client_secret)" not in text
     assert "write_text(access_client_id" not in text
     assert "write_text(access_client_secret" not in text
+    assert "json.dumps(access_client_id" not in text
+    assert "json.dumps(access_client_secret" not in text
 
 
 def test_embedded_workflow_python_blocks_compile() -> None:
@@ -172,6 +230,7 @@ def test_root_helper_accepts_authorized_ancestors_and_never_downgrades() -> None
     ):
         assert marker in text
 
+    assert 'any(r.path ==' not in text
     assert "flock -n 9" not in text
     assert "requested SHA is not exact current origin/main" not in text
     assert "alembic upgrade" not in text
