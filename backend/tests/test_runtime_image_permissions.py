@@ -15,11 +15,33 @@ def _mode(path: Path) -> int:
 
 def _normalize(app: Path, alembic: Path, alembic_ini: Path) -> None:
     subprocess.run(
-        ["find", str(app), str(alembic), "-type", "d", "-exec", "chmod", "0755", "{}", "+"],
+        [
+            "find",
+            str(app),
+            str(alembic),
+            "-type",
+            "d",
+            "-exec",
+            "chmod",
+            "0755",
+            "{}",
+            "+",
+        ],
         check=True,
     )
     subprocess.run(
-        ["find", str(app), str(alembic), "-type", "f", "-exec", "chmod", "0644", "{}", "+"],
+        [
+            "find",
+            str(app),
+            str(alembic),
+            "-type",
+            "f",
+            "-exec",
+            "chmod",
+            "0644",
+            "{}",
+            "+",
+        ],
         check=True,
     )
     subprocess.run(["chmod", "0644", str(alembic_ini)], check=True)
