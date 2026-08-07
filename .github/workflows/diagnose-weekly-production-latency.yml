@@ -1,0 +1,120 @@
+name: Diagnose weekly production latency
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly:
+    name: RPi5 weekly production read-only
+    if: >-
+      github.event.pull_request.head.ref == 'diag/weekly-production-latency-245' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'rozkalnsandris'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-release]
+    timeout-minutes: 5
+    steps:
+      - name: Wait for natural cache expiry and measure current week
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from datetime import datetime, timedelta
+          import ipaddress, json, re, subprocess
+          from time import perf_counter, sleep
+          from urllib.parse import urlencode
+          from urllib.request import Request, ProxyHandler, build_opener
+          from zoneinfo import ZoneInfo
+
+          opener=build_opener(ProxyHandler({}))
+
+          def parse_local(value):
+              value=value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host,port=value[1:].rsplit("]:",1)
+              else:
+                  host,port=value.rsplit(":",1)
+              if not port.isdigit(): return None
+              if host in {"*","0.0.0.0","::",""}: host="127.0.0.1"
+              if "%" in host: host=host.split("%",1)[0]
+              try: parsed=ipaddress.ip_address(host)
+              except ValueError: return None
+              return f"http://{'['+host+']' if parsed.version==6 else host}:{int(port)}"
+
+          sockets=subprocess.run(["ss","-H","-ltn"],check=True,capture_output=True,text=True).stdout.splitlines()
+          candidates=[]
+          for line in sockets:
+              parts=line.split()
+              if len(parts)>=4:
+                  candidate=parse_local(parts[3])
+                  if candidate and candidate not in candidates: candidates.append(candidate)
+
+          def fetch(base,path,headers=None,timeout=15):
+              request_headers={"Cache-Control":"no-cache","Pragma":"no-cache","User-Agent":"hermes-weekly-latency-diag/1"}
+              if headers: request_headers.update(headers)
+              req=Request(base+path,headers=request_headers)
+              started=perf_counter()
+              with opener.open(req,timeout=timeout) as response:
+                  body=response.read()
+                  return response.status,response.headers,body,(perf_counter()-started)*1000
+
+          base=None
+          for candidate in candidates:
+              try:
+                  status,_,body,_=fetch(candidate,"/api/health",timeout=0.8)
+                  health=json.loads(body)
+              except Exception:
+                  continue
+              if status==200 and health.get("service")=="hermes-deals-api":
+                  base=candidate
+                  print(f"RPI5_ORIGIN base={base} version={health.get('version')} phase={health.get('phase')}")
+                  break
+          if base is None: raise SystemExit("production origin not found")
+
+          today=datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start=today-timedelta(days=today.weekday())
+          path="/api/v1/deals/weekly-specials?"+urlencode({"week_start":week_start.isoformat()})
+
+          cold=None
+          for attempt in range(20):
+              status,headers,body,wall=fetch(base,path)
+              cache=headers.get("X-Hermes-Weekly-Cache","")
+              timing=headers.get("Server-Timing","")
+              print(f"RPI5_WEEKLY_WAIT attempt={attempt+1} status={status} cache={cache or '(missing)'} wall_ms={wall:.2f} timing={timing or '(missing)'}")
+              assert status==200
+              if cache=="MISS":
+                  cold=(headers,body,wall)
+                  break
+              sleep(2)
+          if cold is None: raise AssertionError("weekly cache did not naturally expire within 40s")
+
+          cold_headers,cold_body,cold_wall=cold
+          payload=json.loads(cold_body)
+          timing_match=re.search(r"weekly;dur=([0-9.]+)",cold_headers.get("Server-Timing",""))
+          cold_server=float(timing_match.group(1)) if timing_match else None
+          etag=cold_headers.get("ETag","")
+
+          status,warm_headers,warm_body,warm_wall=fetch(base,path)
+          warm_match=re.search(r"weekly;dur=([0-9.]+)",warm_headers.get("Server-Timing",""))
+          warm_server=float(warm_match.group(1)) if warm_match else None
+
+          print(
+              "RPI5_WEEKLY_SUMMARY "
+              f"week_start={week_start.isoformat()} count={payload.get('count')} "
+              f"cold_wall_ms={cold_wall:.2f} cold_server_ms={cold_server} "
+              f"warm_wall_ms={warm_wall:.2f} warm_server_ms={warm_server} "
+              f"warm_cache={warm_headers.get('X-Hermes-Weekly-Cache')} "
+              f"etag_present={bool(etag)} body_bytes={len(cold_body)}"
+          )
+
+          assert cold_headers.get("X-Hermes-Weekly-Cache")=="MISS"
+          assert cold_server is not None
+          assert warm_headers.get("X-Hermes-Weekly-Cache")=="HIT"
+          assert warm_server is not None
+          assert cold_wall < 1000.0
+          assert warm_wall < 250.0
+          assert warm_body==cold_body
+          PY
