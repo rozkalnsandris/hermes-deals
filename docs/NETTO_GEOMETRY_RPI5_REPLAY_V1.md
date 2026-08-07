@@ -25,6 +25,10 @@ The workflow follows the current GitHub Actions security guidance for `pull_requ
 
 The existing `netto-shadow-v1` dispatcher used by issues #27/#28 is not modified or reused.
 
+## PR validation refresh
+
+Before merge, if `main` has advanced since the latest successful PR CI run, make a scoped head update without widening the five-file Netto diff and require a fresh PR merge-ref CI run against current `main`. An older successful run is evidence for its tested merge state only.
+
 ## Exact runtime sources
 
 The installer accepts only this detached worktree:
