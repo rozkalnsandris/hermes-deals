@@ -86,6 +86,8 @@ jobs:
       complete: ${{ steps.result.outputs.complete }}
       identities: ${{ steps.result.outputs.identities }}
       failure_type: ${{ steps.result.outputs.failure_type }}
+      failure_stage: ${{ steps.result.outputs.failure_stage }}
+      reason_code: ${{ steps.result.outputs.reason_code }}
     steps:
       - id: run
         env:
@@ -119,12 +121,14 @@ jobs:
                   handle.write(f"archives={payload.get('archive_count', 0)}\n")
                   handle.write(f"complete={payload.get('complete_recovery_source_count', 0)}\n")
                   handle.write(f"identities={payload.get('distinct_complete_identity_count', 0)}\n")
-                  handle.write("failure_type=\n")
+                  handle.write("failure_type=\nfailure_stage=\nreason_code=\n")
               elif failure.is_file():
                   payload = json.loads(failure.read_text(encoding="utf-8"))
                   handle.write("decision=INVENTORY_EXECUTION_BLOCKED\n")
                   handle.write("fingerprint=\ndirectories=0\narchives=0\ncomplete=0\nidentities=0\n")
                   handle.write(f"failure_type={payload.get('error_type', '')}\n")
+                  handle.write(f"failure_stage={payload.get('failure_stage', '')}\n")
+                  handle.write(f"reason_code={payload.get('reason_code', '')}\n")
           PY
       - if: always() && steps.run.outputs.artifact_dir != ''
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -136,7 +140,7 @@ jobs:
 
   report:
     permissions:
-      issues: write
+      pull-requests: write
     if: always() && needs.authorize.result == 'success'
     needs: [authorize, rpi5]
     runs-on: ubuntu-latest
@@ -154,6 +158,8 @@ jobs:
           COMPLETE: ${{ needs.rpi5.outputs.complete }}
           IDENTITIES: ${{ needs.rpi5.outputs.identities }}
           FAILURE_TYPE: ${{ needs.rpi5.outputs.failure_type }}
+          FAILURE_STAGE: ${{ needs.rpi5.outputs.failure_stage }}
+          REASON_CODE: ${{ needs.rpi5.outputs.reason_code }}
           RUN_ID: ${{ github.run_id }}
         run: |
           python3 - <<'PY'
@@ -171,8 +177,11 @@ jobs:
               f"- Complete 49+41 recovery sources: `{os.environ.get('COMPLETE') or '0'}`\n"
               f"- Distinct complete identities: `{os.environ.get('IDENTITIES') or '0'}`\n"
               f"- Sanitized failure type: `{os.environ.get('FAILURE_TYPE') or 'none'}`\n"
+              f"- Sanitized failure stage: `{os.environ.get('FAILURE_STAGE') or 'none'}`\n"
+              f"- Sanitized reason code: `{os.environ.get('REASON_CODE') or 'none'}`\n"
               f"- Workflow run: `{os.environ['RUN_ID']}`\n"
               "- Raw page images exported: **false**\n"
+              "- Raw stderr/exception exported: **false**\n"
               "- Archive extraction: **false / not authorized**\n"
               "- Corpus/manifest mutation: **false / not authorized**\n"
               "- Gate D review-pack execution: **false / not authorized**\n"
