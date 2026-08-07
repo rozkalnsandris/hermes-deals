@@ -141,10 +141,7 @@ def _explain_payload(session: Session) -> dict[str, object]:
             + str(compiled)
         )
     ).scalar_one()
-    if isinstance(raw, str):
-        decoded = json.loads(raw)
-    else:
-        decoded = raw
+    decoded = json.loads(raw) if isinstance(raw, str) else raw
     assert isinstance(decoded, list) and decoded
     payload = decoded[0]
     assert isinstance(payload, dict)
@@ -168,6 +165,7 @@ def test_current_deals_sql_scales_without_temp_disk_spill() -> None:
     assert isinstance(plan, dict)
     nodes = list(_walk_plan(plan))
     execution_ms = float(plan_payload["Execution Time"])
+    planning_ms = float(plan_payload.get("Planning Time", 0.0))
     actual_rows = int(float(plan.get("Actual Rows", 0)))
     temp_read_blocks = sum(
         int(float(node.get("Temp Read Blocks", 0) or 0)) for node in nodes
@@ -181,6 +179,7 @@ def test_current_deals_sql_scales_without_temp_disk_spill() -> None:
         if str(node.get("Sort Space Type", "")).casefold() == "disk"
         or "external" in str(node.get("Sort Method", "")).casefold()
     ]
+    node_types = ">".join(str(node.get("Node Type", "?")) for node in nodes)
 
     assert actual_rows == _IDENTITY_COUNT
     assert execution_ms < _SQL_BUDGET_MS
@@ -230,8 +229,25 @@ def test_current_deals_sql_scales_without_temp_disk_spill() -> None:
         warm_wall_ms = (perf_counter() - started) * 1_000
         warm_server_ms = _server_timing_ms(warm_response)
 
+    # Print evidence before semantic/budget assertions so a failure still
+    # leaves enough timing and planner evidence to diagnose the next change.
+    print(
+        "CURRENT_DEALS_SCALE "
+        f"history_rows={_HISTORY_ROW_COUNT} "
+        f"winner_rows={actual_rows} "
+        f"planning_ms={planning_ms:.2f} "
+        f"explain_execution_ms={execution_ms:.2f} "
+        f"cold_server_ms={cold_server_ms:.2f} "
+        f"cold_wall_ms={cold_wall_ms:.2f} "
+        f"warm_server_ms={warm_server_ms:.2f} "
+        f"warm_wall_ms={warm_wall_ms:.2f} "
+        f"temp_read_blocks={temp_read_blocks} "
+        f"temp_written_blocks={temp_written_blocks} "
+        f"plan_nodes={node_types}"
+    )
+
     assert cold_payload.available_count == _EXPECTED_CURRENT
-    assert cold_payload.availability_counts == {
+    assert cold_payload.availability_counts.model_dump() == {
         "current": _EXPECTED_CURRENT,
         "upcoming": _EXPECTED_UPCOMING,
         "unknown": 0,
@@ -243,16 +259,3 @@ def test_current_deals_sql_scales_without_temp_disk_spill() -> None:
     assert cold_wall_ms < _HANDLER_BUDGET_MS
     assert warm_server_ms < _WARM_HANDLER_BUDGET_MS
     assert warm_wall_ms < _WARM_HANDLER_BUDGET_MS
-
-    print(
-        "CURRENT_DEALS_SCALE "
-        f"history_rows={_HISTORY_ROW_COUNT} "
-        f"winner_rows={actual_rows} "
-        f"explain_execution_ms={execution_ms:.2f} "
-        f"cold_server_ms={cold_server_ms:.2f} "
-        f"cold_wall_ms={cold_wall_ms:.2f} "
-        f"warm_server_ms={warm_server_ms:.2f} "
-        f"warm_wall_ms={warm_wall_ms:.2f} "
-        f"temp_read_blocks={temp_read_blocks} "
-        f"temp_written_blocks={temp_written_blocks}"
-    )
