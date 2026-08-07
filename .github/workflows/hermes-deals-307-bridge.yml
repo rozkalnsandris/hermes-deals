@@ -83,7 +83,6 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          PROD=/home/andris/hermes-deals
           OPERATOR="$GITHUB_WORKSPACE/issue-307-runtime/tools/runner/release/hermes-deals-web-dual-bind-cutover"
           LOG_DIR="$RUNNER_TEMP/hermes-deals-307-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           CHECK_LOG="$LOG_DIR/check.log"
@@ -92,35 +91,42 @@ jobs:
           RECOVERY_LOG="$LOG_DIR/recovery-check.log"
           install -d -m 0700 "$LOG_DIR"
 
+          cleanup() {
+            rm -f -- "$CHECK_LOG" "$APPLY_LOG" "$VERIFY_LOG" "$RECOVERY_LOG"
+            rmdir "$LOG_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
           emit() {
             printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
           }
 
           emit result BLOCKED_BEFORE_APPLY
-          emit reason preflight_not_completed
+          emit reason validating_registered_runtime_sha
           emit check_pass false
           emit apply_pass false
           emit verify_pass false
           emit rollback_verified false
-          emit production_git_unchanged false
-          emit production_head unknown
+          emit production_git_unchanged not_observed_from_restricted_runner
+          emit production_head not_observed_from_restricted_runner
 
           [[ "$EXPECTED_RUNTIME_SHA" == '654ec9739f8cea74ee8a4ee93e25e12bf06482cc' ]]
+          emit reason validating_reviewed_operator_path
           [[ -f "$OPERATOR" && ! -L "$OPERATOR" ]]
+          emit reason validating_reviewed_operator_sha256
           printf '%s  %s\n' "$EXPECTED_OPERATOR_SHA256" "$OPERATOR" | sha256sum -c - >/dev/null
-          [[ -d "$PROD/.git" && ! -L "$PROD" ]]
 
-          HEAD_BEFORE="$(git -C "$PROD" rev-parse HEAD)"
-          [[ "$HEAD_BEFORE" =~ ^[0-9a-f]{40}$ ]]
-          [[ -z "$(git -C "$PROD" status --porcelain=v1 --untracked-files=all)" ]]
-          emit production_head "$HEAD_BEFORE"
-
+          # The restricted audit runner intentionally cannot traverse the protected
+          # /home/andris production tree directly. The reviewed root operator owns
+          # all production-path, Docker, UFW and cloudflared read checks, so the
+          # first production-facing action is its read-only `check` mode.
+          emit reason testing_exact_operator_sudo_and_read_only_check
           set +e
           sudo --non-interactive "$OPERATOR" check >"$CHECK_LOG" 2>&1
           CHECK_RC=$?
           set -e
           if [[ "$CHECK_RC" -ne 0 ]]; then
-            if grep -Eqi 'password is required|a password is required|not allowed to run sudo' "$CHECK_LOG"; then
+            if grep -Eqi 'password is required|a password is required|not allowed to run sudo|not in the sudoers' "$CHECK_LOG"; then
               emit reason exact_operator_sudo_not_authorized
             else
               emit reason operator_check_failed
@@ -130,6 +136,7 @@ jobs:
           grep -Fx 'HERMES_DEALS_307_DUAL_BIND_CHECK=PASS' "$CHECK_LOG" >/dev/null
           emit check_pass true
 
+          emit reason applying_reviewed_dual_bind
           set +e
           sudo --non-interactive "$OPERATOR" apply-dual >"$APPLY_LOG" 2>&1
           APPLY_RC=$?
@@ -145,12 +152,6 @@ jobs:
                 ROLLBACK_VERIFIED=true
               fi
             fi
-
-            HEAD_AFTER="$(git -C "$PROD" rev-parse HEAD)"
-            STATUS_AFTER="$(git -C "$PROD" status --porcelain=v1 --untracked-files=all)"
-            if [[ "$HEAD_AFTER" == "$HEAD_BEFORE" && -z "$STATUS_AFTER" ]]; then
-              emit production_git_unchanged true
-            fi
             emit rollback_verified "$ROLLBACK_VERIFIED"
             if [[ "$ROLLBACK_VERIFIED" == true ]]; then
               emit result APPLY_FAILED_ROLLBACK_VERIFIED
@@ -164,6 +165,7 @@ jobs:
           grep -Fx 'HERMES_DEALS_307_DUAL_BIND_APPLY=PASS' "$APPLY_LOG" >/dev/null
           emit apply_pass true
 
+          emit reason verifying_reviewed_dual_bind
           set +e
           sudo --non-interactive "$OPERATOR" verify-dual >"$VERIFY_LOG" 2>&1
           VERIFY_RC=$?
@@ -175,17 +177,8 @@ jobs:
           fi
           grep -Fx 'HERMES_DEALS_307_DUAL_BIND_VERIFY=PASS' "$VERIFY_LOG" >/dev/null
           emit verify_pass true
-
-          HEAD_AFTER="$(git -C "$PROD" rev-parse HEAD)"
-          STATUS_AFTER="$(git -C "$PROD" status --porcelain=v1 --untracked-files=all)"
-          [[ "$HEAD_AFTER" == "$HEAD_BEFORE" ]]
-          [[ -z "$STATUS_AFTER" ]]
-          emit production_git_unchanged true
           emit result PASS
           emit reason reviewed_dual_bind_is_active_and_verified
-
-          rm -f -- "$CHECK_LOG" "$APPLY_LOG" "$VERIFY_LOG" "$RECOVERY_LOG"
-          rmdir "$LOG_DIR" 2>/dev/null || true
 
   report:
     name: Report sanitized Phase C result
