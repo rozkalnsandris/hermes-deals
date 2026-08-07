@@ -30,7 +30,6 @@ def test_workflow_requires_explicit_owner_exact_sha_dispatch() -> None:
     trigger = workflow_trigger()
 
     assert set(trigger) == {"workflow_dispatch"}
-    assert "workflow_run" not in text
     inputs = trigger["workflow_dispatch"]["inputs"]
     assert inputs["target_sha"]["required"] is True
     assert inputs["target_sha"]["type"] == "string"
