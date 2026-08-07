@@ -10,12 +10,26 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOL = ROOT / "tools" / "lidl_gate_b_freeze_plan.py"
+TOOLS = ROOT / "tools"
+for path in (ROOT / "backend", TOOLS, TOOLS / "lidl_parser_provenance"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+TOOL = TOOLS / "lidl_gate_b_freeze_plan.py"
 SPEC = importlib.util.spec_from_file_location("lidl_gate_b_freeze_plan", TOOL)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
+
+ONE_SHOT_TOOL = TOOLS / "lidl_weekly_one_shot.py"
+ONE_SHOT_SPEC = importlib.util.spec_from_file_location(
+    "lidl_weekly_one_shot_revision_tested", ONE_SHOT_TOOL
+)
+assert ONE_SHOT_SPEC and ONE_SHOT_SPEC.loader
+ONE_SHOT = importlib.util.module_from_spec(ONE_SHOT_SPEC)
+sys.modules[ONE_SHOT_SPEC.name] = ONE_SHOT
+ONE_SHOT_SPEC.loader.exec_module(ONE_SHOT)
 
 
 def canonical_bytes(payload: dict[str, object]) -> bytes:
@@ -41,6 +55,7 @@ class LidlGateBFreezePlanTest(unittest.TestCase):
         )
         self.flyers_root.mkdir(parents=True)
         self.family_root.mkdir(parents=True)
+        self.flyer_key = "aktionsprospekt-03-08-2026-08-08-2026-a1b2c3"
         self._write_fixture()
 
     def tearDown(self) -> None:
@@ -87,9 +102,7 @@ class LidlGateBFreezePlanTest(unittest.TestCase):
         (self.family_root / "source.json").write_bytes(source_json)
         meta = {
             "target": "current",
-            "flyer_identifier": (
-                "aktionsprospekt-03-08-2026-08-08-2026-a1b2c3"
-            ),
+            "flyer_identifier": self.flyer_key,
             "route_region": "21",
             "valid_from": "2026-08-03",
             "valid_until": "2026-08-08",
@@ -199,6 +212,28 @@ class LidlGateBFreezePlanTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _write_base_revision(
+        self,
+        *,
+        document_url: str = "https://endpoints.leaflets.schwarz/flyer/3385100/source-rev04.pdf",
+        flyer_id: str = "3385100",
+    ) -> Path:
+        payload = json.loads(self.source_json)
+        payload["flyer"]["id"] = flyer_id
+        payload["flyer"]["hiResPdfUrl"] = document_url
+        base = self.flyers_root / self.flyer_key
+        base.mkdir()
+        (base / "source.pdf").write_bytes(b"%PDF-1.7\nolder-revision\n")
+        (base / "source.json").write_bytes(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+        return base
+
     def plan(self) -> dict[str, object]:
         return MODULE.build_freeze_plan(
             gate_a_run_dir=self.run_dir,
@@ -211,6 +246,9 @@ class LidlGateBFreezePlanTest(unittest.TestCase):
         self.assertEqual(plan["result"], "READY_TO_FREEZE")
         self.assertEqual(plan["source"]["pdf_sha256"], self.pdf_sha)
         self.assertEqual(plan["source"]["raw_sha256"], self.raw_sha)
+        self.assertEqual(plan["destination"]["strategy"], "base_flyer_key")
+        self.assertEqual(plan["destination"]["base_flyer_key"], self.flyer_key)
+        self.assertIsNone(plan["destination"]["revision_of"])
         self.assertRegex(plan["plan_fingerprint"], r"^[0-9a-f]{64}$")
         self.assertTrue(plan["safety"]["plan_only"])
         self.assertFalse(plan["safety"]["corpus_write_authorized"])
@@ -222,6 +260,65 @@ class LidlGateBFreezePlanTest(unittest.TestCase):
 
     def test_plan_is_byte_deterministic(self) -> None:
         self.assertEqual(canonical_bytes(self.plan()), canonical_bytes(self.plan()))
+
+    def test_same_logical_flyer_new_document_revision_uses_content_addressed_sibling(self) -> None:
+        base = self._write_base_revision()
+        base_pdf_before = (base / "source.pdf").read_bytes()
+        base_json_before = (base / "source.json").read_bytes()
+
+        plan = self.plan()
+
+        expected_name = f"{self.flyer_key}--src-{self.pdf_sha[:12]}"
+        destination = Path(plan["destination"]["flyer_dir"])
+        self.assertEqual(destination.name, expected_name)
+        self.assertEqual(
+            plan["destination"]["strategy"],
+            "content_addressed_source_revision",
+        )
+        self.assertEqual(plan["destination"]["revision_of"], self.flyer_key)
+        self.assertEqual(plan["destination"]["base_flyer_key"], self.flyer_key)
+        self.assertTrue(plan["destination"]["base_document_path"].endswith("source-rev04.pdf"))
+        self.assertTrue(plan["destination"]["live_document_path"].endswith("source.pdf"))
+        self.assertFalse(destination.exists())
+        self.assertEqual((base / "source.pdf").read_bytes(), base_pdf_before)
+        self.assertEqual((base / "source.json").read_bytes(), base_json_before)
+
+    def test_gate_a_exact_pdf_lookup_resolves_frozen_revision_sibling(self) -> None:
+        self._write_base_revision()
+        plan = self.plan()
+        destination = Path(plan["destination"]["flyer_dir"])
+        destination.mkdir()
+        (destination / "source.pdf").write_bytes(self.source_pdf)
+        (destination / "source.json").write_bytes(self.source_json)
+
+        match = ONE_SHOT.find_corpus_match(
+            self.corpus_root,
+            pdf_sha256=self.pdf_sha,
+            live_source_json=self.source_json,
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual(match.flyer_key, destination.name)
+        self.assertEqual(match.source_pdf_sha256, self.pdf_sha)
+        self.assertFalse(match.parser_input_changed)
+
+    def test_occupied_revision_destination_fails_closed(self) -> None:
+        self._write_base_revision()
+        revision = self.flyers_root / f"{self.flyer_key}--src-{self.pdf_sha[:12]}"
+        revision.mkdir()
+        with self.assertRaisesRegex(
+            MODULE.LidlGateBFreezePlanError,
+            "planned source revision destination already exists",
+        ):
+            self.plan()
+
+    def test_occupied_base_with_different_logical_identity_fails_closed(self) -> None:
+        self._write_base_revision(flyer_id="different-official-flyer")
+        with self.assertRaisesRegex(
+            MODULE.LidlGateBFreezePlanError,
+            "different logical flyer",
+        ):
+            self.plan()
 
     def test_tampered_pdf_fails_closed(self) -> None:
         (self.family_root / "source.pdf").write_bytes(b"tampered")
@@ -264,15 +361,12 @@ class LidlGateBFreezePlanTest(unittest.TestCase):
         ):
             self.plan()
 
-    def test_existing_destination_fails_closed(self) -> None:
-        destination = (
-            self.flyers_root
-            / "aktionsprospekt-03-08-2026-08-08-2026-a1b2c3"
-        )
+    def test_incomplete_occupied_base_destination_fails_closed(self) -> None:
+        destination = self.flyers_root / self.flyer_key
         destination.mkdir()
         with self.assertRaisesRegex(
             MODULE.LidlGateBFreezePlanError,
-            "planned corpus destination already exists",
+            "occupied base flyer source PDF is missing or unsafe",
         ):
             self.plan()
 
