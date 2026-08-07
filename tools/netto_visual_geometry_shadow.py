@@ -9,7 +9,7 @@ from statistics import median
 from typing import Any, Iterable, Mapping, Sequence
 
 
-PARSER_IDENTITY = "netto-visual-geometry-shadow-v2-split-price"
+PARSER_IDENTITY = "netto-visual-geometry-shadow-v3-unrotated-page-space"
 PRICE_RE = re.compile(r"(?<!\d)(\d{1,3})[,.](\d{2})(?!\d)")
 MAJOR_PRICE_RE = re.compile(r"^\s*(\d{1,3})[.,]\s*$")
 CENTS_PRICE_RE = re.compile(r"^\s*(\d{2})\s*$")
@@ -785,8 +785,8 @@ def extract_layout_from_pdf(pdf_path: Path, page_number: int) -> dict[str, Any]:
         return {
             "schema_version": 1,
             "page": {
-                "width_points": round(float(page.rect.width), 3),
-                "height_points": round(float(page.rect.height), 3),
+                "width_points": round(float(page.cropbox.width), 3),
+                "height_points": round(float(page.cropbox.height), 3),
                 "rotation": int(page.rotation),
                 "page_number": page_number,
             },
