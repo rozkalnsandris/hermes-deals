@@ -13,57 +13,67 @@ WORKFLOW = ROOT / ".github" / "workflows" / "deploy-main.yml"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 HELPER = ROOT / "tools" / "runner" / "release" / "hermes-deals-deploy-main"
 INSTALLER = ROOT / "tools" / "runner" / "install-github-main-deploy.sh"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_workflow_queues_every_successful_main_ci_on_one_rpi5_runner() -> None:
+def workflow_trigger() -> dict:
+    data = yaml.safe_load(read(WORKFLOW))
+    return data.get("on") or data.get(True) or {}
+
+
+def test_workflow_requires_explicit_owner_exact_sha_dispatch() -> None:
     text = read(WORKFLOW)
-    data = yaml.safe_load(text)
-    trigger = data.get("on") or data.get(True)
+    trigger = workflow_trigger()
 
-    assert set(trigger) == {"workflow_run", "workflow_dispatch"}
-    assert trigger["workflow_run"]["workflows"] == ["Hermes Deals CI"]
-    assert trigger["workflow_run"]["types"] == ["completed"]
-    assert trigger["workflow_run"]["branches"] == ["main"]
-    assert "github.event.workflow_run.conclusion == 'success'" in text
-    assert 'run.get("event") != "push"' in text
-    assert 'run.get("head_branch") != "main"' in text
-    assert "queued SHA is no longer an ancestor of main" in text
-    assert "hermes-deals-release" in text
-    assert "/usr/local/sbin/hermes-deals-deploy-main" in text
-    assert "https://deals.rozkalns.net/api/health" in text
-    assert "https://deals.rozkalns.net/ui" in text
-    assert "https://deals.rozkalns.net/ui/review" in text
-    assert "public-health.headers" in text
-    assert "public-health.json" in text
-    assert "public-ui.headers" in text
-    assert "public-ui.html" in text
-    assert "public-review.headers" in text
-    assert "public-review.html" in text
-    assert "public-ui-check.json" in text
-    assert 'hermes-production-bundle" content="inline-v1' in text
-    assert 'data-hermes-production-bundle="styles.css"' in text
-    assert 'data-hermes-production-bundle="app.js"' in text
-    assert 'href="/ui/styles.css"' in text
-    assert 'src="/ui/app.js"' in text
-    assert "PUBLIC_UI_BUNDLE=PASS" in text
-    assert "actions/upload-artifact@v6" in text
-    assert "actions/upload-artifact@v4" not in text
-    assert "concurrency:" not in text
-    for forbidden in ("pr_number", "issue", "plan", "APPLY api-ui", "release registry"):
-        assert forbidden not in text
+    assert set(trigger) == {"workflow_dispatch"}
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    assert inputs["target_sha"]["required"] is True
+    assert inputs["target_sha"]["type"] == "string"
+    assert inputs["confirmation"]["required"] is True
+    assert inputs["confirmation"]["type"] == "string"
+
+    for marker in (
+        "ORIGINAL_ACTOR: ${{ github.actor }}",
+        "TRIGGERING_ACTOR: ${{ github.triggering_actor }}",
+        "EVENT_REF: ${{ github.ref }}",
+        "WORKFLOW_REF: ${{ github.workflow_ref }}",
+        'owner != "rozkalnsandris"',
+        'os.environ["EVENT_NAME"] != "workflow_dispatch"',
+        'os.environ["EVENT_REF"] != "refs/heads/main"',
+        "deploy-main.yml@refs/heads/main",
+        "actor != owner",
+        "triggering_actor != owner",
+        're.fullmatch(r"[0-9a-f]{40}", target_sha)',
+        'confirmation != f"DEPLOY {target_sha}"',
+        "target SHA is not an ancestor of current main",
+        "actions/workflows/ci.yml/runs",
+        'row.get("event") == "push"',
+        'row.get("head_branch") == "main"',
+        'row.get("head_sha") == target_sha',
+        'row.get("status") == "completed"',
+        'row.get("conclusion") == "success"',
+        "/usr/local/sbin/hermes-deals-deploy-main",
+        "hermes-deals-release",
+        "group: hermes-deals-production-release",
+        "cancel-in-progress: false",
+        f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}",
+        "Database writes and migrations are not authorized by this workflow",
+    ):
+        assert marker in text
+
+    assert "actions/upload-artifact@v6" not in text
 
 
-def test_deploy_prewarms_current_week_before_public_verification() -> None:
+def test_deploy_prewarms_current_week_without_weakening_existing_contract() -> None:
     text = read(WORKFLOW)
-    start = text.index("      - name: Prewarm current weekly overview")
-    end = text.index("      - name: Verify and capture public API and UI", start)
+    start = text.index("      - name: Prewarm and verify current weekly overview")
+    end = text.index("      - name: Verify public API and UI through Cloudflare Access", start)
     block = text[start:end]
 
-    assert start < end
     for marker in (
         'datetime.now(ZoneInfo("Europe/Berlin")).date()',
         '"/api/v1/deals/weekly-specials?"',
@@ -76,15 +86,22 @@ def test_deploy_prewarms_current_week_before_public_verification() -> None:
         '"weekly-prewarm-first.headers"',
         '"weekly-prewarm-first.json"',
         '"weekly-prewarm-warm.headers"',
+        '"weekly-prewarm-warm.json"',
         '"weekly-prewarm.json"',
+        '"weekly prewarm response has no ETag"',
+        '"weekly warm verification ETag changed"',
+        '"weekly prewarm source contract mismatch"',
+        '"weekly prewarm day sequence is invalid"',
+        '"weekly prewarm count does not match day payloads"',
         '"database_write": False',
         'print("WEEKLY_PREWARM=PASS")',
-        'from http.client import HTTPException',
-        'from urllib.parse import urlencode, urlsplit',
         'deploy_log = evidence_dir / "deploy.log"',
-        '"LOCAL_HEALTH_URL="',
+        'line.startswith("LOCAL_HEALTH_URL=")',
+        'parsed.path != "/api/health"',
         '"deploy helper LOCAL_HEALTH_URL did not validate"',
-        'HTTPException',
+        "address.is_loopback",
+        "address.is_private",
+        "address.is_link_local",
     ):
         assert marker in block
 
@@ -113,19 +130,30 @@ def test_public_contract_retries_bounded_edge_propagation_without_weakening() ->
         "PUBLIC_VERIFY_ATTEMPT=",
         "time.sleep(delay_seconds)",
         "public API/UI contract failed after",
+        "public health response has the wrong content type",
+        "public UI response has the wrong content type",
+        "public Review response has the wrong content type",
+        "public UI body is unexpectedly small",
+        "public Review body is unexpectedly small",
+        "public UI is missing required markers",
+        "public UI still depends on external assets",
+        'hermes-production-bundle" content="inline-v1',
+        'data-hermes-production-bundle="styles.css"',
+        'data-hermes-production-bundle="app.js"',
+        'content="reference-v11-explicit-daily-special-api"',
+        'content="weekly-overview-v6-active-retailer-compaction"',
+        'content="netto-daily-quality-v1"',
+        'class="ui2-shell reference-app"',
+        "--accent:#246b45",
+        'href="/ui/styles.css"',
+        'src="/ui/app.js"',
+        '"external_ui_assets_required": False',
+        'shutil.copy2(result_path, evidence_dir / "public-ui-check.json")',
     ):
         assert marker in text
 
     assert "if not 1 <= max_attempts <= 10" in text
     assert "if not 0 <= delay_seconds <= 30" in text
-    assert "public UI body is unexpectedly small" in text
-    assert "public Review body is unexpectedly small" in text
-    assert "public UI is missing required markers" in text
-    assert "public UI still depends on external assets" in text
-    assert 'href="/ui/styles.css"' in text
-    assert 'src="/ui/app.js"' in text
-    assert "external_ui_assets_required" in text
-    assert 'shutil.copy2(result_path, evidence_dir / "public-ui-check.json")' in text
 
 
 def test_public_contract_uses_cloudflare_access_service_secrets_safely() -> None:
@@ -151,12 +179,12 @@ def test_public_contract_uses_cloudflare_access_service_secrets_safely() -> None
     assert "if not access_client_id or not access_client_secret" in text
     assert "request_headers" in text
     assert "write_headers" in text
-    assert 'print(access_client_id)' not in text
-    assert 'print(access_client_secret)' not in text
-    assert 'write_text(access_client_id' not in text
-    assert 'write_text(access_client_secret' not in text
-    assert 'json.dumps(access_client_id' not in text
-    assert 'json.dumps(access_client_secret' not in text
+    assert "print(access_client_id)" not in text
+    assert "print(access_client_secret)" not in text
+    assert "write_text(access_client_id" not in text
+    assert "write_text(access_client_secret" not in text
+    assert "json.dumps(access_client_id" not in text
+    assert "json.dumps(access_client_secret" not in text
 
 
 def test_embedded_workflow_python_blocks_compile() -> None:
@@ -168,14 +196,15 @@ def test_embedded_workflow_python_blocks_compile() -> None:
         compile(textwrap.dedent(block), f"deploy-main-block-{index}.py", "exec")
 
 
-def test_main_push_ci_runs_are_not_cancelled_by_newer_merges() -> None:
+def test_main_ci_keeps_unique_push_runs_and_new_safe_name() -> None:
     text = read(CI)
+    assert text.startswith("name: Hermes Deals CI checks\n")
     assert "hermes-deals-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}" in text
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in text
     assert "group: hermes-deals-ci-${{ github.ref }}" not in text
 
 
-def test_root_helper_accepts_queued_ancestors_and_never_downgrades() -> None:
+def test_root_helper_accepts_authorized_ancestors_and_never_downgrades() -> None:
     text = read(HELPER)
     subprocess.run(["bash", "-n", str(HELPER)], check=True)
 
@@ -210,7 +239,7 @@ def test_root_helper_accepts_queued_ancestors_and_never_downgrades() -> None:
     assert "github issue" not in text.lower()
 
 
-def test_installer_grants_only_new_helper_to_existing_runner() -> None:
+def test_installer_grants_only_deploy_helper_to_release_runner() -> None:
     text = read(INSTALLER)
     subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
 

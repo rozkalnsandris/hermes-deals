@@ -15,25 +15,31 @@ def _workflow_trigger(payload: dict) -> dict:
     return payload.get("on") or payload.get(True) or {}
 
 
-def test_successful_main_ci_cannot_match_legacy_auto_deploy_listener() -> None:
+def test_successful_main_ci_cannot_trigger_production_deploy() -> None:
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     deploy = yaml.safe_load(DEPLOY_WORKFLOW.read_text(encoding="utf-8"))
 
-    ci_name = ci["name"]
+    assert ci["name"] == "Hermes Deals CI checks"
     trigger = _workflow_trigger(deploy)
-    workflow_run = trigger.get("workflow_run") or {}
-    listened_workflows = workflow_run.get("workflows") or []
-
-    assert ci_name == "Hermes Deals CI checks"
-    assert ci_name not in listened_workflows
-    assert "workflow_dispatch" in trigger
+    assert set(trigger) == {"workflow_dispatch"}
+    assert "workflow_run" not in trigger
 
 
-def test_manual_deploy_still_resolves_successful_ci_by_workflow_file() -> None:
+def test_manual_deploy_requires_owner_main_ref_exact_sha_and_confirmation() -> None:
     text = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    deploy = yaml.safe_load(text)
+    inputs = _workflow_trigger(deploy)["workflow_dispatch"]["inputs"]
 
+    assert inputs["target_sha"]["required"] is True
+    assert inputs["confirmation"]["required"] is True
+    assert "ORIGINAL_ACTOR: ${{ github.actor }}" in text
+    assert "TRIGGERING_ACTOR: ${{ github.triggering_actor }}" in text
+    assert 'os.environ["EVENT_REF"] != "refs/heads/main"' in text
+    assert "deploy-main.yml@refs/heads/main" in text
+    assert 'confirmation != f"DEPLOY {target_sha}"' in text
     assert "actions/workflows/ci.yml/runs" in text
     assert 'row.get("event") == "push"' in text
     assert 'row.get("head_branch") == "main"' in text
+    assert 'row.get("head_sha") == target_sha' in text
     assert 'row.get("conclusion") == "success"' in text
     assert "/usr/local/sbin/hermes-deals-deploy-main" in text

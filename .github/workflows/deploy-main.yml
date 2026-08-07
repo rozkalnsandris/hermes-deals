@@ -1,40 +1,48 @@
-name: Deploy merged main to production
+name: Deploy authorized main SHA to production
 
 on:
-  workflow_run:
-    workflows:
-      - Hermes Deals CI
-    types:
-      - completed
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact reviewed 40-character main SHA to deploy
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY followed by the exact SHA
+        required: true
+        type: string
 
 permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: hermes-deals-production-release
+  cancel-in-progress: false
+
 jobs:
-  resolve:
-    name: Resolve successful main CI
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.conclusion == 'success')
+  authorize:
+    name: Authorize exact main SHA
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      sha: ${{ steps.resolve.outputs.sha }}
-      ci_run_id: ${{ steps.resolve.outputs.ci_run_id }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
 
     steps:
-      - name: Resolve queued merge SHA
-        id: resolve
+      - name: Verify owner, exact SHA and successful main CI
+        id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
           REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ORIGINAL_ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -47,15 +55,37 @@ jobs:
           import urllib.request
 
           repo = os.environ["REPOSITORY"]
-          if repo != "rozkalnsandris/hermes-deals":
-              raise SystemExit("unexpected repository")
+          owner = os.environ["REPOSITORY_OWNER"]
+          actor = os.environ["ORIGINAL_ACTOR"]
+          triggering_actor = os.environ["TRIGGERING_ACTOR"]
+          target_sha = os.environ["TARGET_SHA"].strip()
+          confirmation = os.environ["CONFIRMATION"]
 
-          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          if repo != "rozkalnsandris/hermes-deals" or owner != "rozkalnsandris":
+              raise SystemExit("unexpected repository owner")
+          if os.environ["EVENT_NAME"] != "workflow_dispatch":
+              raise SystemExit("production deploy requires workflow_dispatch")
+          if os.environ["EVENT_REF"] != "refs/heads/main":
+              raise SystemExit("production deploy workflow must be dispatched from main")
+          expected_workflow_ref = (
+              "rozkalnsandris/hermes-deals/.github/workflows/deploy-main.yml@refs/heads/main"
+          )
+          if os.environ["WORKFLOW_REF"] != expected_workflow_ref:
+              raise SystemExit("production deploy workflow ref is not exact main")
+          if actor != owner:
+              raise SystemExit("original workflow actor is not the repository owner")
+          if triggering_actor != owner:
+              raise SystemExit("workflow triggering actor is not the repository owner")
+          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+              raise SystemExit("target SHA must be an exact lowercase 40-character commit SHA")
+          if confirmation != f"DEPLOY {target_sha}":
+              raise SystemExit("typed production confirmation does not match target SHA")
+
           headers = {
               "Accept": "application/vnd.github+json",
               "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
               "X-GitHub-Api-Version": "2022-11-28",
-              "User-Agent": "hermes-deals-serial-deploy",
+              "User-Agent": "hermes-deals-owner-authorized-deploy",
           }
 
           def get_json(url: str):
@@ -68,61 +98,50 @@ jobs:
           if not re.fullmatch(r"[0-9a-f]{40}", current_main):
               raise SystemExit("current main SHA is invalid")
 
-          if os.environ["EVENT_NAME"] == "workflow_run":
-              run = event.get("workflow_run") or {}
-              if run.get("name") != "Hermes Deals CI":
-                  raise SystemExit("unexpected source workflow")
-              if run.get("event") != "push" or run.get("head_branch") != "main":
-                  raise SystemExit("deploy source is not a main push")
-              if run.get("status") != "completed" or run.get("conclusion") != "success":
-                  raise SystemExit("main CI did not succeed")
-              sha = str(run.get("head_sha") or "")
-              ci_run_id = int(run.get("id") or 0)
-          else:
-              sha = current_main
-              encoded = urllib.parse.quote(sha, safe="")
-              runs = get_json(
-                  f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs"
-                  f"?branch=main&head_sha={encoded}&status=completed&per_page=100"
-              ).get("workflow_runs", [])
-              successful = [
-                  row for row in runs
-                  if row.get("event") == "push"
-                  and row.get("head_branch") == "main"
-                  and row.get("head_sha") == sha
-                  and row.get("conclusion") == "success"
-              ]
-              if not successful:
-                  raise SystemExit("current main has no successful push CI run")
-              ci_run_id = max(int(row["id"]) for row in successful)
-
-          if not re.fullmatch(r"[0-9a-f]{40}", sha) or ci_run_id <= 0:
-              raise SystemExit("resolved deploy identity is invalid")
-
-          if sha != current_main:
+          if target_sha != current_main:
               comparison = get_json(
-                  f"https://api.github.com/repos/{repo}/compare/{sha}...{current_main}"
+                  f"https://api.github.com/repos/{repo}/compare/{target_sha}...{current_main}"
               )
-              if comparison.get("status") != "ahead":
-                  raise SystemExit("queued SHA is no longer an ancestor of main")
+              merge_base = str((comparison.get("merge_base_commit") or {}).get("sha", ""))
+              if comparison.get("status") != "ahead" or merge_base != target_sha:
+                  raise SystemExit("target SHA is not an ancestor of current main")
+
+          encoded = urllib.parse.quote(target_sha, safe="")
+          runs = get_json(
+              f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs"
+              f"?branch=main&head_sha={encoded}&status=completed&per_page=100"
+          ).get("workflow_runs", [])
+          successful = [
+              row
+              for row in runs
+              if row.get("event") == "push"
+              and row.get("head_branch") == "main"
+              and row.get("head_sha") == target_sha
+              and row.get("status") == "completed"
+              and row.get("conclusion") == "success"
+          ]
+          if not successful:
+              raise SystemExit("target SHA has no successful main push CI run")
+          ci_run_id = max(int(row["id"]) for row in successful)
 
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
-              handle.write(f"sha={sha}\n")
+              handle.write(f"sha={target_sha}\n")
               handle.write(f"ci_run_id={ci_run_id}\n")
 
           pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
-              "## Production deploy queued\n\n"
-              f"- Merge SHA: `{sha}`\n"
+              "## Production deploy authorized\n\n"
+              f"- Owner: `{owner}`\n"
+              f"- Target SHA: `{target_sha}`\n"
               f"- Successful main CI: `{ci_run_id}`\n"
-              "- RPi5 deploys run one at a time on the dedicated runner.\n",
+              "- Database writes and migrations are not authorized by this workflow.\n",
               encoding="utf-8",
           )
           PY
 
   deploy:
     name: Deploy on RPi5
-    needs: resolve
+    needs: authorize
     runs-on:
       - self-hosted
       - Linux
@@ -131,10 +150,10 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Deploy queued merge SHA
+      - name: Deploy exact authorized SHA
         id: deploy
         env:
-          TARGET_SHA: ${{ needs.resolve.outputs.sha }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -145,7 +164,7 @@ jobs:
             "$TARGET_SHA" \
             "$evidence_dir"
 
-      - name: Prewarm current weekly overview
+      - name: Prewarm and verify current weekly overview
         if: success()
         env:
           EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
@@ -158,12 +177,10 @@ jobs:
           from __future__ import annotations
 
           from datetime import datetime, timedelta
-          from http.client import HTTPException
           import ipaddress
           import json
           from pathlib import Path
           import re
-          import subprocess
           import sys
           from time import perf_counter
           from urllib.error import HTTPError, URLError
@@ -175,80 +192,67 @@ jobs:
           if not evidence_dir.is_dir() or evidence_dir.is_symlink():
               raise SystemExit("weekly prewarm evidence directory is unsafe")
 
+          deploy_log = evidence_dir / "deploy.log"
+          if not deploy_log.is_file() or deploy_log.is_symlink():
+              raise SystemExit("deploy evidence log is missing or unsafe")
+          health_urls = [
+              line.removeprefix("LOCAL_HEALTH_URL=").strip()
+              for line in deploy_log.read_text(
+                  encoding="utf-8",
+                  errors="strict",
+              ).splitlines()
+              if line.startswith("LOCAL_HEALTH_URL=")
+          ]
+          if not health_urls:
+              raise SystemExit("deploy helper did not report LOCAL_HEALTH_URL")
+
+          parsed = urlsplit(health_urls[-1])
+          if (
+              parsed.scheme != "http"
+              or parsed.username is not None
+              or parsed.password is not None
+              or parsed.query
+              or parsed.fragment
+              or parsed.path != "/api/health"
+              or not parsed.hostname
+          ):
+              raise SystemExit("deploy helper LOCAL_HEALTH_URL is invalid")
+          try:
+              address = ipaddress.ip_address(parsed.hostname)
+              port = parsed.port
+          except ValueError as exc:
+              raise SystemExit("deploy helper LOCAL_HEALTH_URL is invalid") from exc
+          if port is None or not 1 <= port <= 65535:
+              raise SystemExit("deploy helper health port is invalid")
+          if not (
+              address.is_loopback
+              or address.is_private
+              or address.is_link_local
+          ):
+              raise SystemExit("deploy helper health address is not local")
+          url_host = (
+              f"[{address.compressed}]"
+              if address.version == 6
+              else address.compressed
+          )
+          origin = f"http://{url_host}:{port}"
+
           opener = build_opener(ProxyHandler({}))
           request_headers = {
               "Accept": "application/json",
               "Cache-Control": "no-cache",
               "Pragma": "no-cache",
-              "User-Agent": "hermes-deals-deploy-weekly-prewarm/2",
+              "User-Agent": "hermes-deals-deploy-weekly-prewarm/3",
           }
           source_contract = (
               "single_week_query_short_periods_plus_explicit_immutable_daily_evidence"
           )
 
-          def parse_local(value: str) -> str | None:
-              value = value.strip()
-              if value.startswith("[") and "]:" in value:
-                  host, port = value[1:].rsplit("]:", 1)
-              else:
-                  host, port = value.rsplit(":", 1)
-              if not port.isdigit():
-                  return None
-              if host in {"*", "0.0.0.0", "::", ""}:
-                  host = "127.0.0.1"
-              if "%" in host:
-                  host = host.split("%", 1)[0]
-              try:
-                  parsed = ipaddress.ip_address(host)
-              except ValueError:
-                  return None
-              port_number = int(port)
-              if not 1 <= port_number <= 65535:
-                  return None
-              url_host = (
-                  f"[{parsed.compressed}]"
-                  if parsed.version == 6
-                  else parsed.compressed
-              )
-              return f"http://{url_host}:{port_number}"
-
-          def origin_from_health_url(value: str) -> str:
-              parsed = urlsplit(value.strip())
-              if (
-                  parsed.scheme != "http"
-                  or parsed.username is not None
-                  or parsed.password is not None
-                  or parsed.query
-                  or parsed.fragment
-                  or parsed.path != "/api/health"
-                  or not parsed.hostname
-              ):
-                  raise ValueError("invalid local health URL structure")
-              try:
-                  address = ipaddress.ip_address(parsed.hostname)
-                  port = parsed.port
-              except ValueError as exc:
-                  raise ValueError("invalid local health URL address") from exc
-              if port is None or not 1 <= port <= 65535:
-                  raise ValueError("invalid local health URL port")
-              if not (
-                  address.is_loopback
-                  or address.is_private
-                  or address.is_link_local
-              ):
-                  raise ValueError("local health URL is not a local address")
-              url_host = (
-                  f"[{address.compressed}]"
-                  if address.version == 6
-                  else address.compressed
-              )
-              return f"http://{url_host}:{port}"
-
-          def request(base: str, path: str, timeout: float):
+          def request(path: str, timeout: float):
               started = perf_counter()
               try:
                   with opener.open(
-                      Request(base + path, headers=request_headers),
+                      Request(origin + path, headers=request_headers),
                       timeout=timeout,
                   ) as response:
                       body = response.read()
@@ -265,79 +269,22 @@ jobs:
               elapsed_ms = (perf_counter() - started) * 1000
               return status, headers, body, elapsed_ms
 
-          def validated_health(candidate: str):
-              status, _, body, _ = request(candidate, "/api/health", 0.8)
-              payload = json.loads(body)
-              if (
-                  status != 200
-                  or payload.get("status") != "ok"
-                  or payload.get("service") != "hermes-deals-api"
-              ):
-                  raise RuntimeError("candidate is not Hermes Deals production")
-              return payload
+          def write_headers(path: Path, status: int, headers) -> None:
+              lines = [f"HTTP-STATUS: {status}"]
+              lines.extend(f"{key}: {value}" for key, value in headers.items())
+              path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-          origin = None
-          health = None
-          deploy_log = evidence_dir / "deploy.log"
-          if deploy_log.is_file() and not deploy_log.is_symlink():
-              health_urls = [
-                  line.removeprefix("LOCAL_HEALTH_URL=").strip()
-                  for line in deploy_log.read_text(
-                      encoding="utf-8",
-                      errors="strict",
-                  ).splitlines()
-                  if line.startswith("LOCAL_HEALTH_URL=")
-              ]
-              if health_urls:
-                  try:
-                      origin = origin_from_health_url(health_urls[-1])
-                      health = validated_health(origin)
-                  except (
-                      OSError,
-                      RuntimeError,
-                      ValueError,
-                      UnicodeError,
-                      json.JSONDecodeError,
-                      HTTPException,
-                  ) as exc:
-                      raise SystemExit(
-                          "deploy helper LOCAL_HEALTH_URL did not validate"
-                      ) from exc
-
-          if origin is None or health is None:
-              sockets = subprocess.run(
-                  ["ss", "-H", "-ltn"],
-                  check=True,
-                  capture_output=True,
-                  text=True,
-              ).stdout.splitlines()
-              candidates: list[str] = []
-              for line in sockets:
-                  parts = line.split()
-                  if len(parts) < 4:
-                      continue
-                  candidate = parse_local(parts[3])
-                  if candidate and candidate not in candidates:
-                      candidates.append(candidate)
-
-              for candidate in candidates:
-                  try:
-                      payload = validated_health(candidate)
-                  except (
-                      OSError,
-                      RuntimeError,
-                      ValueError,
-                      UnicodeError,
-                      json.JSONDecodeError,
-                      HTTPException,
-                  ):
-                      continue
-                  origin = candidate
-                  health = payload
-                  break
-
-          if origin is None or health is None:
-              raise SystemExit("Hermes Deals local production origin not found")
+          health_status, _, health_body, _ = request("/api/health", 0.8)
+          try:
+              health = json.loads(health_body)
+          except json.JSONDecodeError as exc:
+              raise SystemExit("local health response is not JSON") from exc
+          if (
+              health_status != 200
+              or health.get("status") != "ok"
+              or health.get("service") != "hermes-deals-api"
+          ):
+              raise SystemExit("deploy helper LOCAL_HEALTH_URL did not validate")
 
           today = datetime.now(ZoneInfo("Europe/Berlin")).date()
           week_start = today - timedelta(days=today.weekday())
@@ -349,13 +296,7 @@ jobs:
               {"week_start": week_start.isoformat()}
           )
 
-          def write_headers(path: Path, status: int, headers) -> None:
-              lines = [f"HTTP-STATUS: {status}"]
-              lines.extend(f"{key}: {value}" for key, value in headers.items())
-              path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
           first_status, first_headers, first_body, first_wall_ms = request(
-              origin,
               weekly_path,
               15.0,
           )
@@ -404,7 +345,6 @@ jobs:
               raise SystemExit("weekly prewarm response has no ETag")
 
           warm_status, warm_headers, warm_body, warm_wall_ms = request(
-              origin,
               weekly_path,
               5.0,
           )
@@ -413,6 +353,7 @@ jobs:
               warm_status,
               warm_headers,
           )
+          (evidence_dir / "weekly-prewarm-warm.json").write_bytes(warm_body)
           if warm_status != 200:
               raise SystemExit(
                   f"weekly warm verification returned HTTP {warm_status}"
@@ -471,11 +412,11 @@ jobs:
           print("WEEKLY_PREWARM=PASS")
           PY
 
-      - name: Verify and capture public API and UI
+      - name: Verify public API and UI through Cloudflare Access
         if: success()
         env:
           EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
-          TARGET_SHA: ${{ needs.resolve.outputs.sha }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
           PUBLIC_VERIFY_MAX_ATTEMPTS: "6"
           PUBLIC_VERIFY_DELAY_SECONDS: "5"
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -549,7 +490,7 @@ jobs:
           request_headers = {
               "Cache-Control": "no-cache",
               "Pragma": "no-cache",
-              "User-Agent": "hermes-deals-public-contract/1",
+              "User-Agent": "hermes-deals-public-contract/2",
               "CF-Access-Client-Id": access_client_id,
               "CF-Access-Client-Secret": access_client_secret,
           }
@@ -712,9 +653,9 @@ jobs:
 
       - name: Upload deploy evidence
         if: always() && steps.deploy.outputs.evidence_dir != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: production-deploy-${{ needs.resolve.outputs.sha }}-run-${{ github.run_id }}
+          name: production-deploy-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.deploy.outputs.evidence_dir }}
           if-no-files-found: warn
           retention-days: 30
