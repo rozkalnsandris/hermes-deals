@@ -1,0 +1,205 @@
+name: Hermes Lidl source inspect
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-lidl-source-inspect
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect sanitized selected-store Lidl source
+    if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/hermes-lidl-source-inspect ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      issue_number: ${{ steps.inspect.outputs.issue_number }}
+      comment_id: ${{ steps.inspect.outputs.comment_id }}
+      result: ${{ steps.inspect.outputs.result }}
+      reason: ${{ steps.inspect.outputs.reason }}
+      target: ${{ steps.inspect.outputs.target }}
+      as_of: ${{ steps.inspect.outputs.as_of }}
+      flyer_identifier: ${{ steps.inspect.outputs.flyer_identifier }}
+      route_region: ${{ steps.inspect.outputs.route_region }}
+      valid_from: ${{ steps.inspect.outputs.valid_from }}
+      valid_until: ${{ steps.inspect.outputs.valid_until }}
+      official_flyer_id: ${{ steps.inspect.outputs.official_flyer_id }}
+      page_count: ${{ steps.inspect.outputs.page_count }}
+      product_link_count: ${{ steps.inspect.outputs.product_link_count }}
+      pdf_sha256: ${{ steps.inspect.outputs.pdf_sha256 }}
+      raw_sha256: ${{ steps.inspect.outputs.raw_sha256 }}
+      stable_source_identity_sha256: ${{ steps.inspect.outputs.stable_source_identity_sha256 }}
+      parser_input_identity_sha256: ${{ steps.inspect.outputs.parser_input_identity_sha256 }}
+
+    steps:
+      - name: Checkout default-branch inspector code
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install narrow discovery dependency
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check 'httpx==0.28.1'
+
+      - name: Authorize and inspect exact selected-store source
+        id: inspect
+        env:
+          SUMMARY_PATH: ${{ runner.temp }}/lidl-source-inspect-summary.json
+          AUTH_OUTPUT: ${{ runner.temp }}/lidl-source-inspect-auth.env
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_lidl_source_inspect.py
+          cat "$AUTH_OUTPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Validate sanitized summary shape
+        env:
+          SUMMARY_PATH: ${{ runner.temp }}/lidl-source-inspect-summary.json
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          payload = json.loads(Path(os.environ['SUMMARY_PATH']).read_text(encoding='utf-8'))
+          if payload.get('result') not in {'SOURCE_AVAILABLE', 'WAIT_SOURCE'}:
+              raise SystemExit('unsupported source inspect result')
+          for key in (
+              'source_content_exported',
+              'rpi5_access',
+              'corpus_write',
+              'database_write',
+              'review_write',
+              'production_deploy',
+              'systemd_change',
+          ):
+              if payload.get(key) is not False:
+                  raise SystemExit(f'unsafe source inspect flag: {key}')
+          if payload['result'] == 'SOURCE_AVAILABLE':
+              for key in (
+                  'pdf_sha256',
+                  'raw_sha256',
+                  'stable_source_identity_sha256',
+                  'parser_input_identity_sha256',
+              ):
+                  if re.fullmatch(r'[0-9a-f]{64}', str(payload.get(key) or '')) is None:
+                      raise SystemExit(f'invalid digest: {key}')
+              if not str(payload.get('flyer_identifier') or ''):
+                  raise SystemExit('missing flyer identifier')
+              if int(payload.get('page_count') or 0) <= 0:
+                  raise SystemExit('invalid page count')
+          forbidden_keys = {
+              'source_json',
+              'source_pdf',
+              'viewer_url',
+              'viewer_final_url',
+              'raw_source',
+              'pdf_content',
+          }
+          if forbidden_keys.intersection(payload):
+              raise SystemExit('raw source field leaked into summary')
+          PY
+
+      - name: Upload sanitized source identity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-lidl-source-inspect-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lidl-source-inspect-summary.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    name: Report sanitized Lidl source identity
+    if: always() && needs.inspect.result == 'success'
+    needs:
+      - inspect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment sanitized identity on command issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.inspect.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.inspect.outputs.comment_id }}
+          RESULT: ${{ needs.inspect.outputs.result }}
+          REASON: ${{ needs.inspect.outputs.reason }}
+          TARGET: ${{ needs.inspect.outputs.target }}
+          AS_OF: ${{ needs.inspect.outputs.as_of }}
+          FLYER_IDENTIFIER: ${{ needs.inspect.outputs.flyer_identifier }}
+          ROUTE_REGION: ${{ needs.inspect.outputs.route_region }}
+          VALID_FROM: ${{ needs.inspect.outputs.valid_from }}
+          VALID_UNTIL: ${{ needs.inspect.outputs.valid_until }}
+          OFFICIAL_FLYER_ID: ${{ needs.inspect.outputs.official_flyer_id }}
+          PAGE_COUNT: ${{ needs.inspect.outputs.page_count }}
+          PRODUCT_LINK_COUNT: ${{ needs.inspect.outputs.product_link_count }}
+          PDF_SHA256: ${{ needs.inspect.outputs.pdf_sha256 }}
+          RAW_SHA256: ${{ needs.inspect.outputs.raw_sha256 }}
+          STABLE_IDENTITY_SHA256: ${{ needs.inspect.outputs.stable_source_identity_sha256 }}
+          PARSER_INPUT_SHA256: ${{ needs.inspect.outputs.parser_input_identity_sha256 }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          body = (
+              '## Hermes Lidl source inspect result\n\n'
+              f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+              f"- result: `{os.environ['RESULT']}`\n"
+              f"- reason: `{os.environ['REASON']}`\n"
+              f"- target / as-of: `{os.environ['TARGET']}` / `{os.environ['AS_OF']}`\n"
+              f"- flyer identifier: `{os.environ.get('FLYER_IDENTIFIER') or 'none'}`\n"
+              f"- route region: `{os.environ.get('ROUTE_REGION') or 'none'}`\n"
+              f"- validity: `{os.environ.get('VALID_FROM') or 'none'}..{os.environ.get('VALID_UNTIL') or 'none'}`\n"
+              f"- official flyer ID: `{os.environ.get('OFFICIAL_FLYER_ID') or 'none'}`\n"
+              f"- pages / product links: `{os.environ.get('PAGE_COUNT') or '0'}` / `{os.environ.get('PRODUCT_LINK_COUNT') or '0'}`\n"
+              f"- PDF SHA-256: `{os.environ.get('PDF_SHA256') or 'none'}`\n"
+              f"- raw JSON SHA-256: `{os.environ.get('RAW_SHA256') or 'none'}`\n"
+              f"- stable source identity SHA-256: `{os.environ.get('STABLE_IDENTITY_SHA256') or 'none'}`\n"
+              f"- parser-input identity SHA-256: `{os.environ.get('PARSER_INPUT_SHA256') or 'none'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              'Safety: official-source read only on a GitHub-hosted runner. No raw PDF/JSON '
+              'content was exported; no RPi5, corpus, DB, Review, deploy or systemd access was used.'
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=json.dumps({'body': body}).encode('utf-8'),
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'hermes-deals-lidl-source-inspect-reporter',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f'unexpected comment status: {response.status}')
+          PY
