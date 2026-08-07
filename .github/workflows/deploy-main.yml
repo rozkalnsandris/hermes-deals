@@ -1,0 +1,453 @@
+name: Deploy authorized main SHA to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact reviewed 40-character main SHA to deploy
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY followed by the exact SHA
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: hermes-deals-production-release
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact main SHA
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.authorize.outputs.sha }}
+      ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
+
+    steps:
+      - name: Verify owner, exact SHA and successful main CI
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ORIGINAL_ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          owner = os.environ["REPOSITORY_OWNER"]
+          actor = os.environ["ORIGINAL_ACTOR"]
+          triggering_actor = os.environ["TRIGGERING_ACTOR"]
+          target_sha = os.environ["TARGET_SHA"].strip()
+          confirmation = os.environ["CONFIRMATION"]
+
+          if repo != "rozkalnsandris/hermes-deals" or owner != "rozkalnsandris":
+              raise SystemExit("unexpected repository owner")
+          if os.environ["EVENT_NAME"] != "workflow_dispatch":
+              raise SystemExit("production deploy requires workflow_dispatch")
+          if actor != owner:
+              raise SystemExit("original workflow actor is not the repository owner")
+          if triggering_actor != owner:
+              raise SystemExit("workflow triggering actor is not the repository owner")
+          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+              raise SystemExit("target SHA must be an exact lowercase 40-character commit SHA")
+          if confirmation != f"DEPLOY {target_sha}":
+              raise SystemExit("typed production confirmation does not match target SHA")
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-owner-authorized-deploy",
+          }
+
+          def get_json(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          main = get_json(f"https://api.github.com/repos/{repo}/branches/main")
+          current_main = str(main.get("commit", {}).get("sha", ""))
+          if not re.fullmatch(r"[0-9a-f]{40}", current_main):
+              raise SystemExit("current main SHA is invalid")
+
+          if target_sha != current_main:
+              comparison = get_json(
+                  f"https://api.github.com/repos/{repo}/compare/{target_sha}...{current_main}"
+              )
+              merge_base = str((comparison.get("merge_base_commit") or {}).get("sha", ""))
+              if comparison.get("status") != "ahead" or merge_base != target_sha:
+                  raise SystemExit("target SHA is not an ancestor of current main")
+
+          encoded = urllib.parse.quote(target_sha, safe="")
+          runs = get_json(
+              f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs"
+              f"?branch=main&head_sha={encoded}&status=completed&per_page=100"
+          ).get("workflow_runs", [])
+          successful = [
+              row
+              for row in runs
+              if row.get("event") == "push"
+              and row.get("head_branch") == "main"
+              and row.get("head_sha") == target_sha
+              and row.get("status") == "completed"
+              and row.get("conclusion") == "success"
+          ]
+          if not successful:
+              raise SystemExit("target SHA has no successful main push CI run")
+          ci_run_id = max(int(row["id"]) for row in successful)
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={target_sha}\n")
+              handle.write(f"ci_run_id={ci_run_id}\n")
+
+          pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+              "## Production deploy authorized\n\n"
+              f"- Owner: `{owner}`\n"
+              f"- Target SHA: `{target_sha}`\n"
+              f"- Successful main CI: `{ci_run_id}`\n"
+              "- Database writes and migrations are not authorized by this workflow.\n",
+              encoding="utf-8",
+          )
+          PY
+
+  deploy:
+    name: Deploy on RPi5
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-release
+    timeout-minutes: 45
+
+    steps:
+      - name: Deploy exact authorized SHA
+        id: deploy
+        env:
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          evidence_dir="${RUNNER_TEMP}/hermes-deals-main-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$evidence_dir"
+          echo "evidence_dir=$evidence_dir" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-deploy-main \
+            "$TARGET_SHA" \
+            "$evidence_dir"
+
+      - name: Prewarm and verify current weekly overview
+        if: success()
+        env:
+          EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -d "$EVIDENCE_DIR" && ! -L "$EVIDENCE_DIR" ]]
+          python3 - "$EVIDENCE_DIR" <<'PY'
+          from __future__ import annotations
+
+          from datetime import datetime, timedelta
+          import ipaddress
+          import json
+          from pathlib import Path
+          import sys
+          from time import perf_counter
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
+
+          evidence_dir = Path(sys.argv[1])
+          deploy_log = evidence_dir / "deploy.log"
+          if not deploy_log.is_file() or deploy_log.is_symlink():
+              raise SystemExit("deploy evidence log is missing or unsafe")
+
+          health_urls = [
+              line.removeprefix("LOCAL_HEALTH_URL=").strip()
+              for line in deploy_log.read_text(encoding="utf-8", errors="strict").splitlines()
+              if line.startswith("LOCAL_HEALTH_URL=")
+          ]
+          if not health_urls:
+              raise SystemExit("deploy helper did not report LOCAL_HEALTH_URL")
+
+          parsed = urlsplit(health_urls[-1])
+          if (
+              parsed.scheme != "http"
+              or parsed.username is not None
+              or parsed.password is not None
+              or parsed.query
+              or parsed.fragment
+              or parsed.path != "/api/health"
+              or not parsed.hostname
+          ):
+              raise SystemExit("deploy helper LOCAL_HEALTH_URL is invalid")
+          address = ipaddress.ip_address(parsed.hostname)
+          if not (address.is_loopback or address.is_private or address.is_link_local):
+              raise SystemExit("deploy helper health address is not local")
+          if parsed.port is None or not 1 <= parsed.port <= 65535:
+              raise SystemExit("deploy helper health port is invalid")
+          host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+          origin = f"http://{host}:{parsed.port}"
+
+          opener = build_opener(ProxyHandler({}))
+          headers = {
+              "Accept": "application/json",
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache",
+              "User-Agent": "hermes-deals-deploy-weekly-prewarm/3",
+          }
+
+          def request(path: str, timeout: float):
+              started = perf_counter()
+              try:
+                  with opener.open(Request(origin + path, headers=headers), timeout=timeout) as response:
+                      body = response.read()
+                      status = response.status
+                      response_headers = response.headers
+              except HTTPError as exc:
+                  body = exc.read()
+                  status = exc.code
+                  response_headers = exc.headers
+              except URLError as exc:
+                  raise RuntimeError(f"local request failed: {exc.reason}") from exc
+              return status, response_headers, body, (perf_counter() - started) * 1000
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          expected_dates = [(week_start + timedelta(days=i)).isoformat() for i in range(7)]
+          path = "/api/v1/deals/weekly-specials?" + urlencode({"week_start": week_start.isoformat()})
+
+          first_status, first_headers, first_body, first_ms = request(path, 15.0)
+          (evidence_dir / "weekly-prewarm-first.json").write_bytes(first_body)
+          if first_status != 200:
+              raise SystemExit(f"weekly prewarm returned HTTP {first_status}")
+          first_payload = json.loads(first_body)
+          if first_payload.get("week_start") != week_start.isoformat():
+              raise SystemExit("weekly prewarm returned wrong week_start")
+          if first_payload.get("week_end") != expected_dates[-1]:
+              raise SystemExit("weekly prewarm returned wrong week_end")
+          if first_payload.get("timezone") != "Europe/Berlin":
+              raise SystemExit("weekly prewarm returned wrong timezone")
+          days = first_payload.get("days")
+          if not isinstance(days, list) or len(days) != 7:
+              raise SystemExit("weekly prewarm did not return seven days")
+
+          warm_status, warm_headers, warm_body, warm_ms = request(path, 5.0)
+          if warm_status != 200:
+              raise SystemExit(f"weekly warm verification returned HTTP {warm_status}")
+          if str(warm_headers.get("X-Hermes-Weekly-Cache") or "") != "HIT":
+              raise SystemExit("weekly warm verification was not a cache HIT")
+          if warm_body != first_body:
+              raise SystemExit("weekly warm verification body changed")
+          if warm_ms >= 1000.0:
+              raise SystemExit("weekly warm verification exceeded one second")
+
+          report = {
+              "result": "PASS",
+              "week_start": week_start.isoformat(),
+              "week_end": expected_dates[-1],
+              "count": int(first_payload.get("count", -1)),
+              "first_cache": str(first_headers.get("X-Hermes-Weekly-Cache") or ""),
+              "first_wall_ms": round(first_ms, 2),
+              "warm_cache": "HIT",
+              "warm_wall_ms": round(warm_ms, 2),
+              "database_write": False,
+          }
+          (evidence_dir / "weekly-prewarm.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print("WEEKLY_PREWARM=PASS")
+          PY
+
+      - name: Verify public API and UI through Cloudflare Access
+        if: success()
+        env:
+          EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          PUBLIC_VERIFY_MAX_ATTEMPTS: "6"
+          PUBLIC_VERIFY_DELAY_SECONDS: "5"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -d "$EVIDENCE_DIR" && ! -L "$EVIDENCE_DIR" ]]
+          python3 - "$EVIDENCE_DIR" "$TARGET_SHA" <<'PY'
+          from __future__ import annotations
+
+          from hashlib import sha256
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import sys
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          evidence_dir = Path(sys.argv[1])
+          target_sha = sys.argv[2]
+          max_attempts = int(os.environ["PUBLIC_VERIFY_MAX_ATTEMPTS"])
+          delay_seconds = int(os.environ["PUBLIC_VERIFY_DELAY_SECONDS"])
+          access_client_id = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+          access_client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+
+          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+              raise SystemExit("target SHA is invalid")
+          if not 1 <= max_attempts <= 10 or not 0 <= delay_seconds <= 30:
+              raise SystemExit("public verification retry configuration is invalid")
+          if not access_client_id or not access_client_secret:
+              raise SystemExit("Cloudflare Access service credentials are missing")
+          if any(c in access_client_id for c in "\r\n") or any(c in access_client_secret for c in "\r\n"):
+              raise SystemExit("Cloudflare Access service credentials are invalid")
+
+          request_headers = {
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache",
+              "User-Agent": "hermes-deals-public-contract/2",
+              "CF-Access-Client-Id": access_client_id,
+              "CF-Access-Client-Secret": access_client_secret,
+          }
+          required_ui_markers = (
+              '<meta name="hermes-production-bundle" content="inline-v1">',
+              'class="ui2-shell reference-app"',
+              "/api/v1/deals/current",
+          )
+          forbidden_ui_markers = ('href="/ui/styles.css"', 'src="/ui/app.js"')
+
+          def fetch(url: str, headers_path: Path, body_path: Path):
+              request = Request(url, headers=request_headers)
+              try:
+                  with urlopen(request, timeout=20) as response:
+                      payload = response.read()
+                      status = response.status
+                      response_headers = response.headers
+              except HTTPError as exc:
+                  payload = exc.read()
+                  status = exc.code
+                  response_headers = exc.headers
+              except URLError as exc:
+                  raise RuntimeError(f"{url} request failed: {exc.reason}") from exc
+              lines = [f"HTTP-STATUS: {status}"]
+              lines.extend(f"{key}: {value}" for key, value in response_headers.items())
+              headers_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+              body_path.write_bytes(payload)
+              return status, response_headers, payload
+
+          last_error = "public verification did not run"
+          for attempt in range(1, max_attempts + 1):
+              attempt_dir = evidence_dir / f"public-attempt-{attempt:02d}"
+              attempt_dir.mkdir(mode=0o700)
+              query = urlencode({"deploy_sha": target_sha, "attempt": attempt})
+              try:
+                  health_status, health_headers, health_body = fetch(
+                      f"https://deals.rozkalns.net/api/health?{query}",
+                      attempt_dir / "public-health.headers",
+                      attempt_dir / "public-health.json",
+                  )
+                  ui_status, ui_headers, ui_body = fetch(
+                      f"https://deals.rozkalns.net/ui?{query}",
+                      attempt_dir / "public-ui.headers",
+                      attempt_dir / "public-ui.html",
+                  )
+                  review_status, review_headers, review_body = fetch(
+                      f"https://deals.rozkalns.net/ui/review?{query}",
+                      attempt_dir / "public-review.headers",
+                      attempt_dir / "public-review.html",
+                  )
+                  if health_status != 200 or ui_status != 200 or review_status != 200:
+                      raise RuntimeError(
+                          f"public contract HTTP status mismatch: health={health_status}, ui={ui_status}, review={review_status}"
+                      )
+                  health = json.loads(health_body)
+                  if health.get("status") != "ok" or health.get("service") != "hermes-deals-api":
+                      raise RuntimeError("public health payload is invalid")
+                  ui = ui_body.decode("utf-8")
+                  review = review_body.decode("utf-8")
+                  if len(ui_body) < 100_000 or len(review_body) < 1_000:
+                      raise RuntimeError("public UI response is unexpectedly small")
+                  missing = [marker for marker in required_ui_markers if marker not in ui]
+                  if missing:
+                      raise RuntimeError(f"public UI is missing required markers: {missing}")
+                  leaked = [marker for marker in forbidden_ui_markers if marker in ui]
+                  if leaked:
+                      raise RuntimeError(f"public UI still depends on external assets: {leaked}")
+
+                  report = {
+                      "result": "PASS",
+                      "attempt": attempt,
+                      "target_sha": target_sha,
+                      "health_version": health.get("version"),
+                      "health_phase": health.get("phase"),
+                      "ui_bytes": len(ui_body),
+                      "ui_sha256": sha256(ui_body).hexdigest(),
+                      "review_bytes": len(review_body),
+                      "review_sha256": sha256(review_body).hexdigest(),
+                      "cloudflare_access_service_auth": True,
+                  }
+                  result_path = attempt_dir / "validation.json"
+                  result_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                  for name in (
+                      "public-health.headers", "public-health.json",
+                      "public-ui.headers", "public-ui.html",
+                      "public-review.headers", "public-review.html",
+                  ):
+                      shutil.copy2(attempt_dir / name, evidence_dir / name)
+                  shutil.copy2(result_path, evidence_dir / "public-ui-check.json")
+                  print(f"PUBLIC_VERIFY_ATTEMPT={attempt}")
+                  print("PUBLIC_API_HEALTH=PASS")
+                  print("PUBLIC_UI_BUNDLE=PASS")
+                  print("PUBLIC_REVIEW=PASS")
+                  print("PUBLIC_CLOUDFLARE_ACCESS=PASS")
+                  raise SystemExit(0)
+              except (OSError, RuntimeError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+                  last_error = str(exc)
+                  (attempt_dir / "validation.err").write_text(last_error + "\n", encoding="utf-8")
+                  (attempt_dir / "validation.json").write_text(
+                      json.dumps(
+                          {"result": "FAIL", "attempt": attempt, "target_sha": target_sha, "error": last_error},
+                          indent=2,
+                          sort_keys=True,
+                      ) + "\n",
+                      encoding="utf-8",
+                  )
+                  print(f"PUBLIC_VERIFY_ATTEMPT={attempt} FAIL: {last_error}", file=sys.stderr)
+                  if attempt < max_attempts:
+                      time.sleep(delay_seconds)
+
+          raise SystemExit(
+              f"public API/UI contract failed after {max_attempts} attempts: {last_error}"
+          )
+          PY
+
+      - name: Upload deploy evidence
+        if: always() && steps.deploy.outputs.evidence_dir != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-deploy-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.deploy.outputs.evidence_dir }}
+          if-no-files-found: warn
+          retention-days: 30
