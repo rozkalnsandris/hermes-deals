@@ -1,0 +1,109 @@
+name: Diagnose weekly prewarm result
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly:
+    name: RPi5 weekly prewarm result read-only
+    if: >-
+      github.event.pull_request.head.ref == 'diag/251-verify-weekly-prewarm' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'rozkalnsandris'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-release]
+    timeout-minutes: 5
+    steps:
+      - name: Verify current production week is parser-warm
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from datetime import datetime, timedelta
+          import ipaddress, json, re, subprocess
+          from time import perf_counter
+          from urllib.parse import urlencode
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
+
+          opener = build_opener(ProxyHandler({}))
+
+          def parse_local(value):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit(): return None
+              if host in {"*", "0.0.0.0", "::", ""}: host = "127.0.0.1"
+              if "%" in host: host = host.split("%", 1)[0]
+              try: parsed = ipaddress.ip_address(host)
+              except ValueError: return None
+              return f"http://{'[' + parsed.compressed + ']' if parsed.version == 6 else parsed.compressed}:{int(port)}"
+
+          def fetch(base, path, timeout=10):
+              req = Request(base + path, headers={
+                  "Accept": "application/json",
+                  "Cache-Control": "no-cache",
+                  "Pragma": "no-cache",
+                  "User-Agent": "hermes-deals-weekly-prewarm-verify/1",
+              })
+              started = perf_counter()
+              with opener.open(req, timeout=timeout) as response:
+                  body = response.read()
+                  return response.status, response.headers, body, (perf_counter() - started) * 1000
+
+          sockets = subprocess.run(["ss", "-H", "-ltn"], check=True, capture_output=True, text=True).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) >= 4:
+                  candidate = parse_local(parts[3])
+                  if candidate and candidate not in candidates: candidates.append(candidate)
+
+          base = None
+          health = None
+          for candidate in candidates:
+              try:
+                  status, _, body, _ = fetch(candidate, "/api/health", 0.8)
+                  payload = json.loads(body)
+              except Exception:
+                  continue
+              if status == 200 and payload.get("status") == "ok" and payload.get("service") == "hermes-deals-api":
+                  base = candidate
+                  health = payload
+                  break
+          if base is None or health is None:
+              raise SystemExit("production origin not found")
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          path = "/api/v1/deals/weekly-specials?" + urlencode({"week_start": week_start.isoformat()})
+          status, headers, body, wall_ms = fetch(base, path, 10)
+          payload = json.loads(body)
+          cache = str(headers.get("X-Hermes-Weekly-Cache") or "")
+          timing = str(headers.get("Server-Timing") or "")
+          match = re.search(r"weekly;dur=([0-9.]+)", timing)
+          server_ms = float(match.group(1)) if match else None
+
+          print(
+              "WEEKLY_PREWARM_VERIFY "
+              f"status={status} cache={cache or '(missing)'} "
+              f"wall_ms={wall_ms:.2f} server_ms={server_ms} "
+              f"week_start={payload.get('week_start')} count={payload.get('count')} "
+              f"version={health.get('version')} phase={health.get('phase')}"
+          )
+
+          assert status == 200
+          assert payload.get("week_start") == week_start.isoformat()
+          assert payload.get("source_contract") == "single_week_query_short_periods_plus_explicit_immutable_daily_evidence"
+          assert cache in {"HIT", "MISS"}
+          assert server_ms is not None
+          # A HIT proves the deploy response cache is still warm. A MISS can
+          # occur after its 30s TTL; in that case parser/snapshot caches must
+          # still keep the user-equivalent request below the one-second target.
+          assert wall_ms < 1000.0
+          PY
