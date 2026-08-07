@@ -24,6 +24,9 @@ def test_workflow_is_owner_only_merged_sha_and_no_checkout_on_self_hosted() -> N
     assert "Production deployment: **not authorized**" in self_hosted
     assert "Database/Review write: **not authorized**" in self_hosted
     assert "Promotion ready: **false by contract**" in self_hosted
+    report = text.split("  report:\n", 1)[1]
+    assert "github.event.label.name == 'audit:netto-ownership-separator-v1'" in report
+    assert "PR_NUMBER: ${{ github.event.pull_request.number }}" in report
 
 
 def test_installer_pins_exact_runtime_and_immutable_evidence() -> None:
