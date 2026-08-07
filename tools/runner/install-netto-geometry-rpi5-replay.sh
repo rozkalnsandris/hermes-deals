@@ -35,7 +35,7 @@ STAGING_ROOT='/home/andris/hermes-deals-runner-evidence'
 for user in github-runner andris; do
   id "$user" >/dev/null 2>&1 || fail "required local user is missing: $user"
 done
-for command in git install python3 readlink runuser sha256sum stat systemctl visudo; do
+for command in git install python3 readlink runuser sha256sum stat sudo systemctl visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
