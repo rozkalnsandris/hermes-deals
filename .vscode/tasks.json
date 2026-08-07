@@ -11,10 +11,10 @@
       "presentation": {"reveal": "always", "panel": "dedicated", "clear": true}
     },
     {
-      "label": "Hermes Deals: Deploy current main",
+      "label": "Hermes Deals: Production deploy",
       "type": "shell",
       "command": "bash",
-      "args": ["tools/vscode-rpi5-release.sh", "deploy"],
+      "args": ["tools/vscode-rpi5-production-deploy.sh"],
       "options": {"cwd": "${workspaceFolder}"},
       "problemMatcher": [],
       "presentation": {"reveal": "always", "panel": "dedicated", "clear": true}
