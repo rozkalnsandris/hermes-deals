@@ -115,6 +115,24 @@ def test_installer_uses_detached_exact_worktree_and_root_owned_runtime() -> None
     assert "bf35bff323d76a2b29a7248df067641e5b9f2a7d29329cf53bf9fc0ae832734a" in source
 
 
+def test_installer_inspects_source_git_only_as_worktree_owner_without_optional_locks() -> None:
+    source = text(INSTALLER)
+
+    assert "git_source()" in source
+    assert "runuser -u andris -- /usr/bin/env -i" in source
+    assert "GIT_OPTIONAL_LOCKS=0" in source
+    assert '/usr/bin/git "$@"' in source
+    assert 'git_source -C "$SOURCE_REPO" status --porcelain=v1 --untracked-files=all' in source
+    assert 'git_source -C "$SOURCE_REPO" rev-parse HEAD' in source
+    assert 'git_source -C "$SOURCE_REPO" remote get-url origin' in source
+    assert 'git_source -C "$SOURCE_REPO" ls-files --error-unmatch "$relative"' in source
+
+    # A root-owned installer must never directly invoke Git against the
+    # andris-owned source worktree. In particular, plain `git status` can
+    # refresh and rewrite the index as a side effect.
+    assert 'git -C "$SOURCE_REPO"' not in source
+
+
 def test_dispatcher_exports_only_bounded_sanitized_evidence() -> None:
     source = text(INSTALLER)
     for name in (
@@ -159,3 +177,5 @@ def test_runbook_keeps_primary_checkout_untouched() -> None:
     assert "git -C \"$PRIMARY\" worktree add --detach" in source
     assert "The primary `/home/andris/hermes-deals` checkout is never switched" in source
     assert "audit:netto-geometry-replay-v1" in source
+    assert "GIT_OPTIONAL_LOCKS=0" in source
+    assert "source-worktree Git checks run as `andris`" in source

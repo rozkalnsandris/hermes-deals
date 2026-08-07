@@ -42,25 +42,39 @@ if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
   fail "github-runner must not belong to the Docker group"
 fi
 
-[[ "$(git -C "$SOURCE_REPO" rev-parse --is-inside-work-tree 2>/dev/null)" == 'true' ]] || fail "source path is not a Git worktree"
-[[ "$(git -C "$SOURCE_REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail "source worktree HEAD mismatch"
-[[ -z "$(git -C "$SOURCE_REPO" branch --show-current)" ]] || fail "source worktree must be detached at the registered SHA"
-[[ -z "$(git -C "$SOURCE_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail "source worktree is not clean"
+# The installer itself is privileged, but the source worktree belongs to andris.
+# All Git inspection of that worktree must therefore run as its owner. Git status
+# normally refreshes and may rewrite the index; GIT_OPTIONAL_LOCKS=0 disables
+# that optional side effect so a verification step cannot change index ownership.
+git_source() {
+  runuser -u andris -- /usr/bin/env -i \
+    HOME=/home/andris \
+    USER=andris \
+    LOGNAME=andris \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    GIT_OPTIONAL_LOCKS=0 \
+    /usr/bin/git "$@"
+}
 
-COMMON_DIR="$(git -C "$SOURCE_REPO" rev-parse --git-common-dir)"
+[[ "$(git_source -C "$SOURCE_REPO" rev-parse --is-inside-work-tree 2>/dev/null)" == 'true' ]] || fail "source path is not a Git worktree"
+[[ "$(git_source -C "$SOURCE_REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail "source worktree HEAD mismatch"
+[[ -z "$(git_source -C "$SOURCE_REPO" branch --show-current)" ]] || fail "source worktree must be detached at the registered SHA"
+[[ -z "$(git_source -C "$SOURCE_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail "source worktree is not clean"
+
+COMMON_DIR="$(git_source -C "$SOURCE_REPO" rev-parse --git-common-dir)"
 case "$COMMON_DIR" in
   /*) COMMON_DIR="$(readlink -f -- "$COMMON_DIR")" ;;
   *) COMMON_DIR="$(readlink -f -- "$SOURCE_REPO/$COMMON_DIR")" ;;
 esac
 [[ "$COMMON_DIR" == "$PRIMARY_GIT_COMMON_DIR" ]] || fail "source is not a worktree of /home/andris/hermes-deals"
 
-REMOTE="$(git -C "$SOURCE_REPO" remote get-url origin)"
+REMOTE="$(git_source -C "$SOURCE_REPO" remote get-url origin)"
 case "$REMOTE" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
   *) fail "source origin is not the Hermes Deals repository" ;;
 esac
-git -C "$SOURCE_REPO" show-ref --verify --quiet refs/remotes/origin/main || fail "origin/main is unavailable in source worktree"
-git -C "$SOURCE_REPO" merge-base --is-ancestor "$EXPECTED_SHA" refs/remotes/origin/main || fail "registered SHA is not reachable from fetched origin/main"
+git_source -C "$SOURCE_REPO" show-ref --verify --quiet refs/remotes/origin/main || fail "origin/main is unavailable in source worktree"
+git_source -C "$SOURCE_REPO" merge-base --is-ancestor "$EXPECTED_SHA" refs/remotes/origin/main || fail "registered SHA is not reachable from fetched origin/main"
 
 SOURCE_RUNNER="$SOURCE_REPO/tools/run-hermes-deals-netto-geometry-replay-v01.sh"
 SOURCE_REPLAY_TOOL="$SOURCE_REPO/tools/netto_visual_geometry_corpus_replay.py"
@@ -73,7 +87,7 @@ for relative in \
   tools/netto_visual_geometry_shadow.py \
   backend/tests/fixtures/netto/n10_full_visual_review_v1.json \
   tools/runner/install-netto-geometry-rpi5-replay.sh; do
-  git -C "$SOURCE_REPO" ls-files --error-unmatch "$relative" >/dev/null || fail "required source is not tracked: $relative"
+  git_source -C "$SOURCE_REPO" ls-files --error-unmatch "$relative" >/dev/null || fail "required source is not tracked: $relative"
 done
 for source in "$SOURCE_RUNNER" "$SOURCE_REPLAY_TOOL" "$SOURCE_PARSER_TOOL" "$SOURCE_N10"; do
   [[ -f "$source" && ! -L "$source" ]] || fail "required source is missing or unsafe: $source"
