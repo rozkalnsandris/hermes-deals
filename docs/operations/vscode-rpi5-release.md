@@ -2,20 +2,42 @@
 
 Use these tasks only from the RPi5 Remote SSH window with the primary repository `/home/andris/hermes-deals` open on clean synchronized `main`.
 
+## Normal workflow
+
 1. Run `Hermes Deals: Check deploy`.
-2. Review the cumulative release range from the running production SHA to exact current `main`.
-3. Run `Hermes Deals: Plan production deploy` and require the bridge request to finish with `hermes:deploy-pass`.
-4. Review the GitHub issue, workflow result and sanitized evidence.
-5. Run `Hermes Deals: Apply production deploy` only after explicit owner approval and type the exact SHA-bound confirmation shown in the terminal.
+2. Review the cumulative release range from the running production SHA to exact current `origin/main`.
+3. If the check reports `NO DEPLOY NEEDED`, stop. Nothing should be changed in production.
+4. If a deploy is required and separately authorized, run `Hermes Deals: Production deploy`.
+5. The production task reruns the read-only preflight, prints the exact target SHA and requires the literal confirmation `DEPLOY <40-character SHA>`.
+6. Only after that exact confirmation does the guarded direct-main deploy helper run.
+7. Review the final API/UI/container checks and keep the timestamped local log path printed by the task.
 
-The launcher derives the current production SHA from the release-bound API image and checks the complete cumulative diff to current `main`, not only the latest PR. It prefers the exact 40-character `org.opencontainers.image.revision` label, which also supports previously verified legacy release tag names. Only when that label is absent may it fall back to the canonical `hermes-deals-api:release-<semver>-<sha7>` tag. Malformed, contradictory or unresolved provenance fails closed.
+## Safety boundaries
 
-It refuses dirty worktrees, non-main branches, another repository path, unsynchronized local/remote main, a current main commit not bound to exactly one merged PR, unresolved source issues and cumulative Compose changes.
+`Hermes Deals: Check deploy` is read-only. It refuses the wrong repository path, a dirty worktree, a branch other than `main`, unsynchronized local/remote main, a target without successful exact-main CI, unresolvable production provenance, unsafe cumulative Compose changes, or migration state that cannot be reconciled without a database write.
 
-A cumulative migration change remains blocked by default. The only exception is a schema-already-applied reconciliation: every migration change must be a newly added Python revision under `backend/alembic/versions/`, the target migration graph must have exactly one head, and the live production `alembic_version` must already equal that exact target head. Changes to `alembic.ini`, deleted or modified revisions, alternate migration directories, multiple heads, missing database identity or a different live schema version fail closed. This reconciliation performs no migration command and never authorizes a database write.
+The current direct-main launcher derives the production SHA from the running release-bound API image. It prefers the exact 40-character `org.opencontainers.image.revision` label and falls back only to a canonical `hermes-deals-api:release-<semver>-<sha7>` tag when the OCI revision is absent. Malformed, contradictory or unresolved provenance fails closed.
 
-Plan and apply create owner-authored `hermes:deploy-ready` requests for the existing no-agent release bridge. The bridge performs root auto-registration, exact-main CI verification, immutable image build and testing, plan evidence, apply authorization, API-only recreation, health/UI checks and automatic rollback. A verified legacy running image is assigned a canonical rollback alias using its exact OCI revision and historical application version; the running container is not changed during plan.
+A cumulative migration change is accepted only when every change is a newly added Alembic revision and the live production `alembic_version` already equals the exact target head. The launcher never runs `alembic upgrade`, `alembic downgrade` or another migration command, and the live Alembic revision must remain unchanged across an API/UI deploy.
 
-The root-owned dispatcher reads `alembic_version` directly from PostgreSQL before and after API replacement and requires the value to remain identical. It never runs `alembic upgrade` or another migration command. The release runtime installer updates the dispatcher, register, bridge and auto-register components together from the detached exact-`origin/main` release-control worktree.
+The production task is a thin confirmation-and-audit wrapper around the same guarded launcher. It does not bypass any existing release gate. It requires the exact SHA-bound typed confirmation and then calls the existing root-owned runtime-sync and direct-main deploy helpers through the guarded launcher.
 
-`Check deploy` is read-only. `Plan production deploy` registers and verifies the exact cumulative release without applying production. `Apply production deploy` is the only task that may change production.
+## Deploy logs
+
+Each `Hermes Deals: Production deploy` run writes a timestamped log under:
+
+`$XDG_STATE_HOME/hermes-deals/deploy/`
+
+or, when `XDG_STATE_HOME` is not set:
+
+`~/.local/state/hermes-deals/deploy/`
+
+The directory is created with mode `0700` and the log file with mode `0600`. The log records the read-only preflight, target SHA, successful confirmation match, guarded deploy output, final API container running state, exact deployed OCI revision and completion timestamp.
+
+The task does not put logs inside the Git worktree, so a normal deploy does not dirty `/home/andris/hermes-deals`.
+
+## When deploy is not required
+
+Do not deploy merely because a PR was merged. Run `Hermes Deals: Check deploy` after merges that may affect the RPi5 runtime. If production already matches current `main`, or if the merged change is documentation/metadata that does not require a runtime refresh, stop at the check result.
+
+A merge never authorizes a production deployment or a production database write. B15M2 V08 remains outside this workflow unless it is separately and explicitly authorized.
