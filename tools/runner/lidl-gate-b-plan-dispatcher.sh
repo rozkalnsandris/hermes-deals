@@ -30,7 +30,7 @@ source "$CONF"
 [[ "${commit_sha:-}" == "$EXPECTED_SHA" ]] || fail 'requested SHA is not registered'
 [[ "${planner_path:-}" == /usr/local/libexec/hermes-deals-audits/lidl-gate-b-freeze-plan.py ]] || fail 'registered planner path mismatch'
 [[ "${planner_sha256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'registered planner SHA is invalid'
-[[ "${planner_blob_sha:-}" == 73abec6752d251b02bf6f47379689400dee106ff ]] || fail 'registered planner blob mismatch'
+[[ "${planner_blob_sha:-}" == 02f85620e4c881e4ef4b518751223bfb92fd91f8 ]] || fail 'registered planner blob mismatch'
 [[ "${apply_blob_sha:-}" == b8e38b52be69aa6f0cdaa5dbb3f76ccb013c772f ]] || fail 'registered apply blob mismatch'
 [[ -f "$planner_path" && ! -L "$planner_path" ]] || fail 'registered planner is missing or unsafe'
 [[ "$(stat -c '%U:%G:%a' "$planner_path")" == root:root:755 ]] || fail 'registered planner metadata mismatch'
