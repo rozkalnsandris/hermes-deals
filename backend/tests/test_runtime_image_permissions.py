@@ -114,6 +114,8 @@ def test_runtime_permission_command_removes_unsafe_context_bits(tmp_path: Path) 
 
     _normalize(app, alembic, alembic_ini)
 
+    # Exact modes prove the final image no longer inherits either restrictive
+    # or overly permissive permission bits from a local build context.
     assert _mode(app) == 0o755
     assert _mode(alembic) == 0o755
     assert _mode(app_init) == 0o644
