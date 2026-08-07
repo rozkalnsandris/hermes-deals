@@ -158,6 +158,7 @@ jobs:
           from __future__ import annotations
 
           from datetime import datetime, timedelta
+          from http.client import HTTPException
           import ipaddress
           import json
           from pathlib import Path
@@ -166,7 +167,7 @@ jobs:
           import sys
           from time import perf_counter
           from urllib.error import HTTPError, URLError
-          from urllib.parse import urlencode
+          from urllib.parse import urlencode, urlsplit
           from urllib.request import ProxyHandler, Request, build_opener
           from zoneinfo import ZoneInfo
 
@@ -179,7 +180,7 @@ jobs:
               "Accept": "application/json",
               "Cache-Control": "no-cache",
               "Pragma": "no-cache",
-              "User-Agent": "hermes-deals-deploy-weekly-prewarm/1",
+              "User-Agent": "hermes-deals-deploy-weekly-prewarm/2",
           }
           source_contract = (
               "single_week_query_short_periods_plus_explicit_immutable_daily_evidence"
@@ -204,23 +205,44 @@ jobs:
               port_number = int(port)
               if not 1 <= port_number <= 65535:
                   return None
-              url_host = f"[{parsed.compressed}]" if parsed.version == 6 else parsed.compressed
+              url_host = (
+                  f"[{parsed.compressed}]"
+                  if parsed.version == 6
+                  else parsed.compressed
+              )
               return f"http://{url_host}:{port_number}"
 
-          sockets = subprocess.run(
-              ["ss", "-H", "-ltn"],
-              check=True,
-              capture_output=True,
-              text=True,
-          ).stdout.splitlines()
-          candidates: list[str] = []
-          for line in sockets:
-              parts = line.split()
-              if len(parts) < 4:
-                  continue
-              candidate = parse_local(parts[3])
-              if candidate and candidate not in candidates:
-                  candidates.append(candidate)
+          def origin_from_health_url(value: str) -> str:
+              parsed = urlsplit(value.strip())
+              if (
+                  parsed.scheme != "http"
+                  or parsed.username is not None
+                  or parsed.password is not None
+                  or parsed.query
+                  or parsed.fragment
+                  or parsed.path != "/api/health"
+                  or not parsed.hostname
+              ):
+                  raise ValueError("invalid local health URL structure")
+              try:
+                  address = ipaddress.ip_address(parsed.hostname)
+                  port = parsed.port
+              except ValueError as exc:
+                  raise ValueError("invalid local health URL address") from exc
+              if port is None or not 1 <= port <= 65535:
+                  raise ValueError("invalid local health URL port")
+              if not (
+                  address.is_loopback
+                  or address.is_private
+                  or address.is_link_local
+              ):
+                  raise ValueError("local health URL is not a local address")
+              url_host = (
+                  f"[{address.compressed}]"
+                  if address.version == 6
+                  else address.compressed
+              )
+              return f"http://{url_host}:{port}"
 
           def request(base: str, path: str, timeout: float):
               started = perf_counter()
@@ -243,22 +265,77 @@ jobs:
               elapsed_ms = (perf_counter() - started) * 1000
               return status, headers, body, elapsed_ms
 
+          def validated_health(candidate: str):
+              status, _, body, _ = request(candidate, "/api/health", 0.8)
+              payload = json.loads(body)
+              if (
+                  status != 200
+                  or payload.get("status") != "ok"
+                  or payload.get("service") != "hermes-deals-api"
+              ):
+                  raise RuntimeError("candidate is not Hermes Deals production")
+              return payload
+
           origin = None
           health = None
-          for candidate in candidates:
-              try:
-                  status, _, body, _ = request(candidate, "/api/health", 0.8)
-                  payload = json.loads(body)
-              except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
-                  continue
-              if (
-                  status == 200
-                  and payload.get("status") == "ok"
-                  and payload.get("service") == "hermes-deals-api"
-              ):
+          deploy_log = evidence_dir / "deploy.log"
+          if deploy_log.is_file() and not deploy_log.is_symlink():
+              health_urls = [
+                  line.removeprefix("LOCAL_HEALTH_URL=").strip()
+                  for line in deploy_log.read_text(
+                      encoding="utf-8",
+                      errors="strict",
+                  ).splitlines()
+                  if line.startswith("LOCAL_HEALTH_URL=")
+              ]
+              if health_urls:
+                  try:
+                      origin = origin_from_health_url(health_urls[-1])
+                      health = validated_health(origin)
+                  except (
+                      OSError,
+                      RuntimeError,
+                      ValueError,
+                      UnicodeError,
+                      json.JSONDecodeError,
+                      HTTPException,
+                  ) as exc:
+                      raise SystemExit(
+                          "deploy helper LOCAL_HEALTH_URL did not validate"
+                      ) from exc
+
+          if origin is None or health is None:
+              sockets = subprocess.run(
+                  ["ss", "-H", "-ltn"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.splitlines()
+              candidates: list[str] = []
+              for line in sockets:
+                  parts = line.split()
+                  if len(parts) < 4:
+                      continue
+                  candidate = parse_local(parts[3])
+                  if candidate and candidate not in candidates:
+                      candidates.append(candidate)
+
+              for candidate in candidates:
+                  try:
+                      payload = validated_health(candidate)
+                  except (
+                      OSError,
+                      RuntimeError,
+                      ValueError,
+                      UnicodeError,
+                      json.JSONDecodeError,
+                      HTTPException,
+                  ):
+                      continue
                   origin = candidate
                   health = payload
                   break
+
           if origin is None or health is None:
               raise SystemExit("Hermes Deals local production origin not found")
 

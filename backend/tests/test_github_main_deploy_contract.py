@@ -79,6 +79,12 @@ def test_deploy_prewarms_current_week_before_public_verification() -> None:
         '"weekly-prewarm.json"',
         '"database_write": False',
         'print("WEEKLY_PREWARM=PASS")',
+        'from http.client import HTTPException',
+        'from urllib.parse import urlencode, urlsplit',
+        'deploy_log = evidence_dir / "deploy.log"',
+        '"LOCAL_HEALTH_URL="',
+        '"deploy helper LOCAL_HEALTH_URL did not validate"',
+        'HTTPException',
     ):
         assert marker in block
 
