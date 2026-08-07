@@ -43,9 +43,163 @@ RUN_KEY="$(basename -- "$EXPORT_DIR")"
 [[ "$RUN_KEY" =~ ^hermes-deals-lidl-gate-a-[0-9]+-[0-9]+$ ]] || fail 'artifact directory name is invalid'
 RUN_DIR="$EVIDENCE_ROOT/lidl-gate-a-${RUN_KEY#hermes-deals-lidl-gate-a-}"
 STAGING="$STAGING_ROOT/$RUN_KEY"
+DESTINATION="$EXPORT_DIR/audit-evidence"
+
+emit_synthetic_blocked() {
+  local failure_stage="$1"
+  local failure_reason="$2"
+  local inner_runner_rc="$3"
+  [[ "$failure_stage" =~ ^[a-z0-9_]+$ ]] || fail 'synthetic failure stage is invalid'
+  [[ "$failure_reason" =~ ^[a-z0-9_]+$ ]] || fail 'synthetic failure reason is invalid'
+  [[ "$inner_runner_rc" == none || "$inner_runner_rc" =~ ^[0-9]+$ ]] || fail 'synthetic runner exit code is invalid'
+  [[ ! -e "$DESTINATION" ]] || fail 'artifact destination already exists'
+
+  python3 - "$DESTINATION" "$EXPECTED_SHA" "$image_id" "$TARGET" "$AS_OF" "$USE_PREVIOUS" "$failure_stage" "$failure_reason" "$inner_runner_rc" <<'PY'
+from __future__ import annotations
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+(
+    destination,
+    commit_sha,
+    image_id,
+    target,
+    as_of,
+    use_previous,
+    failure_stage,
+    failure_reason,
+    inner_runner_rc_text,
+) = sys.argv[1:10]
+destination = Path(destination)
+inner_runner_rc = None if inner_runner_rc_text == 'none' else int(inner_runner_rc_text)
+reason = f"{failure_stage}:{failure_reason}"
+
+destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+summary = {
+    'schema_version': 1,
+    'audit': 'lidl-weekly-gate-a',
+    'registered_commit': commit_sha,
+    'registered_image_id': image_id,
+    'result': 'BLOCKED',
+    'reason': reason,
+    'one_shot_result': None,
+    'one_shot_reason': None,
+    'one_shot_evidence_present': False,
+    'target': target,
+    'as_of': as_of,
+    'execution_fingerprint': None,
+    'previous_execution_fingerprint': None,
+    'unchanged_exact_input': False,
+    'new_immutable_snapshot_required': False,
+    'shadow_execution_required': False,
+    'source': {
+        'valid_from': None,
+        'valid_until': None,
+        'route_region': None,
+        'pdf_sha256': None,
+        'raw_sha256': None,
+        'page_count': None,
+        'readiness': None,
+    },
+    'corpus_match': {
+        'flyer_key': None,
+        'scan': None,
+        'source_pdf_sha256': None,
+        'stable_source_identity_sha256': None,
+        'raw_refresh': None,
+    },
+    'parser_version': None,
+    'parser_sha256': None,
+    'dry_run': True,
+    'corpus_write_authorized': False,
+    'database_write_authorized': False,
+    'review_write_authorized': False,
+    'production_publish_authorized': False,
+    'production_deploy_authorized': False,
+    'systemd_change_authorized': False,
+    'bounded_retry_authorized': False,
+}
+(destination / 'gate-a-summary.json').write_text(
+    json.dumps(summary, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+)
+(destination / 'safety-result.txt').write_text(
+    'PRIMARY_WORKTREE_MODIFIED=unknown\n'
+    'PRIMARY_GIT_INDEX_UNCHANGED=unknown\n'
+    'AUDIT_GIT_INDEX_UNCHANGED=unknown\n'
+    'CORPUS_WRITE=false\n'
+    'PRODUCTION_DATABASE_WRITE=false\n'
+    'REVIEW_WRITE=false\n'
+    'PRODUCTION_PUBLISH=false\n'
+    'PRODUCTION_DEPLOY=false\n'
+    'SYSTEMD_CHANGE=false\n'
+    'BOUNDED_RETRY=false\n',
+    encoding='utf-8',
+)
+(destination / 'run-request.txt').write_text(
+    'evidence_source=dispatcher_synthetic_blocked\n'
+    f'registered_commit={commit_sha}\n'
+    f'registered_image_id={image_id}\n'
+    f'target={target}\n'
+    f'as_of={as_of}\n'
+    f'use_previous={use_previous}\n'
+    'production_database_write=false\n'
+    'review_write=false\n'
+    'production_publish=false\n'
+    'production_deploy=false\n'
+    'systemd_change=false\n',
+    encoding='utf-8',
+)
+(destination / 'runner-exit-code.txt').write_text(
+    ('not-started' if inner_runner_rc is None else str(inner_runner_rc)) + '\n',
+    encoding='utf-8',
+)
+
+manifest = {
+    'schema_version': 1,
+    'audit': 'lidl-weekly-gate-a',
+    'commit_sha': commit_sha,
+    'image_id': image_id,
+    'target': target,
+    'as_of': as_of,
+    'use_previous': use_previous == 'true',
+    'result': 'BLOCKED',
+    'runner_exit_code': inner_runner_rc,
+    'dispatcher_exit_code': 30,
+    'sanitization_passed': True,
+    'synthetic_failure_evidence': True,
+    'failure_stage': failure_stage,
+    'failure_reason': failure_reason,
+    'production_apply_authorized': False,
+    'files': {},
+}
+for path in sorted(destination.iterdir()):
+    data = path.read_bytes()
+    os.chmod(path, 0o600)
+    manifest['files'][path.name] = {
+        'bytes': len(data),
+        'sha256': hashlib.sha256(data).hexdigest(),
+    }
+manifest_path = destination / 'dispatcher-evidence-manifest.json'
+manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+os.chmod(manifest_path, 0o600)
+PY
+
+  chown -R github-runner:github-runner "$DESTINATION"
+  find "$DESTINATION" -type d -exec chmod 0700 {} +
+  find "$DESTINATION" -type f -exec chmod 0600 {} +
+  printf 'AUDIT=lidl-weekly-gate-a\nREGISTERED_COMMIT=%s\nREGISTERED_IMAGE_ID=%s\nTARGET=%s\nAS_OF=%s\nUSE_PREVIOUS=%s\nGATE_A_STATE=BLOCKED\nFAILURE_STAGE=%s\nFAILURE_REASON=%s\nDISPATCHER_EXIT_CODE=30\nPRODUCTION_DATABASE_WRITE=false\nREVIEW_WRITE=false\nPRODUCTION_PUBLISH=false\nPRODUCTION_DEPLOY=false\nSYSTEMD_CHANGE=false\n' \
+    "$EXPECTED_SHA" "$image_id" "$TARGET" "$AS_OF" "$USE_PREVIOUS" "$failure_stage" "$failure_reason"
+  exit 30
+}
+
 install -d -o andris -g andris -m 0700 "$EVIDENCE_ROOT"
 install -d -o andris -g andris -m 0700 "$STAGING_ROOT"
-[[ ! -e "$RUN_DIR" && ! -e "$STAGING" ]] || fail 'Gate A run or staging directory already exists'
+if [[ -e "$RUN_DIR" || -e "$STAGING" ]]; then
+  emit_synthetic_blocked dispatcher_preflight stale_run_or_staging_directory none
+fi
 install -d -o andris -g andris -m 0700 "$STAGING"
 cleanup() { rm -rf -- "$STAGING"; }
 trap cleanup EXIT
@@ -59,11 +213,11 @@ printf '%s\n' "$RUNNER_RC" > "$STAGING/runner-exit-code.txt"
 SUMMARY="$RUN_DIR/sanitized-summary.json"
 SAFETY="$RUN_DIR/safety-result.txt"
 REQUEST="$RUN_DIR/run-request.txt"
-[[ -f "$SUMMARY" && ! -L "$SUMMARY" ]] || fail 'sanitized summary is missing or unsafe'
-[[ -f "$SAFETY" && ! -L "$SAFETY" ]] || fail 'safety result is missing or unsafe'
-[[ -f "$REQUEST" && ! -L "$REQUEST" ]] || fail 'run request is missing or unsafe'
+[[ -f "$SUMMARY" && ! -L "$SUMMARY" ]] || emit_synthetic_blocked runner_evidence sanitized_summary_missing_or_unsafe "$RUNNER_RC"
+[[ -f "$SAFETY" && ! -L "$SAFETY" ]] || emit_synthetic_blocked runner_evidence safety_result_missing_or_unsafe "$RUNNER_RC"
+[[ -f "$REQUEST" && ! -L "$REQUEST" ]] || emit_synthetic_blocked runner_evidence run_request_missing_or_unsafe "$RUNNER_RC"
 
-DESTINATION="$EXPORT_DIR/audit-evidence"
+set +e
 python3 - "$SUMMARY" "$SAFETY" "$REQUEST" "$STAGING/runner-exit-code.txt" "$DESTINATION" "$EXPECTED_SHA" "$image_id" "$TARGET" "$AS_OF" "$USE_PREVIOUS" <<'PY'
 from __future__ import annotations
 import hashlib
@@ -162,7 +316,11 @@ manifest = {
     'use_previous': use_previous == 'true',
     'result': state,
     'runner_exit_code': runner_rc,
+    'dispatcher_exit_code': runner_rc,
     'sanitization_passed': True,
+    'synthetic_failure_evidence': False,
+    'failure_stage': None,
+    'failure_reason': None,
     'production_apply_authorized': False,
     'files': {},
 }
@@ -178,6 +336,12 @@ manifest_path = destination / 'dispatcher-evidence-manifest.json'
 manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 os.chmod(manifest_path, 0o600)
 PY
+SANITIZE_RC=$?
+set -e
+if [[ "$SANITIZE_RC" -ne 0 ]]; then
+  rm -rf -- "$DESTINATION"
+  emit_synthetic_blocked dispatcher_sanitization sanitized_evidence_validation_failed "$RUNNER_RC"
+fi
 
 chown -R github-runner:github-runner "$DESTINATION"
 find "$DESTINATION" -type d -exec chmod 0700 {} +
