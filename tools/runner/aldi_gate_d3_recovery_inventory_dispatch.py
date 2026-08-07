@@ -23,6 +23,16 @@ ALLOWED_DECISIONS = {
     "NO_RECOVERY_CANDIDATE",
     "AMBIGUOUS_RECOVERY_CANDIDATES",
 }
+ALLOWED_FAILURE_STAGES = {
+    "argument_validation",
+    "export_validation",
+    "config_validation",
+    "state_validation",
+    "inventory_cli_preflight",
+    "inventory_execution",
+    "result_validation",
+    "result_export",
+}
 
 
 class DispatchError(RuntimeError):
@@ -87,7 +97,7 @@ def validate_relative_values(value) -> None:
             validate_relative_values(nested)
 
 
-def validate_result(payload: dict, commit_sha: str) -> None:
+def validate_result(payload: dict) -> None:
     require(payload.get("schema_version") == 1, "result schema mismatch")
     require(payload.get("mode") == "ALDI_GATE_D3_RECOVERY_INVENTORY_V01", "result mode mismatch")
     require(payload.get("decision") in ALLOWED_DECISIONS, "result decision mismatch")
@@ -108,7 +118,7 @@ def validate_result(payload: dict, commit_sha: str) -> None:
     validate_relative_values(payload)
 
 
-def write_manifest(export: Path, result: Path, commit_sha: str, decision: str, fingerprint: str) -> None:
+def write_manifest(export: Path, commit_sha: str, decision: str, fingerprint: str) -> None:
     files = []
     for path in sorted(export.iterdir(), key=lambda item: item.name):
         if path.name == "dispatcher-evidence-manifest.json":
@@ -134,19 +144,49 @@ def write_manifest(export: Path, result: Path, commit_sha: str, decision: str, f
     )
 
 
+def audit_user_command(*args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        [
+            "/usr/sbin/runuser", "-u", "andris", "--",
+            "/usr/bin/env", "-i",
+            "HOME=/home/andris", "USER=andris", "LOGNAME=andris",
+            "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8",
+            *args,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=120,
+    )
+
+
+def bounded_exit_reason(prefix: str, returncode: int) -> str:
+    if returncode == 0:
+        return f"{prefix}_ok"
+    if returncode in {1, 2, 126, 127}:
+        return f"{prefix}_exit_{returncode}"
+    return f"{prefix}_exit_other"
+
+
 def main() -> int:
-    if os.geteuid() != 0:
-        print("dispatcher requires root", file=sys.stderr)
-        return 1
-    if len(sys.argv) != 3:
-        print("usage: dispatcher <commit-sha> <export-dir>", file=sys.stderr)
-        return 2
-    commit_sha, export_raw = sys.argv[1], sys.argv[2]
+    failure_stage = "argument_validation"
+    failure_reason = "dispatch_error"
+    export_raw = sys.argv[2] if len(sys.argv) >= 3 else ""
     try:
+        require(os.geteuid() == 0, "dispatcher requires root")
+        require(len(sys.argv) == 3, "dispatcher argument count mismatch")
+        commit_sha, export_raw = sys.argv[1], sys.argv[2]
         require(len(commit_sha) == 40 and all(ch in "0123456789abcdef" for ch in commit_sha), "invalid commit SHA")
+
+        failure_stage = "export_validation"
         export = Path(export_raw)
         validate_export_dir(export)
+
+        failure_stage = "config_validation"
         config = load_config(commit_sha)
+
+        failure_stage = "state_validation"
         require(STATE_ROOT.is_dir() and not STATE_ROOT.is_symlink(), "state root missing or unsafe")
         user = pwd.getpwnam("andris")
         STAGING_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -155,29 +195,47 @@ def main() -> int:
         staging = Path(tempfile.mkdtemp(prefix="aldi-gate-d3-", dir=STAGING_ROOT))
         os.chown(staging, user.pw_uid, user.pw_gid)
         try:
+            tool = config["inventory_file"]
+
+            failure_stage = "inventory_cli_preflight"
+            cli = audit_user_command("/usr/bin/python3", tool, "--help")
+            failure_reason = bounded_exit_reason("inventory_cli_preflight", cli.returncode)
+            require(cli.returncode == 0, "inventory CLI preflight failed")
+
             result = staging / "diagnostic-result.json"
-            command = [
-                "/usr/sbin/runuser", "-u", "andris", "--",
-                "/usr/bin/env", "-i",
-                "HOME=/home/andris", "USER=andris", "LOGNAME=andris",
-                "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8",
-                "/usr/bin/python3", config["inventory_file"],
+            failure_stage = "inventory_execution"
+            completed = audit_user_command(
+                "/usr/bin/python3", tool,
                 "--state-root", str(STATE_ROOT),
                 "--output", str(result),
-            ]
-            completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            )
             (export / "diagnostic-exit-code.txt").write_text(f"{completed.returncode}\n", encoding="utf-8")
+            failure_reason = bounded_exit_reason("inventory_execution", completed.returncode)
             require(completed.returncode == 0, "inventory execution failed")
+
+            failure_stage = "result_validation"
             require(result.is_file() and not result.is_symlink(), "diagnostic result missing")
             payload = json.loads(result.read_text(encoding="utf-8"))
-            validate_result(payload, commit_sha)
+            validate_result(payload)
+
+            failure_stage = "result_export"
             shutil.copyfile(result, export / "diagnostic-result.json", follow_symlinks=False)
-            write_manifest(export, result, commit_sha, payload["decision"], payload["diagnostic_fingerprint"])
+            write_manifest(export, commit_sha, payload["decision"], payload["diagnostic_fingerprint"])
             return 0
         finally:
             shutil.rmtree(staging, ignore_errors=True)
     except Exception as exc:
-        failure = {"schema_version": 1, "audit": AUDIT, "error_type": type(exc).__name__, "raw_exception_exported": False}
+        if failure_stage not in ALLOWED_FAILURE_STAGES:
+            failure_stage = "argument_validation"
+        failure = {
+            "schema_version": 1,
+            "audit": AUDIT,
+            "error_type": type(exc).__name__,
+            "failure_stage": failure_stage,
+            "reason_code": failure_reason,
+            "raw_exception_exported": False,
+            "raw_stderr_exported": False,
+        }
         try:
             export = Path(export_raw)
             if export.is_dir() and not export.is_symlink():
