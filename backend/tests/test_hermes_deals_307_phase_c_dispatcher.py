@@ -50,7 +50,7 @@ def test_installer_grants_only_three_exact_dispatcher_commands() -> None:
     assert f"{INSTALLED} apply-dual" in text
     assert f"{INSTALLED} verify-dual" in text
     assert f"{INSTALLED} *" not in text
-    assert f"{INSTALLED} rollback-lan" in text  # negative verification only
+    assert 'grep -Fq "$INSTALLED_DISPATCHER rollback-lan"' in text
     assert "rollback-lan must not be runner-authorized" in text
     assert "github-runner must not belong to docker group" in text
     assert "RUNNER_HAS_DOCKER_GROUP=false" in text
