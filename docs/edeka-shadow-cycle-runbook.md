@@ -4,11 +4,13 @@ This runbook captures one real EDEKA Patzer weekly source cycle without using th
 
 ## Safety model
 
-The audit source is the isolated clone:
+The EDEKA audit source is its own retailer-dedicated isolated clone:
 
 ```text
-/home/andris/hermes-deals-audit-source
+/home/andris/hermes-deals-audit-source-edeka
 ```
+
+Do not reuse `/home/andris/hermes-deals-audit-source` for EDEKA. Other retailer audits may move a shared clone's branch/HEAD between runs; the dedicated path prevents that cross-retailer race.
 
 The capture writes only to:
 
@@ -17,7 +19,7 @@ The capture writes only to:
 /home/andris/.cache/hermes-deals-edeka-shadow
 ```
 
-All Git reads use `GIT_OPTIONAL_LOCKS=0`. The wrapper records and rechecks the SHA-256 and metadata of both the isolated clone index and the primary worktree index. A run fails if either index, branch, HEAD or status changes.
+All Git reads use `GIT_OPTIONAL_LOCKS=0`. The wrapper records and rechecks the SHA-256 and metadata of both the EDEKA audit clone index and the primary worktree index. A run fails if either index, branch, HEAD or status changes.
 
 The capture uses the exact Patzer identity `071897` / `587881`, fetches only `https://www.edeka.de/maerkte/071897/angebote/`, creates a fresh SQLite database, persists the complete parsed batch once and requires identical replay to write zero rows.
 
@@ -28,7 +30,7 @@ It does not deploy, access Docker, write the production database, activate syste
 Run as `andris` after the relevant PR is squash-merged:
 
 ```bash
-AUDIT_REPO=/home/andris/hermes-deals-audit-source
+AUDIT_REPO=/home/andris/hermes-deals-audit-source-edeka
 REGISTERED_SHA=<SQUASH_MERGE_SHA>
 
 if [[ ! -d "$AUDIT_REPO/.git" ]]; then
@@ -45,11 +47,11 @@ test "$(GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" branch --show-current)" = main
 test -z "$(GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" status --porcelain)"
 ```
 
-Do not switch, reset, stash or clean `/home/andris/hermes-deals`.
+Do not switch, reset, stash or clean `/home/andris/hermes-deals`. Do not repoint another retailer's audit clone as a shortcut.
 
 ## Register the root-owned dispatcher
 
-After the dispatcher PR is merged and the isolated clone is at that exact SHA, run once on RPi5:
+After the dispatcher PR is merged and the EDEKA clone is at that exact SHA, run once on RPi5:
 
 ```bash
 sudo bash \
@@ -59,7 +61,7 @@ sudo bash \
 
 The installer:
 
-- reads only the isolated clone;
+- reads only the EDEKA-dedicated isolated clone;
 - installs the exact registered wrapper and dispatcher as `root:root`;
 - creates one exact sudoers rule for the dispatcher;
 - verifies the self-hosted runner is active and is not in the Docker group;

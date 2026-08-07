@@ -24,7 +24,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         for required in (
             'RUNNER_VERSION="edeka-shadow-cycle-v01"',
             'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-index-safe-v01"',
-            'AUDIT_REPO="/home/andris/hermes-deals-audit-source"',
+            'AUDIT_REPO="/home/andris/hermes-deals-audit-source-edeka"',
             'PRIMARY_REPO="/home/andris/hermes-deals"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$PRIMARY_REPO"',
@@ -41,6 +41,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         ):
             self.assertIn(required, text)
         for forbidden in (
+            'AUDIT_REPO="/home/andris/hermes-deals-audit-source"',
             'git -C "$PRIMARY_REPO" switch',
             'git -C "$PRIMARY_REPO" reset',
             'git -C "$PRIMARY_REPO" clean',
@@ -54,7 +55,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
     def test_installer_registers_only_fixed_root_owned_dispatcher(self) -> None:
         text = INSTALLER.read_text(encoding="utf-8")
         for required in (
-            "AUDIT_REPO='/home/andris/hermes-deals-audit-source'",
+            "AUDIT_REPO='/home/andris/hermes-deals-audit-source-edeka'",
             "DISPATCHER_SCRIPT='tools/runner/edeka-shadow-cycle-dispatcher.sh'",
             "GIT_OPTIONAL_LOCKS=0 git -C \"$AUDIT_REPO\"",
             "index_sha_before=",
@@ -65,6 +66,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         ):
             self.assertIn(required, text)
         for forbidden in (
+            "AUDIT_REPO='/home/andris/hermes-deals-audit-source'",
             "/home/andris/hermes-deals'",
             "github-runner ALL=(ALL) NOPASSWD: ALL",
             'chown andris:andris "$GIT_INDEX"',
@@ -117,6 +119,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         text = RUNBOOK.read_text(encoding="utf-8")
         for required in (
             "two real consecutive weekly campaigns",
+            "/home/andris/hermes-deals-audit-source-edeka",
             "GIT_OPTIONAL_LOCKS=0",
             "install-edeka-shadow-cycle-dispatcher.sh",
             "workflow_dispatch",
@@ -124,6 +127,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "production database writes",
         ):
             self.assertIn(required, text)
+        self.assertNotIn("/home/andris/hermes-deals-audit-source\n", text)
 
 
 if __name__ == "__main__":
