@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from tests.ui_contract import read_family_ui_contract, ui_response_contract
+from tests.ui_contract import (
+    UI_WEEKLY_BRIDGE_PATH,
+    read_family_ui_contract,
+    ui_response_contract,
+)
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -27,6 +31,7 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.html = read_family_ui_contract()
         cls.active = re.sub(r"<!--.*?-->", "", cls.html, flags=re.S)
+        cls.bridge = UI_WEEKLY_BRIDGE_PATH.read_text(encoding="utf-8")
 
     def test_release_markers_and_top_navigation_are_present(self) -> None:
         self.assertIn('content="weekly-overview-v1"', self.html)
@@ -77,6 +82,20 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
             'weeklyLoadDate',
             self.active,
         )
+
+    def test_weekly_payload_bridge_normalizes_network_contract(self) -> None:
+        for marker in (
+            'const LEGACY_PATH = "/api/v1/deals/weekly-specials"',
+            'const UI_PATH = "/api/v1/deals/weekly-specials/ui"',
+            'const UI_CONTRACT = "normalized_unique_deals_by_id_v1"',
+            "const dealsById = new Map()",
+            "day.deal_ids.map",
+            "new Proxy(response",
+            "return { ...payload, days }",
+        ):
+            self.assertIn(marker, self.bridge)
+        self.assertIn("dealsById.has(id)", self.bridge)
+        self.assertIn("Number(payload.count) !== reconstructedCount", self.bridge)
 
     def test_weekly_overview_defers_hidden_legacy_requests(self) -> None:
         self.assertIn("loadingDates:new Set()", self.active)
