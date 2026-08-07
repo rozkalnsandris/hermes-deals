@@ -35,6 +35,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
           REPOSITORY: ${{ github.repository }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           ORIGINAL_ACTOR: ${{ github.actor }}
@@ -63,6 +65,13 @@ jobs:
               raise SystemExit("unexpected repository owner")
           if os.environ["EVENT_NAME"] != "workflow_dispatch":
               raise SystemExit("production deploy requires workflow_dispatch")
+          if os.environ["EVENT_REF"] != "refs/heads/main":
+              raise SystemExit("production deploy workflow must be dispatched from main")
+          expected_workflow_ref = (
+              "rozkalnsandris/hermes-deals/.github/workflows/deploy-main.yml@refs/heads/main"
+          )
+          if os.environ["WORKFLOW_REF"] != expected_workflow_ref:
+              raise SystemExit("production deploy workflow ref is not exact main")
           if actor != owner:
               raise SystemExit("original workflow actor is not the repository owner")
           if triggering_actor != owner:
@@ -445,7 +454,7 @@ jobs:
 
       - name: Upload deploy evidence
         if: always() && steps.deploy.outputs.evidence_dir != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: production-deploy-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.deploy.outputs.evidence_dir }}
