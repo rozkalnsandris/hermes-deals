@@ -30,7 +30,7 @@ CONF='/etc/hermes-deals-audits.d/issue-307-phase-c.conf'
 for user in andris github-runner; do
   id "$user" >/dev/null 2>&1 || fail "required user is missing: $user"
 done
-for command in git grep id install mktemp readlink rm runuser sha256sum stat sudo visudo; do
+for command in awk bash cat chmod chown dirname git grep head id install mktemp mv readlink rm runuser sha256sum stat sudo tr visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 
