@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from time import monotonic
-from typing import Literal
+from time import monotonic, perf_counter
+from typing import Iterator, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -29,6 +31,10 @@ _UNIT_BASIS_PRICING_MODES = {
     "example_total_plus_unit",
     "app_example_total_plus_unit",
 }
+_CURRENT_DEALS_TIMINGS: ContextVar[dict[str, object] | None] = ContextVar(
+    "hermes_current_deals_timings",
+    default=None,
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,30 @@ class _CacheEntry:
 
 
 _CACHE: OrderedDict[tuple[object, ...], _CacheEntry] = OrderedDict()
+
+
+@contextmanager
+def capture_current_deals_timings() -> Iterator[dict[str, object]]:
+    """Capture request-local backend stage timings for Server-Timing."""
+
+    timings: dict[str, object] = {}
+    token = _CURRENT_DEALS_TIMINGS.set(timings)
+    try:
+        yield timings
+    finally:
+        _CURRENT_DEALS_TIMINGS.reset(token)
+
+
+def _record_stage(name: str, started: float) -> None:
+    timings = _CURRENT_DEALS_TIMINGS.get()
+    if timings is not None:
+        timings[name] = (perf_counter() - started) * 1000
+
+
+def _record_cache_state(state: str) -> None:
+    timings = _CURRENT_DEALS_TIMINGS.get()
+    if timings is not None:
+        timings["cache_state"] = state
 
 
 def _clear_current_deals_cache() -> None:
@@ -265,16 +295,25 @@ def fast_current_deals(
         offset,
         limit,
     )
+
+    cache_started = perf_counter()
     cached = _CACHE.get(key)
     now = monotonic()
     if cached is not None and cached.expires_at > now:
         _CACHE.move_to_end(key)
+        _record_cache_state("hit")
+        _record_stage("cache", cache_started)
         return cached.payload
     if cached is not None:
         _CACHE.pop(key, None)
+    _record_cache_state("miss")
+    _record_stage("cache", cache_started)
 
+    rank_started = perf_counter()
     visible_state_rows = _load_newest_state_rows(db, effective_date)
+    _record_stage("rank", rank_started)
 
+    filter_started = perf_counter()
     availability_counts = {
         "current": 0,
         "upcoming": 0,
@@ -395,7 +434,9 @@ def fast_current_deals(
 
     available_count = len(current_rows)
     selected_rows = current_rows[offset : offset + limit]
+    _record_stage("filter-sort", filter_started)
 
+    canonical_started = perf_counter()
     identity_keys = {
         (
             row.source_chain,
@@ -464,7 +505,9 @@ def fast_current_deals(
             link_map[row.id] = canonical_product_id
 
     feature_counts["canonical"] = len(link_map)
+    _record_stage("canonical", canonical_started)
 
+    model_started = perf_counter()
     deals = [
         CurrentDealOut(
             offer_candidate_id=row.id,
@@ -533,4 +576,5 @@ def fast_current_deals(
         deals=deals,
     )
     _remember(key, payload)
+    _record_stage("model", model_started)
     return payload

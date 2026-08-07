@@ -19,6 +19,12 @@ from app.weekly_special_api import router as weekly_router
 _TARGET_PATH = "/api/v1/deals/current"
 _ORIGINAL_GET = FastAPI.get
 _CACHE_TTL_SECONDS = 60.0
+_STAGE_METRICS = (
+    ("rank", "current-deals-rank"),
+    ("filter-sort", "current-deals-filter"),
+    ("canonical", "current-deals-canonical"),
+    ("model", "current-deals-model"),
+)
 
 # Keep the public response/filtering implementation in one place while
 # replacing its expensive all-history Python loader with the SQL-ranked path.
@@ -31,6 +37,39 @@ def _is_postgresql(db: Session) -> bool:
         return db.get_bind().dialect.name == "postgresql"
     except Exception:
         return False
+
+
+def _duration(timings: dict[str, object], key: str) -> float | None:
+    value = timings.get(key)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _server_timing_header(
+    total_ms: float,
+    timings: dict[str, object],
+) -> str:
+    # Preserve the legacy leading metric while adding standards-compliant
+    # comma-separated backend stages. Generic stage names intentionally avoid
+    # leaking database topology, SQL text, hostnames or internal identifiers.
+    metrics = [f"current-deals-sql;dur={total_ms:.1f}"]
+
+    cache_ms = _duration(timings, "cache")
+    if cache_ms is not None:
+        cache_state = str(timings.get("cache_state") or "unknown")
+        if cache_state not in {"hit", "miss"}:
+            cache_state = "unknown"
+        metrics.append(
+            f"current-deals-cache;dur={cache_ms:.1f};desc={cache_state}"
+        )
+
+    for timing_key, metric_name in _STAGE_METRICS:
+        stage_ms = _duration(timings, timing_key)
+        if stage_ms is not None:
+            metrics.append(f"{metric_name};dur={stage_ms:.1f}")
+
+    return ", ".join(metrics)
 
 
 def installed_fast_current_deals(
@@ -57,24 +96,26 @@ def installed_fast_current_deals(
         fast_route._clear_current_deals_cache()
 
     started = perf_counter()
-    with materialize_only(view):
-        payload = fast_route.fast_current_deals(
-            as_of=as_of,
-            q=q,
-            retailer=retailer,
-            view=view,
-            app_only=app_only,
-            coupon_only=coupon_only,
-            discount_only=discount_only,
-            image_only=image_only,
-            sort=sort,
-            offset=offset,
-            limit=limit,
-            db=db,
-        )
+    with fast_route.capture_current_deals_timings() as timings:
+        with materialize_only(view):
+            payload = fast_route.fast_current_deals(
+                as_of=as_of,
+                q=q,
+                retailer=retailer,
+                view=view,
+                app_only=app_only,
+                coupon_only=coupon_only,
+                discount_only=discount_only,
+                image_only=image_only,
+                sort=sort,
+                offset=offset,
+                limit=limit,
+                db=db,
+            )
     duration_ms = (perf_counter() - started) * 1000
-    response.headers["Server-Timing"] = (
-        f"current-deals-sql;dur={duration_ms:.1f}"
+    response.headers["Server-Timing"] = _server_timing_header(
+        duration_ms,
+        timings,
     )
     response.headers["Cache-Control"] = (
         "private, max-age=15, stale-while-revalidate=45"
