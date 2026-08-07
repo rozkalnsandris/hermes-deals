@@ -1,0 +1,115 @@
+name: Diagnose current deals rank substages
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly:
+    name: RPi5 current-deals rank substages read-only
+    if: >-
+      github.event.pull_request.head.ref == 'diag/240-production-rank-substages' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'rozkalnsandris'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-release]
+    timeout-minutes: 5
+    steps:
+      - name: Wait for deploy and measure rank substages
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from datetime import datetime
+          import ipaddress, json, re, subprocess
+          from time import perf_counter, sleep
+          from urllib.parse import urlencode
+          from urllib.request import Request, ProxyHandler, build_opener
+          from zoneinfo import ZoneInfo
+
+          opener = build_opener(ProxyHandler({}))
+          as_of = datetime.now(ZoneInfo("Europe/Berlin")).date().isoformat()
+
+          def parse_local(value):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit(): return None
+              if host in {"*", "0.0.0.0", "::", ""}: host = "127.0.0.1"
+              if "%" in host: host = host.split("%", 1)[0]
+              try: parsed = ipaddress.ip_address(host)
+              except ValueError: return None
+              return f"http://{'[' + host + ']' if parsed.version == 6 else host}:{int(port)}"
+
+          sockets = subprocess.run(["ss", "-H", "-ltn"], check=True, capture_output=True, text=True).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) >= 4:
+                  candidate = parse_local(parts[3])
+                  if candidate and candidate not in candidates: candidates.append(candidate)
+
+          def fetch(base, path, timeout=10):
+              req = Request(base + path, headers={"Cache-Control":"no-cache","Pragma":"no-cache","User-Agent":"hermes-rank-substage-diag/1"})
+              started = perf_counter()
+              with opener.open(req, timeout=timeout) as response:
+                  body = response.read()
+                  return response.status, response.headers, body, (perf_counter()-started)*1000
+
+          base = None
+          for candidate in candidates:
+              try:
+                  status, _, body, _ = fetch(candidate, "/api/health", 0.8)
+                  payload = json.loads(body)
+              except Exception:
+                  continue
+              if status == 200 and payload.get("service") == "hermes-deals-api":
+                  base = candidate
+                  print(f"RPI5_ORIGIN base={base} version={payload.get('version')} phase={payload.get('phase')}")
+                  break
+          if base is None: raise SystemExit("production origin not found")
+
+          def path(sort, limit):
+              return "/api/v1/deals/current?" + urlencode({"as_of":as_of,"view":"current","sort":sort,"offset":0,"limit":limit})
+
+          metric_re = re.compile(r"(?P<name>[a-z0-9-]+);dur=(?P<dur>[0-9.]+)(?:;desc=(?P<desc>[a-z]+))?")
+          def parse(value):
+              return {m.group("name"):(float(m.group("dur")),m.group("desc")) for m in metric_re.finditer(value)}
+
+          for attempt in range(19):
+              status, headers, _, wall = fetch(base, path("name", 23))
+              timing = headers.get("Server-Timing", "")
+              print(f"RPI5_DEPLOY_WAIT attempt={attempt+1} status={status} wall_ms={wall:.2f} timing={timing or '(missing)'}")
+              if status == 200 and "current-deals-winner;dur=" in timing and "current-deals-materialize;dur=" in timing:
+                  break
+              if attempt == 18: raise AssertionError("#240 substage metrics not visible within 180s")
+              sleep(10)
+
+          rows=[]
+          for i, sort in enumerate(("name","price_asc","price_desc","newest","discount_desc")):
+              limit=31+i
+              status, headers, body, wall = fetch(base, path(sort, limit))
+              payload=json.loads(body); t=parse(headers.get("Server-Timing", ""))
+              rows.append((status,t))
+              def dur(key): return t.get(key,(None,None))[0]
+              print(
+                  f"RPI5_RANK_SUBSTAGE sort={sort} limit={limit} status={status} wall_ms={wall:.2f} "
+                  f"total={dur('current-deals-sql')} rank={dur('current-deals-rank')} "
+                  f"winner={dur('current-deals-winner')} rescue={dur('current-deals-rescue')} "
+                  f"materialize={dur('current-deals-materialize')} filter={dur('current-deals-filter')} "
+                  f"canonical={dur('current-deals-canonical')} model={dur('current-deals-model')} "
+                  f"available={payload.get('available_count')} returned={payload.get('count')}"
+              )
+
+          status, headers, _, warm_wall = fetch(base, path("name",31))
+          warm=parse(headers.get("Server-Timing", ""))
+          print(f"RPI5_RANK_SUBSTAGE_WARM status={status} wall_ms={warm_wall:.2f} total={warm.get('current-deals-sql',(None,None))[0]} cache_state={warm.get('current-deals-cache',(None,None))[1]}")
+
+          required={"current-deals-rank","current-deals-winner","current-deals-rescue","current-deals-materialize"}
+          assert all(status == 200 and required <= set(t) for status,t in rows)
+          assert status == 200 and warm.get("current-deals-cache",(None,None))[1] == "hit"
+          PY
