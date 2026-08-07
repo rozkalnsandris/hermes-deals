@@ -8,7 +8,7 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 EXPECTED_SHA="$1"
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid merged commit SHA"
 
-AUDIT_REPO='/home/andris/hermes-deals-audit-source'
+AUDIT_REPO='/home/andris/hermes-deals-audit-source-edeka'
 RUNNER_SCRIPT='tools/run-hermes-deals-edeka-shadow-cycle-v01.sh'
 DISPATCHER_SCRIPT='tools/runner/edeka-shadow-cycle-dispatcher.sh'
 RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
@@ -20,7 +20,7 @@ for user in andris github-runner; do id "$user" >/dev/null 2>&1 || fail "require
 for command in awk bash git grep head id install mktemp readlink rm sha256sum stat sudo systemctl visudo; do command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"; done
 
 AUDIT_REPO="$(readlink -f -- "$AUDIT_REPO")"
-[[ "$AUDIT_REPO" == '/home/andris/hermes-deals-audit-source' ]] || fail "isolated repository path drift"
+[[ "$AUDIT_REPO" == '/home/andris/hermes-deals-audit-source-edeka' ]] || fail "isolated repository path drift"
 [[ -d "$AUDIT_REPO/.git" && ! -L "$AUDIT_REPO/.git" ]] || fail "isolated repository is missing or unsafe"
 [[ "$(stat -c '%U:%G' "$AUDIT_REPO")" == 'andris:andris' ]] || fail "isolated repository ownership is invalid"
 GIT_INDEX="$AUDIT_REPO/.git/index"
