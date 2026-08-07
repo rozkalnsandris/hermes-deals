@@ -18,13 +18,39 @@ Gate A answers one question for an exact owner-authorized request:
 The installer builds one exact-SHA audit image from the repository's pinned `backend/Dockerfile` and records the immutable Docker image ID. The live audit container:
 
 - runs from that exact image ID;
-- mounts `/home/andris/hermes-deals-audit-source` at `/repo` read-only;
+- mounts the retailer-dedicated `/home/andris/hermes-deals-audit-source-lidl` clone at `/repo` read-only;
 - mounts `/home/andris/hermes-deals-lidl-corpus` at `/corpus` read-only;
 - mounts only its private evidence directory read-write;
 - uses `--read-only`, `--cap-drop ALL`, `no-new-privileges`, a PID limit, memory/CPU limits, and the `andris` UID/GID;
 - receives no production database URL, Compose environment, Review credential, production volume, or systemd access.
 
+Do not reuse `/home/andris/hermes-deals-audit-source` for Lidl. Other retailer audits may move a shared clone's branch or HEAD between runs. The Lidl-dedicated clone prevents that cross-retailer race.
+
 The default bridge network is used only for official Lidl source discovery. No database or Hermes Deals service network is attached.
+
+## Dedicated audit clone registration
+
+Before installing a newly merged Gate A runtime, prepare the Lidl-specific audit clone as `andris`:
+
+```bash
+AUDIT_REPO=/home/andris/hermes-deals-audit-source-lidl
+REGISTERED_SHA=<SQUASH_MERGE_SHA>
+
+if [[ ! -d "$AUDIT_REPO/.git" ]]; then
+  git clone https://github.com/rozkalnsandris/hermes-deals.git "$AUDIT_REPO"
+fi
+
+GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" fetch --prune origin main
+git -C "$AUDIT_REPO" switch -C main "$REGISTERED_SHA"
+test "$(stat -c '%U:%G' "$AUDIT_REPO")" = andris:andris
+test "$(stat -c '%U:%G' "$AUDIT_REPO/.git/index")" = andris:andris
+test ! -e "$AUDIT_REPO/.git/index.lock"
+test "$(GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" branch --show-current)" = main
+test "$(GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" rev-parse HEAD)" = "$REGISTERED_SHA"
+test -z "$(GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)"
+```
+
+Do not switch, reset, stash or clean `/home/andris/hermes-deals`, and do not repoint another retailer's audit clone as a shortcut.
 
 ## GitHub authorization
 
@@ -86,7 +112,7 @@ Every result requires:
 - bounded automatic retry: false;
 - primary B15M2 worktree unchanged;
 - protected B15M2 V08 file unchanged;
-- isolated audit clone and both Git indexes unchanged by the audit.
+- Lidl-dedicated audit clone and both Git indexes unchanged by the audit.
 
 ## Gate B
 

@@ -109,7 +109,7 @@ def test_runner_uses_exact_read_only_image_boundary_without_production_access() 
     text = RUNNER.read_text(encoding="utf-8")
     for marker in (
         "lidl-weekly-gate-a-rpi5-v01",
-        "/home/andris/hermes-deals-audit-source",
+        "/home/andris/hermes-deals-audit-source-lidl",
         "/home/andris/hermes-deals-lidl-corpus",
         "tools/lidl_gate_a_previous_manifest.py",
         "docker image inspect --format '{{.Id}}'",

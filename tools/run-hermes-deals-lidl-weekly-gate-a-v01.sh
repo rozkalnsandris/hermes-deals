@@ -6,7 +6,7 @@ PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 export PATH
 
 RUNNER_VERSION='lidl-weekly-gate-a-rpi5-v01'
-AUDIT_REPO='/home/andris/hermes-deals-audit-source'
+AUDIT_REPO='/home/andris/hermes-deals-audit-source-lidl'
 PRIMARY_REPO='/home/andris/hermes-deals'
 CORPUS_ROOT='/home/andris/hermes-deals-lidl-corpus'
 EVIDENCE_ROOT='/home/andris/hermes-deals-lidl-gate-a-evidence'
@@ -232,7 +232,7 @@ if state in {'READY', 'NO_OP'}:
         raise SystemExit('completed Gate A state has invalid fingerprint')
 else:
     if fingerprint is not None:
-        raise SystemExit('non-completed Gate A state unexpectedly has fingerprint')
+        raise SystemExit('non-completed Gate A fingerprint must be null')
 if state == 'READY':
     if manifest.get('new_immutable_snapshot_required') is not True or manifest.get('shadow_execution_required') is not True:
         raise SystemExit('READY action flags mismatch')

@@ -11,7 +11,7 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 EXPECTED_SHA="$1"
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid merged commit SHA'
 
-AUDIT_REPO='/home/andris/hermes-deals-audit-source'
+AUDIT_REPO='/home/andris/hermes-deals-audit-source-lidl'
 RUNNER_SOURCE='tools/run-hermes-deals-lidl-weekly-gate-a-v01.sh'
 DISPATCHER_SOURCE='tools/runner/lidl-weekly-gate-a-dispatcher.sh'
 RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
@@ -26,7 +26,7 @@ for command in bash docker git grep head id install mktemp readlink rm runuser s
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 AUDIT_REPO="$(readlink -f -- "$AUDIT_REPO")"
-[[ "$AUDIT_REPO" == /home/andris/hermes-deals-audit-source ]] || fail 'audit repository path drift'
+[[ "$AUDIT_REPO" == /home/andris/hermes-deals-audit-source-lidl ]] || fail 'audit repository path drift'
 [[ -d "$AUDIT_REPO/.git" && ! -L "$AUDIT_REPO/.git" ]] || fail 'audit repository is missing or unsafe'
 [[ "$(stat -c '%U:%G' "$AUDIT_REPO")" == andris:andris ]] || fail 'audit repository ownership mismatch'
 INDEX="$AUDIT_REPO/.git/index"

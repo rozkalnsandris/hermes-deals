@@ -6,7 +6,7 @@ umask 077
 OWNER_FINALIZER_VERSION='lidl-weekly-gate-a-owner-finalizer-v01-snapshot-invariance'
 PRIMARY='/home/andris/hermes-deals'
 V08_SCRIPT="$PRIMARY/tools/run-hermes-deals-b15m2-least-privilege-shadow-migration-api-regression-v08.sh"
-AUDIT_REPO='/home/andris/hermes-deals-audit-source'
+AUDIT_REPO='/home/andris/hermes-deals-audit-source-lidl'
 INDEX="$AUDIT_REPO/.git/index"
 CORPUS_ROOT='/home/andris/hermes-deals-lidl-corpus/flyers'
 REPOSITORY='rozkalnsandris/hermes-deals'
