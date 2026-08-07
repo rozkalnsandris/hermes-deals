@@ -13,7 +13,7 @@ import urllib.request
 EXPECTED_REPOSITORY = "rozkalnsandris/hermes-deals"
 EXPECTED_OWNER_LOGIN = "rozkalnsandris"
 EXPECTED_OWNER_ID = 277435981
-EXPECTED_PLAN_BLOB = "73abec6752d251b02bf6f47379689400dee106ff"
+EXPECTED_PLAN_BLOB = "02f85620e4c881e4ef4b518751223bfb92fd91f8"
 EXPECTED_APPLY_BLOB = "b8e38b52be69aa6f0cdaa5dbb3f76ccb013c772f"
 COMMAND_RE = re.compile(
     r"/hermes-gate-b-plan "
