@@ -124,7 +124,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Measure local production endpoint
+      - name: Discover and measure local production endpoint
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -132,40 +132,107 @@ jobs:
           from __future__ import annotations
 
           from datetime import datetime
+          import ipaddress
           import json
           import re
+          import subprocess
           from time import perf_counter
           from urllib.parse import urlencode
-          from urllib.request import Request, urlopen
+          from urllib.request import (
+              Request,
+              ProxyHandler,
+              build_opener,
+          )
           from zoneinfo import ZoneInfo
 
-          base = "http://127.0.0.1:9128"
+          opener = build_opener(ProxyHandler({}))
           as_of = datetime.now(ZoneInfo("Europe/Berlin")).date().isoformat()
           expected_engine = "sql-ranked-requested-view"
 
-          def fetch(path: str):
+          def parse_local(value: str):
+              value = value.strip()
+              if value.startswith("[") and "]:" in value:
+                  host, port = value[1:].rsplit("]:", 1)
+              else:
+                  host, port = value.rsplit(":", 1)
+              if not port.isdigit():
+                  return None
+              if host in {"*", "0.0.0.0", "::", ""}:
+                  host = "127.0.0.1"
+              if "%" in host:
+                  host = host.split("%", 1)[0]
+              try:
+                  parsed = ipaddress.ip_address(host)
+              except ValueError:
+                  return None
+              url_host = f"[{host}]" if parsed.version == 6 else host
+              return f"http://{url_host}:{int(port)}"
+
+          sockets = subprocess.run(
+              ["ss", "-H", "-ltn"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          candidates = []
+          for line in sockets:
+              parts = line.split()
+              if len(parts) < 4:
+                  continue
+              candidate = parse_local(parts[3])
+              if candidate and candidate not in candidates:
+                  candidates.append(candidate)
+          print("RPI5_LISTENING_CANDIDATES " + " ".join(candidates))
+
+          def raw_fetch(base: str, path: str, timeout: float = 10.0):
               request = Request(
                   base + path,
                   headers={
                       "Cache-Control": "no-cache",
                       "Pragma": "no-cache",
-                      "User-Agent": "hermes-deals-rpi5-readonly-diagnostic/1",
+                      "User-Agent": "hermes-deals-rpi5-readonly-diagnostic/2",
                   },
               )
               started = perf_counter()
-              with urlopen(request, timeout=10) as response:
+              with opener.open(request, timeout=timeout) as response:
                   body = response.read()
                   wall_ms = (perf_counter() - started) * 1000
                   return response.status, response.headers, body, wall_ms
 
-          health_status, _, health_body, health_wall_ms = fetch("/api/health")
-          health = json.loads(health_body)
+          base = None
+          health = None
+          health_status = None
+          health_wall_ms = None
+          for candidate in candidates:
+              try:
+                  status, _, body, wall_ms = raw_fetch(
+                      candidate,
+                      "/api/health",
+                      timeout=0.8,
+                  )
+                  payload = json.loads(body)
+              except Exception:
+                  continue
+              if (
+                  status == 200
+                  and payload.get("service") == "hermes-deals-api"
+              ):
+                  base = candidate
+                  health = payload
+                  health_status = status
+                  health_wall_ms = wall_ms
+                  break
+
+          if base is None or health is None:
+              raise SystemExit("Hermes Deals local production origin not found")
+
           print(
-              "RPI5_HEALTH "
-              f"status={health_status} "
-              f"wall_ms={health_wall_ms:.2f} "
-              f"service={health.get('service')} "
-              f"version={health.get('version')}"
+              "RPI5_ORIGIN "
+              f"base={base} "
+              f"health_status={health_status} "
+              f"health_wall_ms={health_wall_ms:.2f} "
+              f"version={health.get('version')} "
+              f"phase={health.get('phase')}"
           )
 
           measurements = []
@@ -185,8 +252,9 @@ jobs:
                       "limit": 12,
                   }
               )
-              status, headers, body, wall_ms = fetch(
-                  f"/api/v1/deals/current?{query}"
+              status, headers, body, wall_ms = raw_fetch(
+                  base,
+                  f"/api/v1/deals/current?{query}",
               )
               payload = json.loads(body)
               timing = headers.get("Server-Timing", "")
@@ -227,8 +295,9 @@ jobs:
                   "limit": 12,
               }
           )
-          status, headers, body, warm_wall_ms = fetch(
-              f"/api/v1/deals/current?{query}"
+          status, headers, body, warm_wall_ms = raw_fetch(
+              base,
+              f"/api/v1/deals/current?{query}",
           )
           warm_payload = json.loads(body)
           warm_timing = headers.get("Server-Timing", "")
