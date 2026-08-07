@@ -45,6 +45,14 @@ The worktree must:
 
 The primary `/home/andris/hermes-deals` checkout is never switched, reset or cleaned.
 
+### Source-worktree Git ownership boundary
+
+The installer itself runs as root because it installs a root-owned runtime, dispatcher and sudoers rule. The source worktree does **not** belong to root. All source-worktree Git checks run as `andris` through a clean `runuser` environment with `GIT_OPTIONAL_LOCKS=0`.
+
+This is required because `git status` normally performs a background index refresh and may write the worktree index even when the caller only intends to inspect repository state. Running that inspection under sudo can therefore change the index owner to root and break subsequent unprivileged worktree operations. `GIT_OPTIONAL_LOCKS=0` disables optional index-refresh writes, and the exact user boundary ensures Git metadata is always inspected under the worktree owner identity.
+
+A root-owned installer must not directly run `git -C "$SOURCE_REPO" ...` against this worktree. Any future Git inspection added to the installer must go through the same unprivileged helper boundary.
+
 The installer copies the following reviewed inputs into the root-owned runtime tree `/usr/local/libexec/hermes-deals-audits/netto-geometry-replay-v1` and records SHA-256 bindings for every member:
 
 - `tools/run-hermes-deals-netto-geometry-replay-v01.sh`;
