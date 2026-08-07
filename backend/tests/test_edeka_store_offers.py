@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from app.edeka_store_offers import (
     EdekaFetchedPage,
     MANIFEST_CONTENT_TYPE,
     MANIFEST_STRATEGY,
+    OFFER_SEMANTIC_FINGERPRINT_VERSION,
     _write_manifest,
     collect_edeka_store_offers,
     parse_edeka_store_offers_snapshot,
@@ -133,6 +135,11 @@ class EdekaImmutableManifestTest(unittest.TestCase):
             self.assertEqual(manifest["valid_from"], "2026-08-03")
             self.assertEqual(manifest["valid_until"], "2026-08-08")
             self.assertEqual(manifest["offer_count"], len(parsed))
+            self.assertEqual(
+                manifest["offer_semantic_fingerprint_version"],
+                OFFER_SEMANTIC_FINGERPRINT_VERSION,
+            )
+            self.assertEqual(len(manifest["offer_semantic_sha256"]), 64)
             self.assertTrue(raw_path.name.startswith("071897-offers-"))
             self.assertEqual(len(parsed), 2)
 
@@ -247,6 +254,207 @@ class EdekaImmutableManifestTest(unittest.TestCase):
                     patch(
                         "app.edeka_store_offers.fetch_edeka_store_offers",
                         return_value=fetched,
+                    ),
+                    patch(
+                        "app.edeka_store_offers._latest_manifest_snapshot",
+                        return_value=previous,
+                    ),
+                ):
+                    result = collect_edeka_store_offers(
+                        _NoWriteDb(),
+                        _source(),
+                    )
+
+            self.assertTrue(result.unchanged)
+            self.assertIs(result.snapshot, previous)
+
+    def test_volatile_html_with_identical_offers_is_database_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = SimpleNamespace(raw_snapshot_dir=Path(tmp))
+            previous_id = uuid4()
+            previous_fetched = _fetched()
+            previous_offers = parse_edeka_html(
+                previous_fetched.content,
+                _context(previous_id),
+            )
+            with patch(
+                "app.edeka_store_offers.get_settings",
+                return_value=settings,
+            ):
+                manifest_path, manifest_sha = _write_manifest(
+                    source=_source(),
+                    snapshot_id=previous_id,
+                    collected_at=COLLECTED_AT,
+                    fetched=previous_fetched,
+                    offers=previous_offers,
+                )
+                previous = SimpleNamespace(
+                    id=previous_id,
+                    source_chain="edeka",
+                    source_url=SOURCE_URL,
+                    final_url=SOURCE_URL,
+                    scope="family_primary_edeka",
+                    collected_at=COLLECTED_AT,
+                    content_type=MANIFEST_CONTENT_TYPE,
+                    snapshot_path=str(manifest_path),
+                    sha256=manifest_sha,
+                    success=True,
+                    error=None,
+                    http_status=200,
+                )
+                volatile = _fetched(
+                    previous_fetched.content
+                    + b"\n<!-- volatile-request-id=abcdef -->\n"
+                )
+                self.assertNotEqual(
+                    sha256(previous_fetched.content).hexdigest(),
+                    sha256(volatile.content).hexdigest(),
+                )
+                with (
+                    patch(
+                        "app.edeka_store_offers._utc_now",
+                        return_value=COLLECTED_AT,
+                    ),
+                    patch(
+                        "app.edeka_store_offers.fetch_edeka_store_offers",
+                        return_value=volatile,
+                    ),
+                    patch(
+                        "app.edeka_store_offers._latest_manifest_snapshot",
+                        return_value=previous,
+                    ),
+                ):
+                    result = collect_edeka_store_offers(
+                        _NoWriteDb(),
+                        _source(),
+                    )
+
+            self.assertTrue(result.unchanged)
+            self.assertIs(result.snapshot, previous)
+
+    def test_semantic_offer_change_is_not_database_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = SimpleNamespace(raw_snapshot_dir=Path(tmp))
+            previous_id = uuid4()
+            previous_fetched = _fetched()
+            previous_offers = parse_edeka_html(
+                previous_fetched.content,
+                _context(previous_id),
+            )
+            with patch(
+                "app.edeka_store_offers.get_settings",
+                return_value=settings,
+            ):
+                manifest_path, manifest_sha = _write_manifest(
+                    source=_source(),
+                    snapshot_id=previous_id,
+                    collected_at=COLLECTED_AT,
+                    fetched=previous_fetched,
+                    offers=previous_offers,
+                )
+                previous = SimpleNamespace(
+                    id=previous_id,
+                    source_chain="edeka",
+                    source_url=SOURCE_URL,
+                    final_url=SOURCE_URL,
+                    scope="family_primary_edeka",
+                    collected_at=COLLECTED_AT,
+                    content_type=MANIFEST_CONTENT_TYPE,
+                    snapshot_path=str(manifest_path),
+                    sha256=manifest_sha,
+                    success=True,
+                    error=None,
+                    http_status=200,
+                )
+                changed = _fetched(
+                    previous_fetched.content.replace(
+                        b"Festpreis von 1.11",
+                        b"Festpreis von 1.12",
+                        1,
+                    )
+                )
+                db = _RecordingDb()
+                with (
+                    patch(
+                        "app.edeka_store_offers._utc_now",
+                        return_value=COLLECTED_AT,
+                    ),
+                    patch(
+                        "app.edeka_store_offers.fetch_edeka_store_offers",
+                        return_value=changed,
+                    ),
+                    patch(
+                        "app.edeka_store_offers._latest_manifest_snapshot",
+                        return_value=previous,
+                    ),
+                ):
+                    result = collect_edeka_store_offers(db, _source())
+
+            self.assertFalse(result.unchanged)
+            self.assertTrue(result.snapshot.success)
+            self.assertEqual(db.added, [result.snapshot])
+            self.assertEqual(db.commits, 1)
+            self.assertEqual(db.refreshed, [result.snapshot])
+
+    def test_legacy_manifest_without_semantic_fingerprint_still_noops(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = SimpleNamespace(raw_snapshot_dir=Path(tmp))
+            previous_id = uuid4()
+            fetched = _fetched()
+            previous_offers = parse_edeka_html(
+                fetched.content,
+                _context(previous_id),
+            )
+            with patch(
+                "app.edeka_store_offers.get_settings",
+                return_value=settings,
+            ):
+                manifest_path, _ = _write_manifest(
+                    source=_source(),
+                    snapshot_id=previous_id,
+                    collected_at=COLLECTED_AT,
+                    fetched=fetched,
+                    offers=previous_offers,
+                )
+                manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+                manifest.pop("offer_semantic_fingerprint_version")
+                manifest.pop("offer_semantic_sha256")
+                legacy_data = json.dumps(
+                    manifest,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                legacy_path = Path(tmp) / "legacy-manifest.json"
+                legacy_path.write_bytes(legacy_data)
+                legacy_sha = sha256(legacy_data).hexdigest()
+                previous = SimpleNamespace(
+                    id=previous_id,
+                    source_chain="edeka",
+                    source_url=SOURCE_URL,
+                    final_url=SOURCE_URL,
+                    scope="family_primary_edeka",
+                    collected_at=COLLECTED_AT,
+                    content_type=MANIFEST_CONTENT_TYPE,
+                    snapshot_path=str(legacy_path),
+                    sha256=legacy_sha,
+                    success=True,
+                    error=None,
+                    http_status=200,
+                )
+                volatile = _fetched(
+                    fetched.content + b"\n<!-- volatile-request-id=legacy -->\n"
+                )
+                with (
+                    patch(
+                        "app.edeka_store_offers._utc_now",
+                        return_value=COLLECTED_AT,
+                    ),
+                    patch(
+                        "app.edeka_store_offers.fetch_edeka_store_offers",
+                        return_value=volatile,
                     ),
                     patch(
                         "app.edeka_store_offers._latest_manifest_snapshot",
