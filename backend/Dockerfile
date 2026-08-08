@@ -9,12 +9,14 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts \
     && npm audit --audit-level=high
 
-COPY frontend/vite.config.js ./
+COPY frontend/vite.config.js frontend/vite.w4.config.js ./
 COPY frontend/scripts ./scripts
 COPY frontend/src ./src
 COPY frontend/tests ./tests
+COPY app/ui/styles.css ./legacy-styles.css
 RUN npm test \
-    && npm run build:check
+    && npm run build:check \
+    && npm run build:w4:check
 
 FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64
 
@@ -31,13 +33,21 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 
-# The Node builder never enters the runtime image. It contributes only the
-# deterministic W3 bundle, which replaces the reviewed legacy source app.js
-# immediately before the existing fail-closed inline production bundling step.
+# Preserve the current W3 serving contract exactly: the deterministic IIFE
+# replaces reviewed source app.js and is then inlined into the immutable /ui
+# document by app.ui_bundle.
 COPY --from=ui-build /ui/dist/app.js /app/app/ui/app.js
 
-# W3 keeps the immutable production contract as one self-contained /ui HTML
-# document. W4 will later introduce independently cached hashed assets.
+# W4A packages a second, non-serving shadow build in the same exact release
+# image. It contains only manifest-selected content-hashed JS/CSS plus generated
+# shadow HTML/evidence. W4B will separately authorize any serving cutover.
+COPY --from=ui-build /ui/dist-w4 /app/app/ui_w4_shadow
+RUN python -m app.ui_w4_shadow \
+        --source-ui-dir /app/app/ui \
+        --build-dir /app/app/ui_w4_shadow
+
+# W4A deliberately leaves production routing on the existing one-document W3
+# bundle. No /ui/assets route or cache-policy change is introduced here.
 RUN python -m app.ui_bundle --ui-dir /app/app/ui
 
 # Local build contexts preserve source permission metadata. Normalize the final

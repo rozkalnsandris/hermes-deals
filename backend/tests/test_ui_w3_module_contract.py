@@ -19,11 +19,13 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
     assert package["type"] == "module"
     assert package["engines"] == {"node": ">=22.12.0"}
     assert package["devDependencies"] == {"vite": "8.1.5"}
-    assert package["scripts"] == {
+    expected_w3_scripts = {
         "test": "node --test tests/*.test.mjs",
         "build": "node node_modules/vite/bin/vite.js build --config vite.config.js",
         "build:check": "node node_modules/vite/bin/vite.js build --config vite.config.js && node scripts/verify-build.mjs",
     }
+    for name, command in expected_w3_scripts.items():
+        assert package["scripts"].get(name) == command
     assert read(FRONTEND / ".nvmrc") == "24.18.0\n"
     forbidden = {"react", "react-dom", "vue", "svelte", "@angular/core"}
     declared = set(package.get("dependencies", {})) | set(package.get("devDependencies", {}))

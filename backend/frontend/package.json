@@ -9,7 +9,9 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "build": "node node_modules/vite/bin/vite.js build --config vite.config.js",
-    "build:check": "node node_modules/vite/bin/vite.js build --config vite.config.js && node scripts/verify-build.mjs"
+    "build:check": "node node_modules/vite/bin/vite.js build --config vite.config.js && node scripts/verify-build.mjs",
+    "build:w4": "node node_modules/vite/bin/vite.js build --config vite.w4.config.js",
+    "build:w4:check": "node node_modules/vite/bin/vite.js build --config vite.w4.config.js && node scripts/verify-w4-shadow.mjs"
   },
   "devDependencies": {
     "vite": "8.1.5"
