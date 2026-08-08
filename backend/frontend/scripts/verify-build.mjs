@@ -59,8 +59,12 @@ if (relative.some((name) => name.endsWith(".map"))) {
 if (/from\s+["']\.\/(?:core|features|ui)\//.test(source)) {
   throw new Error("W3 build retained unresolved source-module imports");
 }
+if (/^\s*(?:import\s|export\s)/m.test(source)) {
+  throw new Error("W3 inline bundle unexpectedly retained ES module syntax");
+}
 
 const digest = createHash("sha256").update(source).digest("hex");
 console.log("HERMES_UI_W3_BUILD=PASS");
+console.log("HERMES_UI_W3_CLASSIC_SCRIPT=PASS");
 console.log(`HERMES_UI_W3_BUILD_BYTES=${Buffer.byteLength(source)}`);
 console.log(`HERMES_UI_W3_BUILD_SHA256=${digest}`);
