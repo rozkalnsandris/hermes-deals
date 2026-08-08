@@ -13,11 +13,11 @@ def read(path: Path) -> str:
 
 
 def test_w3_catalog_module_preserves_canonical_trust_and_request_contracts() -> None:
-    entry = read(FRONTEND / "src" / "app.js")
+    bootstrap = read(FRONTEND / "src" / "bootstrap.js")
     catalog = read(FRONTEND / "src" / "features" / "catalog.js")
     legacy = read(UI_APP)
 
-    assert 'from "./features/catalog.js"' in entry
+    assert 'from "./features/catalog.js"' in bootstrap
     assert "export function initCatalog" in catalog
     assert "/api/v1/catalog" in catalog
     for marker in (
@@ -33,11 +33,11 @@ def test_w3_catalog_module_preserves_canonical_trust_and_request_contracts() -> 
 
 
 def test_w3_navigation_module_preserves_public_url_state_contract() -> None:
-    entry = read(FRONTEND / "src" / "app.js")
+    bootstrap = read(FRONTEND / "src" / "bootstrap.js")
     navigation = read(FRONTEND / "src" / "ui" / "navigation.js")
     legacy = read(UI_APP)
 
-    assert 'from "./ui/navigation.js"' in entry
+    assert 'from "./ui/navigation.js"' in bootstrap
     assert "export function viewQuery" in navigation
     assert "export function parseViewQuery" in navigation
     for marker in (
@@ -56,11 +56,11 @@ def test_w3_navigation_module_preserves_public_url_state_contract() -> None:
 
 
 def test_w3_overlay_module_preserves_lock_and_focus_return_contract() -> None:
-    entry = read(FRONTEND / "src" / "app.js")
+    bootstrap = read(FRONTEND / "src" / "bootstrap.js")
     overlays = read(FRONTEND / "src" / "ui" / "overlays.js")
     legacy = read(UI_APP)
 
-    assert 'from "./ui/overlays.js"' in entry
+    assert 'from "./ui/overlays.js"' in bootstrap
     assert "export function initOverlays" in overlays
     for marker in (
         'document.body.classList.add("locked")',
@@ -77,11 +77,11 @@ def test_w3_overlay_module_preserves_lock_and_focus_return_contract() -> None:
 
 
 def test_w3_review_refresh_module_preserves_cross_page_refresh_transport() -> None:
-    entry = read(FRONTEND / "src" / "app.js")
+    bootstrap = read(FRONTEND / "src" / "bootstrap.js")
     review = read(FRONTEND / "src" / "ui" / "review-refresh.js")
     legacy = read(UI_APP)
 
-    assert 'from "./ui/review-refresh.js"' in entry
+    assert 'from "./ui/review-refresh.js"' in bootstrap
     assert 'REVIEW_REFRESH_CHANNEL = "hermes-deals-review"' in review
     assert "REVIEW_REFRESH_DELAY_MS = 180" in review
     assert 'event.data?.type === "review-published"' in review
