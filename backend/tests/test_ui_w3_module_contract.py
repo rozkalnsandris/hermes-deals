@@ -21,6 +21,7 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
     assert package["engines"] == {"node": ">=22.12.0"}
     assert package["devDependencies"] == {"vite": "8.1.5"}
     assert package["scripts"] == {
+        "test": "node --test tests/*.test.mjs",
         "build": "node node_modules/vite/bin/vite.js build --config vite.config.js",
         "build:check": "node node_modules/vite/bin/vite.js build --config vite.config.js && node scripts/verify-build.mjs",
     }
@@ -81,13 +82,14 @@ def test_w3_core_modules_pin_existing_browser_contracts() -> None:
     assert '["http:", "https:"]' in dom
 
 
-def test_w3_current_deals_primitives_preserve_request_and_render_contracts() -> None:
+def test_w3_current_deals_module_preserves_request_render_and_controller_contracts() -> None:
     app = read(FRONTEND / "src" / "app.js")
     deals = read(FRONTEND / "src" / "features" / "deals.js")
     legacy = read(UI / "app.js")
 
     assert 'from "./features/deals.js"' in app
     assert "export const PAGE_SIZE = 12" in deals
+    assert "export function initCurrentDeals" in deals
     assert "/api/v1/deals/current" in deals
     assert 'view: dealView === "upcoming" ? "upcoming" : "current"' in deals
     for marker in ("app_only", "coupon_only", "discount_only", "image_only"):
@@ -99,6 +101,13 @@ def test_w3_current_deals_primitives_preserve_request_and_render_contracts() -> 
     assert "export function paginationItems" in deals
     assert "export function rawDealCard" in deals
     assert "export function dealPageSummary" in deals
+    for text in (
+        "Dati īslaicīgi nav pieejami",
+        "Šim filtram nav drīzumā gaidāmu piedāvājumu.",
+        "Šim filtram nav aktuālu piedāvājumu.",
+    ):
+        assert text in deals
+        assert text in legacy
 
 
 def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
@@ -108,20 +117,33 @@ def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
 
     assert 'from "./features/daily-specials.js"' in app
     assert "export function initDailySpecials" in daily
+    assert 'DAILY_SPECIAL_SOURCE_CONTRACT = "explicit_immutable_retailer_evidence_only"' in daily
     assert "/api/v1/deals/daily-specials" in daily
-    assert 'payload.source_contract !== "explicit_immutable_retailer_evidence_only"' in daily
+    assert "payload.source_contract !== DAILY_SPECIAL_SOURCE_CONTRACT" in daily
     assert 'deal.special_confidence === "high"' in daily
     assert 'deal.special_valid_on === iso' in daily
     assert "legacyCurrentDealDailySpecialContract" in daily
     assert "/api/v1/deals/current" in daily
-    assert "MAX_PAGES = 20" in daily
+    assert "DAILY_SPECIAL_MAX_PAGES = 20" in daily
+    assert "return false" in daily
 
     for marker in (
         "explicit_immutable_retailer_evidence_only",
         "legacyCurrentDealDailySpecialContract",
         "DAILY_SPECIAL_MAX_PAGES=20",
+        "Šodienas īpašās akcijas neizdevās ielādēt.",
+        "Rītdienas īpašās akcijas neizdevās ielādēt.",
     ):
         assert marker in legacy
+        assert marker.replace("DAILY_SPECIAL_MAX_PAGES=20", "DAILY_SPECIAL_MAX_PAGES = 20") in daily if marker == "DAILY_SPECIAL_MAX_PAGES=20" else marker in daily
+
+
+def test_w3_node_feature_tests_exist_for_request_and_trust_parity() -> None:
+    tests = read(FRONTEND / "tests" / "features.test.mjs")
+    assert "current deals URL preserves query contract" in tests
+    assert "daily-special initial data performs exactly two explicit requests" in tests
+    assert "explicit daily-special endpoint filters fail-closed evidence" in tests
+    assert "legacy daily-special helper remains bounded and deduplicated" in tests
 
 
 def test_w3_draft_does_not_switch_production_serving_boundary_yet() -> None:
