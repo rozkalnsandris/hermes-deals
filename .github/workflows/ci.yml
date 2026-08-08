@@ -62,7 +62,7 @@ jobs:
   release-image:
     name: W3 immutable release image
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -92,6 +92,71 @@ jobs:
             test -s /app/app/ui/index.html
             test -s /app/app/ui/app.js
           '
+
+      - name: Execute final W3 UI in headless Chrome
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          test -n "$browser"
+
+          network="hermes-w3-browser-${GITHUB_RUN_ID}"
+          db="hermes-w3-db-${GITHUB_RUN_ID}"
+          api="hermes-w3-api-${GITHUB_RUN_ID}"
+          cleanup() {
+            docker rm -f "$api" "$db" >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cleanup
+
+          docker network create "$network" >/dev/null
+          docker run --detach --name "$db" --network "$network" \
+            --env POSTGRES_USER=hermes \
+            --env POSTGRES_PASSWORD=hermes \
+            --env POSTGRES_DB=hermes_test \
+            postgres:18.4 >/dev/null
+
+          for attempt in $(seq 1 40); do
+            if docker exec "$db" pg_isready -U hermes -d hermes_test >/dev/null 2>&1; then
+              break
+            fi
+            test "$attempt" -lt 40
+            sleep 1
+          done
+
+          docker run --detach --name "$api" --network "$network" \
+            --publish 127.0.0.1:18080:8000 \
+            --env DATABASE_URL="postgresql+psycopg://hermes:hermes@${db}:5432/hermes_test" \
+            --entrypoint /bin/sh \
+            hermes-deals:w3-ci -eu -c \
+            'python -m alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1' >/dev/null
+
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1; then
+              break
+            fi
+            if ! docker inspect -f '{{.State.Running}}' "$api" 2>/dev/null | grep -qx true; then
+              docker logs "$api"
+              exit 1
+            fi
+            test "$attempt" -lt 60
+            sleep 1
+          done
+
+          "$browser" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --virtual-time-budget=5000 \
+            --dump-dom \
+            http://127.0.0.1:18080/ui > /tmp/hermes-w3-ui.dom.html
+
+          grep -Fq 'data-hermes-ui-script="HERMES_UI_SCRIPT_OPEN:"' /tmp/hermes-w3-ui.dom.html
+          grep -Fq 'data-hermes-ui-bootstrap="w3-behavior-preserving-bootstrap-v1"' /tmp/hermes-w3-ui.dom.html
+          grep -Fq 'Raw deal nav automātiski tas pats produkts citā veikalā. Canonical salīdzināšana notiek tikai pēc apstiprinātas identity saites.' /tmp/hermes-w3-ui.dom.html
+          grep -Fq 'Nav papildu filtru.' /tmp/hermes-w3-ui.dom.html
+          echo "HERMES_UI_W3_BROWSER_SMOKE=PASS"
 
   backend-tests:
     name: Backend tests
