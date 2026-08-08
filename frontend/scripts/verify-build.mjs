@@ -34,8 +34,13 @@ const required = [
   "UiApiError",
   "/api/v1/deals/current",
   "/api/v1/deals/daily-specials",
+  "/api/v1/catalog",
+  "/api/v1/ui/basket/compare",
+  "/api/v1/canonical-products/",
   "explicit_immutable_retailer_evidence_only",
+  "hermes-deals-review",
   "Dati īslaicīgi nav pieejami",
+  "Canonical produkts",
 ];
 for (const marker of required) {
   if (!source.includes(marker)) throw new Error(`W3 build missing marker: ${marker}`);
@@ -46,7 +51,7 @@ if (/sourceMappingURL\s*=/.test(source)) {
 if (relative.some((name) => name.endsWith(".map"))) {
   throw new Error("W3 build unexpectedly emitted a source-map file");
 }
-if (/from\s+["']\.\/(?:core|features)\//.test(source)) {
+if (/from\s+["']\.\/(?:core|features|ui)\//.test(source)) {
   throw new Error("W3 build retained unresolved source-module imports");
 }
 
