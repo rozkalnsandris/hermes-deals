@@ -588,7 +588,7 @@ def main() -> None:
     if rendered.count(HASHED_RETURN_TRAP.replace(" RETURN\n", " EXIT\n")) != 1:
         raise SystemExit("hashed W4 EXIT cleanup trap marker mismatch")
     for token in POSTCHECK_TOKENS:
-        if rendered.count(f"W4B_REASON={token}") != 1:
+        if rendered.count(f"W4B_REASON={token}\\n'") != 1:
             raise SystemExit(f"postcheck diagnostic marker mismatch: {token}")
     if "cutover_validation_failed_auto_rollback_passed" in rendered:
         raise SystemExit("generic successful auto-rollback reason must not mask failed check")
