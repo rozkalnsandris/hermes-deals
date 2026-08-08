@@ -15,9 +15,9 @@ export default defineConfig({
       formats: ["es"],
       fileName: () => "app.js",
     },
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        inlineDynamicImports: true,
+        codeSplitting: false,
         entryFileNames: "app.js",
       },
     },
