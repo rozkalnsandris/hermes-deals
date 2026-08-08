@@ -49,6 +49,36 @@ if main_tag is not None and not values[2].startswith(main_tag.group(1)):
     raise SystemExit(2)
 '''
 
+COMMANDS_OLD = '''for command in curl docker flock grep install python3 sha256sum stat systemctl; do
+'''
+
+COMMANDS_NEW = '''for command in curl docker flock grep install python3 runuser sha256sum stat systemctl; do
+'''
+
+GIT_STATE_OLD = '''primary_state() {
+  printf '%s\\n' \\
+    "$(git -C "$PRIMARY" rev-parse HEAD)" \\
+    "$(git -C "$PRIMARY" branch --show-current)" \\
+    "$(git -C "$PRIMARY" status --porcelain=v1 --untracked-files=all)" \\
+    "$(git -C "$PRIMARY" diff --cached --binary)" |
+    sha256sum | awk '{print $1}'
+}
+'''
+
+GIT_STATE_NEW = '''primary_git() {
+  runuser -u andris -- git -C "$PRIMARY" "$@"
+}
+
+primary_state() {
+  printf '%s\\n' \\
+    "$(primary_git rev-parse HEAD)" \\
+    "$(primary_git branch --show-current)" \\
+    "$(primary_git status --porcelain=v1 --untracked-files=all)" \\
+    "$(primary_git diff --cached --binary --no-ext-diff --no-textconv)" |
+    sha256sum | awk '{print $1}'
+}
+'''
+
 
 def replace_exact_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
@@ -82,13 +112,31 @@ def main() -> None:
         ROLLBACK_NEW,
         "rollback-state image validation",
     )
+    rendered = replace_exact_once(
+        rendered,
+        COMMANDS_OLD,
+        COMMANDS_NEW,
+        "operator command allowlist",
+    )
+    rendered = replace_exact_once(
+        rendered,
+        GIT_STATE_OLD,
+        GIT_STATE_NEW,
+        "production Git state",
+    )
 
     if BASELINE_OLD in rendered or ROLLBACK_OLD in rendered:
         raise SystemExit("stale W4B image validator remains after rendering")
+    if COMMANDS_OLD in rendered or GIT_STATE_OLD in rendered:
+        raise SystemExit("stale W4B production Git state path remains after rendering")
     if rendered.count("current_api_main_tag_revision_mismatch") != 1:
         raise SystemExit("managed-main revision binding marker mismatch")
     if rendered.count('hermes-deals-api:main-([0-9a-f]{12})') != 2:
         raise SystemExit("managed-main tag validation marker mismatch")
+    if rendered.count('runuser -u andris -- git -C "$PRIMARY" "$@"') != 1:
+        raise SystemExit("production Git owner-identity marker mismatch")
+    if "safe.directory" in rendered:
+        raise SystemExit("safe.directory bypass is forbidden")
 
     output.write_text(rendered, encoding="utf-8")
 
