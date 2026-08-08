@@ -1,0 +1,317 @@
+name: Hermes Lidl source refresh audit
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-lidl-source-refresh-audit
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 345 &&
+      !github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/hermes-lidl-source-refresh-audit ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      registered_sha: ${{ steps.auth.outputs.registered_sha }}
+      as_of: ${{ steps.auth.outputs.as_of }}
+      issue_number: ${{ steps.auth.outputs.issue_number }}
+      command_comment_id: ${{ steps.auth.outputs.command_comment_id }}
+
+    steps:
+      - name: Authorize exact owner command
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from datetime import date
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.request
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          if os.environ['REPOSITORY'] != 'rozkalnsandris/hermes-deals':
+              raise SystemExit('unexpected repository')
+          sender = event.get('sender') or {}
+          if sender.get('login') != os.environ['EXPECTED_OWNER_LOGIN']:
+              raise SystemExit('comment sender login is not allowlisted')
+          if sender.get('id') != int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('comment sender numeric ID is not allowlisted')
+          issue = event.get('issue') or {}
+          if issue.get('number') != 345 or issue.get('pull_request') is not None:
+              raise SystemExit('command is accepted only on issue #345')
+          comment = event.get('comment') or {}
+          body = str(comment.get('body') or '').strip()
+          match = re.fullmatch(
+              r'/hermes-lidl-source-refresh-audit pr=([1-9][0-9]*) as_of=([0-9]{4}-[0-9]{2}-[0-9]{2})',
+              body,
+          )
+          if match is None:
+              raise SystemExit('comment does not match the allowlisted command')
+          pr_number = int(match.group(1))
+          as_of = match.group(2)
+          parsed = date.fromisoformat(as_of)
+          if parsed.isoformat() != as_of:
+              raise SystemExit('as_of is not canonical YYYY-MM-DD')
+          if not (date(2026, 8, 3) <= parsed <= date(2026, 8, 8)):
+              raise SystemExit('as_of is outside the exact rev05 validity window')
+
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'hermes-deals-lidl-source-refresh-authorizer',
+          }
+          def get_json(url: str):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  return json.load(response)
+
+          repo = os.environ['REPOSITORY']
+          pr = get_json(f'https://api.github.com/repos/{repo}/pulls/{pr_number}')
+          if not pr.get('merged') or not pr.get('merged_at'):
+              raise SystemExit('runtime PR is not merged')
+          base = pr.get('base') or {}
+          if base.get('ref') != 'main' or (base.get('repo') or {}).get('full_name') != repo:
+              raise SystemExit('runtime PR was not merged into repository main')
+          sha = str(pr.get('merge_commit_sha') or '')
+          if re.fullmatch(r'[0-9a-f]{40}', sha) is None:
+              raise SystemExit('runtime merge SHA is invalid')
+          comparison = get_json(f'https://api.github.com/repos/{repo}/compare/{sha}...main')
+          if comparison.get('status') not in {'ahead', 'identical'}:
+              raise SystemExit('runtime merge SHA is not reachable from current main')
+
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              handle.write(f'registered_sha={sha}\n')
+              handle.write(f'as_of={as_of}\n')
+              handle.write('issue_number=345\n')
+              handle.write(f"command_comment_id={int(comment['id'])}\n")
+          PY
+
+  rpi5-audit:
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 15
+    permissions: {}
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      reference_parser_input: ${{ steps.inspect.outputs.reference_parser_input }}
+      live_parser_input: ${{ steps.inspect.outputs.live_parser_input }}
+      reference_binding: ${{ steps.inspect.outputs.reference_binding }}
+      live_binding: ${{ steps.inspect.outputs.live_binding }}
+      reference_binding_count: ${{ steps.inspect.outputs.reference_binding_count }}
+      live_binding_count: ${{ steps.inspect.outputs.live_binding_count }}
+      binding_added: ${{ steps.inspect.outputs.binding_added }}
+      binding_removed: ${{ steps.inspect.outputs.binding_removed }}
+      binding_title_changed: ${{ steps.inspect.outputs.binding_title_changed }}
+      live_raw_sha: ${{ steps.inspect.outputs.live_raw_sha }}
+      template_sha: ${{ steps.inspect.outputs.template_sha }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+
+    steps:
+      - name: Create private artifact directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-lidl-source-refresh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run fixed root-owned read-only dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-source-refresh-audit-dispatch \
+            "$REGISTERED_SHA" "$AS_OF" "$ARTIFACT_DIR"
+          rc=$?
+          set -e
+          echo "runner_rc=$rc" >> "$GITHUB_OUTPUT"
+          [[ "$rc" -eq 0 ]] || exit "$rc"
+
+      - name: Inspect sanitized source-refresh evidence
+        id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_AS_OF: ${{ needs.authorize.outputs.as_of }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          root = Path(os.environ['ARTIFACT_DIR']) / 'audit-evidence'
+          summary = json.loads((root / 'source-refresh-summary.json').read_text())
+          manifest = json.loads((root / 'audit-manifest.json').read_text())
+          template = json.loads((root / 'source-review-template.json').read_text())
+          if summary.get('as_of') != os.environ['EXPECTED_AS_OF']:
+              raise SystemExit('as-of mismatch')
+          result = str(summary.get('result') or '')
+          if result not in {'SOURCE_REFRESH_REVIEW_REQUIRED', 'NO_SEMANTIC_REFRESH'}:
+              raise SystemExit('unsupported source-refresh audit result')
+          if summary.get('pdf_sha256') != '6da2135ea984d1f79bdb311dfa0d8affd1d2f8d46c63a1bba25b202a30a5fb16':
+              raise SystemExit('PDF SHA mismatch')
+          if summary.get('stable_source_identity_sha256') != '7486e32f837869b3dedc36b5a129c034129f653bf698df4ad55649510623ff17':
+              raise SystemExit('stable source identity mismatch')
+          expected_safety = {
+              'raw_source_exported': False,
+              'corpus_write': False,
+              'parser_scan': False,
+              'database_write': False,
+              'review_write': False,
+              'production_publish': False,
+              'production_deploy': False,
+              'systemd_change': False,
+              'automatic_retry': False,
+              'gate_c_d_authorized': False,
+          }
+          if summary.get('safety') != expected_safety or manifest.get('safety') != expected_safety:
+              raise SystemExit('safety contract mismatch')
+          if manifest.get('sanitization_passed') is not True or manifest.get('raw_source_exported') is not False:
+              raise SystemExit('sanitization contract mismatch')
+          if template.get('decision') != 'PENDING_OWNER_REVIEW':
+              raise SystemExit('review template is not pending')
+          ref = summary.get('reference_input') or {}
+          live = summary.get('live_input') or {}
+          changes = summary.get('observed_changes') or {}
+          for value in (
+              ref.get('parser_input_identity_sha256'), live.get('parser_input_identity_sha256'),
+              ref.get('product_binding_sha256'), live.get('product_binding_sha256'),
+              live.get('raw_sha256'), summary.get('review_template_sha256'),
+          ):
+              if re.fullmatch(r'[0-9a-f]{64}', str(value or '')) is None:
+                  raise SystemExit('invalid sanitized SHA field')
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          fields = {
+              'result': result,
+              'reference_parser_input': ref['parser_input_identity_sha256'],
+              'live_parser_input': live['parser_input_identity_sha256'],
+              'reference_binding': ref['product_binding_sha256'],
+              'live_binding': live['product_binding_sha256'],
+              'reference_binding_count': str(ref['product_binding_count']),
+              'live_binding_count': str(live['product_binding_count']),
+              'binding_added': str(changes['binding_added']),
+              'binding_removed': str(changes['binding_removed']),
+              'binding_title_changed': str(changes['binding_title_changed']),
+              'live_raw_sha': live['raw_sha256'],
+              'template_sha': summary['review_template_sha256'],
+          }
+          with output.open('a', encoding='utf-8') as handle:
+              for key, value in fields.items():
+                  if '\n' in value or '\r' in value:
+                      raise SystemExit('unsafe output newline')
+                  handle.write(f'{key}={value}\n')
+          PY
+
+      - name: Upload sanitized evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidl-source-refresh-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/audit-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    if: always() && needs.authorize.result == 'success'
+    needs: [authorize, rpi5-audit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report sanitized audit result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMAND_COMMENT_ID: ${{ needs.authorize.outputs.command_comment_id }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          JOB_RESULT: ${{ needs.rpi5-audit.result }}
+          RESULT: ${{ needs.rpi5-audit.outputs.result }}
+          REF_PARSER: ${{ needs.rpi5-audit.outputs.reference_parser_input }}
+          LIVE_PARSER: ${{ needs.rpi5-audit.outputs.live_parser_input }}
+          REF_BINDING: ${{ needs.rpi5-audit.outputs.reference_binding }}
+          LIVE_BINDING: ${{ needs.rpi5-audit.outputs.live_binding }}
+          REF_COUNT: ${{ needs.rpi5-audit.outputs.reference_binding_count }}
+          LIVE_COUNT: ${{ needs.rpi5-audit.outputs.live_binding_count }}
+          ADDED: ${{ needs.rpi5-audit.outputs.binding_added }}
+          REMOVED: ${{ needs.rpi5-audit.outputs.binding_removed }}
+          TITLE_CHANGED: ${{ needs.rpi5-audit.outputs.binding_title_changed }}
+          LIVE_RAW: ${{ needs.rpi5-audit.outputs.live_raw_sha }}
+          TEMPLATE_SHA: ${{ needs.rpi5-audit.outputs.template_sha }}
+          RUNNER_RC: ${{ needs.rpi5-audit.outputs.runner_rc }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          result = os.environ.get('RESULT') or 'UNAVAILABLE'
+          body = (
+              '## Lidl rev05 same-PDF source-refresh audit\n\n'
+              f"- command comment: `{os.environ['COMMAND_COMMENT_ID']}`\n"
+              f"- workflow job: `{os.environ['JOB_RESULT']}`\n"
+              f"- result: `{result}`\n"
+              f"- registered runtime: `{os.environ['REGISTERED_SHA']}`\n"
+              f"- as-of: `{os.environ['AS_OF']}`\n"
+              '- PDF SHA-256: `6da2135ea984d1f79bdb311dfa0d8affd1d2f8d46c63a1bba25b202a30a5fb16`\n'
+              '- stable source identity: `7486e32f837869b3dedc36b5a129c034129f653bf698df4ad55649510623ff17`\n'
+              f"- reference parser-input: `{os.environ.get('REF_PARSER') or 'unavailable'}`\n"
+              f"- live parser-input: `{os.environ.get('LIVE_PARSER') or 'unavailable'}`\n"
+              f"- reference product-binding: `{os.environ.get('REF_BINDING') or 'unavailable'}` / count `{os.environ.get('REF_COUNT') or 'unavailable'}`\n"
+              f"- live product-binding: `{os.environ.get('LIVE_BINDING') or 'unavailable'}` / count `{os.environ.get('LIVE_COUNT') or 'unavailable'}`\n"
+              f"- binding changes: added `{os.environ.get('ADDED') or 'unavailable'}`, removed `{os.environ.get('REMOVED') or 'unavailable'}`, title changed `{os.environ.get('TITLE_CHANGED') or 'unavailable'}`\n"
+              f"- live raw SHA-256: `{os.environ.get('LIVE_RAW') or 'unavailable'}`\n"
+              f"- pending review-template SHA-256: `{os.environ.get('TEMPLATE_SHA') or 'unavailable'}`\n"
+              f"- dispatcher exit code: `{os.environ.get('RUNNER_RC') or 'unavailable'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              'Safety: read-only source comparison only. Raw PDF/JSON is not exported. '
+              'No parser scan, corpus write, DB/Review write, publication, deploy, systemd change, retry or Gate C/D action is authorized.'
+          )
+          payload = json.dumps({'body': body}).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'hermes-deals-lidl-source-refresh-reporter',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f'unexpected comment status: {response.status}')
+          PY
