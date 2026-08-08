@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'W4B_RESULT=BLOCKED\nW4B_REASON=%s\nPRODUCTION_MUTATED=false\n' "$1"
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'dispatcher_must_run_as_root'
+[[ $# -eq 1 ]] || fail 'invalid_argument_count'
+MODE="$1"
+[[ "$MODE" =~ ^(preflight|cutover|verify)$ ]] || fail 'mode_not_runner_authorized'
+
+OPERATOR='/usr/local/sbin/hermes-deals-w4b-operator'
+HASH_FILE='/usr/local/libexec/hermes-deals-w4b/operator.sha256'
+[[ -x "$OPERATOR" && ! -L "$OPERATOR" ]] || fail 'operator_missing_or_unsafe'
+[[ -f "$HASH_FILE" && ! -L "$HASH_FILE" ]] || fail 'operator_hash_missing_or_unsafe'
+[[ "$(stat -c '%U:%G:%a' "$OPERATOR")" == 'root:root:755' ]] || fail 'operator_metadata_invalid'
+[[ "$(stat -c '%U:%G:%a' "$HASH_FILE")" == 'root:root:644' ]] || fail 'operator_hash_metadata_invalid'
+EXPECTED="$(cat "$HASH_FILE")"
+[[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]] || fail 'operator_hash_invalid'
+[[ "$(sha256sum "$OPERATOR" | awk '{print $1}')" == "$EXPECTED" ]] || fail 'operator_hash_mismatch'
+
+exec "$OPERATOR" "$MODE"
