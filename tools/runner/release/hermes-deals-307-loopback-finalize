@@ -8,7 +8,7 @@ unset COMPOSE_ENV_FILES COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME DEALS
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
-  exit 1
+  return 1
 }
 
 [[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'operator must run as root through sudo'
