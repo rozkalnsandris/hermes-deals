@@ -91,12 +91,29 @@ def main() -> int:
     audits = [audit(path) for path in paths]
     self_hosted = [item for item in audits if item.self_hosted]
     blocked = [item for item in self_hosted if "pull_request" in item.events]
-    review = [item for item in self_hosted if "pull_request_target" in item.events]
+    pr_target_review = [
+        item for item in self_hosted if "pull_request_target" in item.events
+    ]
+    issue_comment_review = [
+        item for item in self_hosted if "issue_comment" in item.events
+    ]
+    review = sorted(
+        {item.path: item for item in (*pr_target_review, *issue_comment_review)}.values(),
+        key=lambda item: str(item.path),
+    )
 
     print(f"PUBLIC_WORKFLOW_COUNT={len(audits)}")
     print(f"PUBLIC_SELF_HOSTED_WORKFLOW_COUNT={len(self_hosted)}")
     print(f"PUBLIC_SELF_HOSTED_PULL_REQUEST_BLOCK_COUNT={len(blocked)}")
-    print(f"PUBLIC_SELF_HOSTED_PULL_REQUEST_TARGET_REVIEW_COUNT={len(review)}")
+    print(
+        "PUBLIC_SELF_HOSTED_PULL_REQUEST_TARGET_REVIEW_COUNT="
+        f"{len(pr_target_review)}"
+    )
+    print(
+        "PUBLIC_SELF_HOSTED_ISSUE_COMMENT_REVIEW_COUNT="
+        f"{len(issue_comment_review)}"
+    )
+    print(f"PUBLIC_SELF_HOSTED_MANUAL_REVIEW_COUNT={len(review)}")
 
     for item in self_hosted:
         rel = item.path.relative_to(ROOT)
@@ -104,8 +121,12 @@ def main() -> int:
         classification = "trusted-trigger"
         if "pull_request" in item.events:
             classification = "BLOCK-direct-pull-request"
+        elif "pull_request_target" in item.events and "issue_comment" in item.events:
+            classification = "REVIEW-pull-request-target+issue-comment"
         elif "pull_request_target" in item.events:
             classification = "REVIEW-pull-request-target"
+        elif "issue_comment" in item.events:
+            classification = "REVIEW-issue-comment"
         print(
             "self-hosted-workflow"
             f" path={rel}"
@@ -124,7 +145,7 @@ def main() -> int:
     if review:
         print(
             "PUBLIC_WORKFLOW_AUDIT=PASS_WITH_MANUAL_REVIEW"
-            " reason=pull-request-target-self-hosted-workflows-require-owner-gate-review"
+            " reason=public-user-triggerable-self-hosted-workflows-require-owner-gate-review"
         )
     else:
         print("PUBLIC_WORKFLOW_AUDIT=PASS")
