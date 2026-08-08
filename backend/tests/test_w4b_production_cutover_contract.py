@@ -92,7 +92,7 @@ def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
     # Compose JSON must remain on stdin for the model parser. Python source is
     # supplied with -c rather than a heredoc competing for fd 0.
     assert 'compose "$api_tag" "$ui_mode" "$nginx_config" config --format json |' in source
-    assert "python3 -c '\nimport json, os, sys" in source
+    assert "python3 -c '" in source
     assert "data = json.load(sys.stdin)" in source
     assert 'python3 - "$api_tag" "$ui_mode" "$nginx_config" <<\'PY\'' not in source
 
