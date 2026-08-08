@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from pathlib import Path
+import subprocess
+
+
+ROOT = Path(__file__).resolve().parents[2]
+OPERATOR = ROOT / "tools" / "runner" / "w4b" / "hermes-deals-w4b-operator"
+DISPATCHER = ROOT / "tools" / "runner" / "w4b" / "hermes-deals-w4b-dispatch"
+FINALIZER = ROOT / "tools" / "runner" / "w4b" / "run-hermes-deals-w4b-owner-finalizer.sh"
+OVERRIDE = ROOT / "tools" / "runner" / "w4b" / "docker-compose.w4b.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "w4b-production-cutover.yml"
+TARGET_SHA = "128325461f249791af8a5653163772e955dd2b89"
+
+
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def test_w4b_root_scripts_are_shell_syntax_valid() -> None:
+    for path in (OPERATOR, DISPATCHER, FINALIZER):
+        subprocess.run(["bash", "-n", str(path)], check=True)
+
+
+def test_w4b_operator_is_exact_target_bounded_and_rollback_capable() -> None:
+    source = read(OPERATOR)
+
+    assert f"TARGET_SHA='{TARGET_SHA}'" in source
+    assert "MODE=\"$1\"" in source
+    assert "^(preflight|cutover|verify|rollback)$" in source
+    assert "TARGET_IMAGE=\"hermes-deals-api:w4b-$TARGET_SHORT\"" in source
+    assert "target base Compose differs from production baseline beyond W4B mode" in source
+    assert "target nginx hashed-asset location mismatch" in source
+    assert "DEALS_BIND_IP='127.0.0.1'" in source
+    assert "DEALS_HTTP_PORT='9128'" in source
+    assert "HERMES_UI_ASSET_MODE=\"$ui_mode\"" in source
+    assert "W4B_NGINX_CONFIG=\"$nginx_config\"" in source
+    assert "up -d --no-deps --no-build --wait api web" in source
+    assert "assert_hashed_w4" in source
+    assert "assert_inline_w3" in source
+    assert "read_live_alembic" in source
+    assert "cloudflared_pid" in source
+    assert "primary_state" in source
+    assert "rollback_internal" in source
+    assert "cutover_validation_failed_auto_rollback_passed" in source
+    assert "W4B_MODE=rollback" in source
+
+    for forbidden in (
+        "alembic upgrade",
+        "alembic downgrade",
+        "ufw ",
+        "cloudflared tunnel",
+        "systemctl restart cloudflared",
+        "systemctl stop cloudflared",
+        "systemctl start cloudflared",
+        "git reset",
+        "git clean",
+        "git checkout",
+    ):
+        assert forbidden not in source
+
+
+def test_w4b_dispatcher_does_not_expose_rollback_to_runner() -> None:
+    source = read(DISPATCHER)
+
+    assert "^(preflight|cutover|verify)$" in source
+    assert "mode_not_runner_authorized" in source
+    assert "operator.sha256" in source
+    assert "sha256sum \"$OPERATOR\"" in source
+    assert 'exec "$OPERATOR" "$MODE"' in source
+    assert "rollback)" not in source
+
+
+def test_w4b_owner_finalizer_installs_narrow_runner_sudo_only() -> None:
+    source = read(FINALIZER)
+
+    assert f"TARGET_SHA='{TARGET_SHA}'" in source
+    assert "RUNNER_USER='github-release-runner'" in source
+    assert "$DISPATCHER preflight" in source
+    assert "$DISPATCHER cutover" in source
+    assert "$DISPATCHER verify" in source
+    assert "$DISPATCHER rollback" not in source
+    assert 'sudo -u "$RUNNER_USER" sudo --non-interactive "$OPERATOR" rollback' in source
+    assert "runner_unexpectedly_authorized_for_root_only_rollback" in source
+    assert 'sudo -u "$RUNNER_USER" sudo --non-interactive "$DISPATCHER" preflight' in source
+    assert "PRODUCTION_GIT_UNCHANGED=true" in source
+    assert "PRODUCTION_ENV_UNCHANGED=true" in source
+    assert "PRODUCTION_RUNTIME_UNCHANGED=true" in source
+    assert "CLOUDFLARED_UNCHANGED=true" in source
+
+
+def test_w4b_compose_overlay_changes_only_mode_and_nginx_mount() -> None:
+    source = read(OVERRIDE)
+    assert source == (
+        "services:\n"
+        "  api:\n"
+        "    environment:\n"
+        "      HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:?set_HERMES_UI_ASSET_MODE}\n"
+        "  web:\n"
+        "    volumes:\n"
+        "      - ${W4B_NGINX_CONFIG:?set_W4B_NGINX_CONFIG}:/etc/nginx/conf.d/default.conf:ro\n"
+    )
+
+
+def test_w4b_public_repo_workflow_has_hosted_authorizer_and_restricted_runner() -> None:
+    source = read(WORKFLOW)
+
+    assert "issue_comment:" in source
+    assert '"/hermes-374 preflight": "preflight"' in source
+    assert '"/hermes-374 cutover": "cutover"' in source
+    assert '"/hermes-374 verify": "verify"' in source
+    assert 'if os.environ["ISSUE_NUMBER"] != "374":' in source
+    assert 'if os.environ[key] != owner:' in source
+    assert "w4b-production-cutover.yml@refs/heads/main" in source
+    assert "hermes-deals-release" in source
+    assert "permissions: {}" in source
+    assert "actions/checkout" not in source
+    assert "secrets." not in source
+    assert 'sudo --non-interactive /usr/local/sbin/hermes-deals-w4b-dispatch "$MODE"' in source
+    assert "dispatcher_failed_without_sanitized_reason" in source
+    assert "GitHub runners cannot invoke the root-only rollback mode" in source
