@@ -114,3 +114,117 @@ export function dealPageSummary(payload, { dealView = "current", formatDate = (v
     ? `${start + 1}–${end} no ${total} ${noun} piedāvājumiem · ${formatDate(payload?.as_of)}`
     : `0 ${upcoming ? "drīzumā gaidāmu" : "aktuālu"} piedāvājumu · ${formatDate(payload?.as_of)}`;
 }
+
+export function initCurrentDeals(app) {
+  const {
+    fetchJson,
+    fmtDate,
+    grid,
+    summary,
+    pagination,
+    search,
+    sort,
+    getAsOf,
+    getDealView,
+    getSelectedRetailer,
+    getFeatureState,
+    getItems,
+    emptyState,
+    bindRawDeals,
+    bindEmptyActions,
+    updateControlRoomStatus,
+    updateFilterCounts,
+    updateReviewSearchHint,
+    gridErrorState,
+    bindGridRetry,
+    scrollTarget,
+  } = app;
+
+  let currentPage = 1;
+  let currentDealData = null;
+  let dealCache = new Map();
+
+  function currentUrl() {
+    return dealsUrl({
+      asOf: getAsOf(),
+      sort: sort.value,
+      page: currentPage,
+      dealView: getDealView(),
+      query: search.value,
+      selectedRetailer: getSelectedRetailer(),
+      features: getFeatureState(),
+    });
+  }
+
+  function renderPagination(totalItems) {
+    const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+    if (totalItems <= PAGE_SIZE) {
+      pagination.innerHTML = "";
+      return;
+    }
+    currentPage = Math.min(Math.max(1, currentPage), totalPages);
+    const middle = paginationItems(currentPage, totalPages).map((page) =>
+      page === "…"
+        ? `<span class="page-ellipsis">…</span>`
+        : `<button type="button" class="page-btn${page === currentPage ? " active" : ""}" data-page="${page}" ${page === currentPage ? 'aria-current="page"' : ""}>${page}</button>`).join("");
+    pagination.innerHTML = `<button type="button" class="page-btn" data-page="1" ${currentPage === 1 ? "disabled" : ""} aria-label="Pirmā lapa">⇤</button><button type="button" class="page-btn" data-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""} aria-label="Iepriekšējā lapa">←</button>${middle}<button type="button" class="page-btn" data-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""} aria-label="Nākamā lapa">→</button><button type="button" class="page-btn" data-page="${totalPages}" ${currentPage === totalPages ? "disabled" : ""} aria-label="Pēdējā lapa">⇥</button>`;
+    pagination.querySelectorAll("button[data-page]").forEach((button) => button.addEventListener("click", async () => {
+      const next = Number(button.dataset.page);
+      if (!Number.isFinite(next) || next < 1 || next > totalPages || next === currentPage) return;
+      currentPage = next;
+      await load({ resetPage: false });
+      scrollTarget?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+  }
+
+  function render() {
+    const payload = currentDealData;
+    if (!payload) {
+      pagination.innerHTML = "";
+      return;
+    }
+    const items = payload.deals || [];
+    const view = getDealView();
+    summary.textContent = dealPageSummary(payload, { dealView: view, formatDate: fmtDate });
+    grid.innerHTML = items.length
+      ? items.map((deal) => rawDealCard(deal, { items: getItems() })).join("")
+      : emptyState(view === "upcoming" ? "Šim filtram nav drīzumā gaidāmu piedāvājumu." : "Šim filtram nav aktuālu piedāvājumu.");
+    bindRawDeals();
+    bindEmptyActions();
+    renderPagination(Number(payload.available_count || 0));
+    updateControlRoomStatus(payload);
+  }
+
+  async function load({ resetPage = true, isCurrent = () => true } = {}) {
+    if (resetPage) currentPage = 1;
+    grid.innerHTML = `<div class="empty"><span class="loading"></span>Ielādēju…</div>`;
+    pagination.innerHTML = "";
+    try {
+      const payload = await fetchJson(currentUrl());
+      if (!isCurrent()) return false;
+      currentDealData = payload;
+      dealCache = new Map((payload.deals || []).map((deal) => [deal.offer_candidate_id, deal]));
+      updateFilterCounts(payload);
+      render();
+      await updateReviewSearchHint(payload, isCurrent);
+      return isCurrent();
+    } catch (error) {
+      if (!isCurrent()) return false;
+      pagination.innerHTML = "";
+      currentDealData = null;
+      summary.textContent = "Dati īslaicīgi nav pieejami";
+      grid.innerHTML = gridErrorState(error);
+      bindGridRetry();
+      return false;
+    }
+  }
+
+  return Object.freeze({
+    load,
+    render,
+    currentUrl,
+    getCurrentPage: () => currentPage,
+    getCurrentDealData: () => currentDealData,
+    getDealCache: () => dealCache,
+  });
+}
