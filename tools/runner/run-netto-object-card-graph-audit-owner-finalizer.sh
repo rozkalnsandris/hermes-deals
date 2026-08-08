@@ -6,10 +6,10 @@ PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 export PATH
 export PYTHONDONTWRITEBYTECODE=1
 
-FINALIZER_VERSION='netto-object-card-graph-audit-owner-finalizer-v1'
+FINALIZER_VERSION='netto-object-card-graph-audit-owner-finalizer-v2'
 REPOSITORY='rozkalnsandris/hermes-deals'
-SOURCE_PR='403'
-TARGET_SHA='3114135cf3d41c089b7ca5de7d134e725a9e1cd8'
+SOURCE_PR='411'
+TARGET_SHA='5a263b103210d6a3aa223f057f13acb034b115cb'
 PRIMARY='/home/andris/hermes-deals'
 WORKTREE='/home/andris/hermes-deals-worktrees/netto-object-card-graph-audit-v1'
 INSTALLER_REL='tools/runner/install-netto-object-card-graph-rpi5-audit.sh'
@@ -39,7 +39,7 @@ for command in awk cat date gh git grep id install mktemp python3 readlink sha25
 done
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-LOG="/home/andris/netto-object-card-graph-audit-owner-finalizer-${stamp}.log"
+LOG="/home/andris/netto-object-card-graph-audit-owner-finalizer-v2-${stamp}.log"
 INSTALL_LOG="$(mktemp /tmp/netto-object-card-graph-audit-install.XXXXXX)"
 SUDO_LIST_LOG="$(mktemp /tmp/netto-object-card-graph-audit-sudo-list.XXXXXX)"
 exec > >(tee -a "$LOG") 2>&1
@@ -113,6 +113,47 @@ verify_primary_unchanged() {
   [[ "$index_state" == "$PRIMARY_INDEX_STATE" ]] || fail 'primary Git index changed'
 }
 
+verify_audit_worktree_source() {
+  local head branch status common_dir origin
+  [[ -d "$WORKTREE" && ! -L "$WORKTREE" ]] || fail 'object-card graph audit worktree path is unsafe'
+  [[ "$(stat -c '%U:%G' "$WORKTREE")" == andris:andris ]] || fail 'object-card graph audit worktree ownership mismatch'
+  head="$(git_read "$WORKTREE" rev-parse HEAD)"
+  branch="$(git_read "$WORKTREE" branch --show-current)"
+  status="$(git_read "$WORKTREE" status --porcelain=v1 --untracked-files=all)"
+  [[ -z "$branch" ]] || fail 'object-card graph audit worktree must be detached'
+  [[ -z "$status" ]] || fail 'object-card graph audit worktree is dirty'
+  common_dir="$(git_read "$WORKTREE" rev-parse --git-common-dir)"
+  case "$common_dir" in
+    /*) common_dir="$(readlink -f -- "$common_dir")" ;;
+    *) common_dir="$(readlink -f -- "$WORKTREE/$common_dir")" ;;
+  esac
+  [[ "$common_dir" == '/home/andris/hermes-deals/.git' ]] || fail 'object-card graph audit source is not a primary-repository worktree'
+  origin="$(git_read "$WORKTREE" remote get-url origin)"
+  case "$origin" in
+    https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
+    *) fail 'object-card graph audit worktree origin is not allowlisted' ;;
+  esac
+  printf '%s\n' "$head"
+}
+
+prepare_audit_worktree() {
+  local existing_head
+  install -d -m 0755 "$(dirname "$WORKTREE")"
+  if [[ -e "$WORKTREE" ]]; then
+    existing_head="$(verify_audit_worktree_source)"
+    if [[ "$existing_head" != "$TARGET_SHA" ]]; then
+      printf 'STALE_AUDIT_WORKTREE_SHA=%s\n' "$existing_head"
+      git -C "$PRIMARY" worktree remove "$WORKTREE"
+      verify_primary_unchanged
+    fi
+  fi
+  if [[ ! -e "$WORKTREE" ]]; then
+    git -C "$PRIMARY" worktree add --detach "$WORKTREE" "$TARGET_SHA"
+    verify_primary_unchanged
+  fi
+  [[ "$(verify_audit_worktree_source)" == "$TARGET_SHA" ]] || fail 'object-card graph audit worktree HEAD mismatch'
+}
+
 config_value() {
   local key="$1"
   awk -F= -v wanted="$key" '
@@ -128,7 +169,7 @@ config_value() {
   ' "$CONFIG"
 }
 
-printf '=== Netto #305 object-card graph audit owner finalizer ===\n'
+printf '=== Netto #305 object-card graph audit owner finalizer v2 ===\n'
 printf 'UTC=%s\nFINALIZER_VERSION=%s\nSOURCE_PR=%s\nTARGET_SHA=%s\nLOG=%s\n' \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FINALIZER_VERSION" "$SOURCE_PR" "$TARGET_SHA" "$LOG"
 
@@ -153,28 +194,7 @@ verify_primary_unchanged
 git_read "$PRIMARY" cat-file -e "$TARGET_SHA^{commit}" >/dev/null
 git_read "$PRIMARY" merge-base --is-ancestor "$TARGET_SHA" origin/main >/dev/null
 
-if [[ -e "$WORKTREE" ]]; then
-  [[ -d "$WORKTREE" && ! -L "$WORKTREE" ]] || fail 'object-card graph audit worktree path is unsafe'
-else
-  install -d -m 0755 "$(dirname "$WORKTREE")"
-  git -C "$PRIMARY" worktree add --detach "$WORKTREE" "$TARGET_SHA"
-fi
-
-[[ "$(git_read "$WORKTREE" rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'object-card graph audit worktree HEAD mismatch'
-[[ -z "$(git_read "$WORKTREE" branch --show-current)" ]] || fail 'object-card graph audit worktree must be detached'
-[[ -z "$(git_read "$WORKTREE" status --porcelain=v1 --untracked-files=all)" ]] || fail 'object-card graph audit worktree is dirty'
-[[ "$(stat -c '%U:%G' "$WORKTREE")" == andris:andris ]] || fail 'object-card graph audit worktree ownership mismatch'
-COMMON_DIR="$(git_read "$WORKTREE" rev-parse --git-common-dir)"
-case "$COMMON_DIR" in
-  /*) COMMON_DIR="$(readlink -f -- "$COMMON_DIR")" ;;
-  *) COMMON_DIR="$(readlink -f -- "$WORKTREE/$COMMON_DIR")" ;;
-esac
-[[ "$COMMON_DIR" == '/home/andris/hermes-deals/.git' ]] || fail 'object-card graph audit source is not a primary-repository worktree'
-origin="$(git_read "$WORKTREE" remote get-url origin)"
-case "$origin" in
-  https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
-  *) fail 'object-card graph audit worktree origin is not allowlisted' ;;
-esac
+prepare_audit_worktree
 verify_primary_unchanged
 
 INSTALLER="$WORKTREE/$INSTALLER_REL"
@@ -248,5 +268,5 @@ printf 'DISPATCHER_AUTHORIZATION_CHECK=PASS\n'
 printf 'AUDIT_EXECUTED=false\n'
 printf 'PRIMARY_WORKTREE_UNCHANGED=true\nPRIMARY_INDEX_UNCHANGED=true\n'
 printf 'DATABASE_WRITE=false\nREVIEW_WRITE=false\nAPPROVAL_PUBLICATION=false\nPRODUCTION_DEPLOY=false\n'
-printf 'NEXT_GITHUB_ACTION=apply audit:netto-object-card-graph-v1 to merged PR #403\n'
+printf 'NEXT_GITHUB_ACTION=apply audit:netto-object-card-graph-v1 to merged PR #411\n'
 printf 'OWNER_FINALIZER_RESULT=PASS\nLOG=%s\n' "$LOG"
