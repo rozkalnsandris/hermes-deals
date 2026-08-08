@@ -89,6 +89,13 @@ def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
     assert 'git -C "$PRIMARY" rev-parse HEAD' not in source
     assert "safe.directory" not in source
 
+    # Compose JSON must remain on stdin for the model parser. Python source is
+    # supplied with -c rather than a heredoc competing for fd 0.
+    assert 'compose "$api_tag" "$ui_mode" "$nginx_config" config --format json |' in source
+    assert "python3 -c '" in source
+    assert "data = json.load(sys.stdin)" in source
+    assert 'python3 - "$api_tag" "$ui_mode" "$nginx_config" <<\'PY\'' not in source
+
     for forbidden in (
         "alembic upgrade",
         "alembic downgrade",
@@ -149,6 +156,32 @@ def test_w4b_operator_renderer_fails_closed_on_production_git_state_drift(
     )
     assert result.returncode != 0
     assert "production Git state replacement expected exactly once" in (
+        result.stdout + result.stderr
+    )
+    assert not rendered.exists()
+
+
+def test_w4b_operator_renderer_fails_closed_on_compose_validator_stdin_drift(
+    tmp_path: Path,
+) -> None:
+    drifted = tmp_path / "drifted-compose-stdin-operator"
+    drifted.write_text(
+        read(OPERATOR).replace(
+            'python3 - "$api_tag" "$ui_mode" "$nginx_config" <<\'PY\'',
+            'python3 - "$api_tag" "$ui_mode" <<\'PY\'',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    rendered = tmp_path / "rendered"
+    result = subprocess.run(
+        ["python3", str(RENDERER), str(drifted), str(rendered)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Compose validator stdin head replacement expected exactly once" in (
         result.stdout + result.stderr
     )
     assert not rendered.exists()

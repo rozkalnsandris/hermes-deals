@@ -79,6 +79,26 @@ primary_state() {
 }
 '''
 
+COMPOSE_STDIN_HEAD_OLD = '''  compose "$api_tag" "$ui_mode" "$nginx_config" config --format json |
+    python3 - "$api_tag" "$ui_mode" "$nginx_config" <<'PY'
+'''
+
+COMPOSE_STDIN_HEAD_NEW = '''  compose "$api_tag" "$ui_mode" "$nginx_config" config --format json |
+    python3 -c '
+'''
+
+COMPOSE_STDIN_TAIL_OLD = '''if not db:
+    raise SystemExit("database service missing from model")
+PY
+}
+'''
+
+COMPOSE_STDIN_TAIL_NEW = '''if not db:
+    raise SystemExit("database service missing from model")
+' "$api_tag" "$ui_mode" "$nginx_config"
+}
+'''
+
 
 def replace_exact_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
@@ -124,17 +144,35 @@ def main() -> None:
         GIT_STATE_NEW,
         "production Git state",
     )
+    rendered = replace_exact_once(
+        rendered,
+        COMPOSE_STDIN_HEAD_OLD,
+        COMPOSE_STDIN_HEAD_NEW,
+        "Compose validator stdin head",
+    )
+    rendered = replace_exact_once(
+        rendered,
+        COMPOSE_STDIN_TAIL_OLD,
+        COMPOSE_STDIN_TAIL_NEW,
+        "Compose validator stdin tail",
+    )
 
     if BASELINE_OLD in rendered or ROLLBACK_OLD in rendered:
         raise SystemExit("stale W4B image validator remains after rendering")
     if COMMANDS_OLD in rendered or GIT_STATE_OLD in rendered:
         raise SystemExit("stale W4B production Git state path remains after rendering")
+    if COMPOSE_STDIN_HEAD_OLD in rendered or COMPOSE_STDIN_TAIL_OLD in rendered:
+        raise SystemExit("stale W4B Compose validator stdin path remains after rendering")
+    if COMPOSE_STDIN_HEAD_NEW not in rendered:
+        raise SystemExit("Compose validator python -c marker mismatch")
     if rendered.count("current_api_main_tag_revision_mismatch") != 1:
         raise SystemExit("managed-main revision binding marker mismatch")
     if rendered.count('hermes-deals-api:main-([0-9a-f]{12})') != 2:
         raise SystemExit("managed-main tag validation marker mismatch")
     if rendered.count('runuser -u andris -- git -C "$PRIMARY" "$@"') != 1:
         raise SystemExit("production Git owner-identity marker mismatch")
+    if rendered.count("data = json.load(sys.stdin)") != 1:
+        raise SystemExit("Compose validator stdin JSON marker mismatch")
     if "safe.directory" in rendered:
         raise SystemExit("safe.directory bypass is forbidden")
 
