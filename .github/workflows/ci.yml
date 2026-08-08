@@ -23,7 +23,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: frontend
+        working-directory: backend/frontend
 
     steps:
       - name: Checkout repository
@@ -32,9 +32,9 @@ jobs:
       - name: Set up pinned Node
         uses: actions/setup-node@v6
         with:
-          node-version-file: frontend/.nvmrc
+          node-version-file: backend/frontend/.nvmrc
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: backend/frontend/package-lock.json
 
       - name: Install exact frontend dependencies
         run: |
