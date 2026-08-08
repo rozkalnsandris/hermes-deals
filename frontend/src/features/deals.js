@@ -138,12 +138,12 @@ export function initCurrentDeals(app) {
     gridErrorState,
     bindGridRetry,
     scrollTarget,
-    loadPage,
   } = app;
 
   let currentPage = 1;
   let currentDealData = null;
   let dealCache = new Map();
+  let requestGeneration = 0;
 
   function currentUrl() {
     return dealsUrl({
@@ -173,8 +173,7 @@ export function initCurrentDeals(app) {
       const next = Number(button.dataset.page);
       if (!Number.isFinite(next) || next < 1 || next > totalPages || next === currentPage) return;
       currentPage = next;
-      if (loadPage) await loadPage(false);
-      else await load({ resetPage: false });
+      await load({ resetPage: false });
       scrollTarget?.scrollIntoView({ behavior: "smooth", block: "start" });
     }));
   }
@@ -198,20 +197,22 @@ export function initCurrentDeals(app) {
   }
 
   async function load({ resetPage = true, isCurrent = () => true } = {}) {
+    const request = ++requestGeneration;
+    const stillCurrent = () => request === requestGeneration && isCurrent();
     if (resetPage) currentPage = 1;
     grid.innerHTML = `<div class="empty"><span class="loading"></span>Ielādēju…</div>`;
     pagination.innerHTML = "";
     try {
       const payload = await fetchJson(currentUrl());
-      if (!isCurrent()) return false;
+      if (!stillCurrent()) return false;
       currentDealData = payload;
       dealCache = new Map((payload.deals || []).map((deal) => [deal.offer_candidate_id, deal]));
       updateFilterCounts(payload);
       render();
-      await updateReviewSearchHint(payload, isCurrent);
-      return isCurrent();
+      await updateReviewSearchHint(payload, stillCurrent);
+      return stillCurrent();
     } catch (error) {
-      if (!isCurrent()) return false;
+      if (!stillCurrent()) return false;
       pagination.innerHTML = "";
       currentDealData = null;
       summary.textContent = "Dati īslaicīgi nav pieejami";
