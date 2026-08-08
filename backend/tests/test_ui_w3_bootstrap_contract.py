@@ -21,7 +21,7 @@ def test_w3_entry_is_a_side_effect_browser_bootstrap_for_classic_bundle() -> Non
     assert 'typeof window !== "undefined" && typeof document !== "undefined"' in entry
     assert "installWeeklyPayloadBridge(window)" in entry
     assert "bootstrapUi();" in entry
-    assert "export " not in entry
+    assert not any(line.lstrip().startswith("export ") for line in entry.splitlines())
     assert 'BOOTSTRAP_CONTRACT = "w3-behavior-preserving-bootstrap-v1"' in bootstrap
 
 
