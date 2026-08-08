@@ -163,14 +163,14 @@ def main() -> None:
         raise SystemExit("stale W4B production Git state path remains after rendering")
     if COMPOSE_STDIN_HEAD_OLD in rendered or COMPOSE_STDIN_TAIL_OLD in rendered:
         raise SystemExit("stale W4B Compose validator stdin path remains after rendering")
+    if COMPOSE_STDIN_HEAD_NEW not in rendered:
+        raise SystemExit("Compose validator python -c marker mismatch")
     if rendered.count("current_api_main_tag_revision_mismatch") != 1:
         raise SystemExit("managed-main revision binding marker mismatch")
     if rendered.count('hermes-deals-api:main-([0-9a-f]{12})') != 2:
         raise SystemExit("managed-main tag validation marker mismatch")
     if rendered.count('runuser -u andris -- git -C "$PRIMARY" "$@"') != 1:
         raise SystemExit("production Git owner-identity marker mismatch")
-    if rendered.count("python3 -c '\nimport json, os, sys") != 1:
-        raise SystemExit("Compose validator python -c marker mismatch")
     if rendered.count("data = json.load(sys.stdin)") != 1:
         raise SystemExit("Compose validator stdin JSON marker mismatch")
     if "safe.directory" in rendered:
