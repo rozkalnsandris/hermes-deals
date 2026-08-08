@@ -12,6 +12,7 @@ from app.ui_bundle import (
     SCRIPT_TAG,
     STYLE_LINK,
     STYLE_MARKER,
+    WEEKLY_BRIDGE_TAG,
     UiBundleError,
     build_production_ui_bundle,
 )
@@ -20,22 +21,39 @@ from app.ui_bundle import (
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_UI = BACKEND_ROOT / "app" / "ui"
 DOCKERFILE = BACKEND_ROOT / "Dockerfile"
+W3_BUNDLE_FIXTURE = """const identity = "HERMES_UI_SCRIPT_OPEN:";
+const bootstrap = "w3-behavior-preserving-bootstrap-v1";
+const weekly = "normalized_unique_deals_by_id_v1";
+const current = "/api/v1/deals/current";
+const daily = "/api/v1/deals/daily-specials";
+const catalog = "/api/v1/catalog";
+void [identity, bootstrap, weekly, current, daily, catalog];
+"""
 
 
-def _copy_ui(tmp_path: Path, name: str = "ui") -> Path:
+def _copy_ui(tmp_path: Path, name: str = "ui", *, stage_w3: bool = True) -> Path:
     target = tmp_path / name
     shutil.copytree(SOURCE_UI, target)
+    if stage_w3:
+        (target / "app.js").write_text(W3_BUNDLE_FIXTURE, encoding="utf-8")
     return target
 
 
-def test_release_image_runs_the_fail_closed_ui_bundler() -> None:
+def test_release_image_runs_the_fail_closed_ui_bundler_after_w3_build() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 
+    assert "AS ui-build" in dockerfile
+    assert "RUN npm test" in dockerfile
+    assert "npm run build:check" in dockerfile
     assert "COPY app ./app" in dockerfile
+    assert "COPY --from=ui-build /ui/dist/app.js /app/app/ui/app.js" in dockerfile
     assert "RUN python -m app.ui_bundle --ui-dir /app/app/ui" in dockerfile
     assert dockerfile.index("COPY app ./app") < dockerfile.index(
-        "RUN python -m app.ui_bundle --ui-dir /app/app/ui"
+        "COPY --from=ui-build /ui/dist/app.js /app/app/ui/app.js"
     )
+    assert dockerfile.index(
+        "COPY --from=ui-build /ui/dist/app.js /app/app/ui/app.js"
+    ) < dockerfile.index("RUN python -m app.ui_bundle --ui-dir /app/app/ui")
     assert dockerfile.index(
         "RUN python -m app.ui_bundle --ui-dir /app/app/ui"
     ) < dockerfile.index("CMD [")
@@ -60,15 +78,27 @@ def test_production_bundle_is_self_contained_and_deterministic(
     assert sha256(first_payload).hexdigest() == sha256(second_payload).hexdigest()
     assert len(first_payload) > len(source_css) + len(source_js)
     assert STYLE_LINK not in text
+    assert WEEKLY_BRIDGE_TAG not in text
     assert SCRIPT_TAG not in text
     assert PRODUCTION_META in text
     assert STYLE_MARKER in text
     assert SCRIPT_MARKER in text
     assert "--accent:#246b45" in text
     assert "/api/v1/deals/current" in text
+    assert "w3-behavior-preserving-bootstrap-v1" in text
+    assert "normalized_unique_deals_by_id_v1" in text
     assert 'class="ui2-shell reference-app"' in text
     assert (first / "styles.css").read_bytes() == source_css
     assert (first / "app.js").read_bytes() == source_js
+
+
+def test_production_bundle_rejects_legacy_app_when_w3_builder_was_skipped(
+    tmp_path: Path,
+) -> None:
+    ui_dir = _copy_ui(tmp_path, stage_w3=False)
+
+    with pytest.raises(UiBundleError, match="w3-behavior-preserving-bootstrap-v1"):
+        build_production_ui_bundle(ui_dir)
 
 
 def test_production_bundle_fails_when_an_asset_is_missing(tmp_path: Path) -> None:
