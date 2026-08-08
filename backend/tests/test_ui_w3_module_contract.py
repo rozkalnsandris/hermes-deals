@@ -81,6 +81,29 @@ def test_w3_core_modules_pin_existing_browser_contracts() -> None:
     assert '["http:", "https:"]' in dom
 
 
+def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
+    app = read(FRONTEND / "src" / "app.js")
+    daily = read(FRONTEND / "src" / "features" / "daily-specials.js")
+    legacy = read(UI / "app.js")
+
+    assert 'from "./features/daily-specials.js"' in app
+    assert "export function initDailySpecials" in daily
+    assert "/api/v1/deals/daily-specials" in daily
+    assert 'payload.source_contract !== "explicit_immutable_retailer_evidence_only"' in daily
+    assert 'deal.special_confidence === "high"' in daily
+    assert 'deal.special_valid_on === iso' in daily
+    assert "legacyCurrentDealDailySpecialContract" in daily
+    assert "/api/v1/deals/current" in daily
+    assert "MAX_PAGES = 20" in daily
+
+    for marker in (
+        "explicit_immutable_retailer_evidence_only",
+        "legacyCurrentDealDailySpecialContract",
+        "DAILY_SPECIAL_MAX_PAGES=20",
+    ):
+        assert marker in legacy
+
+
 def test_w3_draft_does_not_switch_production_serving_boundary_yet() -> None:
     dockerfile = read(ROOT / "backend" / "Dockerfile")
     bundler = read(ROOT / "backend" / "app" / "ui_bundle.py")
