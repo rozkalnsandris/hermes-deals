@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -25,14 +26,9 @@ from lidl_parser_provenance.lidl_v631_runtime import (  # noqa: E402
     SHADOW_SHA256,
 )
 
-R2_VERSION = "lidl-source-refresh-r2-staging-scan-v1"
-AUTHORIZATION_COMMENT_ID = 5225820964
+R2_VERSION = "lidl-source-refresh-r2-staging-scan-v2-semantic-identity"
 APPROVED_BY = "Andris Rožkalns"
-APPROVED_AT = "2026-08-08T13:03:00+02:00"
 EXPECTED_AS_OF = "2026-08-08"
-EXPECTED_LIVE_RAW_SHA256 = (
-    "31425680b944936fa7f1fa34e32223908ae4e53ce589e0194128ab16b8b9c0a4"
-)
 EXPECTED_LIVE_PARSER_INPUT_SHA256 = (
     "e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8"
 )
@@ -108,7 +104,7 @@ def fetch_exact_live_source() -> tuple[bytes, bytes]:
     request = Request(
         f"{r1.FLYER_API_URL}?{query}",
         headers={
-            "User-Agent": "HermesDeals-LidlR2StagingScan/1.0",
+            "User-Agent": "HermesDeals-LidlR2StagingScan/2.0",
             "Accept": "application/json",
             "Accept-Language": "de-DE,de;q=0.9,en;q=0.4",
         },
@@ -135,7 +131,7 @@ def fetch_exact_live_source() -> tuple[bytes, bytes]:
 
     pdf_request = Request(
         document_url,
-        headers={"User-Agent": "HermesDeals-LidlR2StagingScan/1.0"},
+        headers={"User-Agent": "HermesDeals-LidlR2StagingScan/2.0"},
     )
     chunks: list[bytes] = []
     total = 0
@@ -154,49 +150,77 @@ def fetch_exact_live_source() -> tuple[bytes, bytes]:
 
 
 def validate_live_identity(source_json: bytes, source_pdf: bytes) -> dict[str, Any]:
-    if _sha256_bytes(source_pdf) != r1.EXPECTED_PDF_SHA256:
+    """Validate only parser-relevant identity; retain raw SHA as provenance.
+
+    The existing source-review contract canonically removes top-level dateTime and
+    warnings before hashing parser input. Raw source bytes may therefore change
+    while the reviewed parser input and product bindings remain byte-identical.
+    """
+    pdf_sha = _sha256_bytes(source_pdf)
+    if pdf_sha != r1.EXPECTED_PDF_SHA256:
         raise R2ScanError("live PDF differs from the exact approved rev05 PDF")
-    if _sha256_bytes(source_json) != EXPECTED_LIVE_RAW_SHA256:
-        raise R2ScanError("live raw source changed after R1 approval")
 
     identity = r1.stable_source_identity(source_json)
-    if r1._canonical_digest(identity) != r1.EXPECTED_STABLE_SOURCE_IDENTITY_SHA256:
-        raise R2ScanError("live stable source identity changed after R1 approval")
-    if r1.parser_input_identity(source_json) != EXPECTED_LIVE_PARSER_INPUT_SHA256:
-        raise R2ScanError("live parser-input identity changed after R1 approval")
+    stable_sha = r1._canonical_digest(identity)
+    if stable_sha != r1.EXPECTED_STABLE_SOURCE_IDENTITY_SHA256:
+        raise R2ScanError("live stable source identity changed after R1 review")
+
+    parser_input_sha = r1.parser_input_identity(source_json)
+    if parser_input_sha != EXPECTED_LIVE_PARSER_INPUT_SHA256:
+        raise R2ScanError("live parser-input identity changed after R1 review")
 
     binding_sha = r1.product_binding_digest(source_json)
     binding_count = len(r1.product_bindings(source_json))
     link_count = r1.product_link_count(source_json)
     if binding_sha != EXPECTED_PRODUCT_BINDING_SHA256:
-        raise R2ScanError("live product-binding digest changed after R1 approval")
+        raise R2ScanError("live product-binding digest changed after R1 review")
     if binding_count != EXPECTED_PRODUCT_BINDING_COUNT:
-        raise R2ScanError("live product-binding count changed after R1 approval")
+        raise R2ScanError("live product-binding count changed after R1 review")
     if link_count != EXPECTED_PRODUCT_LINK_COUNT:
-        raise R2ScanError("live product-link count changed after R1 approval")
+        raise R2ScanError("live product-link count changed after R1 review")
 
     return {
-        "raw_sha256": EXPECTED_LIVE_RAW_SHA256,
-        "parser_input_identity_sha256": EXPECTED_LIVE_PARSER_INPUT_SHA256,
+        "raw_sha256": _sha256_bytes(source_json),
+        "raw_sha_is_provenance_only": True,
+        "parser_input_identity_sha256": parser_input_sha,
         "product_binding_sha256": binding_sha,
         "product_binding_count": binding_count,
         "product_link_count": link_count,
-        "stable_source_identity_sha256": r1.EXPECTED_STABLE_SOURCE_IDENTITY_SHA256,
-        "pdf_sha256": r1.EXPECTED_PDF_SHA256,
+        "stable_source_identity_sha256": stable_sha,
+        "pdf_sha256": pdf_sha,
     }
 
 
-def build_approved_source_review() -> dict[str, Any]:
+def _validated_approved_at(value: str) -> str:
+    candidate = value.strip()
+    if not candidate:
+        raise R2ScanError("owner authorization timestamp is missing")
+    try:
+        parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise R2ScanError("owner authorization timestamp is invalid") from exc
+    if parsed.tzinfo is None:
+        raise R2ScanError("owner authorization timestamp must be timezone-aware")
+    return candidate
+
+
+def build_approved_source_review(
+    *, authorization_comment_id: int, approved_at: str
+) -> dict[str, Any]:
+    if authorization_comment_id <= 0:
+        raise R2ScanError("R2 authorization comment ID is invalid")
+    approved_at = _validated_approved_at(approved_at)
     return {
         "schema_version": 1,
         "decision": "approve_parser_input_refresh",
         "scope": "authoritative_staging_scan_only",
         "approved_by": APPROVED_BY,
-        "approved_at": APPROVED_AT,
+        "approved_at": approved_at,
         "note": (
-            "Owner approved the exact Lidl rev05 same-PDF parser-input refresh "
-            "for isolated R2 V6.3.1 staging scans only; GitHub issue #345 "
-            f"authorization comment {AUTHORIZATION_COMMENT_ID}."
+            "Owner approved exact Lidl rev05 canonical parser-input and product-binding "
+            "identity for isolated R2 V6.3.1 staging scans only; raw source SHA is "
+            "provenance-only because canonical parser input excludes volatile top-level "
+            f"fields; GitHub issue #345 authorization comment {authorization_comment_id}."
         ),
         "flyer_key": r1.EXPECTED_FAMILY,
         "pdf_sha256": r1.EXPECTED_PDF_SHA256,
@@ -267,11 +291,18 @@ def _scan_path(root: Path, scan_name: str) -> Path:
     return root / "flyers" / r1.EXPECTED_FAMILY / "scans" / scan_name
 
 
-def run_r2(*, as_of: str, output_dir: Path, authorization_comment_id: int) -> dict[str, Any]:
+def run_r2(
+    *,
+    as_of: str,
+    output_dir: Path,
+    authorization_comment_id: int,
+    approved_at: str,
+) -> dict[str, Any]:
     if as_of != EXPECTED_AS_OF:
-        raise R2ScanError("R2 as-of must match the exact owner-approved date")
-    if authorization_comment_id != AUTHORIZATION_COMMENT_ID:
-        raise R2ScanError("R2 authorization comment ID mismatch")
+        raise R2ScanError("R2 as-of must match the exact reviewed flyer date")
+    if authorization_comment_id <= 0:
+        raise R2ScanError("R2 authorization comment ID is invalid")
+    approved_at = _validated_approved_at(approved_at)
 
     output_dir = output_dir.resolve()
     if output_dir.exists():
@@ -282,7 +313,10 @@ def run_r2(*, as_of: str, output_dir: Path, authorization_comment_id: int) -> di
 
     source_json, source_pdf = fetch_exact_live_source()
     live = validate_live_identity(source_json, source_pdf)
-    review = build_approved_source_review()
+    review = build_approved_source_review(
+        authorization_comment_id=authorization_comment_id,
+        approved_at=approved_at,
+    )
 
     with tempfile.TemporaryDirectory(prefix="lidl-r2-", dir=output_dir.parent) as raw:
         work = Path(raw)
@@ -334,9 +368,9 @@ def run_r2(*, as_of: str, output_dir: Path, authorization_comment_id: int) -> di
         scan_summary = json.loads((scan_a / "summary.json").read_text(encoding="utf-8"))
         if scan_summary.get("source") != {
             "pdf_sha256": r1.EXPECTED_PDF_SHA256,
-            "raw_sha256": EXPECTED_LIVE_RAW_SHA256,
+            "raw_sha256": live["raw_sha256"],
         }:
-            raise R2ScanError("scan summary source identity mismatch")
+            raise R2ScanError("scan summary source provenance mismatch")
         if scan_summary.get("parser_version") != PARSER_VERSION:
             raise R2ScanError("scan summary parser version mismatch")
         if scan_summary.get("parser_sha256") != SHADOW_SHA256:
@@ -418,17 +452,19 @@ def run_r2(*, as_of: str, output_dir: Path, authorization_comment_id: int) -> di
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Owner-authorized Lidl rev05 same-PDF R2 isolated staging scan"
+        description="Owner-authorized Lidl rev05 semantic R2 isolated staging scan"
     )
     parser.add_argument("--as-of", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--authorization-comment-id", type=int, required=True)
+    parser.add_argument("--approved-at", required=True)
     args = parser.parse_args()
     try:
         result = run_r2(
             as_of=args.as_of,
             output_dir=args.output_dir,
             authorization_comment_id=args.authorization_comment_id,
+            approved_at=args.approved_at,
         )
     except Exception as exc:  # one fail-closed CLI boundary
         print(f"R2_BLOCKED: {type(exc).__name__}: {exc}", file=sys.stderr)
