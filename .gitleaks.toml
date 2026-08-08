@@ -21,19 +21,15 @@ keywords = ["postgres://", "postgresql://", "mysql://", "mariadb://", "redis://"
 [[rules]]
 id = "password-assignment"
 description = "Password assigned directly in configuration or source"
-regex = '''(?i)(?:POSTGRES_PASSWORD|DB_PASSWORD|ADMIN_PASSWORD|PASSWORD)[ \t]*(?:=|:)[ \t]*[\"']?([A-Za-z0-9_./+=@#$%^&*!?-]{12,})'''
+regex = '''(?i)(?:POSTGRES_PASSWORD|DB_PASSWORD|ADMIN_PASSWORD|PASSWORD|PASSWD)[ \t]*(?:=|:)[ \t]*[\"']?([A-Za-z0-9_./+=@#$%^&*!?-]{12,})'''
 secretGroup = 1
-keywords = ["password", "postgres_password", "db_password", "admin_password"]
+keywords = ["password", "passwd", "postgres_password", "db_password", "admin_password"]
 
 [allowlist]
-description = "Explicit non-secret placeholders and deterministic test/provenance identifiers"
+description = "Only explicit non-secret placeholders; historical false positives are pinned by exact immutable finding identity in security/gitleaks-history-allowlist.json"
 regexTarget = "match"
 regexes = [
   '''CHANGE_ME''',
   '''replace-with-a-random-secret''',
-  '''ci-placeholder-not-a-secret''',
-  '''flyer_key\s*=\s*[\"']aktionsprospekt-[0-9a-z-]+[\"']''',
-  '''[\"']gate_a_run_key[\"']\s*:\s*[\"']lidl-gate-a-[0-9-]+[\"']''',
-  '''[\"']flyer_key[\"']\s*:\s*[\"'][0-9]{8}-[0-9]{8}-r[0-9]+-[0-9a-f]{12}[\"']''',
-  '''postgresql://user:password@db/internal'''
+  '''ci-placeholder-not-a-secret'''
 ]
