@@ -32,6 +32,10 @@ const required = [
   "hermesDeals.filterPanel.v1",
   "hermesDealsReviewRefresh",
   "UiApiError",
+  "/api/v1/deals/current",
+  "/api/v1/deals/daily-specials",
+  "explicit_immutable_retailer_evidence_only",
+  "Dati īslaicīgi nav pieejami",
 ];
 for (const marker of required) {
   if (!source.includes(marker)) throw new Error(`W3 build missing marker: ${marker}`);
@@ -42,8 +46,8 @@ if (/sourceMappingURL\s*=/.test(source)) {
 if (relative.some((name) => name.endsWith(".map"))) {
   throw new Error("W3 build unexpectedly emitted a source-map file");
 }
-if (/from\s+["']\.\/core\//.test(source)) {
-  throw new Error("W3 build retained unresolved core imports");
+if (/from\s+["']\.\/(?:core|features)\//.test(source)) {
+  throw new Error("W3 build retained unresolved source-module imports");
 }
 
 const digest = createHash("sha256").update(source).digest("hex");
