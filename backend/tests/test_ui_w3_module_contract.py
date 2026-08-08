@@ -15,7 +15,6 @@ def read(path: Path) -> str:
 
 def test_w3_build_contract_is_pinned_and_framework_free() -> None:
     package = json.loads(read(FRONTEND / "package.json"))
-
     assert package["private"] is True
     assert package["type"] == "module"
     assert package["engines"] == {"node": ">=22.12.0"}
@@ -26,7 +25,6 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
         "build:check": "node node_modules/vite/bin/vite.js build --config vite.config.js && node scripts/verify-build.mjs",
     }
     assert read(FRONTEND / ".nvmrc") == "24.18.0\n"
-
     forbidden = {"react", "react-dom", "vue", "svelte", "@angular/core"}
     declared = set(package.get("dependencies", {})) | set(package.get("devDependencies", {}))
     assert forbidden.isdisjoint(declared)
@@ -34,7 +32,6 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
 
 def test_w3_vite_output_is_one_readable_non_sourcemapped_module() -> None:
     config = read(FRONTEND / "vite.config.js")
-
     assert 'entry: resolve(root, "src/app.js")' in config
     assert 'formats: ["es"]' in config
     assert 'fileName: () => "app.js"' in config
@@ -55,12 +52,10 @@ def test_w3_core_modules_pin_existing_browser_contracts() -> None:
     dates = read(FRONTEND / "src" / "core" / "dates.js")
     dom = read(FRONTEND / "src" / "core" / "dom.js")
     storage = read(FRONTEND / "src" / "core" / "storage.js")
-
     assert 'from "./core/api.js"' in app
     assert 'from "./core/dates.js"' in app
     assert 'from "./core/dom.js"' in app
     assert 'from "./core/storage.js"' in app
-
     for key in (
         "hermesDeals.shoppingList.v1",
         "hermesDeals.uiPreferences.v4",
@@ -70,7 +65,6 @@ def test_w3_core_modules_pin_existing_browser_contracts() -> None:
     ):
         assert key in storage
         assert key in read(UI / "app.js")
-
     assert 'timeZone: BERLIN_TIME_ZONE' in dates
     assert 'const BERLIN_TIME_ZONE = "Europe/Berlin"' in dates
     assert 'export function fmtDate' in dates
@@ -86,7 +80,6 @@ def test_w3_current_deals_module_preserves_request_render_and_controller_contrac
     app = read(FRONTEND / "src" / "app.js")
     deals = read(FRONTEND / "src" / "features" / "deals.js")
     legacy = read(UI / "app.js")
-
     assert 'from "./features/deals.js"' in app
     assert "export const PAGE_SIZE = 12" in deals
     assert "export function initCurrentDeals" in deals
@@ -114,7 +107,6 @@ def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
     app = read(FRONTEND / "src" / "app.js")
     daily = read(FRONTEND / "src" / "features" / "daily-specials.js")
     legacy = read(UI / "app.js")
-
     assert 'from "./features/daily-specials.js"' in app
     assert "export function initDailySpecials" in daily
     assert 'DAILY_SPECIAL_SOURCE_CONTRACT = "explicit_immutable_retailer_evidence_only"' in daily
@@ -126,31 +118,56 @@ def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
     assert "/api/v1/deals/current" in daily
     assert "DAILY_SPECIAL_MAX_PAGES = 20" in daily
     assert "return false" in daily
-
     for marker in (
         "explicit_immutable_retailer_evidence_only",
         "legacyCurrentDealDailySpecialContract",
-        "DAILY_SPECIAL_MAX_PAGES=20",
         "Šodienas īpašās akcijas neizdevās ielādēt.",
         "Rītdienas īpašās akcijas neizdevās ielādēt.",
     ):
         assert marker in legacy
-        assert marker.replace("DAILY_SPECIAL_MAX_PAGES=20", "DAILY_SPECIAL_MAX_PAGES = 20") in daily if marker == "DAILY_SPECIAL_MAX_PAGES=20" else marker in daily
+        assert marker in daily
+    assert "DAILY_SPECIAL_MAX_PAGES=20" in legacy
 
 
-def test_w3_node_feature_tests_exist_for_request_and_trust_parity() -> None:
-    tests = read(FRONTEND / "tests" / "features.test.mjs")
-    assert "current deals URL preserves query contract" in tests
-    assert "daily-special initial data performs exactly two explicit requests" in tests
-    assert "explicit daily-special endpoint filters fail-closed evidence" in tests
-    assert "legacy daily-special helper remains bounded and deduplicated" in tests
+def test_w3_shopping_list_module_preserves_storage_and_basket_contracts() -> None:
+    app = read(FRONTEND / "src" / "app.js")
+    shopping = read(FRONTEND / "src" / "features" / "shopping-list.js")
+    legacy = read(UI / "app.js")
+    assert 'from "./features/shopping-list.js"' in app
+    assert "export function initShoppingList" in shopping
+    assert "STORAGE_KEY" in shopping
+    assert "normalizeListItem" in shopping
+    assert "Math.max(1, Math.min(99" in shopping
+    assert ".slice(0, 160)" in shopping
+    assert "/api/v1/ui/basket/compare" in shopping
+    assert "canonical_product_id" in shopping
+    assert "Konkrēts veikala piedāvājums" in shopping
+    assert "Canonical produkts" in shopping
+    for marker in (
+        "hermesDeals.shoppingList.v1",
+        "/api/v1/ui/basket/compare",
+        "canonical_product_id",
+        "Konkrēts veikala piedāvājums",
+        "Canonical produkts",
+    ):
+        assert marker in legacy
+
+
+def test_w3_node_feature_tests_exist_for_request_trust_and_storage_parity() -> None:
+    feature_tests = read(FRONTEND / "tests" / "features.test.mjs")
+    shopping_tests = read(FRONTEND / "tests" / "shopping-list.test.mjs")
+    assert "current deals URL preserves query contract" in feature_tests
+    assert "daily-special initial data performs exactly two explicit requests" in feature_tests
+    assert "explicit daily-special endpoint filters fail-closed evidence" in feature_tests
+    assert "legacy daily-special helper remains bounded and deduplicated" in feature_tests
+    assert "shopping-list normalization preserves v1 schema limits" in shopping_tests
+    assert "canonical basket payload excludes completed and retailer-deal rows" in shopping_tests
 
 
 def test_w3_draft_does_not_switch_production_serving_boundary_yet() -> None:
     dockerfile = read(ROOT / "backend" / "Dockerfile")
     bundler = read(ROOT / "backend" / "app" / "ui_bundle.py")
     html = read(UI / "index.html")
-
     assert "RUN python -m app.ui_bundle --ui-dir /app/app/ui" in dockerfile
     assert 'app_path = ui_dir / "app.js"' in bundler
     assert 'SCRIPT_TAG = \'<script src="/ui/app.js"></script>\'' in bundler
@@ -161,7 +178,6 @@ def test_w3_draft_does_not_switch_production_serving_boundary_yet() -> None:
 
 def test_w3_build_verifier_fails_closed_on_output_drift() -> None:
     verifier = read(FRONTEND / "scripts" / "verify-build.mjs")
-
     assert 'relative.length !== 1 || relative[0] !== "app.js"' in verifier
     assert "sourceMappingURL" in verifier
     assert 'name.endsWith(".map")' in verifier
@@ -175,5 +191,9 @@ def test_w3_build_verifier_fails_closed_on_output_drift() -> None:
         "hermesDeals.filterPanel.v1",
         "hermesDealsReviewRefresh",
         "UiApiError",
+        "/api/v1/deals/current",
+        "/api/v1/deals/daily-specials",
+        "explicit_immutable_retailer_evidence_only",
+        "Dati īslaicīgi nav pieejami",
     ):
         assert marker in verifier
