@@ -482,8 +482,6 @@ cutover() {
   docker run --rm --entrypoint /bin/sh "$TARGET_IMAGE" -eu -c 'test ! -e /usr/local/bin/node && test ! -e /usr/local/bin/npm && test -s /app/app/ui_w4_shadow/w4-shadow-package.json' \
     || fail 'target_image_package_smoke_failed'
 
-  # Historical combined apply shape kept only as a contract marker:
-  # up -d --no-deps --no-build --wait api web
   set +e
   : > /tmp/hermes-deals-w4b-compose.log
   compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" up -d --no-deps --no-build --wait api >/tmp/hermes-deals-w4b-compose.log 2>&1
