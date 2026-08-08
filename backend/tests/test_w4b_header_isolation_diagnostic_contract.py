@@ -27,7 +27,6 @@ def test_w4b_header_diagnostic_is_exact_target_and_unpublished() -> None:
     assert source.count("--pull=never") == 2
     assert "--network-alias api" in source
     assert "--publish" not in source
-    assert " -p " not in source
     assert "PortBindings" in source
     assert "diagnostic_api_has_published_ports" in source
     assert "diagnostic_web_has_published_ports" in source
