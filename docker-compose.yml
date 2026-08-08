@@ -29,6 +29,7 @@ services:
       RAW_SNAPSHOT_DIR: /data/raw
       SOURCES_CONFIG: /app/config/sources.json
       HTTP_USER_AGENT: ${HTTP_USER_AGENT}
+      HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:-inline-w3}
     volumes:
       - ./data/raw:/data/raw
       - ./config:/app/config:ro
