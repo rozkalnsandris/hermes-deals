@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date
 from hashlib import sha256
 import json
@@ -38,6 +38,10 @@ from lidl_parser_provenance.lidl_v631_runtime import (  # noqa: E402
     PARSER_VERSION,
     SHADOW_SHA256,
     load_lidl_v631,
+)
+from lidl_source_refresh_authority import (  # noqa: E402
+    SourceRefreshAuthorityError,
+    validate_authoritative_refresh,
 )
 
 
@@ -503,17 +507,44 @@ def run_one_shot(
         _atomic_json(output_dir / "one-shot-status.json", payload)
         return payload
     if match.parser_input_changed:
-        payload = _status_payload(
-            state="WAIT_SOURCE_REVIEW",
-            reason="parser_input_identity_changed_for_existing_pdf",
-            target=target,
-            today=today,
-            discovery=discovery,
-            source=source_meta,
-            corpus_match=match,
+        try:
+            refresh_authority = validate_authoritative_refresh(
+                flyer_dir=match.flyer_dir,
+                live_source_json=selected.source_json,
+                live_pdf_sha256=selected.pdf_sha256,
+                parser_version=PARSER_VERSION,
+                parser_sha256=SHADOW_SHA256,
+            )
+        except SourceRefreshAuthorityError as exc:
+            payload = _status_payload(
+                state="BLOCKED_SOURCE_DRIFT",
+                reason=f"source_refresh_authority_invalid:{exc}",
+                target=target,
+                today=today,
+                discovery=discovery,
+                source=source_meta,
+                corpus_match=match,
+            )
+            _atomic_json(output_dir / "one-shot-status.json", payload)
+            return payload
+        if refresh_authority is None:
+            payload = _status_payload(
+                state="WAIT_SOURCE_REVIEW",
+                reason="parser_input_identity_changed_for_existing_pdf",
+                target=target,
+                today=today,
+                discovery=discovery,
+                source=source_meta,
+                corpus_match=match,
+            )
+            _atomic_json(output_dir / "one-shot-status.json", payload)
+            return payload
+        source_meta["source_refresh_authority"] = refresh_authority
+        match = replace(
+            match,
+            scan=str(refresh_authority["scan_name"]),
+            parser_input_changed=False,
         )
-        _atomic_json(output_dir / "one-shot-status.json", payload)
-        return payload
     if match.scan is None:
         payload = _status_payload(
             state="WAIT_SCAN",
