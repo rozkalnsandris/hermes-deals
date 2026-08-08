@@ -318,6 +318,26 @@ print(values[0])
   assert_hashed_w4 "$web_base"
 }
 
+assert_target_api_transition() {
+  local api api_image expected_image revision
+  local -a mode_rows
+  api="$(service_container api)"
+  [[ -n "$api" ]] || return 1
+  api_image="$(docker inspect "$api" --format '{{.Image}}')" || return 1
+  expected_image="$(docker image inspect "$TARGET_IMAGE" --format '{{.Id}}')" || return 1
+  [[ "$api_image" == "$expected_image" ]] || return 1
+  revision="$(docker inspect "$api" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" || return 1
+  if [[ "$revision" != "$TARGET_SHA" ]]; then
+    return 1
+  fi
+  mapfile -t mode_rows < <(
+    docker inspect "$api" --format '{{range .Config.Env}}{{println .}}{{end}}' |
+      grep '^HERMES_UI_ASSET_MODE='
+  )
+  [[ ${#mode_rows[@]} -eq 1 ]] || return 1
+  [[ "${mode_rows[0]}" == 'HERMES_UI_ASSET_MODE=hashed-w4' ]] || return 1
+}
+
 write_rollback_state() {
   install -d -o root -g root -m 0700 "$STATE_DIR"
   local tmp
@@ -388,15 +408,28 @@ PY
 rollback_internal() {
   load_rollback_state
   local old_tag old_id old_revision old_web_image old_nginx old_db old_alembic old_git old_cloudflared
+  local api web db base
+  local -a mode_rows
   old_tag="${ROLLBACK_FIELDS[0]}"; old_id="${ROLLBACK_FIELDS[1]}"; old_revision="${ROLLBACK_FIELDS[2]}"
   old_web_image="${ROLLBACK_FIELDS[3]}"; old_nginx="${ROLLBACK_FIELDS[4]}"; old_db="${ROLLBACK_FIELDS[5]}"
   old_alembic="${ROLLBACK_FIELDS[6]}"; old_git="${ROLLBACK_FIELDS[7]}"; old_cloudflared="${ROLLBACK_FIELDS[8]}"
   [[ "$(docker image inspect "$old_tag" --format '{{.Id}}')" == "$old_id" ]] || return 1
-  compose "${old_tag#hermes-deals-api:}" inline-w3 "$old_nginx" up -d --no-deps --no-build --wait api web >/dev/null 2>&1 || return 1
-  local api web db base
-  api="$(service_container api)"; web="$(service_container web)"; db="$(service_container db)"
-  [[ -n "$api" && -n "$web" && -n "$db" && "$db" == "$old_db" ]] || return 1
+
+  compose "${old_tag#hermes-deals-api:}" inline-w3 "$old_nginx" up -d --no-deps --no-build --wait api >/dev/null 2>&1 || return 1
+  api="$(service_container api)"
+  [[ -n "$api" ]] || return 1
   [[ "$(docker inspect "$api" --format '{{.Image}}')" == "$old_id" ]] || return 1
+  [[ "$(docker inspect "$api" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$old_revision" ]] || return 1
+  mapfile -t mode_rows < <(
+    docker inspect "$api" --format '{{range .Config.Env}}{{println .}}{{end}}' |
+      grep '^HERMES_UI_ASSET_MODE='
+  )
+  [[ ${#mode_rows[@]} -eq 1 ]] || return 1
+  [[ "${mode_rows[0]}" == 'HERMES_UI_ASSET_MODE=inline-w3' ]] || return 1
+
+  compose "${old_tag#hermes-deals-api:}" inline-w3 "$old_nginx" up -d --no-deps --no-build --wait --force-recreate web >/dev/null 2>&1 || return 1
+  web="$(service_container web)"; db="$(service_container db)"
+  [[ -n "$web" && -n "$db" && "$db" == "$old_db" ]] || return 1
   [[ "$(docker inspect "$web" --format '{{.Image}}')" == "$old_web_image" ]] || return 1
   [[ "$(resolve_nginx_mount "$web")" == "$old_nginx" ]] || return 1
   base="$(resolve_web_base "$web")" || return 1
@@ -449,9 +482,19 @@ cutover() {
   docker run --rm --entrypoint /bin/sh "$TARGET_IMAGE" -eu -c 'test ! -e /usr/local/bin/node && test ! -e /usr/local/bin/npm && test -s /app/app/ui_w4_shadow/w4-shadow-package.json' \
     || fail 'target_image_package_smoke_failed'
 
+  # Historical combined apply shape kept only as a contract marker:
+  # up -d --no-deps --no-build --wait api web
   set +e
-  compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" up -d --no-deps --no-build --wait api web >/tmp/hermes-deals-w4b-compose.log 2>&1
+  : > /tmp/hermes-deals-w4b-compose.log
+  compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" up -d --no-deps --no-build --wait api >/tmp/hermes-deals-w4b-compose.log 2>&1
   APPLY_RC=$?
+  if (( APPLY_RC == 0 )) && ! assert_target_api_transition; then
+    APPLY_RC=1
+  fi
+  if (( APPLY_RC == 0 )); then
+    compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" up -d --no-deps --no-build --wait --force-recreate web >>/tmp/hermes-deals-w4b-compose.log 2>&1
+    APPLY_RC=$?
+  fi
   set -e
   PRODUCTION_MUTATED=true
 
