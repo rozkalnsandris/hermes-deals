@@ -168,6 +168,10 @@ def test_image_metadata_is_sanitized_without_binary_payload() -> None:
     rows = MODULE.sanitize_image_info(
         [
             {
+                "number": 2,
+                "bbox": (10.0, 20.0, 10.0, 50.0),
+            },
+            {
                 "number": 3,
                 "bbox": (10.0, 20.0, 40.0, 50.0),
                 "width": 640,
@@ -187,12 +191,30 @@ def test_image_metadata_is_sanitized_without_binary_payload() -> None:
         GEOMETRY,
     )
 
+    assert len(rows) == 1
     assert rows[0]["number"] == 3
     assert rows[0]["bbox"] == {"x0": 10.0, "y0": 20.0, "x1": 40.0, "y1": 50.0}
     assert rows[0]["digest"] == "010203"
     assert rows[0]["xref"] == 99
     assert "image" not in rows[0]
     assert b"forbidden-binary-payload" not in repr(rows[0]).encode()
+
+
+def test_image_metadata_malformed_bbox_still_fails_closed() -> None:
+    try:
+        MODULE.sanitize_image_info(
+            [
+                {
+                    "number": 4,
+                    "bbox": (10.0, 20.0, "invalid", 50.0),
+                }
+            ],
+            GEOMETRY,
+        )
+    except MODULE.NettoObjectCardGraphAuditError as exc:
+        assert str(exc) == "invalid object bbox"
+    else:
+        raise AssertionError("malformed image bbox must fail closed")
 
 
 def test_object_graph_preserves_block_image_group_and_anchor_provenance() -> None:
@@ -281,6 +303,10 @@ def test_source_contract_forbids_parser_decision_ocr_or_writes() -> None:
     source = MODULE_PATH.read_text(encoding="utf-8")
     assert 'page.get_text("blocks", sort=False)' in source
     assert "page.get_image_info(hashes=True, xrefs=True)" in source
+    assert "except NettoObjectCardGraphEmptyBBoxError" in source
+    assert '"image_info_count": image_info_count' in source
+    assert '"image_geometry_usable_count": image_geometry_usable_count' in source
+    assert '"image_geometry_discarded_empty_bbox_count"' in source
     assert '"image_binary_retained": False' in source
     assert '"ocr_used": False' in source
     assert '"classification_performed": False' in source
