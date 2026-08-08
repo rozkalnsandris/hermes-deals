@@ -1,4 +1,4 @@
-name: Hermes Deals #307 Phase C bridge
+name: Hermes Deals #307 transition bridge
 
 on:
   issue_comment:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hermes-deals-307-phase-c
+  group: hermes-deals-307-transition
   cancel-in-progress: false
 
 jobs:
@@ -25,6 +25,7 @@ jobs:
       issue_number: ${{ steps.authorize.outputs.issue_number }}
       comment_id: ${{ steps.authorize.outputs.comment_id }}
       runtime_sha: ${{ steps.authorize.outputs.runtime_sha }}
+      phase_d_runtime_sha: ${{ steps.authorize.outputs.phase_d_runtime_sha }}
       trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
 
     steps:
@@ -75,7 +76,7 @@ jobs:
           set -Eeuo pipefail
           umask 077
           DISPATCHER=/usr/local/sbin/hermes-deals-307-phase-c-dispatch
-          LOG_DIR="$RUNNER_TEMP/hermes-deals-307-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          LOG_DIR="$RUNNER_TEMP/hermes-deals-307-c-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           CHECK_LOG="$LOG_DIR/check.log"
           APPLY_LOG="$LOG_DIR/apply.log"
           VERIFY_LOG="$LOG_DIR/verify.log"
@@ -194,9 +195,149 @@ jobs:
           emit result PASS
           emit reason reviewed_dual_bind_is_active_and_verified
 
-  report:
+  phase-d:
+    name: Finalize or verify Deals 9128 loopback-only bind
+    needs: authorize
+    if: needs.authorize.result == 'success' && (needs.authorize.outputs.operation == 'finalize-loopback' || needs.authorize.outputs.operation == 'verify-loopback')
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 20
+    permissions: {}
+    outputs:
+      result: ${{ steps.run.outputs.result }}
+      reason: ${{ steps.run.outputs.reason }}
+      preflight_pass: ${{ steps.run.outputs.preflight_pass }}
+      finalize_pass: ${{ steps.run.outputs.finalize_pass }}
+      verify_pass: ${{ steps.run.outputs.verify_pass }}
+      direct_lan_closed: ${{ steps.run.outputs.direct_lan_closed }}
+      rollback_available: ${{ steps.run.outputs.rollback_available }}
+      rollback_verified: ${{ steps.run.outputs.rollback_verified }}
+      production_git_unchanged: ${{ steps.run.outputs.production_git_unchanged }}
+      production_head: ${{ steps.run.outputs.production_head }}
+
+    steps:
+      - name: Run installed root-owned Phase D dispatcher
+        id: run
+        shell: bash
+        env:
+          EXPECTED_RUNTIME_SHA: ${{ needs.authorize.outputs.phase_d_runtime_sha }}
+          OPERATION: ${{ needs.authorize.outputs.operation }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          DISPATCHER=/usr/local/sbin/hermes-deals-307-phase-d-dispatch
+          LOG_DIR="$RUNNER_TEMP/hermes-deals-307-d-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREFLIGHT_LOG="$LOG_DIR/preflight.log"
+          FINALIZE_LOG="$LOG_DIR/finalize.log"
+          VERIFY_LOG="$LOG_DIR/verify.log"
+          install -d -m 0700 "$LOG_DIR"
+
+          cleanup() {
+            rm -f -- "$PREFLIGHT_LOG" "$FINALIZE_LOG" "$VERIFY_LOG"
+            rmdir "$LOG_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          emit() {
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
+          }
+
+          emit result BLOCKED_BEFORE_OPERATION
+          emit reason validating_phase_d_runtime_sha
+          emit preflight_pass false
+          emit finalize_pass false
+          emit verify_pass false
+          emit direct_lan_closed false
+          emit rollback_available false
+          emit rollback_verified false
+          emit production_git_unchanged not_observed_from_restricted_runner
+          emit production_head not_observed_from_restricted_runner
+
+          [[ "$EXPECTED_RUNTIME_SHA" == 'b7a94a8a3d150db43ac051c59a304c31e901ef21' ]]
+          [[ "$OPERATION" == 'finalize-loopback' || "$OPERATION" == 'verify-loopback' ]]
+          emit reason validating_installed_phase_d_dispatcher
+          [[ -f "$DISPATCHER" && ! -L "$DISPATCHER" && -x "$DISPATCHER" ]]
+          [[ "$(stat -c '%U:%G:%a' "$DISPATCHER")" == 'root:root:755' ]]
+
+          if [[ "$OPERATION" == 'verify-loopback' ]]; then
+            emit preflight_pass not_run
+            emit finalize_pass not_run
+            emit reason verifying_existing_loopback_only_state
+            set +e
+            sudo --non-interactive "$DISPATCHER" verify-loopback >"$VERIFY_LOG" 2>&1
+            VERIFY_RC=$?
+            set -e
+            if [[ "$VERIFY_RC" -ne 0 ]]; then
+              emit result VERIFY_FAILED
+              emit reason existing_loopback_only_verify_failed
+              exit 1
+            fi
+            grep -Fx 'DISPATCH_PHASE=D' "$VERIFY_LOG" >/dev/null
+            grep -Fx 'DISPATCH_MODE=verify-loopback' "$VERIFY_LOG" >/dev/null
+            grep -Fx 'HERMES_DEALS_307_LOOPBACK_VERIFY=PASS' "$VERIFY_LOG" >/dev/null
+            grep -Fx 'DIRECT_LAN_9128_CLOSED=true' "$VERIFY_LOG" >/dev/null
+            grep -Fx 'ROLLBACK_TO_DUAL_AVAILABLE=true' "$VERIFY_LOG" >/dev/null
+            emit verify_pass true
+            emit direct_lan_closed true
+            emit rollback_available true
+            emit result PASS
+            emit reason loopback_only_state_is_active_and_verified
+            exit 0
+          fi
+
+          emit reason running_read_only_phase_d_preflight
+          set +e
+          sudo --non-interactive "$DISPATCHER" preflight >"$PREFLIGHT_LOG" 2>&1
+          PREFLIGHT_RC=$?
+          set -e
+          if [[ "$PREFLIGHT_RC" -ne 0 ]]; then
+            emit result BLOCKED_BEFORE_FINALIZE
+            emit reason phase_d_preflight_failed
+            exit 1
+          fi
+          grep -Fx 'DISPATCH_PHASE=D' "$PREFLIGHT_LOG" >/dev/null
+          grep -Fx 'DISPATCH_MODE=preflight' "$PREFLIGHT_LOG" >/dev/null
+          grep -Fx 'HERMES_DEALS_307_LOOPBACK_PREFLIGHT=PASS' "$PREFLIGHT_LOG" >/dev/null
+          emit preflight_pass true
+
+          emit reason finalizing_reviewed_loopback_only_bind
+          set +e
+          sudo --non-interactive "$DISPATCHER" finalize-loopback >"$FINALIZE_LOG" 2>&1
+          FINALIZE_RC=$?
+          set -e
+          if [[ "$FINALIZE_RC" -ne 0 ]]; then
+            ROLLBACK_VERIFIED=false
+            if grep -Fx 'AUTO_ROLLBACK_TO_DUAL=PASS' "$FINALIZE_LOG" >/dev/null; then
+              ROLLBACK_VERIFIED=true
+            fi
+            emit rollback_verified "$ROLLBACK_VERIFIED"
+            if [[ "$ROLLBACK_VERIFIED" == true ]]; then
+              emit result FINALIZE_FAILED_ROLLBACK_VERIFIED
+              emit reason operator_finalize_failed_and_dual_state_was_restored
+            else
+              emit result FINALIZE_FAILED_STATE_REQUIRES_REVIEW
+              emit reason operator_finalize_failed_without_verified_dual_rollback
+            fi
+            exit 1
+          fi
+          grep -Fx 'DISPATCH_PHASE=D' "$FINALIZE_LOG" >/dev/null
+          grep -Fx 'DISPATCH_MODE=finalize-loopback' "$FINALIZE_LOG" >/dev/null
+          grep -Fx 'HERMES_DEALS_307_LOOPBACK_FINALIZE=PASS' "$FINALIZE_LOG" >/dev/null
+          grep -Fx 'DIRECT_LAN_9128_CLOSED=true' "$FINALIZE_LOG" >/dev/null
+          grep -Fx 'ROLLBACK_TO_DUAL_AVAILABLE=true' "$FINALIZE_LOG" >/dev/null
+          emit finalize_pass true
+          emit verify_pass internal_finalize_verification_passed
+          emit direct_lan_closed true
+          emit rollback_available true
+          emit result PASS
+          emit reason reviewed_loopback_only_bind_is_active
+
+  report-c:
     name: Report sanitized Phase C result
-    if: always() && needs.authorize.result == 'success'
+    if: always() && needs.authorize.result == 'success' && (needs.authorize.outputs.operation == 'apply-dual' || needs.authorize.outputs.operation == 'verify-dual')
     needs:
       - authorize
       - phase-c
@@ -207,7 +348,7 @@ jobs:
       issues: write
 
     steps:
-      - name: Comment sanitized result on issue 307
+      - name: Comment sanitized Phase C result on issue 307
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -250,8 +391,7 @@ jobs:
               f"- production Git unchanged: `{clean('PRODUCTION_GIT_UNCHANGED')}`\n"
               f"- production checkout HEAD: `{clean('PRODUCTION_HEAD')}`\n"
               f"- workflow: {clean('RUN_URL')}\n\n"
-              "Safety boundary: the self-hosted job has no repository token and invokes only the installed root-owned #307 dispatcher. "
-              "The verify-dual command is read-only; apply-dual retains the existing guarded apply/rollback path. "
+              "Safety boundary: the self-hosted Phase C job has no repository token and invokes only the installed root-owned #307 Phase C dispatcher. "
               "No Cloudflare route/Access/token action, UFW mutation, DB/Review/collector/API deploy, or shared cloudflared lifecycle action is exposed. "
               "Raw operator logs are not published."
           )
@@ -264,7 +404,89 @@ jobs:
                   "Accept": "application/vnd.github+json",
                   "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
                   "Content-Type": "application/json",
-                  "User-Agent": "hermes-deals-307-bridge-reporter",
+                  "User-Agent": "hermes-deals-307-phase-c-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
+
+  report-d:
+    name: Report sanitized Phase D result
+    if: always() && needs.authorize.result == 'success' && (needs.authorize.outputs.operation == 'finalize-loopback' || needs.authorize.outputs.operation == 'verify-loopback')
+    needs:
+      - authorize
+      - phase-d
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment sanitized Phase D result on issue 307
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          RUNTIME_SHA: ${{ needs.authorize.outputs.phase_d_runtime_sha }}
+          PHASE_JOB_RESULT: ${{ needs.phase-d.result }}
+          RESULT: ${{ needs.phase-d.outputs.result }}
+          REASON: ${{ needs.phase-d.outputs.reason }}
+          PREFLIGHT_PASS: ${{ needs.phase-d.outputs.preflight_pass }}
+          FINALIZE_PASS: ${{ needs.phase-d.outputs.finalize_pass }}
+          VERIFY_PASS: ${{ needs.phase-d.outputs.verify_pass }}
+          DIRECT_LAN_CLOSED: ${{ needs.phase-d.outputs.direct_lan_closed }}
+          ROLLBACK_AVAILABLE: ${{ needs.phase-d.outputs.rollback_available }}
+          ROLLBACK_VERIFIED: ${{ needs.phase-d.outputs.rollback_verified }}
+          PRODUCTION_GIT_UNCHANGED: ${{ needs.phase-d.outputs.production_git_unchanged }}
+          PRODUCTION_HEAD: ${{ needs.phase-d.outputs.production_head }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          def clean(name: str, fallback: str = "unavailable") -> str:
+              value = os.environ.get(name) or fallback
+              return value.replace("`", "").replace("\n", " ").replace("\r", " ")[:160]
+
+          body = (
+              "## #307 GitHub Phase D bridge result\n\n"
+              f"- command comment: `{clean('COMMENT_ID')}`\n"
+              f"- registered Phase D runtime SHA: `{clean('RUNTIME_SHA')}`\n"
+              f"- workflow job: `{clean('PHASE_JOB_RESULT')}`\n"
+              f"- result: `{clean('RESULT')}`\n"
+              f"- reason: `{clean('REASON')}`\n"
+              f"- Phase D preflight PASS: `{clean('PREFLIGHT_PASS')}`\n"
+              f"- loopback-only finalize PASS: `{clean('FINALIZE_PASS')}`\n"
+              f"- loopback-only verify PASS: `{clean('VERIFY_PASS')}`\n"
+              f"- direct LAN 192.168.0.180:9128 closed: `{clean('DIRECT_LAN_CLOSED')}`\n"
+              f"- rollback to dual available: `{clean('ROLLBACK_AVAILABLE')}`\n"
+              f"- automatic rollback to dual verified if finalize failed: `{clean('ROLLBACK_VERIFIED')}`\n"
+              f"- production Git unchanged: `{clean('PRODUCTION_GIT_UNCHANGED')}`\n"
+              f"- production checkout HEAD: `{clean('PRODUCTION_HEAD')}`\n"
+              f"- workflow: {clean('RUN_URL')}\n\n"
+              "Safety boundary: the self-hosted Phase D job has no repository token and invokes only the installed root-owned #307 Phase D dispatcher. "
+              "The runner cannot invoke rollback-dual. No Cloudflare route/Access/token action, UFW mutation, DB/Review/collector/API deploy, or shared cloudflared lifecycle action is exposed. "
+              "Raw operator logs are not published."
+          )
+          payload = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-307-phase-d-reporter",
                   "X-GitHub-Api-Version": "2022-11-28",
               },
           )
