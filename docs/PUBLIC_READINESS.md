@@ -1,24 +1,32 @@
 # Public-repository readiness
 
-Status: **BLOCKED pending full-history secret scan and public-runner review**.
+Status: **READY FOR OWNER PRIVACY DECISION; visibility remains private**.
 
-This repository may be changed from private to public only after all gates below pass.
+The security gates that can be proven from repository code and CI are now in place. The repository must remain private until the remaining privacy/visibility checks below are explicitly accepted and the post-switch protection check can be performed.
 
 ## Required gates
 
-- [ ] Run a full Git-history secret scan (`--all`) with redacted findings and zero unresolved credentials.
-- [ ] Review every `.github/workflows/*.yml` self-hosted job. No untrusted `pull_request` code may execute on an RPi5 runner.
-- [ ] Keep production `deals.rozkalns.net` behind Cloudflare Access; repository visibility must not weaken application access control.
-- [ ] Confirm no production credential, `.env`, private key, database dump, raw runtime evidence or backup is tracked in any reachable commit.
-- [ ] Confirm issue/PR history and Actions artifacts/logs contain no credential material that would become public.
-- [ ] Review whether household/store identifiers currently documented in the repository are acceptable to publish.
-- [ ] Re-check branch/ruleset protection immediately after any visibility change.
+- [x] Run a full Git-history secret scan (`--all`) with redacted findings and zero unresolved credentials.
+- [x] Review every `.github/workflows/*.yml` self-hosted trigger class. No untrusted `pull_request` code may execute on an RPi5 runner.
+- [x] Keep production `deals.rozkalns.net` behind Cloudflare Access; repository visibility must not weaken application access control.
+- [x] Confirm the tracked repository/history scan has no unresolved production credential, private key or embedded database password finding. Runtime `.env`, dumps, backups and common credential files remain excluded by `.gitignore`.
+- [x] Review public-user-triggerable self-hosted workflows (`pull_request_target` and `issue_comment`) and document their owner-authentication / trusted-main / fixed-dispatcher boundaries.
+- [ ] Accept that existing issue/PR history, workflow metadata and retained sanitized Actions evidence may become public. Search review found credential-name/safety discussions but no credential values; GitHub-hosted secret masking and the repository's sanitization contracts remain relied upon for historical runtime logs.
+- [ ] Accept publication of operational metadata already present in Git history, including household/store selection identifiers, RPi5/internal-path references and private-LAN topology details. These are not credentials, but they are privacy-relevant metadata.
+- [ ] Change repository visibility to public only after the two privacy items above are accepted.
+- [ ] Immediately re-check/re-enable branch protection/rulesets and Actions permissions after the visibility change.
 
-## Current observations
+## Current security evidence
 
-- Runtime `.env`, keys, dumps and common credential files are excluded by `.gitignore`.
-- `.env.example` uses placeholders only.
-- Cloudflare Access service credentials are documented as GitHub secrets and must never be committed.
-- At least one RPi5 audit workflow uses an owner/merged-PR/exact-main-CI authorization gate and a no-checkout self-hosted job with `permissions: {}`. Every other self-hosted workflow must receive the same public-repository threat-model review before visibility changes.
+- CI uses a complete-history checkout and runs the pinned Gitleaks scanner before the backend suite.
+- The current scan reports nine exact historical findings, all pinned to immutable `(rule, file, line, commit)` identities in `security/gitleaks-history-allowlist.json`; all nine were manually verified as deterministic test/provenance/sudoers fixtures. Unknown findings are zero and any new/unreviewed identity fails CI.
+- The public-workflow audit currently inventories 27 workflows, 23 containing self-hosted jobs, with zero direct `pull_request` → self-hosted paths.
+- Three `pull_request_target` and four `issue_comment` self-hosted workflows received manual public-repository threat review; see `docs/PUBLIC_READINESS_WORKFLOW_REVIEW.md`.
+- `.env.example` contains placeholders only. Runtime `.env`, private keys, dumps, backups and common credential files are excluded by `.gitignore`.
+- Cloudflare Access service credentials are GitHub secrets and must never be committed. Repository visibility is independent of the production Access policy.
 
-Do not change repository visibility until every checkbox above is complete.
+## Visibility-change rule
+
+Do not weaken RPi5 trust boundaries to make the repository public. Standard PR CI must stay on GitHub-hosted runners. Self-hosted jobs remain owner-gated, post-merge/manual/controlled operations with no untrusted PR checkout.
+
+The next action is an explicit owner privacy decision, followed by the GitHub visibility switch and an immediate protection audit.
