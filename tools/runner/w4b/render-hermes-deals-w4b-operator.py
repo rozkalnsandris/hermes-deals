@@ -99,6 +99,16 @@ COMPOSE_STDIN_TAIL_NEW = '''if not db:
 }
 '''
 
+SOURCE_CONTRACT_OLD = '''target_without_mode = [line for line in target if "HERMES_UI_ASSET_MODE:" not in line]
+if target_without_mode != primary:
+    raise SystemExit("target base Compose differs from production baseline beyond W4B mode")
+'''
+
+SOURCE_CONTRACT_NEW = '''target_without_mode = [line for line in target if "HERMES_UI_ASSET_MODE:" not in line]
+if primary != target and primary != target_without_mode:
+    raise SystemExit("target base Compose differs from reviewed W4B source states")
+'''
+
 INLINE_RETURN_TRAP = "  trap 'rm -f \"$body\" \"$headers\"' RETURN\n"
 HASHED_RETURN_TRAP = (
     "  trap 'rm -f \"$body\" \"$headers\" \"$js_headers\" \"$css_headers\" "
@@ -194,6 +204,12 @@ def main() -> None:
         COMPOSE_STDIN_TAIL_NEW,
         "Compose validator stdin tail",
     )
+    rendered = replace_exact_once(
+        rendered,
+        SOURCE_CONTRACT_OLD,
+        SOURCE_CONTRACT_NEW,
+        "reviewed Compose source-state contract",
+    )
     rendered = replace_assertion_cleanup_scope(
         rendered,
         name="assert_inline_w3",
@@ -213,6 +229,10 @@ def main() -> None:
         raise SystemExit("stale W4B production Git state path remains after rendering")
     if COMPOSE_STDIN_HEAD_OLD in rendered or COMPOSE_STDIN_TAIL_OLD in rendered:
         raise SystemExit("stale W4B Compose validator stdin path remains after rendering")
+    if SOURCE_CONTRACT_OLD in rendered:
+        raise SystemExit("stale W4B Compose source-state contract remains after rendering")
+    if SOURCE_CONTRACT_NEW not in rendered:
+        raise SystemExit("reviewed W4B Compose source-state marker mismatch")
     if COMPOSE_STDIN_HEAD_NEW not in rendered:
         raise SystemExit("Compose validator python -c marker mismatch")
     if rendered.count("current_api_main_tag_revision_mismatch") != 1:
