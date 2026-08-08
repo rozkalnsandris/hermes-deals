@@ -30,6 +30,10 @@ class NettoObjectCardGraphAuditError(ValueError):
     pass
 
 
+class NettoObjectCardGraphEmptyBBoxError(NettoObjectCardGraphAuditError):
+    pass
+
+
 def _load_module(path: Path, name: str) -> Any:
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -65,7 +69,7 @@ def _raw_box(raw: Mapping[str, Any], geometry_module: Any) -> Any:
     except (KeyError, TypeError, ValueError) as exc:
         raise NettoObjectCardGraphAuditError("invalid object bbox") from exc
     if box.area <= 0:
-        raise NettoObjectCardGraphAuditError("empty object bbox")
+        raise NettoObjectCardGraphEmptyBBoxError("empty object bbox")
     return box
 
 
@@ -125,7 +129,10 @@ def sanitize_image_info(
 
     result: list[dict[str, Any]] = []
     for index, raw in enumerate(rows):
-        box = _raw_box(raw, geometry_module)
+        try:
+            box = _raw_box(raw, geometry_module)
+        except NettoObjectCardGraphEmptyBBoxError:
+            continue
         number = int(raw.get("number") if raw.get("number") is not None else index)
         digest = raw.get("digest")
         if isinstance(digest, (bytes, bytearray)):
@@ -182,8 +189,9 @@ def extract_page_object_metadata(
             page.get_text("blocks", sort=False),
             geometry_module,
         )
+        raw_image_info = page.get_image_info(hashes=True, xrefs=True)
         images = sanitize_image_info(
-            page.get_image_info(hashes=True, xrefs=True),
+            raw_image_info,
             geometry_module,
         )
         return {
@@ -195,6 +203,9 @@ def extract_page_object_metadata(
             },
             "text_blocks": text_blocks,
             "images": images,
+            "image_info_count": len(raw_image_info),
+            "image_geometry_usable_count": len(images),
+            "image_geometry_discarded_empty_bbox_count": len(raw_image_info) - len(images),
             "image_binary_retained": False,
         }
     finally:
@@ -590,6 +601,9 @@ def replay_object_card_graph_audit(
 ) -> dict[str, Any]:
     module = geometry_module or BASE.load_geometry_module()
     source_rows: list[dict[str, Any]] = []
+    image_info_count = 0
+    image_geometry_usable_count = 0
+    image_geometry_discarded_empty_bbox_count = 0
     for fixture in fixtures:
         page = fixture.get("page")
         if not isinstance(page, Mapping):
@@ -605,6 +619,11 @@ def replay_object_card_graph_audit(
             pdf_path,
             page_number,
             module,
+        )
+        image_info_count += int(page_objects["image_info_count"])
+        image_geometry_usable_count += int(page_objects["image_geometry_usable_count"])
+        image_geometry_discarded_empty_bbox_count += int(
+            page_objects["image_geometry_discarded_empty_bbox_count"]
         )
         source_rows.extend(
             extract_fixture_object_graphs(
@@ -651,6 +670,11 @@ def replay_object_card_graph_audit(
         ),
         "fixture_page_count": 17,
         "cell_count": 100,
+        "image_info_count": image_info_count,
+        "image_geometry_usable_count": image_geometry_usable_count,
+        "image_geometry_discarded_empty_bbox_count": (
+            image_geometry_discarded_empty_bbox_count
+        ),
         "independent_ownership_counts": dict(sorted(Counter(truth.values()).items())),
         "object_graph_by_independent_ownership": summarize_object_graphs(rows),
         "mixed_canary_cell_ids": list(MIXED_CANARY_CELL_IDS),
