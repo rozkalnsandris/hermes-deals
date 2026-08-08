@@ -1,4 +1,4 @@
-FROM node:24.18.0-bookworm-slim@sha256:6f7b4768c55fccf07e8c851e940864a576822b0fa9318b2e901386eb446438ed AS ui-build
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS ui-build
 
 ENV npm_config_update_notifier=false \
     npm_config_fund=false
