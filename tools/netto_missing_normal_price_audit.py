@@ -147,15 +147,13 @@ def diagnose_cell(
     )
 
     selected = _price(chosen.get("selected_normal_price")) if chosen is not None else None
+    chosen_normal_values = _string_list(chosen.get("normal_price_candidates")) if chosen is not None else []
+    chosen_member_values = _string_list(chosen.get("member_price_candidates")) if chosen is not None else []
     chosen_normals = {
-        price
-        for price in (_price(value) for value in _string_list(chosen.get("normal_price_candidates")) if chosen is not None)
-        if price is not None
+        price for price in (_price(value) for value in chosen_normal_values) if price is not None
     }
     chosen_members = {
-        price
-        for price in (_price(value) for value in _string_list(chosen.get("member_price_candidates")) if chosen is not None)
-        if price is not None
+        price for price in (_price(value) for value in chosen_member_values) if price is not None
     }
 
     if selected == expected:
