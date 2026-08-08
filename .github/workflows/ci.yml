@@ -59,6 +59,40 @@ jobs:
         run: |
           git diff --exit-code -- package-lock.json package.json
 
+  release-image:
+    name: W3 immutable release image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build exact backend context
+        run: |
+          docker build \
+            --file backend/Dockerfile \
+            --tag hermes-deals:w3-ci \
+            backend
+
+      - name: Verify final image is Node-free and self-contained
+        run: |
+          docker run --rm --entrypoint /bin/sh hermes-deals:w3-ci -eu -c '
+            test ! -e /usr/local/bin/node
+            test ! -e /usr/local/bin/npm
+            test ! -d /ui
+            grep -Fq "w3-behavior-preserving-bootstrap-v1" /app/app/ui/app.js
+            grep -Fq "normalized_unique_deals_by_id_v1" /app/app/ui/app.js
+            grep -Fq "data-hermes-production-bundle=\"styles.css\"" /app/app/ui/index.html
+            grep -Fq "data-hermes-production-bundle=\"app.js\"" /app/app/ui/index.html
+            grep -Fq "w3-behavior-preserving-bootstrap-v1" /app/app/ui/index.html
+            ! grep -Fq "<link rel=\"stylesheet\" href=\"/ui/styles.css\">" /app/app/ui/index.html
+            ! grep -Fq "<script src=\"/ui/weekly-payload-bridge.js\"></script>" /app/app/ui/index.html
+            ! grep -Fq "<script src=\"/ui/app.js\"></script>" /app/app/ui/index.html
+            test -s /app/app/ui/index.html
+            test -s /app/app/ui/app.js
+          '
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
