@@ -1,0 +1,281 @@
+name: Hermes Lidl source refresh R3 promotion retry
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-lidl-source-refresh-r3-promotion-retry
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 361 &&
+      !github.event.issue.pull_request &&
+      github.actor == 'rozkalnsandris' &&
+      startsWith(github.event.comment.body, '/hermes-lidl-source-refresh-r3-promote-retry ')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      registered_sha: ${{ steps.auth.outputs.registered_sha }}
+      approved_at: ${{ steps.auth.outputs.approved_at }}
+      auth_comment_id: ${{ steps.auth.outputs.auth_comment_id }}
+      command_comment_id: ${{ steps.auth.outputs.command_comment_id }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+
+    steps:
+      - name: Authorize exact fresh-owner R3 promotion retry
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          from pathlib import Path
+
+          repo=os.environ['REPOSITORY']
+          if repo!='rozkalnsandris/hermes-deals': raise SystemExit('unexpected repository')
+          event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          sender=event.get('sender') or {}
+          if sender.get('login')!=os.environ['EXPECTED_OWNER_LOGIN'] or sender.get('id')!=int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('retry command sender identity is not allowlisted')
+          issue=event.get('issue') or {}
+          if issue.get('number')!=361 or issue.get('pull_request') is not None:
+              raise SystemExit('R3 retry command accepted only on issue #361')
+          comment=event.get('comment') or {}
+          body=str(comment.get('body') or '').strip()
+          match=re.fullmatch(r'/hermes-lidl-source-refresh-r3-promote-retry pr=([1-9][0-9]*) runtime=([0-9a-f]{40}) fingerprint=([0-9a-f]{64}) auth=([1-9][0-9]*)', body)
+          if match is None: raise SystemExit('command does not match exact R3 retry grammar')
+          pr_number=int(match.group(1)); runtime=match.group(2); fingerprint=match.group(3); auth_id=int(match.group(4))
+          if fingerprint!='8aaf1f96a119e51c980a45da80031d5abd2db65d4cdc3516bd5368fd0537c7f9': raise SystemExit('unexpected R3 plan fingerprint')
+          if auth_id==5227260615: raise SystemExit('retired R3 authorization comment cannot be reused')
+
+          headers={'Accept':'application/vnd.github+json','Authorization':f"Bearer {os.environ['GH_TOKEN']}",'X-GitHub-Api-Version':'2026-03-10','User-Agent':'hermes-lidl-r3-retry-authorizer'}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as response: return json.load(response)
+
+          pr=get(f'https://api.github.com/repos/{repo}/pulls/{pr_number}')
+          if not pr.get('merged') or not pr.get('merged_at'): raise SystemExit('R3 retry runtime PR is not merged')
+          if (pr.get('base') or {}).get('ref')!='main' or ((pr.get('base') or {}).get('repo') or {}).get('full_name')!=repo:
+              raise SystemExit('R3 retry runtime PR was not merged into repository main')
+
+          associated=get(f'https://api.github.com/repos/{repo}/commits/{runtime}/pulls')
+          matches=[p for p in associated if p.get('number')==pr_number and p.get('merged_at') and (p.get('base') or {}).get('ref')=='main' and ((p.get('base') or {}).get('repo') or {}).get('full_name')==repo]
+          if len(matches)!=1: raise SystemExit('exact retry runtime commit is not uniquely associated with requested merged PR')
+          compare=get(f'https://api.github.com/repos/{repo}/compare/{runtime}...main')
+          if compare.get('status') not in {'ahead','identical'}: raise SystemExit('exact retry runtime is not reachable from current main')
+
+          auth=get(f'https://api.github.com/repos/{repo}/issues/comments/{auth_id}')
+          user=auth.get('user') or {}
+          if user.get('login')!='rozkalnsandris' or user.get('id')!=277435981: raise SystemExit('retry authorization comment owner mismatch')
+          if auth.get('issue_url','').rstrip('/').split('/')[-1] != '361': raise SystemExit('retry authorization comment issue mismatch')
+          auth_body=str(auth.get('body') or '')
+          required=[
+            'Owner authorization — R3 promotion retry',
+            '8aaf1f96a119e51c980a45da80031d5abd2db65d4cdc3516bd5368fd0537c7f9',
+            '9021545332',
+            'd4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4',
+            '9024741383',
+            'c1432c05d3975094d2e56ae70fc216c8e8def4199ac312c92b2ff50afc9032dc',
+            'Authorized scope: create-once R3 promotion retry',
+            'Previous authorization comment `5227260615` is retired and may not be reused',
+            'Expected post-promotion Gate A state is `WAIT_PROFILE`',
+            'Not authorized: profile promotion',
+          ]
+          for token in required:
+              if token not in auth_body: raise SystemExit(f'retry authorization comment missing binding token: {token}')
+          approved_at=str(auth.get('created_at') or '')
+          if re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z',approved_at) is None: raise SystemExit('retry authorization timestamp invalid')
+
+          expected_artifacts={
+            9021545332: ('lidl-source-refresh-r2-31256539018-1','sha256:d4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4',31256539018,'433fe078d042eac28862d84b7422f345144af962'),
+            9024741383: ('lidl-source-refresh-r3-plan-v2-31268024703-1','sha256:c1432c05d3975094d2e56ae70fc216c8e8def4199ac312c92b2ff50afc9032dc',31268024703,'e9a1d1a8af34fe0fa66d4a58763bb9906267ab3d'),
+          }
+          for artifact_id,(name,digest,run_id,head_sha) in expected_artifacts.items():
+              artifact=get(f'https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}')
+              if artifact.get('id')!=artifact_id or artifact.get('name')!=name or artifact.get('digest')!=digest or artifact.get('expired') is not False:
+                  raise SystemExit(f'artifact metadata mismatch: {artifact_id}')
+              wr=artifact.get('workflow_run') or {}
+              if wr.get('id')!=run_id or wr.get('head_sha')!=head_sha or wr.get('head_branch')!='main' or wr.get('repository_id')!=1317143994:
+                  raise SystemExit(f'artifact workflow binding mismatch: {artifact_id}')
+
+          out=Path(os.environ['GITHUB_OUTPUT'])
+          with out.open('a',encoding='utf-8') as handle:
+              handle.write(f'registered_sha={runtime}\n')
+              handle.write(f'approved_at={approved_at}\n')
+              handle.write(f'auth_comment_id={auth_id}\n')
+              handle.write(f'command_comment_id={int(comment["id"])}\n')
+              handle.write(f'pr_number={pr_number}\n')
+          PY
+
+  promote:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      authority_sha: ${{ steps.inspect.outputs.authority_sha }}
+      fresh_raw_sha: ${{ steps.inspect.outputs.fresh_raw_sha }}
+      authorization_comment_id: ${{ steps.inspect.outputs.authorization_comment_id }}
+      evidence_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      evidence_artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Prepare exact retry inputs in private runner directory
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          APPROVED_AT: ${{ needs.authorize.outputs.approved_at }}
+          AUTH_COMMENT_ID: ${{ needs.authorize.outputs.auth_comment_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          root="${RUNNER_TEMP}/hermes-deals-lidl-r3-promotion-retry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$root"
+          curl --fail --silent --show-error --location --header 'Accept: application/vnd.github+json' --header "Authorization: Bearer ${GH_TOKEN}" --header 'X-GitHub-Api-Version: 2026-03-10' "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/9021545332/zip" --output "$root/r2.zip"
+          curl --fail --silent --show-error --location --header 'Accept: application/vnd.github+json' --header "Authorization: Bearer ${GH_TOKEN}" --header 'X-GitHub-Api-Version: 2026-03-10' "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/9024741383/zip" --output "$root/r3-plan.zip"
+          test "$(sha256sum "$root/r2.zip" | awk '{print $1}')" = 'd4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4'
+          test "$(sha256sum "$root/r3-plan.zip" | awk '{print $1}')" = 'c1432c05d3975094d2e56ae70fc216c8e8def4199ac312c92b2ff50afc9032dc'
+          APPROVED_AT="$APPROVED_AT" AUTH_COMMENT_ID="$AUTH_COMMENT_ID" python3 - <<'PY' > "$root/authorization.json"
+          import json,os
+          auth_id=int(os.environ['AUTH_COMMENT_ID'])
+          if auth_id<=0 or auth_id==5227260615: raise SystemExit('fresh retry authorization ID invalid')
+          print(json.dumps({
+            'schema_version':1,
+            'authorization_version':'lidl-source-refresh-r3-promotion-authorization-v2-retry',
+            'decision':'approve_exact_r3_promotion_retry',
+            'approved_by':'Andris Rožkalns',
+            'approved_at':os.environ['APPROVED_AT'],
+            'authorization_comment_id':auth_id,
+            'plan_fingerprint':'8aaf1f96a119e51c980a45da80031d5abd2db65d4cdc3516bd5368fd0537c7f9',
+            'r2_artifact_id':9021545332,
+            'r2_artifact_digest':'d4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4',
+            'r3_plan_artifact_id':9024741383,
+            'r3_plan_artifact_digest':'c1432c05d3975094d2e56ae70fc216c8e8def4199ac312c92b2ff50afc9032dc',
+            'permissions':{
+              'corpus_write':True,'scan_promotion':True,'source_review_promotion':True,'authority_promotion':True,
+              'profile_promotion':False,'database_write':False,'review_write':False,'auto_approve':False,
+              'auto_publish':False,'production_deploy':False,'systemd_change':False,'automatic_retry':False,
+              'gate_c_d':False,'b15m2_v08':False,
+            },
+          },sort_keys=True,indent=2))
+          PY
+          chmod 0600 "$root/r2.zip" "$root/r3-plan.zip" "$root/authorization.json"
+          echo "artifact_dir=$root" >> "$GITHUB_OUTPUT"
+      - name: Run fixed root-owned R3 retry dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-r3-promotion-retry-dispatch "$REGISTERED_SHA" "$ARTIFACT_DIR"
+      - name: Inspect sanitized retry evidence
+        id: inspect
+        env:
+          EVIDENCE: ${{ steps.prepare.outputs.artifact_dir }}/promotion-evidence
+          AUTH_COMMENT_ID: ${{ needs.authorize.outputs.auth_comment_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          root=Path(os.environ['EVIDENCE'])
+          result=json.loads((root/'r3-promotion-result.json').read_text())
+          manifest=json.loads((root/'promotion-manifest.json').read_text())
+          auth_id=int(os.environ['AUTH_COMMENT_ID'])
+          assert auth_id!=5227260615
+          assert result['result']=='R3_PROMOTION_PASS' and result['plan_fingerprint']=='8aaf1f96a119e51c980a45da80031d5abd2db65d4cdc3516bd5368fd0537c7f9'
+          assert result['authorization_comment_id']==auth_id and result['expected_gate_a_state']=='WAIT_PROFILE'
+          assert result['writes_performed']=={'scan_directory':True,'source_refresh_directory':True,'review_profile':False}
+          assert manifest['result']=='R3_PROMOTION_PASS' and manifest['fresh_authorization_comment_id']==auth_id and manifest['expected_gate_a_state']=='WAIT_PROFILE'
+          assert manifest['profile_promotion_performed'] is False
+          for key in ('authority_sha256','authorization_sha256'): assert re.fullmatch(r'[0-9a-f]{64}',str(result[key]))
+          assert re.fullmatch(r'[0-9a-f]{64}',str(manifest['fresh_live_raw_sha256_provenance_only']))
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as handle:
+              handle.write('result=R3_PROMOTION_PASS\n')
+              handle.write(f"authority_sha={result['authority_sha256']}\n")
+              handle.write(f"fresh_raw_sha={manifest['fresh_live_raw_sha256_provenance_only']}\n")
+              handle.write(f'authorization_comment_id={auth_id}\n')
+          PY
+      - name: Upload sanitized R3 retry evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lidl-source-refresh-r3-promotion-retry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/promotion-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    if: always() && needs.authorize.result == 'success'
+    needs: [authorize, promote]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report R3 retry result on issue 361
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_RESULT: ${{ needs.promote.result }}
+          RESULT: ${{ needs.promote.outputs.result }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+          COMMAND_COMMENT_ID: ${{ needs.authorize.outputs.command_comment_id }}
+          AUTH_COMMENT_ID: ${{ needs.authorize.outputs.auth_comment_id }}
+          AUTHORITY_SHA: ${{ needs.promote.outputs.authority_sha }}
+          FRESH_RAW_SHA: ${{ needs.promote.outputs.fresh_raw_sha }}
+          EVIDENCE_ID: ${{ needs.promote.outputs.evidence_artifact_id }}
+          EVIDENCE_DIGEST: ${{ needs.promote.outputs.evidence_artifact_digest }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,urllib.request
+          result=os.environ.get('RESULT') or 'UNAVAILABLE'
+          body=(
+            '## Lidl rev05 R3 exact promotion retry\n\n'
+            +f"- command comment: `{os.environ['COMMAND_COMMENT_ID']}`\n"
+            +f"- workflow job: `{os.environ['JOB_RESULT']}`\n"
+            +f"- result: `{result}`\n"
+            +f"- registered runtime: `{os.environ['REGISTERED_SHA']}`\n"
+            +'- plan fingerprint: `8aaf1f96a119e51c980a45da80031d5abd2db65d4cdc3516bd5368fd0537c7f9`\n'
+            +f"- fresh authorization comment: `{os.environ['AUTH_COMMENT_ID']}`\n"
+            +f"- authority SHA-256: `{os.environ.get('AUTHORITY_SHA') or 'unavailable'}`\n"
+            +f"- fresh raw SHA provenance-only: `{os.environ.get('FRESH_RAW_SHA') or 'unavailable'}`\n"
+            +'- expected Gate A state: `WAIT_PROFILE`\n- profile promotion: `false`\n- DB/Review/publication/deploy/systemd/automatic-retry: `false`\n'
+            +f"- retained evidence artifact ID: `{os.environ.get('EVIDENCE_ID') or 'unavailable'}`\n"
+            +f"- retained evidence artifact digest: `{os.environ.get('EVIDENCE_DIGEST') or 'unavailable'}`\n"
+            +f"- workflow: {os.environ['RUN_URL']}\n"
+          )
+          req=urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/361/comments",
+            data=json.dumps({'body':body}).encode(),method='POST',
+            headers={'Accept':'application/vnd.github+json','Authorization':f"Bearer {os.environ['GH_TOKEN']}",'X-GitHub-Api-Version':'2026-03-10','Content-Type':'application/json','User-Agent':'hermes-lidl-r3-retry-report'},
+          )
+          with urllib.request.urlopen(req,timeout=20) as response:
+              if response.status!=201: raise SystemExit(f'unexpected report status {response.status}')
+          PY
