@@ -78,6 +78,17 @@ def test_retry_installer_and_finalizer_only_register_capability() -> None:
     assert "auth=<fresh-auth-comment-id>" in finalizer
 
 
+def test_retry_owner_finalizer_uses_root_installer_sudo_proof() -> None:
+    installer = INSTALLER.read_text(encoding="utf-8")
+    finalizer = FINALIZER.read_text(encoding="utf-8")
+    root_probe = 'sudo -l -U github-runner | grep -Fq "$DISPATCHER"'
+    pass_marker = "printf 'INSTALL_RESULT=PASS"
+    assert root_probe in installer
+    assert installer.index(root_probe) < installer.index(pass_marker)
+    assert root_probe not in finalizer
+    assert "installer runs as root and verifies the exact github-runner sudo rule" in finalizer
+
+
 def test_retry_dispatcher_binds_fresh_auth_to_committed_receipt_and_evidence() -> None:
     text = DISPATCHER.read_text(encoding="utf-8")
     for marker in (
