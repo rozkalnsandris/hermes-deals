@@ -1,0 +1,7 @@
+services:
+  api:
+    environment:
+      HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:?set_HERMES_UI_ASSET_MODE}
+  web:
+    volumes:
+      - ${W4B_NGINX_CONFIG:?set_W4B_NGINX_CONFIG}:/etc/nginx/conf.d/default.conf:ro
