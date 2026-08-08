@@ -8,6 +8,7 @@ import tempfile
 
 
 STYLE_LINK = '<link rel="stylesheet" href="/ui/styles.css">'
+WEEKLY_BRIDGE_TAG = '<script src="/ui/weekly-payload-bridge.js"></script>'
 SCRIPT_TAG = '<script src="/ui/app.js"></script>'
 PRODUCTION_META = '<meta name="hermes-production-bundle" content="inline-v1">'
 STYLE_MARKER = 'data-hermes-production-bundle="styles.css"'
@@ -29,6 +30,8 @@ _REQUIRED_JS_MARKERS = (
     "/api/v1/deals/daily-specials",
     "/api/v1/catalog",
     "HERMES_UI_SCRIPT_OPEN:",
+    "w3-behavior-preserving-bootstrap-v1",
+    "normalized_unique_deals_by_id_v1",
 )
 
 
@@ -60,10 +63,12 @@ def _require_markers(text: str, markers: tuple[str, ...], label: str) -> None:
 
 
 def build_production_ui_bundle(ui_dir: Path) -> Path:
-    """Inline the reviewed CSS and JavaScript into the image-only UI document.
+    """Inline reviewed CSS and the verified W3 JavaScript into image-only HTML.
 
-    The repository source remains split for review and testing. Docker invokes this
-    function only after copying the source into the immutable release image.
+    The repository source remains split for review and testing. Docker first
+    replaces app.js with the deterministic W3 build output, then invokes this
+    function inside the immutable release image. The historical external weekly
+    compatibility bridge is removed because W3 now includes it in app.js.
     """
 
     ui_dir = ui_dir.resolve(strict=True)
@@ -76,6 +81,7 @@ def build_production_ui_bundle(ui_dir: Path) -> Path:
     javascript = _read_required(app_path, "UI application")
 
     _require_exactly_once(html, STYLE_LINK, "stylesheet reference")
+    _require_exactly_once(html, WEEKLY_BRIDGE_TAG, "weekly bridge reference")
     _require_exactly_once(html, SCRIPT_TAG, "application reference")
     _require_exactly_once(html, "</head>", "HTML head closing tag")
     _require_markers(html, _REQUIRED_HTML_MARKERS, "UI HTML")
@@ -101,6 +107,7 @@ def build_production_ui_bundle(ui_dir: Path) -> Path:
     )
 
     bundled = html.replace(STYLE_LINK, bundled_style, 1)
+    bundled = bundled.replace(WEEKLY_BRIDGE_TAG, "", 1)
     bundled = bundled.replace(SCRIPT_TAG, bundled_script, 1)
     bundled = bundled.replace(
         "</head>",
@@ -110,7 +117,7 @@ def build_production_ui_bundle(ui_dir: Path) -> Path:
     if not bundled.endswith("\n"):
         bundled += "\n"
 
-    for forbidden in (STYLE_LINK, SCRIPT_TAG):
+    for forbidden in (STYLE_LINK, WEEKLY_BRIDGE_TAG, SCRIPT_TAG):
         if forbidden in bundled:
             raise UiBundleError(f"production UI retained external asset: {forbidden}")
     _require_exactly_once(bundled, PRODUCTION_META, "production bundle marker")
@@ -154,7 +161,7 @@ def _parse_args() -> argparse.Namespace:
         "--ui-dir",
         type=Path,
         required=True,
-        help="Directory containing index.html, styles.css, and app.js",
+        help="Directory containing index.html, styles.css, and verified W3 app.js",
     )
     return parser.parse_args()
 
