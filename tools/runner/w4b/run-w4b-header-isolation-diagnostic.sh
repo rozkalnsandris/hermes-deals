@@ -23,7 +23,7 @@ fail() {
 [[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'diagnostic_must_run_as_root'
 [[ $# -eq 0 ]] || fail 'unexpected_arguments'
 
-for command in docker grep mktemp stat systemctl; do
+for command in curl docker grep mktemp seq sleep stat systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing_command_${command}"
 done
 
