@@ -81,6 +81,26 @@ def test_w3_core_modules_pin_existing_browser_contracts() -> None:
     assert '["http:", "https:"]' in dom
 
 
+def test_w3_current_deals_primitives_preserve_request_and_render_contracts() -> None:
+    app = read(FRONTEND / "src" / "app.js")
+    deals = read(FRONTEND / "src" / "features" / "deals.js")
+    legacy = read(UI / "app.js")
+
+    assert 'from "./features/deals.js"' in app
+    assert "export const PAGE_SIZE = 12" in deals
+    assert "/api/v1/deals/current" in deals
+    assert 'view: dealView === "upcoming" ? "upcoming" : "current"' in deals
+    for marker in ("app_only", "coupon_only", "discount_only", "image_only"):
+        assert marker in deals
+        assert marker in legacy
+    for marker in ("unit_price_only", "example_total_plus_unit", "app_example_total_plus_unit"):
+        assert marker in deals
+        assert marker in legacy
+    assert "export function paginationItems" in deals
+    assert "export function rawDealCard" in deals
+    assert "export function dealPageSummary" in deals
+
+
 def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
     app = read(FRONTEND / "src" / "app.js")
     daily = read(FRONTEND / "src" / "features" / "daily-specials.js")
