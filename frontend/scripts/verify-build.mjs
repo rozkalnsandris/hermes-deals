@@ -36,8 +36,11 @@ const required = [
 for (const marker of required) {
   if (!source.includes(marker)) throw new Error(`W3 build missing marker: ${marker}`);
 }
-if (/sourceMappingURL|\.map\b/.test(source)) {
-  throw new Error("W3 build unexpectedly contains source-map output");
+if (/sourceMappingURL\s*=/.test(source)) {
+  throw new Error("W3 build unexpectedly contains a sourceMappingURL");
+}
+if (relative.some((name) => name.endsWith(".map"))) {
+  throw new Error("W3 build unexpectedly emitted a source-map file");
 }
 if (/from\s+["']\.\/core\//.test(source)) {
   throw new Error("W3 build retained unresolved core imports");
