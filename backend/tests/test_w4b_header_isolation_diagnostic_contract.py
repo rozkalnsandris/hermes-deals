@@ -27,7 +27,12 @@ def test_w4b_header_diagnostic_is_exact_target_and_unpublished() -> None:
     assert source.count("--pull=never") == 2
     assert "--network-alias api" in source
     assert "--publish" not in source
-    assert "PortBindings" in source
+    assert "--publish-all" not in source
+    assert "assert_no_published_ports()" in source
+    assert 'mappings="$(docker port "$container" 2>/dev/null)" || return 1' in source
+    assert 'assert_no_published_ports "$DIAG_API"' in source
+    assert 'assert_no_published_ports "$DIAG_WEB"' in source
+    assert "PortBindings" not in source
     assert "diagnostic_api_has_published_ports" in source
     assert "diagnostic_web_has_published_ports" in source
 
