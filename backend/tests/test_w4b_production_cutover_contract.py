@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -12,6 +13,46 @@ FINALIZER = ROOT / "tools" / "runner" / "w4b" / "run-hermes-deals-w4b-owner-fina
 OVERRIDE = ROOT / "tools" / "runner" / "w4b" / "docker-compose.w4b.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "w4b-production-cutover.yml"
 TARGET_SHA = "128325461f249791af8a5653163772e955dd2b89"
+
+
+EXPECTED_POSTCHECK_REASONS = {
+    "postcheck_ui_fetch",
+    "postcheck_ui_mode_header",
+    "postcheck_ui_cache_header",
+    "postcheck_ui_marker",
+    "postcheck_ui_legacy_bundle_marker",
+    "postcheck_ui_legacy_js_reference",
+    "postcheck_ui_legacy_css_reference",
+    "postcheck_asset_discovery",
+    "postcheck_js_asset_unique",
+    "postcheck_css_asset_unique",
+    "postcheck_js_asset_fetch",
+    "postcheck_css_asset_fetch",
+    "postcheck_js_mime",
+    "postcheck_css_mime",
+    "postcheck_js_cache",
+    "postcheck_css_cache",
+    "postcheck_js_behavior_marker",
+    "postcheck_css_style_marker",
+    "postcheck_unknown_asset_404",
+    "postcheck_evidence_asset_404",
+    "postcheck_review_200",
+    "postcheck_api_health",
+    "postcheck_target_containers",
+    "postcheck_api_image_identity",
+    "postcheck_api_revision",
+    "postcheck_ui_mode_env_parse",
+    "postcheck_ui_mode_env",
+    "postcheck_loopback_bind",
+    "postcheck_nginx_mount_resolve",
+    "postcheck_nginx_mount_identity",
+    "postcheck_compose_apply",
+    "postcheck_database_container",
+    "postcheck_web_image_identity",
+    "postcheck_database_revision",
+    "postcheck_production_git",
+    "postcheck_cloudflared",
+}
 
 
 def read(path: Path) -> str:
@@ -62,8 +103,11 @@ def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
     assert "cloudflared_pid" in source
     assert "primary_state" in source
     assert "rollback_internal" in source
-    assert "cutover_validation_failed_auto_rollback_passed" in source
+    assert "cutover_validation_failed_auto_rollback_passed" not in source
+    assert "cutover_validation_failed_auto_rollback_failed" not in source
     assert "W4B_MODE=rollback" in source
+    assert "AUTO_ROLLBACK=PASS" in source
+    assert "AUTO_ROLLBACK=FAIL" in source
 
     # Current authoritative production images are main-<12sha>. Preserve a
     # bounded legacy release-* rollback family, reject arbitrary tags, and bind
@@ -109,6 +153,20 @@ def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
         "git checkout",
     ):
         assert forbidden not in source
+
+
+def test_w4b_postcheck_reasons_are_fixed_sanitized_tokens(tmp_path: Path) -> None:
+    source = render_operator(tmp_path)
+    observed = set(
+        re.findall(r"W4B_REASON=(postcheck_[a-z0-9_]+)", source)
+    )
+
+    assert observed == EXPECTED_POSTCHECK_REASONS
+    assert all(re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", token) for token in observed)
+    assert "cat /tmp/hermes-deals-w4b-compose.log" not in source
+    assert "W4B_REASON=cutover_validation_failed_auto_rollback_passed" not in source
+    assert "W4B_REASON=cutover_validation_failed_auto_rollback_failed" not in source
+    assert "hashed_w4_runtime_verification_failed" not in source
 
 
 def test_w4b_operator_renderer_fails_closed_on_template_drift(tmp_path: Path) -> None:
@@ -257,4 +315,5 @@ def test_w4b_public_repo_workflow_has_hosted_authorizer_and_restricted_runner() 
     assert "secrets." not in source
     assert 'sudo --non-interactive /usr/local/sbin/hermes-deals-w4b-dispatch "$MODE"' in source
     assert "dispatcher_failed_without_sanitized_reason" in source
+    assert 're.fullmatch(r"[A-Za-z0-9_.-]{1,96}", value)' in source
     assert "GitHub runners cannot invoke the root-only rollback mode" in source

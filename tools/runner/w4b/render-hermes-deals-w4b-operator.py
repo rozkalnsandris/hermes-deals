@@ -130,9 +130,300 @@ HASHED_RETURN_TRAP = (
     "\"$js_body\" \"$css_body\"' RETURN\n"
 )
 
+POSTCHECK_GUARDS = (
+    (
+        '''  curl --fail --silent --show-error --max-time 8 -D "$headers" "$base/ui" -o "$body" || return 1
+''',
+        '''  curl --fail --silent --show-error --max-time 8 -D "$headers" "$base/ui" -o "$body" || { printf 'W4B_REASON=postcheck_ui_fetch\\n'; return 1; }
+''',
+        "hashed W4 UI fetch",
+    ),
+    (
+        '''  grep -Fiq '^X-Hermes-UI-Asset-Mode: hashed-w4' "$headers" || return 1
+''',
+        '''  grep -Fiq '^X-Hermes-UI-Asset-Mode: hashed-w4' "$headers" || { printf 'W4B_REASON=postcheck_ui_mode_header\\n'; return 1; }
+''',
+        "hashed W4 mode header",
+    ),
+    (
+        '''  grep -Fiq '^Cache-Control: no-store' "$headers" || return 1
+''',
+        '''  grep -Fiq '^Cache-Control: no-store' "$headers" || { printf 'W4B_REASON=postcheck_ui_cache_header\\n'; return 1; }
+''',
+        "hashed W4 UI cache header",
+    ),
+    (
+        '''  grep -Fq '<meta name="hermes-w4-shadow" content="hashed-assets-v1">' "$body" || return 1
+''',
+        '''  grep -Fq '<meta name="hermes-w4-shadow" content="hashed-assets-v1">' "$body" || { printf 'W4B_REASON=postcheck_ui_marker\\n'; return 1; }
+''',
+        "hashed W4 marker",
+    ),
+    (
+        '''  ! grep -Fq 'data-hermes-production-bundle=' "$body" || return 1
+''',
+        '''  ! grep -Fq 'data-hermes-production-bundle=' "$body" || { printf 'W4B_REASON=postcheck_ui_legacy_bundle_marker\\n'; return 1; }
+''',
+        "hashed W4 legacy bundle marker",
+    ),
+    (
+        '''  ! grep -Fq '/ui/app.js' "$body" || return 1
+''',
+        '''  ! grep -Fq '/ui/app.js' "$body" || { printf 'W4B_REASON=postcheck_ui_legacy_js_reference\\n'; return 1; }
+''',
+        "hashed W4 legacy JS reference",
+    ),
+    (
+        '''  ! grep -Fq '/ui/styles.css' "$body" || return 1
+''',
+        '''  ! grep -Fq '/ui/styles.css' "$body" || { printf 'W4B_REASON=postcheck_ui_legacy_css_reference\\n'; return 1; }
+''',
+        "hashed W4 legacy CSS reference",
+    ),
+    (
+        '''  [[ -n "$js_path" && -n "$css_path" ]] || return 1
+''',
+        '''  [[ -n "$js_path" && -n "$css_path" ]] || { printf 'W4B_REASON=postcheck_asset_discovery\\n'; return 1; }
+''',
+        "hashed W4 asset discovery",
+    ),
+    (
+        '''  [[ "$(printf '%s\\n' "$js_path" | wc -l)" -eq 1 ]] || return 1
+''',
+        '''  [[ "$(printf '%s\\n' "$js_path" | wc -l)" -eq 1 ]] || { printf 'W4B_REASON=postcheck_js_asset_unique\\n'; return 1; }
+''',
+        "hashed W4 JS uniqueness",
+    ),
+    (
+        '''  [[ "$(printf '%s\\n' "$css_path" | wc -l)" -eq 1 ]] || return 1
+''',
+        '''  [[ "$(printf '%s\\n' "$css_path" | wc -l)" -eq 1 ]] || { printf 'W4B_REASON=postcheck_css_asset_unique\\n'; return 1; }
+''',
+        "hashed W4 CSS uniqueness",
+    ),
+    (
+        '''  curl --fail --silent --show-error --max-time 8 -D "$js_headers" "$base$js_path" -o "$js_body" || return 1
+''',
+        '''  curl --fail --silent --show-error --max-time 8 -D "$js_headers" "$base$js_path" -o "$js_body" || { printf 'W4B_REASON=postcheck_js_asset_fetch\\n'; return 1; }
+''',
+        "hashed W4 JS fetch",
+    ),
+    (
+        '''  curl --fail --silent --show-error --max-time 8 -D "$css_headers" "$base$css_path" -o "$css_body" || return 1
+''',
+        '''  curl --fail --silent --show-error --max-time 8 -D "$css_headers" "$base$css_path" -o "$css_body" || { printf 'W4B_REASON=postcheck_css_asset_fetch\\n'; return 1; }
+''',
+        "hashed W4 CSS fetch",
+    ),
+    (
+        '''  grep -Fiq '^Content-Type: application/javascript' "$js_headers" || return 1
+''',
+        '''  grep -Fiq '^Content-Type: application/javascript' "$js_headers" || { printf 'W4B_REASON=postcheck_js_mime\\n'; return 1; }
+''',
+        "hashed W4 JS MIME",
+    ),
+    (
+        '''  grep -Fiq '^Content-Type: text/css' "$css_headers" || return 1
+''',
+        '''  grep -Fiq '^Content-Type: text/css' "$css_headers" || { printf 'W4B_REASON=postcheck_css_mime\\n'; return 1; }
+''',
+        "hashed W4 CSS MIME",
+    ),
+    (
+        '''  grep -Fiq '^Cache-Control: no-store' "$js_headers" || return 1
+''',
+        '''  grep -Fiq '^Cache-Control: no-store' "$js_headers" || { printf 'W4B_REASON=postcheck_js_cache\\n'; return 1; }
+''',
+        "hashed W4 JS cache",
+    ),
+    (
+        '''  grep -Fiq '^Cache-Control: no-store' "$css_headers" || return 1
+''',
+        '''  grep -Fiq '^Cache-Control: no-store' "$css_headers" || { printf 'W4B_REASON=postcheck_css_cache\\n'; return 1; }
+''',
+        "hashed W4 CSS cache",
+    ),
+    (
+        '''  grep -Fq 'w3-behavior-preserving-bootstrap-v1' "$js_body" || return 1
+''',
+        '''  grep -Fq 'w3-behavior-preserving-bootstrap-v1' "$js_body" || { printf 'W4B_REASON=postcheck_js_behavior_marker\\n'; return 1; }
+''',
+        "hashed W4 JS behavior marker",
+    ),
+    (
+        '''  grep -Fq 'HERMES_UI_STYLE_OPEN:' "$css_body" || return 1
+''',
+        '''  grep -Fq 'HERMES_UI_STYLE_OPEN:' "$css_body" || { printf 'W4B_REASON=postcheck_css_style_marker\\n'; return 1; }
+''',
+        "hashed W4 CSS style marker",
+    ),
+    (
+        '''  [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$base/ui/assets/not-in-package.js")" == 404 ]] || return 1
+''',
+        '''  [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$base/ui/assets/not-in-package.js")" == 404 ]] || { printf 'W4B_REASON=postcheck_unknown_asset_404\\n'; return 1; }
+''',
+        "hashed W4 unknown asset 404",
+    ),
+    (
+        '''  [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$base/ui/assets/w4-shadow-package.json")" == 404 ]] || return 1
+''',
+        '''  [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$base/ui/assets/w4-shadow-package.json")" == 404 ]] || { printf 'W4B_REASON=postcheck_evidence_asset_404\\n'; return 1; }
+''',
+        "hashed W4 evidence 404",
+    ),
+    (
+        '''  [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 8 "$base/ui/review")" == 200 ]] || return 1
+''',
+        '''  [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 8 "$base/ui/review")" == 200 ]] || { printf 'W4B_REASON=postcheck_review_200\\n'; return 1; }
+''',
+        "hashed W4 Review health",
+    ),
+    (
+        '''  curl --fail --silent --show-error --max-time 8 "$base/api/health" | grep -Fq '"status":"ok"' || return 1
+''',
+        '''  curl --fail --silent --show-error --max-time 8 "$base/api/health" | grep -Fq '"status":"ok"' || { printf 'W4B_REASON=postcheck_api_health\\n'; return 1; }
+''',
+        "hashed W4 API health",
+    ),
+    (
+        '''  [[ -n "$api" && -n "$web" && -n "$db" ]] || return 1
+''',
+        '''  [[ -n "$api" && -n "$web" && -n "$db" ]] || { printf 'W4B_REASON=postcheck_target_containers\\n'; return 1; }
+''',
+        "target runtime containers",
+    ),
+    (
+        '''  [[ "$(docker inspect "$api" --format '{{.Image}}')" == "$(docker image inspect "$TARGET_IMAGE" --format '{{.Id}}')" ]] || return 1
+''',
+        '''  [[ "$(docker inspect "$api" --format '{{.Image}}')" == "$(docker image inspect "$TARGET_IMAGE" --format '{{.Id}}')" ]] || { printf 'W4B_REASON=postcheck_api_image_identity\\n'; return 1; }
+''',
+        "target API image identity",
+    ),
+    (
+        '''  [[ "$revision" == "$TARGET_SHA" ]] || return 1
+''',
+        '''  [[ "$revision" == "$TARGET_SHA" ]] || { printf 'W4B_REASON=postcheck_api_revision\\n'; return 1; }
+''',
+        "target API revision",
+    ),
+    (
+        '''print(values[0])
+')" || return 1
+''',
+        '''print(values[0])
+')" || { printf 'W4B_REASON=postcheck_ui_mode_env_parse\\n'; return 1; }
+''',
+        "target UI mode parse",
+    ),
+    (
+        '''  [[ "$mode_env" == hashed-w4 ]] || return 1
+''',
+        '''  [[ "$mode_env" == hashed-w4 ]] || { printf 'W4B_REASON=postcheck_ui_mode_env\\n'; return 1; }
+''',
+        "target UI mode",
+    ),
+    (
+        '''  web_base="$(resolve_web_base "$web")" || return 1
+''',
+        '''  web_base="$(resolve_web_base "$web")" || { printf 'W4B_REASON=postcheck_loopback_bind\\n'; return 1; }
+''',
+        "target loopback bind",
+    ),
+    (
+        '''  nginx_mount="$(resolve_nginx_mount "$web")" || return 1
+''',
+        '''  nginx_mount="$(resolve_nginx_mount "$web")" || { printf 'W4B_REASON=postcheck_nginx_mount_resolve\\n'; return 1; }
+''',
+        "target nginx mount resolve",
+    ),
+    (
+        '''  [[ "$(readlink -f -- "$nginx_mount")" == "$(readlink -f -- "$NGINX_TARGET")" ]] || return 1
+''',
+        '''  [[ "$(readlink -f -- "$nginx_mount")" == "$(readlink -f -- "$NGINX_TARGET")" ]] || { printf 'W4B_REASON=postcheck_nginx_mount_identity\\n'; return 1; }
+''',
+        "target nginx mount identity",
+    ),
+)
+
+CUTOVER_POSTCHECK_OLD = '''  if (( APPLY_RC == 0 )) && \\
+     [[ "$(service_container db)" == "$DB_BEFORE" ]] && \\
+     [[ "$(docker inspect "$(service_container web)" --format '{{.Image}}')" == "$WEB_IMAGE_ID" ]] && \\
+     [[ "$(read_live_alembic)" == "$ALEMBIC_BEFORE" ]] && \\
+     [[ "$(primary_state)" == "$GIT_BEFORE" ]] && \\
+     [[ "$(cloudflared_pid)" == "$CLOUDFLARED_BEFORE" ]] && \\
+     assert_target_runtime; then
+'''
+
+CUTOVER_POSTCHECK_NEW = '''  if { (( APPLY_RC == 0 )) || { printf 'W4B_REASON=postcheck_compose_apply\\n'; false; }; } && \\
+     { [[ "$(service_container db)" == "$DB_BEFORE" ]] || { printf 'W4B_REASON=postcheck_database_container\\n'; false; }; } && \\
+     { [[ "$(docker inspect "$(service_container web)" --format '{{.Image}}')" == "$WEB_IMAGE_ID" ]] || { printf 'W4B_REASON=postcheck_web_image_identity\\n'; false; }; } && \\
+     { [[ "$(read_live_alembic)" == "$ALEMBIC_BEFORE" ]] || { printf 'W4B_REASON=postcheck_database_revision\\n'; false; }; } && \\
+     { [[ "$(primary_state)" == "$GIT_BEFORE" ]] || { printf 'W4B_REASON=postcheck_production_git\\n'; false; }; } && \\
+     { [[ "$(cloudflared_pid)" == "$CLOUDFLARED_BEFORE" ]] || { printf 'W4B_REASON=postcheck_cloudflared\\n'; false; }; } && \\
+     assert_target_runtime; then
+'''
+
+ROLLBACK_REASON_PASS_OLD = "    printf 'W4B_REASON=cutover_validation_failed_auto_rollback_passed\\n'\n"
+ROLLBACK_REASON_FAIL_OLD = "  printf 'W4B_REASON=cutover_validation_failed_auto_rollback_failed\\n'\n"
+VERIFY_RUNTIME_OLD = "  assert_target_runtime || fail 'hashed_w4_runtime_verification_failed'\n"
+VERIFY_RUNTIME_NEW = '''  if ! assert_target_runtime; then
+    printf 'W4B_RESULT=BLOCKED\\n'
+    printf 'PRODUCTION_MUTATED=false\\n'
+    exit 1
+  fi
+'''
+
+POSTCHECK_TOKENS = (
+    "postcheck_ui_fetch",
+    "postcheck_ui_mode_header",
+    "postcheck_ui_cache_header",
+    "postcheck_ui_marker",
+    "postcheck_ui_legacy_bundle_marker",
+    "postcheck_ui_legacy_js_reference",
+    "postcheck_ui_legacy_css_reference",
+    "postcheck_asset_discovery",
+    "postcheck_js_asset_unique",
+    "postcheck_css_asset_unique",
+    "postcheck_js_asset_fetch",
+    "postcheck_css_asset_fetch",
+    "postcheck_js_mime",
+    "postcheck_css_mime",
+    "postcheck_js_cache",
+    "postcheck_css_cache",
+    "postcheck_js_behavior_marker",
+    "postcheck_css_style_marker",
+    "postcheck_unknown_asset_404",
+    "postcheck_evidence_asset_404",
+    "postcheck_review_200",
+    "postcheck_api_health",
+    "postcheck_target_containers",
+    "postcheck_api_image_identity",
+    "postcheck_api_revision",
+    "postcheck_ui_mode_env_parse",
+    "postcheck_ui_mode_env",
+    "postcheck_loopback_bind",
+    "postcheck_nginx_mount_resolve",
+    "postcheck_nginx_mount_identity",
+    "postcheck_compose_apply",
+    "postcheck_database_container",
+    "postcheck_web_image_identity",
+    "postcheck_database_revision",
+    "postcheck_production_git",
+    "postcheck_cloudflared",
+)
+
 
 def replace_exact_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
+    if label == "hashed W4 UI fetch":
+        if count != 2:
+            raise SystemExit(
+                f"{label} replacement expected exactly two W3/W4 matches, found {count}"
+            )
+        head, separator, tail = source.rpartition(old)
+        if not separator:
+            raise SystemExit(f"{label} replacement target disappeared")
+        return head + new + tail
     if count != 1:
         raise SystemExit(f"{label} replacement expected exactly once, found {count}")
     return source.replace(old, new, 1)
@@ -237,6 +528,32 @@ def main() -> None:
         next_name="assert_target_runtime",
         return_trap=HASHED_RETURN_TRAP,
     )
+    for old, new, label in POSTCHECK_GUARDS:
+        rendered = replace_exact_once(rendered, old, new, label)
+    rendered = replace_exact_once(
+        rendered,
+        CUTOVER_POSTCHECK_OLD,
+        CUTOVER_POSTCHECK_NEW,
+        "cutover postcheck diagnostics",
+    )
+    rendered = replace_exact_once(
+        rendered,
+        ROLLBACK_REASON_PASS_OLD,
+        "",
+        "successful auto-rollback generic reason",
+    )
+    rendered = replace_exact_once(
+        rendered,
+        ROLLBACK_REASON_FAIL_OLD,
+        "",
+        "failed auto-rollback generic reason",
+    )
+    rendered = replace_exact_once(
+        rendered,
+        VERIFY_RUNTIME_OLD,
+        VERIFY_RUNTIME_NEW,
+        "verify runtime diagnostic preservation",
+    )
 
     if BASELINE_OLD in rendered or ROLLBACK_OLD in rendered:
         raise SystemExit("stale W4B image validator remains after rendering")
@@ -270,6 +587,15 @@ def main() -> None:
         raise SystemExit("inline W3 EXIT cleanup trap marker mismatch")
     if rendered.count(HASHED_RETURN_TRAP.replace(" RETURN\n", " EXIT\n")) != 1:
         raise SystemExit("hashed W4 EXIT cleanup trap marker mismatch")
+    for token in POSTCHECK_TOKENS:
+        if rendered.count(f"W4B_REASON={token}\\n'") != 1:
+            raise SystemExit(f"postcheck diagnostic marker mismatch: {token}")
+    if "cutover_validation_failed_auto_rollback_passed" in rendered:
+        raise SystemExit("generic successful auto-rollback reason must not mask failed check")
+    if "cutover_validation_failed_auto_rollback_failed" in rendered:
+        raise SystemExit("generic failed auto-rollback reason must not mask failed check")
+    if "hashed_w4_runtime_verification_failed" in rendered:
+        raise SystemExit("generic verify reason must not mask failed check")
     if "safe.directory" in rendered:
         raise SystemExit("safe.directory bypass is forbidden")
 
