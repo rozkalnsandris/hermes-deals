@@ -16,7 +16,7 @@ MODE="$1"
 [[ "$MODE" =~ ^(preflight|finalize-loopback|verify-loopback)$ ]] || fail 'unsupported mode'
 
 OPERATOR='/usr/local/libexec/hermes-deals-ops/issue-307/hermes-deals-307-loopback-finalize'
-EXPECTED_OPERATOR_SHA256='b9e46e63e6e3cbd1b93ec043ffd0009c48589d54cbc445b151479c0843311dc5'
+EXPECTED_OPERATOR_SHA256='3bf4892be9b7cad4817b04ed1801bfb862c5671890453b3f01852dbded6244f0'
 LOCK='/run/lock/hermes-deals-307-phase-c.lock'
 
 for command in flock readlink sha256sum stat; do
