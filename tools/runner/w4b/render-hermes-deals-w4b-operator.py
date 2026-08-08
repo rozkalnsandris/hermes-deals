@@ -99,12 +99,50 @@ COMPOSE_STDIN_TAIL_NEW = '''if not db:
 }
 '''
 
+INLINE_RETURN_TRAP = "  trap 'rm -f \"$body\" \"$headers\"' RETURN\n"
+HASHED_RETURN_TRAP = (
+    "  trap 'rm -f \"$body\" \"$headers\" \"$js_headers\" \"$css_headers\" "
+    "\"$js_body\" \"$css_body\"' RETURN\n"
+)
+
 
 def replace_exact_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
     if count != 1:
         raise SystemExit(f"{label} replacement expected exactly once, found {count}")
     return source.replace(old, new, 1)
+
+
+def replace_assertion_cleanup_scope(
+    source: str,
+    *,
+    name: str,
+    next_name: str,
+    return_trap: str,
+) -> str:
+    head = f"{name}() {{\n"
+    end_marker = f"}}\n\n{next_name}() {{\n"
+    exit_trap = return_trap.replace(" RETURN\n", " EXIT\n")
+
+    source = replace_exact_once(
+        source,
+        head,
+        f"{name}() (\n",
+        f"{name} subshell head",
+    )
+    source = replace_exact_once(
+        source,
+        return_trap,
+        exit_trap,
+        f"{name} cleanup trap",
+    )
+    source = replace_exact_once(
+        source,
+        end_marker,
+        f")\n\n{next_name}() {{\n",
+        f"{name} subshell tail",
+    )
+    return source
 
 
 def main() -> None:
@@ -156,6 +194,18 @@ def main() -> None:
         COMPOSE_STDIN_TAIL_NEW,
         "Compose validator stdin tail",
     )
+    rendered = replace_assertion_cleanup_scope(
+        rendered,
+        name="assert_inline_w3",
+        next_name="assert_hashed_w4",
+        return_trap=INLINE_RETURN_TRAP,
+    )
+    rendered = replace_assertion_cleanup_scope(
+        rendered,
+        name="assert_hashed_w4",
+        next_name="assert_target_runtime",
+        return_trap=HASHED_RETURN_TRAP,
+    )
 
     if BASELINE_OLD in rendered or ROLLBACK_OLD in rendered:
         raise SystemExit("stale W4B image validator remains after rendering")
@@ -173,6 +223,16 @@ def main() -> None:
         raise SystemExit("production Git owner-identity marker mismatch")
     if rendered.count("data = json.load(sys.stdin)") != 1:
         raise SystemExit("Compose validator stdin JSON marker mismatch")
+    if INLINE_RETURN_TRAP in rendered or HASHED_RETURN_TRAP in rendered:
+        raise SystemExit("stale W4B RETURN cleanup trap remains after rendering")
+    if rendered.count("assert_inline_w3() (\n") != 1:
+        raise SystemExit("inline W3 assertion subshell marker mismatch")
+    if rendered.count("assert_hashed_w4() (\n") != 1:
+        raise SystemExit("hashed W4 assertion subshell marker mismatch")
+    if rendered.count(INLINE_RETURN_TRAP.replace(" RETURN\n", " EXIT\n")) != 1:
+        raise SystemExit("inline W3 EXIT cleanup trap marker mismatch")
+    if rendered.count(HASHED_RETURN_TRAP.replace(" RETURN\n", " EXIT\n")) != 1:
+        raise SystemExit("hashed W4 EXIT cleanup trap marker mismatch")
     if "safe.directory" in rendered:
         raise SystemExit("safe.directory bypass is forbidden")
 
