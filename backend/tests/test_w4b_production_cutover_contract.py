@@ -96,7 +96,23 @@ def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
     assert "DEALS_HTTP_PORT='9128'" in source
     assert "HERMES_UI_ASSET_MODE=\"$ui_mode\"" in source
     assert "W4B_NGINX_CONFIG=\"$nginx_config\"" in source
-    assert "up -d --no-deps --no-build --wait api web" in source
+    assert "up -d --no-deps --no-build --wait api web" not in source
+    assert (
+        'compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" '
+        'up -d --no-deps --no-build --wait api'
+    ) in source
+    assert (
+        'compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" '
+        'up -d --no-deps --no-build --wait --force-recreate web'
+    ) in source
+    assert (
+        'compose "${old_tag#hermes-deals-api:}" inline-w3 "$old_nginx" '
+        'up -d --no-deps --no-build --wait api'
+    ) in source
+    assert (
+        'compose "${old_tag#hermes-deals-api:}" inline-w3 "$old_nginx" '
+        'up -d --no-deps --no-build --wait --force-recreate web'
+    ) in source
     assert "assert_hashed_w4" in source
     assert "assert_inline_w3" in source
     assert "read_live_alembic" in source
