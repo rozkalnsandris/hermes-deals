@@ -12,7 +12,10 @@ EXPECTED_REPOSITORY = "rozkalnsandris/hermes-deals"
 EXPECTED_OWNER_LOGIN = "rozkalnsandris"
 EXPECTED_OWNER_ID = 277435981
 EXPECTED_ISSUE_NUMBER = 307
-EXPECTED_COMMAND = "/hermes-307 apply-dual"
+EXPECTED_COMMANDS = {
+    "/hermes-307 apply-dual": "apply-dual",
+    "/hermes-307 verify-dual": "verify-dual",
+}
 RUNTIME_SHA = "654ec9739f8cea74ee8a4ee93e25e12bf06482cc"
 
 
@@ -23,9 +26,12 @@ class BridgeAuthorizationError(ValueError):
 def parse_comment(body: str) -> str:
     if not isinstance(body, str):
         raise BridgeAuthorizationError("comment body must be text")
-    if body.strip() != EXPECTED_COMMAND or body != body.strip():
-        raise BridgeAuthorizationError("comment does not match the exact allowlisted command")
-    return "apply-dual"
+    if body != body.strip():
+        raise BridgeAuthorizationError("comment does not match an exact allowlisted command")
+    operation = EXPECTED_COMMANDS.get(body)
+    if operation is None:
+        raise BridgeAuthorizationError("comment does not match an exact allowlisted command")
+    return operation
 
 
 def _default_get_json(url: str, token: str) -> Any:
