@@ -123,3 +123,15 @@ def test_finalizer_verifies_registered_runtime_and_safety_markers() -> None:
         assert runtime_member in text
 
     assert "github-runner unexpectedly belongs to Docker group" in text
+
+
+def test_finalizer_has_only_bounded_sudo_commands() -> None:
+    text = source()
+    root_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("sudo ")]
+
+    assert root_lines == [
+        'sudo bash "$INSTALLER" "$TARGET_SHA" "$WORKTREE" 2>&1 | tee "$INSTALL_LOG"',
+        'sudo visudo -cf "$SUDOERS" >/dev/null',
+        'sudo -l -U github-runner > "$SUDO_LIST_LOG"',
+        'sudo -u github-runner -- sudo --non-interactive -l "$DISPATCHER" >/dev/null',
+    ]
