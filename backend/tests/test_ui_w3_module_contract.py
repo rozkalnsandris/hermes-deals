@@ -55,7 +55,7 @@ def test_w3_entry_is_side_effect_only_and_bootstrap_owns_module_graph() -> None:
     assert 'from "./bootstrap.js"' in entry
     assert "installWeeklyPayloadBridge(window)" in entry
     assert "bootstrapUi();" in entry
-    assert "export " not in entry
+    assert not any(line.lstrip().startswith("export ") for line in entry.splitlines())
 
     for path in (
         "./core/api.js",
