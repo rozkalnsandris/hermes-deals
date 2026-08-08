@@ -138,6 +138,7 @@ export function initCurrentDeals(app) {
     gridErrorState,
     bindGridRetry,
     scrollTarget,
+    loadPage,
   } = app;
 
   let currentPage = 1;
@@ -172,7 +173,8 @@ export function initCurrentDeals(app) {
       const next = Number(button.dataset.page);
       if (!Number.isFinite(next) || next < 1 || next > totalPages || next === currentPage) return;
       currentPage = next;
-      await load({ resetPage: false });
+      if (loadPage) await loadPage(false);
+      else await load({ resetPage: false });
       scrollTarget?.scrollIntoView({ behavior: "smooth", block: "start" });
     }));
   }
