@@ -1,0 +1,472 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+unset COMPOSE_ENV_FILES COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME DEALS_BIND_IP DEALS_HTTP_PORT DOCKER_CONTEXT DOCKER_HOST
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  return 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'operator must run as root through sudo'
+[[ $# -eq 1 ]] || fail 'usage: hermes-deals-307-loopback-finalize <preflight|finalize-loopback|verify-loopback|rollback-dual>'
+MODE="$1"
+[[ "$MODE" =~ ^(preflight|finalize-loopback|verify-loopback|rollback-dual)$ ]] || fail 'unsupported mode'
+
+PRIMARY='/home/andris/hermes-deals'
+ENV_FILE="$PRIMARY/.env"
+COMPOSE_FILE="$PRIMARY/docker-compose.yml"
+STATE_DIR='/var/lib/hermes-deals-ops/issue-307'
+PHASE_C_STATE="$STATE_DIR/dual-bind-state.env"
+OVERRIDE_FILE="$STATE_DIR/dual-bind.compose.yml"
+PHASE_D_STATE="$STATE_DIR/loopback-finalize-state.env"
+ENV_BACKUP="$STATE_DIR/env.before-loopback"
+PROJECT='hermes-deals'
+WEB_SERVICE='web'
+WEB_NAME='hermes-deals-web-1'
+API_NAME='hermes-deals-api-1'
+DB_NAME='hermes-deals-db-1'
+LAN_IP='192.168.0.180'
+LOOPBACK_IP='127.0.0.1'
+PORT='9128'
+
+for command in awk chown chmod cp curl docker grep install mv python3 readlink rm sha256sum stat systemctl ufw; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+[[ -d "$PRIMARY" && ! -L "$PRIMARY" ]] || fail 'production root is missing or unsafe'
+[[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail 'production env file is missing or unsafe'
+[[ -f "$COMPOSE_FILE" && ! -L "$COMPOSE_FILE" ]] || fail 'production compose file is missing or unsafe'
+[[ "$(readlink -f -- "$PRIMARY")" == "$PRIMARY" ]] || fail 'production root path drift'
+[[ "$(readlink -f -- "$ENV_FILE")" == "$ENV_FILE" ]] || fail 'production env path drift'
+[[ "$(readlink -f -- "$COMPOSE_FILE")" == "$COMPOSE_FILE" ]] || fail 'production compose path drift'
+
+COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$ENV_FILE"
+  -f "$COMPOSE_FILE"
+)
+
+DUAL_COMPOSE=(
+  docker compose
+  --project-directory "$PRIMARY"
+  --env-file "$ENV_FILE"
+  -f "$COMPOSE_FILE"
+  -f "$OVERRIDE_FILE"
+)
+
+read_bind_ip() {
+  python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+values = []
+for raw in path.read_text(encoding="utf-8").splitlines():
+    if raw.startswith("DEALS_BIND_IP="):
+        values.append(raw.split("=", 1)[1].strip())
+if len(values) != 1 or not values[0]:
+    raise SystemExit(2)
+print(values[0])
+PY
+}
+
+container_id() {
+  docker inspect "$1" --format '{{.Id}}'
+}
+
+container_image() {
+  docker inspect "$1" --format '{{.Image}}'
+}
+
+container_status() {
+  docker inspect "$1" --format '{{.State.Status}}'
+}
+
+web_bindings_json() {
+  docker inspect "$WEB_NAME" --format '{{json .HostConfig.PortBindings}}'
+}
+
+assert_bindings() {
+  local expected="$1"
+  local payload
+  payload="$(web_bindings_json)"
+  python3 - "$expected" "$payload" <<'PY'
+import json
+import sys
+expected_mode = sys.argv[1]
+rows = json.loads(sys.argv[2])
+if set(rows) != {"80/tcp"} or not isinstance(rows["80/tcp"], list):
+    raise SystemExit(2)
+actual = {
+    (str(item.get("HostIp") or ""), str(item.get("HostPort") or ""))
+    for item in rows["80/tcp"]
+    if isinstance(item, dict)
+}
+if expected_mode == "dual":
+    expected = {
+        ("192.168.0.180", "9128"),
+        ("127.0.0.1", "9128"),
+    }
+elif expected_mode == "loopback":
+    expected = {("127.0.0.1", "9128")}
+else:
+    raise SystemExit(2)
+if actual != expected:
+    raise SystemExit(f"published bindings mismatch: {sorted(actual)!r}")
+PY
+}
+
+assert_compose_model() {
+  local expected="$1"
+  local model
+  if [[ "$expected" == dual ]]; then
+    model="$("${DUAL_COMPOSE[@]}" config --format json)"
+  elif [[ "$expected" == loopback ]]; then
+    model="$("${COMPOSE[@]}" config --format json)"
+  else
+    fail 'unsupported compose model'
+  fi
+  python3 - "$expected" "$model" <<'PY'
+import json
+import sys
+expected_mode = sys.argv[1]
+model = json.loads(sys.argv[2])
+web = model.get("services", {}).get("web")
+if not isinstance(web, dict):
+    raise SystemExit("web service missing from resolved Compose model")
+ports = web.get("ports")
+if not isinstance(ports, list):
+    raise SystemExit("web ports missing from resolved Compose model")
+actual = set()
+for item in ports:
+    if not isinstance(item, dict):
+        raise SystemExit("web port is not canonical object form")
+    actual.add((
+        str(item.get("host_ip") or ""),
+        str(item.get("published") or ""),
+        int(item.get("target") or 0),
+        str(item.get("protocol") or "tcp"),
+    ))
+if expected_mode == "dual":
+    expected = {
+        ("192.168.0.180", "9128", 80, "tcp"),
+        ("127.0.0.1", "9128", 80, "tcp"),
+    }
+elif expected_mode == "loopback":
+    expected = {("127.0.0.1", "9128", 80, "tcp")}
+else:
+    raise SystemExit(2)
+if actual != expected:
+    raise SystemExit(f"{expected_mode} Compose model mismatch: {sorted(actual)!r}")
+PY
+}
+
+cloudflared_pid() {
+  systemctl show cloudflared.service -p MainPID --value
+}
+
+cloudflared_ha() {
+  curl -fsS --max-time 5 http://127.0.0.1:20241/metrics | awk '
+    $1 == "cloudflared_tunnel_ha_connections" {
+      total += $2
+      found = 1
+    }
+    END {
+      if (!found) exit 1
+      printf "%.0f\n", total
+    }
+  '
+}
+
+assert_runtime_common() {
+  [[ "$(container_status "$WEB_NAME")" == running ]] || fail 'web container is not running'
+  [[ "$(container_status "$API_NAME")" == running ]] || fail 'api container is not running'
+  [[ "$(container_status "$DB_NAME")" == running ]] || fail 'database container is not running'
+  [[ "$(docker inspect "$WEB_NAME" --format '{{index .Config.Labels "com.docker.compose.project"}}')" == "$PROJECT" ]] || fail 'web compose project mismatch'
+  [[ "$(docker inspect "$WEB_NAME" --format '{{index .Config.Labels "com.docker.compose.service"}}')" == "$WEB_SERVICE" ]] || fail 'web compose service mismatch'
+  [[ "$(docker inspect "$WEB_NAME" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}')" == "$PRIMARY" ]] || fail 'web compose working directory mismatch'
+  [[ "$(systemctl is-active cloudflared.service)" == active ]] || fail 'cloudflared is not active'
+  [[ "$(cloudflared_ha)" == 4 ]] || fail 'cloudflared HA connection count is not 4'
+  if ufw status numbered | grep -Eq '(^|[[:space:]])9128/tcp([[:space:]]|$)'; then
+    fail 'unexpected UFW rule exists for 9128/tcp'
+  fi
+}
+
+assert_lan_health() {
+  curl --noproxy '*' -fsS --max-time 8 "http://$LAN_IP:$PORT/api/health" >/dev/null
+}
+
+assert_loopback_health() {
+  curl --noproxy '*' -fsS --max-time 8 "http://$LOOPBACK_IP:$PORT/api/health" >/dev/null
+}
+
+assert_lan_closed() {
+  if curl --noproxy '*' -fsS --connect-timeout 2 --max-time 4 "http://$LAN_IP:$PORT/api/health" >/dev/null 2>&1; then
+    fail 'LAN 9128 unexpectedly accepts traffic'
+  fi
+}
+
+read_state_value() {
+  local path="$1"
+  local key="$2"
+  [[ -f "$path" && ! -L "$path" ]] || fail "state file is missing or unsafe: $path"
+  python3 - "$path" "$key" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+key = sys.argv[2]
+rows = {}
+for raw in path.read_text(encoding="utf-8").splitlines():
+    name, sep, value = raw.partition("=")
+    if not sep or name in rows:
+        raise SystemExit(2)
+    rows[name] = value
+if key not in rows or not rows[key]:
+    raise SystemExit(2)
+print(rows[key])
+PY
+}
+
+assert_phase_c_state() {
+  [[ -f "$PHASE_C_STATE" && ! -L "$PHASE_C_STATE" ]] || fail 'Phase C state file is missing or unsafe'
+  [[ -f "$OVERRIDE_FILE" && ! -L "$OVERRIDE_FILE" ]] || fail 'dual-bind override file is missing or unsafe'
+  [[ "$(stat -c '%U:%G:%a' "$PHASE_C_STATE")" == 'root:root:600' ]] || fail 'Phase C state metadata mismatch'
+  [[ "$(stat -c '%U:%G:%a' "$OVERRIDE_FILE")" == 'root:root:600' ]] || fail 'dual-bind override metadata mismatch'
+}
+
+verify_identity_from_phase_c() {
+  local expected_api expected_db expected_image expected_cf
+  expected_api="$(read_state_value "$PHASE_C_STATE" PRE_API_ID)"
+  expected_db="$(read_state_value "$PHASE_C_STATE" PRE_DB_ID)"
+  expected_image="$(read_state_value "$PHASE_C_STATE" PRE_WEB_IMAGE)"
+  expected_cf="$(read_state_value "$PHASE_C_STATE" PRE_CF_PID)"
+  [[ "$(container_id "$API_NAME")" == "$expected_api" ]] || fail 'api container changed during #307 transition'
+  [[ "$(container_id "$DB_NAME")" == "$expected_db" ]] || fail 'database container changed during #307 transition'
+  [[ "$(container_image "$WEB_NAME")" == "$expected_image" ]] || fail 'web image changed during #307 transition'
+  [[ "$(cloudflared_pid)" == "$expected_cf" ]] || fail 'cloudflared PID changed during #307 transition'
+  [[ "$(cloudflared_ha)" == 4 ]] || fail 'cloudflared HA connection count changed'
+}
+
+verify_dual_runtime() {
+  assert_phase_c_state
+  assert_runtime_common
+  [[ "$(read_bind_ip)" == "$LAN_IP" ]] || fail 'production DEALS_BIND_IP is not the expected dual-transition LAN value'
+  assert_compose_model dual
+  assert_bindings dual
+  assert_lan_health
+  assert_loopback_health
+  verify_identity_from_phase_c
+}
+
+verify_loopback_runtime() {
+  assert_phase_c_state
+  [[ -f "$PHASE_D_STATE" && ! -L "$PHASE_D_STATE" ]] || fail 'Phase D state file is missing or unsafe'
+  [[ -f "$ENV_BACKUP" && ! -L "$ENV_BACKUP" ]] || fail 'Phase D env backup is missing or unsafe'
+  [[ "$(stat -c '%U:%G:%a' "$PHASE_D_STATE")" == 'root:root:600' ]] || fail 'Phase D state metadata mismatch'
+  [[ "$(stat -c '%U:%G:%a' "$ENV_BACKUP")" == 'root:root:600' ]] || fail 'Phase D env backup metadata mismatch'
+  assert_runtime_common
+  [[ "$(read_bind_ip)" == "$LOOPBACK_IP" ]] || fail 'production DEALS_BIND_IP is not loopback'
+  assert_compose_model loopback
+  assert_bindings loopback
+  assert_loopback_health
+  assert_lan_closed
+  verify_identity_from_phase_c
+}
+
+capture_phase_d_state() {
+  local dual_web_id env_sha env_uid env_gid env_mode
+  dual_web_id="$(container_id "$WEB_NAME")"
+  env_sha="$(sha256sum "$ENV_FILE" | awk '{print $1}')"
+  env_uid="$(stat -c '%u' "$ENV_FILE")"
+  env_gid="$(stat -c '%g' "$ENV_FILE")"
+  env_mode="$(stat -c '%a' "$ENV_FILE")"
+  [[ "$env_sha" =~ ^[0-9a-f]{64}$ ]] || fail 'production env SHA256 is invalid'
+  [[ "$env_uid" =~ ^[0-9]+$ && "$env_gid" =~ ^[0-9]+$ && "$env_mode" =~ ^[0-7]{3,4}$ ]] || fail 'production env metadata is invalid'
+  install -d -o root -g root -m 0700 "$STATE_DIR"
+  install -o root -g root -m 0600 "$ENV_FILE" "$ENV_BACKUP"
+  cat >"$PHASE_D_STATE" <<EOF_STATE
+DUAL_WEB_ID=$dual_web_id
+ENV_SHA256=$env_sha
+ENV_UID=$env_uid
+ENV_GID=$env_gid
+ENV_MODE=$env_mode
+EOF_STATE
+  chown root:root "$PHASE_D_STATE"
+  chmod 0600 "$PHASE_D_STATE"
+}
+
+rewrite_env_loopback() {
+  local tmp uid gid mode
+  uid="$(read_state_value "$PHASE_D_STATE" ENV_UID)"
+  gid="$(read_state_value "$PHASE_D_STATE" ENV_GID)"
+  mode="$(read_state_value "$PHASE_D_STATE" ENV_MODE)"
+  tmp="$PRIMARY/.env.issue307-loopback.$$"
+  [[ ! -e "$tmp" ]] || fail 'temporary env path already exists'
+  python3 - "$ENV_FILE" "$tmp" "$LAN_IP" "$LOOPBACK_IP" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+old = sys.argv[3].encode()
+new = sys.argv[4].encode()
+
+data = source.read_bytes()
+lines = data.splitlines(keepends=True)
+matches = [i for i, line in enumerate(lines) if line.startswith(b"DEALS_BIND_IP=")]
+if len(matches) != 1:
+    raise SystemExit("DEALS_BIND_IP line count mismatch")
+idx = matches[0]
+line = lines[idx]
+if line.endswith(b"\r\n"):
+    ending = b"\r\n"
+    body = line[:-2]
+elif line.endswith(b"\n"):
+    ending = b"\n"
+    body = line[:-1]
+else:
+    ending = b""
+    body = line
+if body != b"DEALS_BIND_IP=" + old:
+    raise SystemExit("DEALS_BIND_IP current value mismatch")
+lines[idx] = b"DEALS_BIND_IP=" + new + ending
+updated = b"".join(lines)
+if updated == data:
+    raise SystemExit("env rewrite produced no change")
+fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(updated)
+        handle.flush()
+        os.fsync(handle.fileno())
+except Exception:
+    try:
+        os.unlink(target)
+    except FileNotFoundError:
+        pass
+    raise
+PY
+  chown "$uid:$gid" "$tmp"
+  chmod "$mode" "$tmp"
+  mv -f -- "$tmp" "$ENV_FILE"
+  [[ "$(read_bind_ip)" == "$LOOPBACK_IP" ]] || fail 'production env loopback rewrite verification failed'
+}
+
+restore_env_backup() {
+  local uid gid mode expected_sha tmp
+  uid="$(read_state_value "$PHASE_D_STATE" ENV_UID)"
+  gid="$(read_state_value "$PHASE_D_STATE" ENV_GID)"
+  mode="$(read_state_value "$PHASE_D_STATE" ENV_MODE)"
+  expected_sha="$(read_state_value "$PHASE_D_STATE" ENV_SHA256)"
+  [[ "$(sha256sum "$ENV_BACKUP" | awk '{print $1}')" == "$expected_sha" ]] || fail 'Phase D env backup SHA256 mismatch'
+  tmp="$PRIMARY/.env.issue307-restore.$$"
+  [[ ! -e "$tmp" ]] || fail 'temporary restore path already exists'
+  cp -- "$ENV_BACKUP" "$tmp"
+  chown "$uid:$gid" "$tmp"
+  chmod "$mode" "$tmp"
+  mv -f -- "$tmp" "$ENV_FILE"
+  [[ "$(sha256sum "$ENV_FILE" | awk '{print $1}')" == "$expected_sha" ]] || fail 'production env restore SHA256 mismatch'
+  [[ "$(read_bind_ip)" == "$LAN_IP" ]] || fail 'production env restore did not return LAN bind'
+}
+
+rollback_to_dual_internal() {
+  trap - ERR
+  set +e
+  local rc=0
+  rm -f -- "$PRIMARY/.env.issue307-loopback.$$" "$PRIMARY/.env.issue307-restore.$$"
+  ( restore_env_backup ) >/dev/null 2>&1 || rc=1
+  if [[ "$rc" -eq 0 ]]; then
+    ( assert_compose_model dual ) >/dev/null 2>&1 || rc=1
+  fi
+  if [[ "$rc" -eq 0 ]]; then
+    ( "${DUAL_COMPOSE[@]}" up -d --no-deps --no-build --pull never web ) >/dev/null 2>&1 || rc=1
+  fi
+  if [[ "$rc" -eq 0 ]]; then
+    ( verify_dual_runtime ) >/dev/null 2>&1 || rc=1
+  fi
+  set -e
+  if [[ "$rc" -eq 0 ]]; then
+    rm -f -- "$PHASE_D_STATE" "$ENV_BACKUP"
+    printf 'AUTO_ROLLBACK_TO_DUAL=PASS\n'
+    return 0
+  fi
+  printf 'AUTO_ROLLBACK_TO_DUAL=FAIL\n' >&2
+  return 1
+}
+
+case "$MODE" in
+  preflight)
+    [[ ! -e "$PHASE_D_STATE" && ! -e "$ENV_BACKUP" ]] || fail 'stale Phase D transition state exists'
+    verify_dual_runtime
+    printf 'mode=preflight\n'
+    printf 'dual_web_id=%s\n' "$(container_id "$WEB_NAME")"
+    printf 'web_image=%s\n' "$(container_image "$WEB_NAME")"
+    printf 'cloudflared_pid=%s\n' "$(cloudflared_pid)"
+    printf 'cloudflared_ha=%s\n' "$(cloudflared_ha)"
+    printf 'HERMES_DEALS_307_LOOPBACK_PREFLIGHT=PASS\n'
+    ;;
+
+  finalize-loopback)
+    [[ ! -e "$PHASE_D_STATE" && ! -e "$ENV_BACKUP" ]] || fail 'stale Phase D transition state exists'
+    verify_dual_runtime
+    DUAL_WEB_BEFORE="$(container_id "$WEB_NAME")"
+    capture_phase_d_state
+
+    MUTATED=true
+    on_error() {
+      local rc=$?
+      if [[ ${MUTATED:-false} == true ]]; then
+        rollback_to_dual_internal || true
+      fi
+      exit "$rc"
+    }
+    trap on_error ERR
+
+    rewrite_env_loopback
+    assert_compose_model loopback
+    "${COMPOSE[@]}" up -d --no-deps --no-build --pull never web
+    verify_loopback_runtime
+    [[ "$(container_id "$WEB_NAME")" != "$DUAL_WEB_BEFORE" ]] || fail 'web container was not recreated for loopback-only transition'
+    MUTATED=false
+    trap - ERR
+
+    printf 'mode=finalize-loopback\n'
+    printf 'dual_web_id=%s\n' "$DUAL_WEB_BEFORE"
+    printf 'loopback_web_id=%s\n' "$(container_id "$WEB_NAME")"
+    printf 'web_image=%s\n' "$(container_image "$WEB_NAME")"
+    printf 'cloudflared_pid=%s\n' "$(cloudflared_pid)"
+    printf 'cloudflared_ha=%s\n' "$(cloudflared_ha)"
+    printf 'DIRECT_LAN_9128_CLOSED=true\n'
+    printf 'ROLLBACK_TO_DUAL_AVAILABLE=true\n'
+    printf 'HERMES_DEALS_307_LOOPBACK_FINALIZE=PASS\n'
+    ;;
+
+  verify-loopback)
+    verify_loopback_runtime
+    printf 'mode=verify-loopback\n'
+    printf 'loopback_web_id=%s\n' "$(container_id "$WEB_NAME")"
+    printf 'web_image=%s\n' "$(container_image "$WEB_NAME")"
+    printf 'cloudflared_pid=%s\n' "$(cloudflared_pid)"
+    printf 'cloudflared_ha=%s\n' "$(cloudflared_ha)"
+    printf 'DIRECT_LAN_9128_CLOSED=true\n'
+    printf 'ROLLBACK_TO_DUAL_AVAILABLE=true\n'
+    printf 'HERMES_DEALS_307_LOOPBACK_VERIFY=PASS\n'
+    ;;
+
+  rollback-dual)
+    [[ ${DEALS_307_ROLLBACK_DUAL_CONFIRMED:-} == yes ]] || fail 'set DEALS_307_ROLLBACK_DUAL_CONFIRMED=yes only for an explicitly approved rollback'
+    verify_loopback_runtime
+    restore_env_backup
+    assert_compose_model dual
+    "${DUAL_COMPOSE[@]}" up -d --no-deps --no-build --pull never web
+    verify_dual_runtime
+    rm -f -- "$PHASE_D_STATE" "$ENV_BACKUP"
+    printf 'mode=rollback-dual\n'
+    printf 'HERMES_DEALS_307_LOOPBACK_ROLLBACK_TO_DUAL=PASS\n'
+    ;;
+esac

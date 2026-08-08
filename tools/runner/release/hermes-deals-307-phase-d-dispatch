@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'dispatcher must run as root through sudo'
+[[ $# -eq 1 ]] || fail 'usage: hermes-deals-307-phase-d-dispatch <preflight|finalize-loopback|verify-loopback>'
+MODE="$1"
+[[ "$MODE" =~ ^(preflight|finalize-loopback|verify-loopback)$ ]] || fail 'unsupported mode'
+
+OPERATOR='/usr/local/libexec/hermes-deals-ops/issue-307/hermes-deals-307-loopback-finalize'
+EXPECTED_OPERATOR_SHA256='3bf4892be9b7cad4817b04ed1801bfb862c5671890453b3f01852dbded6244f0'
+LOCK='/run/lock/hermes-deals-307-phase-c.lock'
+
+for command in flock readlink sha256sum stat; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+[[ -f "$OPERATOR" && ! -L "$OPERATOR" ]] || fail 'installed issue-307 Phase D operator is missing or unsafe'
+[[ "$(readlink -f -- "$OPERATOR")" == "$OPERATOR" ]] || fail 'installed issue-307 Phase D operator path drift'
+[[ "$(stat -c '%U:%G:%a' "$OPERATOR")" == 'root:root:755' ]] || fail 'installed issue-307 Phase D operator metadata mismatch'
+printf '%s  %s\n' "$EXPECTED_OPERATOR_SHA256" "$OPERATOR" | sha256sum -c - >/dev/null \
+  || fail 'installed issue-307 Phase D operator SHA256 mismatch'
+
+exec 9>"$LOCK"
+flock 9
+
+printf 'DISPATCH_PHASE=D\n'
+printf 'DISPATCH_MODE=%s\n' "$MODE"
+printf 'OPERATOR_SHA256=%s\n' "$EXPECTED_OPERATOR_SHA256"
+exec "$OPERATOR" "$MODE"
