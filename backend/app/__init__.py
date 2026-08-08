@@ -14,6 +14,7 @@ _NETTO_ISSUE19_RELEASE_CONTRACT = "requested-date-window+review-only-v1"
 if "DATABASE_URL" in os.environ:
     from app import weekly_special_runtime_patch as _weekly_special_runtime_patch
     from app import current_deals_route_installer as _current_deals_route_installer
+    from app import canonical_catalog_route_installer as _canonical_catalog_route_installer
 
 
 __all__ = []
