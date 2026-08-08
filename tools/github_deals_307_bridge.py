@@ -15,8 +15,11 @@ EXPECTED_ISSUE_NUMBER = 307
 EXPECTED_COMMANDS = {
     "/hermes-307 apply-dual": "apply-dual",
     "/hermes-307 verify-dual": "verify-dual",
+    "/hermes-307 finalize-loopback": "finalize-loopback",
+    "/hermes-307 verify-loopback": "verify-loopback",
 }
 RUNTIME_SHA = "654ec9739f8cea74ee8a4ee93e25e12bf06482cc"
+PHASE_D_RUNTIME_SHA = "b7a94a8a3d150db43ac051c59a304c31e901ef21"
 
 
 class BridgeAuthorizationError(ValueError):
@@ -48,6 +51,23 @@ def _default_get_json(url: str, token: str) -> Any:
         return json.load(response)
 
 
+def _assert_registered_runtime_reachable(
+    runtime_sha: str,
+    *,
+    repository: str,
+    token: str,
+    get_json: Callable[[str, str], Any],
+) -> None:
+    if re.fullmatch(r"[0-9a-f]{40}", runtime_sha) is None:
+        raise BridgeAuthorizationError("registered runtime SHA is invalid")
+    comparison = get_json(
+        f"https://api.github.com/repos/{repository}/compare/{runtime_sha}...main",
+        token,
+    )
+    if not isinstance(comparison, Mapping) or comparison.get("status") not in {"ahead", "identical"}:
+        raise BridgeAuthorizationError("registered runtime SHA is not reachable from current main")
+
+
 def authorize_event(
     event: Mapping[str, Any],
     *,
@@ -77,26 +97,31 @@ def authorize_event(
 
     comment = event.get("comment")
     if not isinstance(comment, Mapping):
-        raise BridgeAuthorizationError("comment payload is missing")
+        raise BridgeAuthorizationError("issue comment payload is missing")
     operation = parse_comment(str(comment.get("body") or ""))
     comment_id = comment.get("id")
     if isinstance(comment_id, bool) or not isinstance(comment_id, int) or comment_id <= 0:
         raise BridgeAuthorizationError("comment ID is invalid")
 
-    if re.fullmatch(r"[0-9a-f]{40}", RUNTIME_SHA) is None:
-        raise BridgeAuthorizationError("registered runtime SHA is invalid")
-    comparison = get_json(
-        f"https://api.github.com/repos/{repository}/compare/{RUNTIME_SHA}...main",
-        token,
+    _assert_registered_runtime_reachable(
+        RUNTIME_SHA,
+        repository=repository,
+        token=token,
+        get_json=get_json,
     )
-    if not isinstance(comparison, Mapping) or comparison.get("status") not in {"ahead", "identical"}:
-        raise BridgeAuthorizationError("registered runtime SHA is not reachable from current main")
+    _assert_registered_runtime_reachable(
+        PHASE_D_RUNTIME_SHA,
+        repository=repository,
+        token=token,
+        get_json=get_json,
+    )
 
     return {
         "operation": operation,
         "issue_number": str(EXPECTED_ISSUE_NUMBER),
         "comment_id": str(comment_id),
         "runtime_sha": RUNTIME_SHA,
+        "phase_d_runtime_sha": PHASE_D_RUNTIME_SHA,
         "trigger_actor": EXPECTED_OWNER_LOGIN,
     }
 
@@ -107,6 +132,7 @@ def write_github_outputs(path: Path, values: Mapping[str, str]) -> None:
         "issue_number",
         "comment_id",
         "runtime_sha",
+        "phase_d_runtime_sha",
         "trigger_actor",
     }
     if set(values) != allowed:
@@ -134,6 +160,7 @@ def main() -> int:
                 "operation": values["operation"],
                 "issue_number": values["issue_number"],
                 "runtime_sha": values["runtime_sha"],
+                "phase_d_runtime_sha": values["phase_d_runtime_sha"],
             },
             sort_keys=True,
         )
