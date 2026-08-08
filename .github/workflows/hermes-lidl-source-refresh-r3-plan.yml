@@ -1,0 +1,333 @@
+name: Hermes Lidl source refresh R3 promotion plan
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-lidl-source-refresh-r3-plan
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 361 &&
+      !github.event.issue.pull_request &&
+      github.actor == 'rozkalnsandris' &&
+      startsWith(github.event.comment.body, '/hermes-lidl-source-refresh-r3-plan ')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.auth.outputs.artifact_id }}
+      command_comment_id: ${{ steps.auth.outputs.command_comment_id }}
+      runtime_sha: ${{ steps.auth.outputs.runtime_sha }}
+
+    steps:
+      - name: Authorize exact owner R3 read-only plan command
+        id: auth
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          if os.environ['REPOSITORY'] != 'rozkalnsandris/hermes-deals':
+              raise SystemExit('unexpected repository')
+          sender = event.get('sender') or {}
+          if sender.get('login') != os.environ['EXPECTED_OWNER_LOGIN']:
+              raise SystemExit('command sender login is not allowlisted')
+          if sender.get('id') != int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('command sender numeric ID is not allowlisted')
+          issue = event.get('issue') or {}
+          if issue.get('number') != 361 or issue.get('pull_request') is not None:
+              raise SystemExit('command is accepted only on issue #361')
+          comment = event.get('comment') or {}
+          body = str(comment.get('body') or '').strip()
+          match = re.fullmatch(
+              r'/hermes-lidl-source-refresh-r3-plan artifact=([1-9][0-9]*)',
+              body,
+          )
+          if match is None:
+              raise SystemExit('comment does not match exact allowlisted R3 plan command')
+          artifact_id = int(match.group(1))
+          if artifact_id != 9021545332:
+              raise SystemExit('R3 plan command references an unexpected artifact')
+          runtime_sha = str(os.environ['GITHUB_SHA'])
+          if re.fullmatch(r'[0-9a-f]{40}', runtime_sha) is None:
+              raise SystemExit('default-branch runtime SHA is invalid')
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              handle.write(f'artifact_id={artifact_id}\n')
+              handle.write(f"command_comment_id={int(comment['id'])}\n")
+              handle.write(f'runtime_sha={runtime_sha}\n')
+          PY
+
+  plan:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      fingerprint: ${{ steps.inspect.outputs.fingerprint }}
+      scan_tree_sha: ${{ steps.inspect.outputs.scan_tree_sha }}
+      source_review_sha: ${{ steps.inspect.outputs.source_review_sha }}
+      authority_core_sha: ${{ steps.inspect.outputs.authority_core_sha }}
+      expected_gate_a_state: ${{ steps.inspect.outputs.expected_gate_a_state }}
+      plan_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      plan_artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+
+    steps:
+      - name: Checkout exact default-branch runtime
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.runtime_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch and validate exact retained R2 artifact metadata
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" \
+            > "${RUNNER_TEMP}/r2-artifact-metadata.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          metadata = json.loads(
+              (Path(os.environ['RUNNER_TEMP']) / 'r2-artifact-metadata.json').read_text()
+          )
+          expected = {
+              'id': 9021545332,
+              'name': 'lidl-source-refresh-r2-31256539018-1',
+              'digest': 'sha256:d4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4',
+          }
+          for key, value in expected.items():
+              if metadata.get(key) != value:
+                  raise SystemExit(f'R2 artifact metadata mismatch: {key}')
+          if metadata.get('expired') is not False:
+              raise SystemExit('R2 artifact is expired')
+          workflow = metadata.get('workflow_run') or {}
+          if workflow.get('id') != 31256539018:
+              raise SystemExit('R2 artifact workflow run mismatch')
+          if workflow.get('head_branch') != 'main':
+              raise SystemExit('R2 artifact head branch mismatch')
+          if workflow.get('head_sha') != '433fe078d042eac28862d84b7422f345144af962':
+              raise SystemExit('R2 artifact head SHA mismatch')
+          if workflow.get('repository_id') != 1317143994:
+              raise SystemExit('R2 artifact repository binding mismatch')
+          print('R2_ARTIFACT_METADATA=PASS')
+          PY
+
+      - name: Download exact retained R2 artifact ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" \
+            --output "${RUNNER_TEMP}/r2-artifact.zip"
+          test "$(sha256sum "${RUNNER_TEMP}/r2-artifact.zip" | awk '{print $1}')" = \
+            'd4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4'
+
+      - name: Build deterministic read-only R3 promotion plan
+        id: run
+        env:
+          ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          plan="${RUNNER_TEMP}/r3-plan.json"
+          python3 tools/lidl_source_refresh_r3_plan.py \
+            --artifact-zip "${RUNNER_TEMP}/r2-artifact.zip" \
+            --artifact-id "$ARTIFACT_ID" \
+            --artifact-digest 'd4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4' \
+            --output "$plan"
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect R3 plan safety and outputs
+        id: inspect
+        env:
+          PLAN: ${{ steps.run.outputs.plan }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          plan = json.loads(Path(os.environ['PLAN']).read_text())
+          if plan.get('result') != 'R3_PLAN_READY':
+              raise SystemExit('R3 plan result mismatch')
+          fingerprint = str(plan.get('plan_fingerprint') or '')
+          if re.fullmatch(r'[0-9a-f]{64}', fingerprint) is None:
+              raise SystemExit('R3 plan fingerprint is invalid')
+          expected_safety = {
+              'plan_only': True,
+              'corpus_write_authorized': False,
+              'source_review_promotion_authorized': False,
+              'scan_promotion_authorized': False,
+              'authority_promotion_authorized': False,
+              'profile_promotion_authorized': False,
+              'database_write_authorized': False,
+              'review_write_authorized': False,
+              'auto_approve_authorized': False,
+              'auto_publish_authorized': False,
+              'production_deploy_authorized': False,
+              'systemd_change_authorized': False,
+              'automatic_retry_authorized': False,
+              'gate_c_d_authorized': False,
+              'b15m2_v08_authorized': False,
+          }
+          if plan.get('safety') != expected_safety:
+              raise SystemExit('R3 plan safety contract mismatch')
+          expected_targets = {
+              'scan_dir': 'flyers/aktionsprospekt-03-08-2026-08-08-2026-b1cf3b--src-6da2135ea984/scans/scan-v631-7191e910f07b',
+              'source_review': 'flyers/aktionsprospekt-03-08-2026-08-08-2026-b1cf3b--src-6da2135ea984/source-refresh/e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8/source-review.json',
+              'authority': 'flyers/aktionsprospekt-03-08-2026-08-08-2026-b1cf3b--src-6da2135ea984/source-refresh/e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8/authority.json',
+              'promotion_receipt': 'flyers/aktionsprospekt-03-08-2026-08-08-2026-b1cf3b--src-6da2135ea984/source-refresh/e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8/promotion-receipt.json',
+          }
+          if plan.get('targets') != expected_targets:
+              raise SystemExit('R3 plan targets mismatch')
+          prediction = plan.get('prediction') or {}
+          if prediction.get('expected_gate_a_state_after_valid_promotion') != 'WAIT_PROFILE':
+              raise SystemExit('R3 plan Gate A prediction mismatch')
+          if prediction.get('ready_is_forbidden_without_independent_rev05_profile') is not True:
+              raise SystemExit('R3 plan incorrectly permits READY')
+          preconditions = plan.get('preconditions') or {}
+          if preconditions.get('fresh_owner_r3_promotion_authorization_required') is not True:
+              raise SystemExit('R3 plan fresh authorization precondition missing')
+          if preconditions.get('exclusive_create_only') is not True:
+              raise SystemExit('R3 plan exclusive-create precondition missing')
+          if preconditions.get('overwrite_immutable_source_forbidden') is not True:
+              raise SystemExit('R3 plan immutable-source guard missing')
+          exact = plan.get('exact_payloads') or {}
+          outputs = {
+              'result': plan['result'],
+              'fingerprint': fingerprint,
+              'scan_tree_sha': str(exact.get('scan_tree_sha256') or ''),
+              'source_review_sha': str(exact.get('source_review_sha256') or ''),
+              'authority_core_sha': str(exact.get('authority_core_sha256') or ''),
+              'expected_gate_a_state': str(prediction['expected_gate_a_state_after_valid_promotion']),
+          }
+          for key in ('scan_tree_sha', 'source_review_sha', 'authority_core_sha'):
+              if re.fullmatch(r'[0-9a-f]{64}', outputs[key]) is None:
+                  raise SystemExit(f'invalid R3 SHA output: {key}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              for key, value in outputs.items():
+                  if '\n' in value or '\r' in value:
+                      raise SystemExit('unsafe R3 output newline')
+                  handle.write(f'{key}={value}\n')
+          PY
+
+      - name: Upload read-only R3 plan
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidl-source-refresh-r3-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.run.outputs.plan }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    if: always() && needs.authorize.result == 'success'
+    needs: [authorize, plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report sanitized R3 plan result on issue 361
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_RESULT: ${{ needs.plan.result }}
+          RESULT: ${{ needs.plan.outputs.result }}
+          RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
+          COMMAND_COMMENT_ID: ${{ needs.authorize.outputs.command_comment_id }}
+          FINGERPRINT: ${{ needs.plan.outputs.fingerprint }}
+          SCAN_TREE_SHA: ${{ needs.plan.outputs.scan_tree_sha }}
+          SOURCE_REVIEW_SHA: ${{ needs.plan.outputs.source_review_sha }}
+          AUTHORITY_CORE_SHA: ${{ needs.plan.outputs.authority_core_sha }}
+          EXPECTED_GATE_A_STATE: ${{ needs.plan.outputs.expected_gate_a_state }}
+          PLAN_ARTIFACT_ID: ${{ needs.plan.outputs.plan_artifact_id }}
+          PLAN_ARTIFACT_DIGEST: ${{ needs.plan.outputs.plan_artifact_digest }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ.get('RESULT') or 'UNAVAILABLE'
+          body = (
+              '## Lidl rev05 R3 read-only promotion plan\n\n'
+              f"- command comment: `{os.environ['COMMAND_COMMENT_ID']}`\n"
+              f"- workflow job: `{os.environ['JOB_RESULT']}`\n"
+              f"- result: `{result}`\n"
+              f"- default-branch runtime: `{os.environ['RUNTIME_SHA']}`\n"
+              '- input R2 artifact: `9021545332` / `d4f9be1a19592a45739e4cc6a2827833682460e1c41bdd6496e0375077ef33c4`\n'
+              f"- plan fingerprint: `{os.environ.get('FINGERPRINT') or 'unavailable'}`\n"
+              f"- scan tree SHA-256: `{os.environ.get('SCAN_TREE_SHA') or 'unavailable'}`\n"
+              f"- source-review SHA-256: `{os.environ.get('SOURCE_REVIEW_SHA') or 'unavailable'}`\n"
+              f"- authority-core SHA-256: `{os.environ.get('AUTHORITY_CORE_SHA') or 'unavailable'}`\n"
+              f"- expected Gate A after a future valid promotion: `{os.environ.get('EXPECTED_GATE_A_STATE') or 'unavailable'}`\n"
+              f"- retained plan artifact ID: `{os.environ.get('PLAN_ARTIFACT_ID') or 'unavailable'}`\n"
+              f"- retained plan artifact digest: `{os.environ.get('PLAN_ARTIFACT_DIGEST') or 'unavailable'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              'Safety: read-only deterministic planning only. Corpus target occupancy is an apply-time precondition, not proven here. '
+              'No R3 corpus/source-review/scan/authority promotion, profile promotion, DB/Review write, publication, '
+              'production deploy, systemd/timer/retry, Gate C/D or B15M2 V08 action is authorized.'
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/361/comments",
+              data=json.dumps({'body': body}).encode(),
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2026-03-10',
+                  'User-Agent': 'hermes-deals-lidl-r3-plan-reporter',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20):
+              pass
+          PY
