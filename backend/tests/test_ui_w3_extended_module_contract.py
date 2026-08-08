@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND = ROOT / "frontend"
+FRONTEND = ROOT / "backend" / "frontend"
 UI_APP = ROOT / "backend" / "app" / "ui" / "app.js"
 
 
