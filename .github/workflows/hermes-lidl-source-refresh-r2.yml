@@ -27,18 +27,18 @@ jobs:
     outputs:
       as_of: ${{ steps.auth.outputs.as_of }}
       authorization_comment_id: ${{ steps.auth.outputs.authorization_comment_id }}
+      approved_at: ${{ steps.auth.outputs.approved_at }}
       command_comment_id: ${{ steps.auth.outputs.command_comment_id }}
       runtime_sha: ${{ steps.auth.outputs.runtime_sha }}
 
     steps:
-      - name: Authorize exact owner R2 command
+      - name: Authorize exact owner semantic retry command
         id: auth
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: "277435981"
-          AUTHORIZATION_COMMENT_ID: "5225820964"
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -46,6 +46,7 @@ jobs:
           import json
           import os
           from pathlib import Path
+          import re
           import urllib.request
 
           event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -59,43 +60,68 @@ jobs:
           issue = event.get('issue') or {}
           if issue.get('number') != 345 or issue.get('pull_request') is not None:
               raise SystemExit('command is accepted only on issue #345')
+
           comment = event.get('comment') or {}
           body = str(comment.get('body') or '').strip()
-          expected_command = '/hermes-lidl-source-refresh-r2 as_of=2026-08-08'
-          if body != expected_command:
-              raise SystemExit('comment does not match the exact allowlisted R2 command')
+          match = re.fullmatch(
+              r'/hermes-lidl-source-refresh-r2 auth=([1-9][0-9]*) as_of=2026-08-08',
+              body,
+          )
+          if match is None:
+              raise SystemExit('comment does not match the exact allowlisted R2 retry command')
+          auth_id = int(match.group(1))
+          if auth_id == int(comment.get('id') or 0):
+              raise SystemExit('command comment cannot self-authorize')
 
-          auth_id = int(os.environ['AUTHORIZATION_COMMENT_ID'])
           request = urllib.request.Request(
               f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/comments/{auth_id}",
               headers={
                   'Accept': 'application/vnd.github+json',
                   'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
                   'X-GitHub-Api-Version': '2022-11-28',
-                  'User-Agent': 'hermes-deals-lidl-r2-authorizer',
+                  'User-Agent': 'hermes-deals-lidl-r2-semantic-authorizer',
               },
           )
           with urllib.request.urlopen(request, timeout=20) as response:
               authorization = json.load(response)
+
           author = authorization.get('user') or {}
           if author.get('login') != os.environ['EXPECTED_OWNER_LOGIN']:
               raise SystemExit('authorization comment login mismatch')
           if author.get('id') != int(os.environ['EXPECTED_OWNER_ID']):
               raise SystemExit('authorization comment numeric ID mismatch')
+          issue_url = str(authorization.get('issue_url') or '')
+          if issue_url != f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/345":
+              raise SystemExit('authorization comment is not attached to issue #345')
+
           authorization_body = str(authorization.get('body') or '')
-          phrase = 'apstiprinu Lidl rev05 source-refresh R2 staging scan'
-          if phrase not in authorization_body:
-              raise SystemExit('exact R2 owner authorization phrase is missing')
-          if 'Not authorized: authoritative corpus/source-review/scan promotion' not in authorization_body:
-              raise SystemExit('R2 authorization safety boundary is missing')
+          required_tokens = [
+              'apstiprinu Lidl rev05 source-refresh R2 staging scan semantic retry',
+              '6da2135ea984d1f79bdb311dfa0d8affd1d2f8d46c63a1bba25b202a30a5fb16',
+              '7486e32f837869b3dedc36b5a129c034129f653bf698df4ad55649510623ff17',
+              'e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8',
+              '12ebbb79bb7bfd46e603e766d357549bf4fb381e6afe4dfdcfeaa1844d6ac6dd',
+              'binding count `140`',
+              'binding changes `0/0/0`',
+              'raw SHA is provenance-only',
+              'Not authorized: authoritative corpus/source-review/scan promotion',
+          ]
+          missing = [token for token in required_tokens if token not in authorization_body]
+          if missing:
+              raise SystemExit('semantic retry authorization is incomplete')
+
+          approved_at = str(authorization.get('created_at') or '')
+          if re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z', approved_at) is None:
+              raise SystemExit('authorization created_at is not canonical UTC')
 
           runtime_sha = str(os.environ['GITHUB_SHA'])
-          if len(runtime_sha) != 40 or any(c not in '0123456789abcdef' for c in runtime_sha):
+          if re.fullmatch(r'[0-9a-f]{40}', runtime_sha) is None:
               raise SystemExit('default-branch runtime SHA is invalid')
           output = Path(os.environ['GITHUB_OUTPUT'])
           with output.open('a', encoding='utf-8') as handle:
               handle.write('as_of=2026-08-08\n')
               handle.write(f'authorization_comment_id={auth_id}\n')
+              handle.write(f'approved_at={approved_at}\n')
               handle.write(f"command_comment_id={int(comment['id'])}\n")
               handle.write(f'runtime_sha={runtime_sha}\n')
           PY
@@ -108,6 +134,7 @@ jobs:
       contents: read
     outputs:
       result: ${{ steps.inspect.outputs.result }}
+      raw_sha: ${{ steps.inspect.outputs.raw_sha }}
       parser_sha: ${{ steps.inspect.outputs.parser_sha }}
       parser_version: ${{ steps.inspect.outputs.parser_version }}
       scan_name: ${{ steps.inspect.outputs.scan_name }}
@@ -150,6 +177,7 @@ jobs:
         env:
           AS_OF: ${{ needs.authorize.outputs.as_of }}
           AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          APPROVED_AT: ${{ needs.authorize.outputs.approved_at }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -158,6 +186,7 @@ jobs:
           python tools/lidl_source_refresh_r2_scan.py \
             --as-of "$AS_OF" \
             --authorization-comment-id "$AUTHORIZATION_COMMENT_ID" \
+            --approved-at "$APPROVED_AT" \
             --output-dir "$output_dir"
           echo "output_dir=$output_dir" >> "$GITHUB_OUTPUT"
 
@@ -165,6 +194,8 @@ jobs:
         id: inspect
         env:
           OUTPUT_DIR: ${{ steps.run.outputs.output_dir }}
+          EXPECTED_AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          EXPECTED_APPROVED_AT: ${{ needs.authorize.outputs.approved_at }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -194,17 +225,23 @@ jobs:
           }
           if summary.get('result') != 'R2_STAGING_SCAN_READY':
               raise SystemExit('R2 result mismatch')
-          if summary.get('authorization_comment_id') != 5225820964:
+          if summary.get('authorization_comment_id') != int(os.environ['EXPECTED_AUTHORIZATION_COMMENT_ID']):
               raise SystemExit('R2 authorization binding mismatch')
           if summary.get('safety') != expected_safety or artifact.get('safety') != expected_safety:
               raise SystemExit('R2 safety contract mismatch')
           if artifact.get('raw_source_exported') is not False:
               raise SystemExit('raw source export contract failed')
+
           source = summary.get('source') or {}
+          raw_sha = str(source.get('raw_sha256') or '')
+          if re.fullmatch(r'[0-9a-f]{64}', raw_sha) is None:
+              raise SystemExit('R2 raw source provenance SHA is invalid')
+          if source.get('raw_sha_is_provenance_only') is not True:
+              raise SystemExit('R2 raw SHA provenance-only marker is missing')
           if source.get('pdf_sha256') != '6da2135ea984d1f79bdb311dfa0d8affd1d2f8d46c63a1bba25b202a30a5fb16':
               raise SystemExit('R2 PDF identity mismatch')
-          if source.get('raw_sha256') != '31425680b944936fa7f1fa34e32223908ae4e53ce589e0194128ab16b8b9c0a4':
-              raise SystemExit('R2 raw source identity mismatch')
+          if source.get('stable_source_identity_sha256') != '7486e32f837869b3dedc36b5a129c034129f653bf698df4ad55649510623ff17':
+              raise SystemExit('R2 stable identity mismatch')
           if source.get('parser_input_identity_sha256') != 'e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8':
               raise SystemExit('R2 parser-input identity mismatch')
           if source.get('product_binding_sha256') != '12ebbb79bb7bfd46e603e766d357549bf4fb381e6afe4dfdcfeaa1844d6ac6dd':
@@ -217,10 +254,17 @@ jobs:
               'binding_title_changed': 0,
           }:
               raise SystemExit('R2 observed binding changes mismatch')
+
           if review.get('decision') != 'approve_parser_input_refresh':
               raise SystemExit('R2 review decision mismatch')
           if review.get('scope') != 'authoritative_staging_scan_only':
               raise SystemExit('R2 review scope mismatch')
+          if review.get('approved_at') != os.environ['EXPECTED_APPROVED_AT']:
+              raise SystemExit('R2 review authorization timestamp mismatch')
+          if str(os.environ['EXPECTED_AUTHORIZATION_COMMENT_ID']) not in str(review.get('note') or ''):
+              raise SystemExit('R2 review authorization comment binding missing')
+          if 'raw source SHA is provenance-only' not in str(review.get('note') or ''):
+              raise SystemExit('R2 raw SHA provenance note missing')
           permissions = review.get('permissions') or {}
           if permissions != {
               'staging_scan': True,
@@ -232,6 +276,7 @@ jobs:
               'systemd_change': False,
           }:
               raise SystemExit('R2 review permissions mismatch')
+
           replay = summary.get('replay') or {}
           if replay.get('isolated_runs') != 2 or replay.get('byte_identical') is not True:
               raise SystemExit('R2 deterministic replay mismatch')
@@ -240,12 +285,17 @@ jobs:
 
           parser = summary.get('parser') or {}
           scan = summary.get('scan') or {}
-          for value in (parser.get('sha256'), scan.get('tree_sha256'), summary.get('source_review', {}).get('sha256')):
+          for value in (
+              parser.get('sha256'),
+              scan.get('tree_sha256'),
+              summary.get('source_review', {}).get('sha256'),
+          ):
               if re.fullmatch(r'[0-9a-f]{64}', str(value or '')) is None:
                   raise SystemExit('invalid R2 SHA output')
 
           fields = {
               'result': summary['result'],
+              'raw_sha': raw_sha,
               'parser_sha': parser['sha256'],
               'parser_version': parser['version'],
               'scan_name': scan['name'],
@@ -295,6 +345,7 @@ jobs:
           RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
           COMMAND_COMMENT_ID: ${{ needs.authorize.outputs.command_comment_id }}
           AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          RAW_SHA: ${{ needs.scan.outputs.raw_sha }}
           PARSER_SHA: ${{ needs.scan.outputs.parser_sha }}
           PARSER_VERSION: ${{ needs.scan.outputs.parser_version }}
           SCAN_NAME: ${{ needs.scan.outputs.scan_name }}
@@ -319,12 +370,15 @@ jobs:
 
           result = os.environ.get('RESULT') or 'UNAVAILABLE'
           body = (
-              '## Lidl rev05 source-refresh R2 staging scan\n\n'
+              '## Lidl rev05 source-refresh R2 semantic staging scan\n\n'
               f"- command comment: `{os.environ['COMMAND_COMMENT_ID']}`\n"
               f"- authorization comment: `{os.environ['AUTHORIZATION_COMMENT_ID']}`\n"
               f"- workflow job: `{os.environ['JOB_RESULT']}`\n"
               f"- result: `{result}`\n"
               f"- default-branch runtime: `{os.environ['RUNTIME_SHA']}`\n"
+              f"- scan-time raw SHA-256 (provenance only): `{os.environ.get('RAW_SHA') or 'unavailable'}`\n"
+              '- canonical parser-input gate: `e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8`\n'
+              '- canonical product-binding gate: `12ebbb79bb7bfd46e603e766d357549bf4fb381e6afe4dfdcfeaa1844d6ac6dd` / count `140` / changes `0/0/0`\n'
               f"- parser: `{os.environ.get('PARSER_VERSION') or 'unavailable'}` / `{os.environ.get('PARSER_SHA') or 'unavailable'}`\n"
               f"- scan: `{os.environ.get('SCAN_NAME') or 'unavailable'}`\n"
               f"- byte-identical scan tree SHA-256: `{os.environ.get('SCAN_TREE_SHA') or 'unavailable'}`\n"
@@ -334,8 +388,9 @@ jobs:
               f"- retained artifact ID: `{os.environ.get('ARTIFACT_ID') or 'unavailable'}`\n"
               f"- retained artifact digest: `{os.environ.get('ARTIFACT_DIGEST') or 'unavailable'}`\n"
               f"- workflow: {os.environ['RUN_URL']}\n\n"
-              'Safety: two isolated staging scans only. No authoritative corpus/source-review/scan promotion, '
-              'DB/Review write, offer approval/publication, production deploy, systemd/timer/retry, Gate C/D or B15M2 V08 action is authorized.'
+              'Safety: two isolated semantic-identity-bound staging scans only; raw SHA is provenance-only. '
+              'No authoritative corpus/source-review/scan promotion, DB/Review write, offer approval/publication, '
+              'production deploy, systemd/timer/retry, Gate C/D or B15M2 V08 action is authorized.'
           )
           request = urllib.request.Request(
               f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/345/comments",
@@ -346,7 +401,7 @@ jobs:
                   'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
                   'Content-Type': 'application/json',
                   'X-GitHub-Api-Version': '2022-11-28',
-                  'User-Agent': 'hermes-deals-lidl-r2-reporter',
+                  'User-Agent': 'hermes-deals-lidl-r2-semantic-reporter',
               },
           )
           with urllib.request.urlopen(request, timeout=20):
