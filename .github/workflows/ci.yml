@@ -26,8 +26,15 @@ jobs:
         working-directory: backend
 
     steps:
-      - name: Checkout repository
+      - name: Checkout complete repository history
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Scan complete Git history for credentials
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/run-gitleaks.sh "$GITHUB_WORKSPACE"
 
       - name: Set up Python
         uses: actions/setup-python@v6
