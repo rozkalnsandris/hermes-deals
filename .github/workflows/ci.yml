@@ -36,6 +36,11 @@ jobs:
         run: |
           bash scripts/run-gitleaks.sh "$GITHUB_WORKSPACE"
 
+      - name: Audit public-repository workflow safety
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 scripts/audit-public-workflow-safety.py
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
