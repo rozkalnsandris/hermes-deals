@@ -38,7 +38,10 @@ def test_w3_vite_output_is_one_readable_non_sourcemapped_module() -> None:
     assert 'formats: ["es"]' in config
     assert 'fileName: () => "app.js"' in config
     assert 'entryFileNames: "app.js"' in config
-    assert "inlineDynamicImports: true" in config
+    assert "rolldownOptions" in config
+    assert "codeSplitting: false" in config
+    assert "rollupOptions" not in config
+    assert "inlineDynamicImports" not in config
     assert "sourcemap: false" in config
     assert "minify: false" in config
     assert "react" not in config.lower()
@@ -96,6 +99,7 @@ def test_w3_build_verifier_fails_closed_on_output_drift() -> None:
 
     assert 'relative.length !== 1 || relative[0] !== "app.js"' in verifier
     assert "sourceMappingURL" in verifier
+    assert 'name.endsWith(".map")' in verifier
     assert "HERMES_UI_W3_BUILD=PASS" in verifier
     assert "HERMES_UI_W3_BUILD_SHA256" in verifier
     for marker in (
