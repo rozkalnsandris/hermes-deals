@@ -26,7 +26,7 @@
     {"id":"weekly-one-shot","path":"tools/lidl_weekly_one_shot.py","role":"guarded_weekly_shadow_entrypoint","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"b375885dbc66be8f6757e9bdbab6b1ca255253daf20bace275fabca0f19bb0b3","runtime_imported":true},
     {"id":"weekly-staging","path":"tools/lidl_weekly_staging.py","role":"append_only_staging_entrypoint","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"25b78eb03601dc7c8d3a20350e96b884900b5aed212598ee70c76e1b8d51360e","runtime_imported":true},
     {"id":"gate-b-family-scan","path":"tools/lidl_gate_b_family_scan.py","role":"gate_b_deterministic_staging_parser_entrypoint","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"c5e4efd0d417e00fdb596a3c314113f5c606b7c96efe0417e5479e39d5a329ae","runtime_imported":true},
-    {"id":"source-refresh-r2-scan","path":"tools/lidl_source_refresh_r2_scan.py","role":"owner_authorized_same_pdf_refresh_staging_parser_entrypoint","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"c1843d0057e6201879e77e7d83cdbe66c6f95dfa33dc1fe6eac010ff743c0569","runtime_imported":true},
+    {"id":"source-refresh-r2-scan","path":"tools/lidl_source_refresh_r2_scan.py","role":"owner_authorized_same_pdf_refresh_staging_parser_entrypoint","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"AUTO","runtime_imported":true},
     {"id":"gate-b-family-promotion","path":"tools/lidl_gate_b_family_promotion.py","role":"gate_b_create_once_scan_profile_promotion_boundary","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"489b819dd18c5d8d77ff2edde4d8f93e2ed6e5d9e840715a9ecd1341d3b5ab25","runtime_imported":false},
     {"id":"weekly-completeness","path":"tools/lidl-weekly-completeness.py","role":"review_completeness_entrypoint","lifecycle":"active","parser_version":"lidl-pdf-v08c-r61-shadow-v631","sha256":"90381743c16c2ac7bc9f0c41acf4199202aad795ca180f78212f42244b1605fb","runtime_imported":true},
     {"id":"weekly-semantics","path":"backend/app/lidl_weekly_semantics.py","role":"post_parser_weekly_semantic_gate","lifecycle":"active","parser_version":null,"sha256":"60f6bab2a8b70b460d6b309c0300de4f8c93f1238ecc8b9a6dbe39539671402b","runtime_imported":true},
@@ -64,6 +64,6 @@
   "historical_identities": [
     {"name":"legacy parser.py public path","paths":["backend/app/lidl/parser.py","backend/app/retailers/lidl/parser.py"],"status":"absent_from_current_repository","allowed_importers":[]},
     {"name":"dead noncanonical r6_parser.py","paths":["backend/app/lidl/r6_parser.py","backend/app/r6_parser.py","tools/lidl_parser_provenance/r6_parser.py"],"status":"quarantined_by_absence","allowed_importers":[],"recovery_evidence":"tools/lidl_parser_provenance/v631/"},
-    {"name":"legacy Codex V6.2 worktree","paths":[],"status":"external_evidence_only_non_authoritative","allowed_importers":[]}
+    {"name":"legacy Codex V6.2 worktree","paths":[],"status":"external_evidence_only_non_authoritative","allowed_importers":[],"recovery_evidence":"tools/lidl_parser_provenance/v631/"}
   ]
 }
