@@ -59,6 +59,12 @@ cloudflared_pid() {
   printf '%s\n' "$pid"
 }
 
+assert_no_published_ports() {
+  local container="$1" mappings
+  mappings="$(docker port "$container" 2>/dev/null)" || return 1
+  [[ -z "$mappings" ]]
+}
+
 API_BEFORE="$(single_service_container api)" || fail 'production_api_identity_invalid'
 WEB_BEFORE="$(single_service_container web)" || fail 'production_web_identity_invalid'
 DB_BEFORE="$(single_service_container db)" || fail 'production_db_identity_invalid'
@@ -101,7 +107,7 @@ docker run --detach --pull=never \
   --env 'HERMES_UI_ASSET_MODE=hashed-w4' \
   "$TARGET_IMAGE" >/dev/null
 
-[[ "$(docker inspect "$DIAG_API" --format '{{json .HostConfig.PortBindings}}')" == 'null' ]] \
+assert_no_published_ports "$DIAG_API" \
   || fail 'diagnostic_api_has_published_ports'
 
 wait_for_url() {
@@ -148,7 +154,7 @@ docker run --detach --pull=never \
   --volume "$TARGET_NGINX:/etc/nginx/conf.d/default.conf:ro" \
   "$NGINX_IMAGE" >/dev/null
 
-[[ "$(docker inspect "$DIAG_WEB" --format '{{json .HostConfig.PortBindings}}')" == 'null' ]] \
+assert_no_published_ports "$DIAG_WEB" \
   || fail 'diagnostic_web_has_published_ports'
 
 wait_for_url "http://$DIAG_WEB/ui" || fail 'diagnostic_proxy_not_ready'
