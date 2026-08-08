@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# CI refresh: verify the unchanged owner-finalizer contract against the current main merge-ref.
+
 from pathlib import Path
 import subprocess
 
