@@ -197,6 +197,17 @@ def workflow() -> dict:
     return parsed
 
 
+def phase_run(name: str) -> str:
+    phase = workflow()["jobs"][name]
+    steps = phase["steps"]
+    for step in steps:
+        if step.get("id") == "run":
+            run = step.get("run")
+            assert isinstance(run, str)
+            return run
+    raise AssertionError(f"missing run step in {name}")
+
+
 def test_workflow_has_narrow_issue_comment_and_runner_boundary() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     parsed = workflow()
@@ -249,46 +260,46 @@ def test_workflow_has_narrow_issue_comment_and_runner_boundary() -> None:
 
 
 def test_phase_c_verify_operation_is_direct_and_read_only() -> None:
-    phase_text = yaml.safe_dump(workflow()["jobs"]["phase-c"], sort_keys=True)
-    verify_branch = phase_text.index("if [[ \"$OPERATION\" == 'verify-dual' ]]")
-    verify_call = phase_text.index('sudo --non-interactive "$DISPATCHER" verify-dual', verify_branch)
-    verify_exit = phase_text.index("exit 0", verify_call)
-    check_call = phase_text.index('sudo --non-interactive "$DISPATCHER" check')
-    apply_call = phase_text.index('sudo --non-interactive "$DISPATCHER" apply-dual')
+    run = phase_run("phase-c")
+    verify_branch = run.index("if [[ \"$OPERATION\" == 'verify-dual' ]]")
+    verify_call = run.index('sudo --non-interactive "$DISPATCHER" verify-dual', verify_branch)
+    verify_exit = run.index("exit 0", verify_call)
+    check_call = run.index('sudo --non-interactive "$DISPATCHER" check')
+    apply_call = run.index('sudo --non-interactive "$DISPATCHER" apply-dual')
     assert verify_branch < verify_call < verify_exit < check_call < apply_call
-    verify_slice = phase_text[verify_branch:verify_exit]
+    verify_slice = run[verify_branch:verify_exit]
     assert 'sudo --non-interactive "$DISPATCHER" apply-dual' not in verify_slice
     assert 'sudo --non-interactive "$DISPATCHER" check' not in verify_slice
     assert "AUTO_ROLLBACK_TO_LAN" not in verify_slice
 
 
 def test_phase_d_verify_operation_is_direct_and_read_only() -> None:
-    phase_text = yaml.safe_dump(workflow()["jobs"]["phase-d"], sort_keys=True)
-    verify_branch = phase_text.index("if [[ \"$OPERATION\" == 'verify-loopback' ]]")
-    verify_call = phase_text.index('sudo --non-interactive "$DISPATCHER" verify-loopback', verify_branch)
-    verify_exit = phase_text.index("exit 0", verify_call)
-    preflight_call = phase_text.index('sudo --non-interactive "$DISPATCHER" preflight')
-    finalize_call = phase_text.index('sudo --non-interactive "$DISPATCHER" finalize-loopback')
+    run = phase_run("phase-d")
+    verify_branch = run.index("if [[ \"$OPERATION\" == 'verify-loopback' ]]")
+    verify_call = run.index('sudo --non-interactive "$DISPATCHER" verify-loopback', verify_branch)
+    verify_exit = run.index("exit 0", verify_call)
+    preflight_call = run.index('sudo --non-interactive "$DISPATCHER" preflight')
+    finalize_call = run.index('sudo --non-interactive "$DISPATCHER" finalize-loopback')
     assert verify_branch < verify_call < verify_exit < preflight_call < finalize_call
-    verify_slice = phase_text[verify_branch:verify_exit]
+    verify_slice = run[verify_branch:verify_exit]
     assert 'sudo --non-interactive "$DISPATCHER" finalize-loopback' not in verify_slice
     assert 'sudo --non-interactive "$DISPATCHER" preflight' not in verify_slice
     assert "AUTO_ROLLBACK_TO_DUAL" not in verify_slice
 
 
 def test_phase_d_finalize_preflights_then_handles_dual_rollback_marker() -> None:
-    phase_text = yaml.safe_dump(workflow()["jobs"]["phase-d"], sort_keys=True)
-    preflight = phase_text.index('sudo --non-interactive "$DISPATCHER" preflight')
-    finalize = phase_text.index('sudo --non-interactive "$DISPATCHER" finalize-loopback')
+    run = phase_run("phase-d")
+    preflight = run.index('sudo --non-interactive "$DISPATCHER" preflight')
+    finalize = run.index('sudo --non-interactive "$DISPATCHER" finalize-loopback')
     assert preflight < finalize
-    assert "HERMES_DEALS_307_LOOPBACK_PREFLIGHT=PASS" in phase_text
-    assert "HERMES_DEALS_307_LOOPBACK_FINALIZE=PASS" in phase_text
-    assert "AUTO_ROLLBACK_TO_DUAL=PASS" in phase_text
-    assert "FINALIZE_FAILED_ROLLBACK_VERIFIED" in phase_text
-    assert "FINALIZE_FAILED_STATE_REQUIRES_REVIEW" in phase_text
-    assert "DIRECT_LAN_9128_CLOSED=true" in phase_text
-    assert "ROLLBACK_TO_DUAL_AVAILABLE=true" in phase_text
-    assert "rollback-dual" not in phase_text
+    assert "HERMES_DEALS_307_LOOPBACK_PREFLIGHT=PASS" in run
+    assert "HERMES_DEALS_307_LOOPBACK_FINALIZE=PASS" in run
+    assert "AUTO_ROLLBACK_TO_DUAL=PASS" in run
+    assert "FINALIZE_FAILED_ROLLBACK_VERIFIED" in run
+    assert "FINALIZE_FAILED_STATE_REQUIRES_REVIEW" in run
+    assert "DIRECT_LAN_9128_CLOSED=true" in run
+    assert "ROLLBACK_TO_DUAL_AVAILABLE=true" in run
+    assert "rollback-dual" not in run
 
 
 def test_self_hosted_jobs_have_no_github_token_checkout_or_secrets() -> None:
