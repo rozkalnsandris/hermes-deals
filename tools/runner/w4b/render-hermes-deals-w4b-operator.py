@@ -79,6 +79,31 @@ primary_state() {
 }
 '''
 
+SOURCE_CONTRACT_OLD = '''primary = primary_base.read_text(encoding="utf-8").splitlines()
+target = target_base.read_text(encoding="utf-8").splitlines()
+mode_lines = [line for line in target if "HERMES_UI_ASSET_MODE:" in line]
+if mode_lines != ["      HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:-inline-w3}"]:
+    raise SystemExit("unexpected W4B Compose mode line")
+target_without_mode = [line for line in target if "HERMES_UI_ASSET_MODE:" not in line]
+if target_without_mode != primary:
+    raise SystemExit("target base Compose differs from production baseline beyond W4B mode")
+'''
+
+SOURCE_CONTRACT_NEW = '''primary = primary_base.read_text(encoding="utf-8").splitlines()
+target = target_base.read_text(encoding="utf-8").splitlines()
+mode_line = "      HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:-inline-w3}"
+target_mode_lines = [line for line in target if "HERMES_UI_ASSET_MODE:" in line]
+if target_mode_lines != [mode_line]:
+    raise SystemExit("unexpected W4B Compose mode line")
+primary_mode_lines = [line for line in primary if "HERMES_UI_ASSET_MODE:" in line]
+if primary_mode_lines not in ([], [mode_line]):
+    raise SystemExit("unexpected production W4B Compose mode line")
+target_without_mode = [line for line in target if "HERMES_UI_ASSET_MODE:" not in line]
+primary_without_mode = [line for line in primary if "HERMES_UI_ASSET_MODE:" not in line]
+if target_without_mode != primary_without_mode:
+    raise SystemExit("target base Compose differs from production baseline beyond W4B mode")
+'''
+
 COMPOSE_STDIN_HEAD_OLD = '''  compose "$api_tag" "$ui_mode" "$nginx_config" config --format json |
     python3 - "$api_tag" "$ui_mode" "$nginx_config" <<'PY'
 '''
@@ -184,6 +209,12 @@ def main() -> None:
     )
     rendered = replace_exact_once(
         rendered,
+        SOURCE_CONTRACT_OLD,
+        SOURCE_CONTRACT_NEW,
+        "production Compose baseline",
+    )
+    rendered = replace_exact_once(
+        rendered,
         COMPOSE_STDIN_HEAD_OLD,
         COMPOSE_STDIN_HEAD_NEW,
         "Compose validator stdin head",
@@ -211,6 +242,8 @@ def main() -> None:
         raise SystemExit("stale W4B image validator remains after rendering")
     if COMMANDS_OLD in rendered or GIT_STATE_OLD in rendered:
         raise SystemExit("stale W4B production Git state path remains after rendering")
+    if SOURCE_CONTRACT_OLD in rendered:
+        raise SystemExit("stale W4B production Compose baseline remains after rendering")
     if COMPOSE_STDIN_HEAD_OLD in rendered or COMPOSE_STDIN_TAIL_OLD in rendered:
         raise SystemExit("stale W4B Compose validator stdin path remains after rendering")
     if COMPOSE_STDIN_HEAD_NEW not in rendered:
@@ -221,6 +254,10 @@ def main() -> None:
         raise SystemExit("managed-main tag validation marker mismatch")
     if rendered.count('runuser -u andris -- git -C "$PRIMARY" "$@"') != 1:
         raise SystemExit("production Git owner-identity marker mismatch")
+    if rendered.count("unexpected production W4B Compose mode line") != 1:
+        raise SystemExit("production Compose mode validation marker mismatch")
+    if rendered.count("primary_without_mode") != 2:
+        raise SystemExit("production Compose normalization marker mismatch")
     if rendered.count("data = json.load(sys.stdin)") != 1:
         raise SystemExit("Compose validator stdin JSON marker mismatch")
     if INLINE_RETURN_TRAP in rendered or HASHED_RETURN_TRAP in rendered:
