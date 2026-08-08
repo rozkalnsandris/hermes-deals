@@ -415,6 +415,15 @@ POSTCHECK_TOKENS = (
 
 def replace_exact_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
+    if label == "hashed W4 UI fetch":
+        if count != 2:
+            raise SystemExit(
+                f"{label} replacement expected exactly two W3/W4 matches, found {count}"
+            )
+        head, separator, tail = source.rpartition(old)
+        if not separator:
+            raise SystemExit(f"{label} replacement target disappeared")
+        return head + new + tail
     if count != 1:
         raise SystemExit(f"{label} replacement expected exactly once, found {count}")
     return source.replace(old, new, 1)
