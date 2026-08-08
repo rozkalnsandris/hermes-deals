@@ -52,12 +52,14 @@ def _cell_box(cell: Mapping[str, Any], width: float, height: float, geometry_mod
 
 def _raw_box(raw: Mapping[str, Any], geometry_module: Any) -> Any:
     try:
-        box = geometry_module.Box(
-            float(raw["x0"]),
-            float(raw["y0"]),
-            float(raw["x1"]),
-            float(raw["y1"]),
-        )
+        nested = raw.get("bbox")
+        if isinstance(nested, (list, tuple)) and len(nested) == 4:
+            coords = nested
+        elif isinstance(nested, Mapping):
+            coords = tuple(nested[key] for key in ("x0", "y0", "x1", "y1"))
+        else:
+            coords = tuple(raw[key] for key in ("x0", "y0", "x1", "y1"))
+        box = geometry_module.Box(*(float(value) for value in coords))
     except (KeyError, TypeError, ValueError) as exc:
         raise NettoCardRegionTopologyAuditError("invalid topology bbox") from exc
     if box.area <= 0:
