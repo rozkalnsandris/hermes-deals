@@ -38,8 +38,15 @@ def fake_github(url: str, _token: str):
     return {"status": "ahead"}
 
 
-def test_exact_command_only() -> None:
-    assert MODULE.parse_comment("/hermes-307 apply-dual") == "apply-dual"
+@pytest.mark.parametrize(
+    ("body", "operation"),
+    [
+        ("/hermes-307 apply-dual", "apply-dual"),
+        ("/hermes-307 verify-dual", "verify-dual"),
+    ],
+)
+def test_exact_commands_only(body: str, operation: str) -> None:
+    assert MODULE.parse_comment(body) == operation
 
 
 @pytest.mark.parametrize(
@@ -49,14 +56,16 @@ def test_exact_command_only() -> None:
         " /hermes-307 apply-dual",
         "/hermes-307 apply-dual\necho pwned",
         "/hermes-307 apply-dual extra=1",
-        "/hermes-307 verify-dual",
+        "/hermes-307 verify-dual ",
+        "/hermes-307 verify-dual extra=1",
         "/hermes-307 rollback-lan",
         "/hermes-307 apply",
+        "/hermes-307 verify",
         "/hermes-307",
     ],
 )
 def test_command_parser_fails_closed(body: str) -> None:
-    with pytest.raises(MODULE.BridgeAuthorizationError, match="exact allowlisted command"):
+    with pytest.raises(MODULE.BridgeAuthorizationError, match="allowlisted command"):
         MODULE.parse_comment(body)
 
 
@@ -69,6 +78,22 @@ def test_authorizer_binds_owner_issue_and_registered_runtime() -> None:
     )
     assert result == {
         "operation": "apply-dual",
+        "issue_number": "307",
+        "comment_id": "5223000000",
+        "runtime_sha": RUNTIME_SHA,
+        "trigger_actor": "rozkalnsandris",
+    }
+
+
+def test_authorizer_allows_exact_read_only_verify_command() -> None:
+    result = MODULE.authorize_event(
+        valid_event("/hermes-307 verify-dual"),
+        repository="rozkalnsandris/hermes-deals",
+        token="test-token",
+        get_json=fake_github,
+    )
+    assert result == {
+        "operation": "verify-dual",
         "issue_number": "307",
         "comment_id": "5223000000",
         "runtime_sha": RUNTIME_SHA,
@@ -173,11 +198,16 @@ def test_workflow_has_narrow_issue_comment_and_runner_boundary() -> None:
     assert f"DISPATCHER={DISPATCHER}" in text
     assert "Checkout exact reviewed Phase A runtime" not in text
     assert "issue-307-runtime" not in text
+    assert "needs.authorize.outputs.operation == 'apply-dual'" in text
+    assert "needs.authorize.outputs.operation == 'verify-dual'" in text
+    assert "OPERATION: ${{ needs.authorize.outputs.operation }}" in text
 
+    verify_calls = text.count('sudo --non-interactive "$DISPATCHER" verify-dual')
+    assert verify_calls == 2
     check_pos = text.index('sudo --non-interactive "$DISPATCHER" check')
     apply_pos = text.index('sudo --non-interactive "$DISPATCHER" apply-dual')
-    verify_pos = text.index('sudo --non-interactive "$DISPATCHER" verify-dual')
-    assert check_pos < apply_pos < verify_pos
+    post_apply_verify_pos = text.rindex('sudo --non-interactive "$DISPATCHER" verify-dual')
+    assert check_pos < apply_pos < post_apply_verify_pos
 
     for forbidden in (
         "eval ",
@@ -200,6 +230,22 @@ def test_workflow_has_narrow_issue_comment_and_runner_boundary() -> None:
         "CF_TUNNEL_TOKEN",
     ):
         assert forbidden not in text
+
+
+def test_verify_operation_is_direct_and_read_only() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    verify_branch = text.index("if [[ \"$OPERATION\" == 'verify-dual' ]]")
+    verify_call = text.index('sudo --non-interactive "$DISPATCHER" verify-dual', verify_branch)
+    verify_exit = text.index("exit 0", verify_call)
+    check_call = text.index('sudo --non-interactive "$DISPATCHER" check')
+    apply_call = text.index('sudo --non-interactive "$DISPATCHER" apply-dual')
+    assert verify_branch < verify_call < verify_exit < check_call < apply_call
+    verify_slice = text[verify_branch:verify_exit]
+    assert 'sudo --non-interactive "$DISPATCHER" apply-dual' not in verify_slice
+    assert 'sudo --non-interactive "$DISPATCHER" check' not in verify_slice
+    assert "AUTO_ROLLBACK_TO_LAN" not in verify_slice
+    assert "emit check_pass not_run" in verify_slice
+    assert "emit apply_pass not_run" in verify_slice
 
 
 def test_self_hosted_job_has_no_github_token_and_no_raw_comment() -> None:
@@ -240,4 +286,6 @@ def test_authorizer_source_contains_no_shell_execution_surface() -> None:
     assert 'EXPECTED_OWNER_LOGIN = "rozkalnsandris"' in text
     assert "EXPECTED_OWNER_ID = 277435981" in text
     assert "EXPECTED_ISSUE_NUMBER = 307" in text
+    assert '"/hermes-307 apply-dual": "apply-dual"' in text
+    assert '"/hermes-307 verify-dual": "verify-dual"' in text
     assert f'RUNTIME_SHA = "{RUNTIME_SHA}"' in text
