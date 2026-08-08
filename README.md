@@ -1,14 +1,40 @@
 <p align="center">
-  <img src="backend/app/ui/assets/deals-logo.svg" alt="Hermes Deals project logo" width="112">
+  <img src="backend/app/ui/assets/deals-logo.svg" alt="Hermes Deals project logo" width="128" height="128">
+</p>
+
+<h1 align="center">Hermes Deals</h1>
+
+<p align="center">
+  <strong>Self-hosted grocery intelligence for real weekly flyers, price comparison, and a family shopping workflow.</strong>
 </p>
 
 <p align="center">
-  <img src="assets/branding/readme-banner.jpg" alt="Hermes Deals project banner" width="960">
+  <a href="https://deals.rozkalns.net/">Live app</a>
+  ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
+  ·
+  <a href="docs/ROADMAP.md">Roadmap</a>
+  ·
+  <a href="docs/PROJECT_PROGRESS.md">Progress model</a>
 </p>
 
-# Hermes Deals
+<p align="center">
+  <a href="https://github.com/rozkalnsandris/hermes-deals/actions/workflows/ci.yml">
+    <img src="https://github.com/rozkalnsandris/hermes-deals/actions/workflows/ci.yml/badge.svg?branch=main" alt="Hermes Deals CI status">
+  </a>
+</p>
 
-Private, fully custom family shopping-intelligence platform for Andris' household.
+Hermes Deals is a fully custom family shopping-intelligence platform built around
+real retailer evidence rather than generic deal feeds. It collects and validates
+weekly offers, keeps retailer provenance immutable, compares reviewed product
+identities, and turns the result into a practical shopping UI for the household.
+
+| | |
+|---|---|
+| **Retailers** | Netto Marken-Discount · Lidl · ALDI Nord · EDEKA Patzer |
+| **Stack** | FastAPI · PostgreSQL · SQLAlchemy · Nginx · Docker Compose |
+| **Runtime** | Raspberry Pi 5 · Cloudflare Access-protected public app |
+| **Principles** | immutable evidence · source-bound identity · fail-closed review · auditable writes |
 
 <!-- project-progress:start -->
 ## Project progress
