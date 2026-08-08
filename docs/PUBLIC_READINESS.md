@@ -28,6 +28,10 @@ The repository-code and CI security gates remain in force. The only remaining it
 - Cloudflare Access service credentials are GitHub secrets and must never be committed. Repository visibility is independent of the production Access policy.
 - A post-switch PR CI run is required before this documentation update is merged so the full-history secret scan, workflow-safety audit and complete test suite are exercised once while the repository is already public.
 
+## Main-ruleset smoke test
+
+This documentation-only pull request is intentionally used to verify that the active `Protect main` ruleset blocks merging before the required CI checks pass and still permits the normal squash-merge path after they pass. No production code or deploy behavior is changed.
+
 ## Visibility-change rule
 
 Do not weaken RPi5 trust boundaries because the repository is public. Standard PR CI must stay on GitHub-hosted runners. Self-hosted jobs remain owner-gated, post-merge/manual/controlled operations with no untrusted PR checkout.
