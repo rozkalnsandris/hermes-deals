@@ -12,7 +12,8 @@ export default defineConfig({
     minify: false,
     lib: {
       entry: resolve(root, "src/app.js"),
-      formats: ["es"],
+      name: "HermesDealsUI",
+      formats: ["iife"],
       fileName: () => "app.js",
     },
     rolldownOptions: {
