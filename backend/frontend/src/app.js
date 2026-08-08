@@ -16,6 +16,9 @@ import * as status from "./ui/status.js";
 import { initWeeklyOverview } from "./features/weekly.js";
 import { BOOTSTRAP_CONTRACT, bootstrapUi } from "./bootstrap.js";
 
+// Kept through W3 because ui_bundle.py and immutable-release checks still pin
+// this reviewed application identity marker. W5 owns marker archaeology cleanup.
+export const PRODUCTION_BUNDLE_IDENTITY = "HERMES_UI_SCRIPT_OPEN:";
 export const core = Object.freeze({ api, dates, dom, storage, weeklyPayloadBridge });
 export const features = Object.freeze({ deals, dailySpecials, catalog, details, shoppingList });
 export const ui = Object.freeze({ navigation, overlays, reviewRefresh, filters, status });
