@@ -1,0 +1,354 @@
+name: Hermes Lidl source refresh R2 staging scan
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: hermes-lidl-source-refresh-r2
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 345 &&
+      !github.event.issue.pull_request &&
+      github.actor == 'rozkalnsandris' &&
+      startsWith(github.event.comment.body, '/hermes-lidl-source-refresh-r2 ')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      as_of: ${{ steps.auth.outputs.as_of }}
+      authorization_comment_id: ${{ steps.auth.outputs.authorization_comment_id }}
+      command_comment_id: ${{ steps.auth.outputs.command_comment_id }}
+      runtime_sha: ${{ steps.auth.outputs.runtime_sha }}
+
+    steps:
+      - name: Authorize exact owner R2 command
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+          AUTHORIZATION_COMMENT_ID: "5225820964"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import urllib.request
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          if os.environ['REPOSITORY'] != 'rozkalnsandris/hermes-deals':
+              raise SystemExit('unexpected repository')
+          sender = event.get('sender') or {}
+          if sender.get('login') != os.environ['EXPECTED_OWNER_LOGIN']:
+              raise SystemExit('command sender login is not allowlisted')
+          if sender.get('id') != int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('command sender numeric ID is not allowlisted')
+          issue = event.get('issue') or {}
+          if issue.get('number') != 345 or issue.get('pull_request') is not None:
+              raise SystemExit('command is accepted only on issue #345')
+          comment = event.get('comment') or {}
+          body = str(comment.get('body') or '').strip()
+          expected_command = '/hermes-lidl-source-refresh-r2 as_of=2026-08-08'
+          if body != expected_command:
+              raise SystemExit('comment does not match the exact allowlisted R2 command')
+
+          auth_id = int(os.environ['AUTHORIZATION_COMMENT_ID'])
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/comments/{auth_id}",
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'hermes-deals-lidl-r2-authorizer',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              authorization = json.load(response)
+          author = authorization.get('user') or {}
+          if author.get('login') != os.environ['EXPECTED_OWNER_LOGIN']:
+              raise SystemExit('authorization comment login mismatch')
+          if author.get('id') != int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('authorization comment numeric ID mismatch')
+          authorization_body = str(authorization.get('body') or '')
+          phrase = 'apstiprinu Lidl rev05 source-refresh R2 staging scan'
+          if phrase not in authorization_body:
+              raise SystemExit('exact R2 owner authorization phrase is missing')
+          if 'Not authorized: authoritative corpus/source-review/scan promotion' not in authorization_body:
+              raise SystemExit('R2 authorization safety boundary is missing')
+
+          runtime_sha = str(os.environ['GITHUB_SHA'])
+          if len(runtime_sha) != 40 or any(c not in '0123456789abcdef' for c in runtime_sha):
+              raise SystemExit('default-branch runtime SHA is invalid')
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              handle.write('as_of=2026-08-08\n')
+              handle.write(f'authorization_comment_id={auth_id}\n')
+              handle.write(f"command_comment_id={int(comment['id'])}\n")
+              handle.write(f'runtime_sha={runtime_sha}\n')
+          PY
+
+  scan:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      parser_sha: ${{ steps.inspect.outputs.parser_sha }}
+      parser_version: ${{ steps.inspect.outputs.parser_version }}
+      scan_name: ${{ steps.inspect.outputs.scan_name }}
+      scan_tree_sha: ${{ steps.inspect.outputs.scan_tree_sha }}
+      source_review_sha: ${{ steps.inspect.outputs.source_review_sha }}
+      rows: ${{ steps.inspect.outputs.rows }}
+      physical_rows: ${{ steps.inspect.outputs.physical_rows }}
+      online_only_rows: ${{ steps.inspect.outputs.online_only_rows }}
+      in_scope_rows: ${{ steps.inspect.outputs.in_scope_rows }}
+      review_required_rows: ${{ steps.inspect.outputs.review_required_rows }}
+      accepted_physical_rows: ${{ steps.inspect.outputs.accepted_physical_rows }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+
+    steps:
+      - name: Checkout exact default-branch runtime
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install parser dependencies
+        working-directory: backend
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Run exact owner-authorized isolated R2 scans
+        id: run
+        env:
+          AS_OF: ${{ needs.authorize.outputs.as_of }}
+          AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output_dir="${RUNNER_TEMP}/lidl-source-refresh-r2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$output_dir"
+          python tools/lidl_source_refresh_r2_scan.py \
+            --as-of "$AS_OF" \
+            --authorization-comment-id "$AUTHORIZATION_COMMENT_ID" \
+            --output-dir "$output_dir"
+          echo "output_dir=$output_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect sanitized R2 evidence
+        id: inspect
+        env:
+          OUTPUT_DIR: ${{ steps.run.outputs.output_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          root = Path(os.environ['OUTPUT_DIR'])
+          summary = json.loads((root / 'evidence' / 'r2-summary.json').read_text())
+          artifact = json.loads((root / 'evidence' / 'artifact-manifest.json').read_text())
+          review = json.loads((root / 'evidence' / 'approved-source-review.json').read_text())
+          expected_safety = {
+              'staging_scan': True,
+              'authoritative_corpus_write': False,
+              'source_review_promotion': False,
+              'database_write': False,
+              'review_write': False,
+              'auto_approve': False,
+              'auto_publish': False,
+              'production_deploy': False,
+              'systemd_change': False,
+              'automatic_retry': False,
+              'gate_c_d_authorized': False,
+              'b15m2_v08_authorized': False,
+          }
+          if summary.get('result') != 'R2_STAGING_SCAN_READY':
+              raise SystemExit('R2 result mismatch')
+          if summary.get('authorization_comment_id') != 5225820964:
+              raise SystemExit('R2 authorization binding mismatch')
+          if summary.get('safety') != expected_safety or artifact.get('safety') != expected_safety:
+              raise SystemExit('R2 safety contract mismatch')
+          if artifact.get('raw_source_exported') is not False:
+              raise SystemExit('raw source export contract failed')
+          source = summary.get('source') or {}
+          if source.get('pdf_sha256') != '6da2135ea984d1f79bdb311dfa0d8affd1d2f8d46c63a1bba25b202a30a5fb16':
+              raise SystemExit('R2 PDF identity mismatch')
+          if source.get('raw_sha256') != '31425680b944936fa7f1fa34e32223908ae4e53ce589e0194128ab16b8b9c0a4':
+              raise SystemExit('R2 raw source identity mismatch')
+          if source.get('parser_input_identity_sha256') != 'e6ebe5669551a2d455e7b2c036746e08e3bdd20e8e0562fab6972ab97e2a88e8':
+              raise SystemExit('R2 parser-input identity mismatch')
+          if source.get('product_binding_sha256') != '12ebbb79bb7bfd46e603e766d357549bf4fb381e6afe4dfdcfeaa1844d6ac6dd':
+              raise SystemExit('R2 product-binding identity mismatch')
+          if source.get('product_binding_count') != 140 or source.get('product_link_count') != 141:
+              raise SystemExit('R2 product-binding/link count mismatch')
+          if summary.get('observed_changes') != {
+              'binding_added': 0,
+              'binding_removed': 0,
+              'binding_title_changed': 0,
+          }:
+              raise SystemExit('R2 observed binding changes mismatch')
+          if review.get('decision') != 'approve_parser_input_refresh':
+              raise SystemExit('R2 review decision mismatch')
+          if review.get('scope') != 'authoritative_staging_scan_only':
+              raise SystemExit('R2 review scope mismatch')
+          permissions = review.get('permissions') or {}
+          if permissions != {
+              'staging_scan': True,
+              'corpus_write': False,
+              'db_write': False,
+              'review_seed': False,
+              'auto_approve': False,
+              'auto_publish': False,
+              'systemd_change': False,
+          }:
+              raise SystemExit('R2 review permissions mismatch')
+          replay = summary.get('replay') or {}
+          if replay.get('isolated_runs') != 2 or replay.get('byte_identical') is not True:
+              raise SystemExit('R2 deterministic replay mismatch')
+          if replay.get('scan_a_tree_sha256') != replay.get('scan_b_tree_sha256'):
+              raise SystemExit('R2 scan tree replay SHA mismatch')
+
+          parser = summary.get('parser') or {}
+          scan = summary.get('scan') or {}
+          for value in (parser.get('sha256'), scan.get('tree_sha256'), summary.get('source_review', {}).get('sha256')):
+              if re.fullmatch(r'[0-9a-f]{64}', str(value or '')) is None:
+                  raise SystemExit('invalid R2 SHA output')
+
+          fields = {
+              'result': summary['result'],
+              'parser_sha': parser['sha256'],
+              'parser_version': parser['version'],
+              'scan_name': scan['name'],
+              'scan_tree_sha': scan['tree_sha256'],
+              'source_review_sha': summary['source_review']['sha256'],
+              'rows': str(scan['rows']),
+              'physical_rows': str(scan['physical_rows']),
+              'online_only_rows': str(scan['online_only_rows']),
+              'in_scope_rows': str(scan['in_scope_rows']),
+              'review_required_rows': str(scan['review_required_rows']),
+              'accepted_physical_rows': str(scan['accepted_physical_rows']),
+          }
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              for key, value in fields.items():
+                  value = str(value)
+                  if '\n' in value or '\r' in value:
+                      raise SystemExit('unsafe workflow output newline')
+                  handle.write(f'{key}={value}\n')
+          PY
+
+      - name: Upload retained R2 staging scan and sanitized evidence
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidl-source-refresh-r2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.run.outputs.output_dir }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    if: always() && needs.authorize.result == 'success'
+    needs: [authorize, scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report sanitized R2 result on issue 345
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_RESULT: ${{ needs.scan.result }}
+          RESULT: ${{ needs.scan.outputs.result }}
+          RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
+          COMMAND_COMMENT_ID: ${{ needs.authorize.outputs.command_comment_id }}
+          AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          PARSER_SHA: ${{ needs.scan.outputs.parser_sha }}
+          PARSER_VERSION: ${{ needs.scan.outputs.parser_version }}
+          SCAN_NAME: ${{ needs.scan.outputs.scan_name }}
+          SCAN_TREE_SHA: ${{ needs.scan.outputs.scan_tree_sha }}
+          SOURCE_REVIEW_SHA: ${{ needs.scan.outputs.source_review_sha }}
+          ROWS: ${{ needs.scan.outputs.rows }}
+          PHYSICAL_ROWS: ${{ needs.scan.outputs.physical_rows }}
+          ONLINE_ONLY_ROWS: ${{ needs.scan.outputs.online_only_rows }}
+          IN_SCOPE_ROWS: ${{ needs.scan.outputs.in_scope_rows }}
+          REVIEW_REQUIRED_ROWS: ${{ needs.scan.outputs.review_required_rows }}
+          ACCEPTED_PHYSICAL_ROWS: ${{ needs.scan.outputs.accepted_physical_rows }}
+          ARTIFACT_ID: ${{ needs.scan.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.scan.outputs.artifact_digest }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ.get('RESULT') or 'UNAVAILABLE'
+          body = (
+              '## Lidl rev05 source-refresh R2 staging scan\n\n'
+              f"- command comment: `{os.environ['COMMAND_COMMENT_ID']}`\n"
+              f"- authorization comment: `{os.environ['AUTHORIZATION_COMMENT_ID']}`\n"
+              f"- workflow job: `{os.environ['JOB_RESULT']}`\n"
+              f"- result: `{result}`\n"
+              f"- default-branch runtime: `{os.environ['RUNTIME_SHA']}`\n"
+              f"- parser: `{os.environ.get('PARSER_VERSION') or 'unavailable'}` / `{os.environ.get('PARSER_SHA') or 'unavailable'}`\n"
+              f"- scan: `{os.environ.get('SCAN_NAME') or 'unavailable'}`\n"
+              f"- byte-identical scan tree SHA-256: `{os.environ.get('SCAN_TREE_SHA') or 'unavailable'}`\n"
+              f"- approved source-review SHA-256: `{os.environ.get('SOURCE_REVIEW_SHA') or 'unavailable'}`\n"
+              f"- rows: `{os.environ.get('ROWS') or 'unavailable'}` total, `{os.environ.get('PHYSICAL_ROWS') or 'unavailable'}` physical, `{os.environ.get('ONLINE_ONLY_ROWS') or 'unavailable'}` online-only\n"
+              f"- scope counts: `{os.environ.get('IN_SCOPE_ROWS') or 'unavailable'}` in-scope, `{os.environ.get('REVIEW_REQUIRED_ROWS') or 'unavailable'}` review-required, `{os.environ.get('ACCEPTED_PHYSICAL_ROWS') or 'unavailable'}` accepted-physical\n"
+              f"- retained artifact ID: `{os.environ.get('ARTIFACT_ID') or 'unavailable'}`\n"
+              f"- retained artifact digest: `{os.environ.get('ARTIFACT_DIGEST') or 'unavailable'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              'Safety: two isolated staging scans only. No authoritative corpus/source-review/scan promotion, '
+              'DB/Review write, offer approval/publication, production deploy, systemd/timer/retry, Gate C/D or B15M2 V08 action is authorized.'
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/345/comments",
+              data=json.dumps({'body': body}).encode(),
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'hermes-deals-lidl-r2-reporter',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20):
+              pass
+          PY
