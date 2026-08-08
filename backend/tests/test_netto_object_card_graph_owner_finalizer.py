@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-# CI refresh: verify the unchanged owner-finalizer contract against the current main merge-ref.
-
 from pathlib import Path
 import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
 FINALIZER = ROOT / "tools" / "runner" / "run-netto-object-card-graph-audit-owner-finalizer.sh"
-TARGET_SHA = "3114135cf3d41c089b7ca5de7d134e725a9e1cd8"
+TARGET_SHA = "5a263b103210d6a3aa223f057f13acb034b115cb"
 WORKTREE = "/home/andris/hermes-deals-worktrees/netto-object-card-graph-audit-v1"
 RUNTIME_ROOT = "/usr/local/libexec/hermes-deals-audits/netto-object-card-graph-audit-v1"
 DISPATCHER = "/usr/local/sbin/hermes-deals-netto-object-card-graph-audit-dispatch"
@@ -21,12 +19,12 @@ def source() -> str:
     return FINALIZER.read_text(encoding="utf-8")
 
 
-def test_finalizer_is_syntax_valid_and_pins_reviewed_bootstrap() -> None:
+def test_finalizer_is_syntax_valid_and_pins_fixed_bootstrap() -> None:
     text = source()
     subprocess.run(["bash", "-n", str(FINALIZER)], check=True)
 
-    assert "FINALIZER_VERSION='netto-object-card-graph-audit-owner-finalizer-v1'" in text
-    assert "SOURCE_PR='403'" in text
+    assert "FINALIZER_VERSION='netto-object-card-graph-audit-owner-finalizer-v2'" in text
+    assert "SOURCE_PR='411'" in text
     assert f"TARGET_SHA='{TARGET_SHA}'" in text
     assert f"WORKTREE='{WORKTREE}'" in text
     assert "install-netto-object-card-graph-rpi5-audit.sh" in text
@@ -40,16 +38,27 @@ def test_finalizer_is_syntax_valid_and_pins_reviewed_bootstrap() -> None:
     assert "exact source SHA has no successful main-push CI" in text
 
 
-def test_finalizer_preserves_primary_and_uses_exact_detached_worktree() -> None:
+def test_finalizer_preserves_primary_and_refreshes_only_safe_detached_worktree() -> None:
     text = source()
 
     assert "PRIMARY='/home/andris/hermes-deals'" in text
     assert "verify_primary_unchanged" in text
     assert "PRIMARY_WORKTREE_UNCHANGED=true" in text
     assert "PRIMARY_INDEX_UNCHANGED=true" in text
+    assert "verify_audit_worktree_source" in text
+    assert "prepare_audit_worktree" in text
+    assert 'git -C "$PRIMARY" worktree remove "$WORKTREE"' in text
+    assert 'git -C "$PRIMARY" worktree remove --force' not in text
     assert 'git -C "$PRIMARY" worktree add --detach "$WORKTREE" "$TARGET_SHA"' in text
-    assert '[[ -z "$(git_read "$WORKTREE" branch --show-current)" ]]' in text
-    assert '[[ -z "$(git_read "$WORKTREE" status --porcelain=v1 --untracked-files=all)" ]]' in text
+    assert "object-card graph audit worktree must be detached" in text
+    assert "object-card graph audit worktree is dirty" in text
+    assert "object-card graph audit source is not a primary-repository worktree" in text
+    assert "object-card graph audit worktree origin is not allowlisted" in text
+
+    verify_index = text.index('existing_head="$(verify_audit_worktree_source)"')
+    remove_index = text.index('git -C "$PRIMARY" worktree remove "$WORKTREE"')
+    add_index = text.index('git -C "$PRIMARY" worktree add --detach "$WORKTREE" "$TARGET_SHA"')
+    assert verify_index < remove_index < add_index
 
     for forbidden in (
         'git -C "$PRIMARY" switch',
@@ -70,7 +79,7 @@ def test_finalizer_installs_reviewed_root_trust_and_never_executes_audit() -> No
     assert 'sudo bash "$INSTALLER" "$TARGET_SHA" "$WORKTREE"' in text
     assert 'sudo -u github-runner -- sudo --non-interactive -l "$DISPATCHER"' in text
     assert "AUDIT_EXECUTED=false" in text
-    assert "NEXT_GITHUB_ACTION=apply audit:netto-object-card-graph-v1 to merged PR #403" in text
+    assert "NEXT_GITHUB_ACTION=apply audit:netto-object-card-graph-v1 to merged PR #411" in text
 
     assert 'sudo --non-interactive "$DISPATCHER"' not in text
     assert 'sudo -u github-runner -- sudo --non-interactive "$DISPATCHER"' not in text
