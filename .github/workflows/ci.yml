@@ -16,6 +16,58 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  frontend-lock-bootstrap:
+    name: Frontend W3 lock/bootstrap
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: frontend/.nvmrc
+
+      - name: Generate exact dependency lock
+        run: |
+          npm install --package-lock-only --ignore-scripts
+
+      - name: Install from generated lock
+        run: |
+          npm ci --ignore-scripts
+
+      - name: Verify deterministic W3 build contract
+        run: |
+          npm run build:check
+          first_sha="$(sha256sum dist/app.js | awk '{print $1}')"
+          rm -rf dist
+          npm run build:check
+          second_sha="$(sha256sum dist/app.js | awk '{print $1}')"
+          test "$first_sha" = "$second_sha"
+          echo "HERMES_UI_W3_DETERMINISTIC_SHA256=$second_sha"
+
+      - name: Stage generated lock artifact
+        run: |
+          install -d -m 0755 "$RUNNER_TEMP/hermes-ui-lock"
+          cp package-lock.json "$RUNNER_TEMP/hermes-ui-lock/package-lock.json"
+          test -s "$RUNNER_TEMP/hermes-ui-lock/package-lock.json"
+
+      - name: Upload generated lock artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-ui-w3-package-lock
+          path: ${{ runner.temp }}/hermes-ui-lock/package-lock.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
