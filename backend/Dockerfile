@@ -38,16 +38,16 @@ COPY app ./app
 # document by app.ui_bundle.
 COPY --from=ui-build /ui/dist/app.js /app/app/ui/app.js
 
-# W4A packages a second, non-serving shadow build in the same exact release
-# image. It contains only manifest-selected content-hashed JS/CSS plus generated
-# shadow HTML/evidence. W4B will separately authorize any serving cutover.
+# W4A packages a second shadow build in the same exact release image. W4B may
+# serve only its package-proven hashed assets when explicitly selected at
+# runtime; inline-w3 remains the default and same-image rollback target.
 COPY --from=ui-build /ui/dist-w4 /app/app/ui_w4_shadow
 RUN python -m app.ui_w4_shadow \
         --source-ui-dir /app/app/ui \
         --build-dir /app/app/ui_w4_shadow
 
-# W4A deliberately leaves production routing on the existing one-document W3
-# bundle. No /ui/assets route or cache-policy change is introduced here.
+# Preserve the existing one-document W3 bundle for the default serving mode and
+# immediate rollback. The W4 wrapper does not modify this tree.
 RUN python -m app.ui_bundle --ui-dir /app/app/ui
 
 # Local build contexts preserve source permission metadata. Normalize the final
@@ -58,4 +58,4 @@ RUN find /app/app /app/alembic -type d -exec chmod 0755 {} + \
     && chmod 0644 /app/alembic.ini
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "app.runtime:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
