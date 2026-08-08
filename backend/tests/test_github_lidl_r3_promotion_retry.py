@@ -1,10 +1,19 @@
 from pathlib import Path
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "hermes-lidl-source-refresh-r3-promotion-retry.yml"
 INSTALLER = ROOT / "tools" / "runner" / "install-lidl-r3-promotion-retry-dispatcher.sh"
 FINALIZER = ROOT / "tools" / "runner" / "run-lidl-r3-promotion-retry-owner-finalizer.sh"
 DISPATCHER = ROOT / "tools" / "runner" / "lidl_r3_promotion_retry_dispatcher.py"
+APPLY_V2 = ROOT / "tools" / "lidl_source_refresh_r3_apply_v2.py"
+
+
+def test_retry_entrypoints_are_syntactically_valid() -> None:
+    compile(DISPATCHER.read_text(encoding="utf-8"), str(DISPATCHER), "exec")
+    compile(APPLY_V2.read_text(encoding="utf-8"), str(APPLY_V2), "exec")
+    subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
+    subprocess.run(["bash", "-n", str(FINALIZER)], check=True)
 
 
 def test_retry_workflow_binds_explicit_runtime_and_fresh_authorization() -> None:
@@ -78,13 +87,13 @@ def test_retry_dispatcher_binds_fresh_auth_to_committed_receipt_and_evidence() -
         "authority.get(\"promotion\")",
         "fresh_authorization_comment_id",
         "fresh_live_raw_sha256_provenance_only",
-        "expected_gate_a_state\": \"WAIT_PROFILE\"",
+        '"expected_gate_a_state": "WAIT_PROFILE"',
         "PROFILE_PROMOTION=false",
         "AUTOMATIC_RETRY=false",
     ):
         assert marker in text
     for forbidden in (
-        "review-profile.json\").write",
+        'review-profile.json").write',
         "docker",
         "systemctl restart",
         "git checkout",
