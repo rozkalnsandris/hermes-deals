@@ -35,7 +35,7 @@ def test_installer_pins_exact_runtime_and_immutable_evidence() -> None:
     assert "GIT_OPTIONAL_LOCKS=0" in text
     assert "runuser -u andris" in text
     assert "/usr/bin/python3" in text
-    assert 'version != "1.28.0"' in text
+    assert '[[ "$PYMUPDF_VERSION" == "1.28.0" ]]' in text
     assert "tools/netto_ownership_separator_audit.py" in text
     assert "tools/netto_visual_geometry_corpus_replay.py" in text
     assert "tools/netto_visual_geometry_shadow.py" in text
@@ -48,6 +48,14 @@ def test_installer_pins_exact_runtime_and_immutable_evidence() -> None:
     assert '"database_write_performed": False' in text
     assert '"review_write_performed": False' in text
     assert '"deployment_performed": False' in text
+
+
+def test_pymupdf_identity_uses_loaded_module_not_distribution_metadata() -> None:
+    text = INSTALLER.read_text(encoding="utf-8")
+    assert text.count("pymupdf.pymupdf_version") == 2
+    assert 'importlib.metadata.version("PyMuPDF")' not in text
+    assert '"pymupdf_version": sys.argv[8]' in text
+    assert 'PYMUPDF_VERSION=%s' in text
 
 
 def test_installer_sudo_boundary_is_single_dedicated_dispatcher() -> None:

@@ -94,17 +94,17 @@ for value in sys.argv[1:]:
     path = Path(value)
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
 PY
-runuser -u andris -- /usr/bin/env -i \
-  HOME=/home/andris USER=andris LOGNAME=andris \
-  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  PYTHONDONTWRITEBYTECODE=1 \
-  /usr/bin/python3 - <<'PY'
-import importlib.metadata
+PYMUPDF_VERSION="$(
+  runuser -u andris -- /usr/bin/env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONDONTWRITEBYTECODE=1 \
+    /usr/bin/python3 - <<'PY'
 import pymupdf
-version = importlib.metadata.version("PyMuPDF")
-if version != "1.28.0":
-    raise SystemExit(f"PyMuPDF 1.28.0 required, found {version}")
+print(pymupdf.pymupdf_version)
 PY
+)"
+[[ "$PYMUPDF_VERSION" == "1.28.0" ]] || fail "PyMuPDF 1.28.0 required, found $PYMUPDF_VERSION"
 [[ -f "$N9_MANIFEST" && ! -L "$N9_MANIFEST" ]] || fail "N9 manifest is unavailable or unsafe"
 [[ "$(sha256sum "$N9_MANIFEST" | awk '{print $1}')" == "$EXPECTED_N9_SHA" ]] || fail "N9 manifest SHA256 mismatch"
 [[ -d "$CORPUS_ROOT" && ! -L "$CORPUS_ROOT" ]] || fail "immutable Netto corpus root is unavailable or unsafe"
@@ -185,17 +185,17 @@ for pair in \
 done
 [[ -d "$corpus_root" && ! -L "$corpus_root" ]] || fail "immutable corpus root is unavailable or unsafe"
 
-runuser -u andris -- /usr/bin/env -i \
-  HOME=/home/andris USER=andris LOGNAME=andris \
-  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  PYTHONDONTWRITEBYTECODE=1 \
-  /usr/bin/python3 - <<'PY'
-import importlib.metadata
+PYMUPDF_VERSION="$(
+  runuser -u andris -- /usr/bin/env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONDONTWRITEBYTECODE=1 \
+    /usr/bin/python3 - <<'PY'
 import pymupdf
-version = importlib.metadata.version("PyMuPDF")
-if version != "1.28.0":
-    raise SystemExit(f"PyMuPDF 1.28.0 required, found {version}")
+print(pymupdf.pymupdf_version)
 PY
+)"
+[[ "$PYMUPDF_VERSION" == "1.28.0" ]] || fail "PyMuPDF 1.28.0 required, found $PYMUPDF_VERSION"
 
 EXPORT_DIR="$(readlink -f -- "$EXPORT_DIR")"
 [[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail "artifact directory does not exist or is unsafe"
@@ -232,8 +232,7 @@ printf '%s\n' "$AUDIT_RC" > "$STAGING_DIR/audit-exit-code.txt"
 chown andris:andris "$STAGING_DIR/audit-exit-code.txt"
 chmod 0600 "$STAGING_DIR/audit-exit-code.txt"
 
-/usr/bin/python3 - "$STAGING_DIR/runtime-identity.json" "$EXPECTED_SHA" "$audit_tool_sha256" "$base_replay_tool_sha256" "$parser_tool_sha256" "$ownership_truth_sha256" "$n9_manifest_sha256" <<'PY'
-import importlib.metadata
+/usr/bin/python3 - "$STAGING_DIR/runtime-identity.json" "$EXPECTED_SHA" "$audit_tool_sha256" "$base_replay_tool_sha256" "$parser_tool_sha256" "$ownership_truth_sha256" "$n9_manifest_sha256" "$PYMUPDF_VERSION" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -246,7 +245,7 @@ payload = {
     "parser_tool_sha256": sys.argv[5],
     "ownership_truth_sha256": sys.argv[6],
     "n9_manifest_sha256": sys.argv[7],
-    "pymupdf_version": importlib.metadata.version("PyMuPDF"),
+    "pymupdf_version": sys.argv[8],
     "runtime_user": "andris",
     "python": "/usr/bin/python3",
     "production_apply_authorized": False,
@@ -344,5 +343,5 @@ install -o root -g root -m 0440 "$TMPDIR_INSTALL/sudoers" "$SUDOERS"
 visudo -cf "$SUDOERS" >/dev/null
 sudo -l -U github-runner | grep -Fq "$DISPATCHER" || fail "dedicated ownership audit dispatcher sudo rule was not installed"
 
-printf 'INSTALL_RESULT=PASS\nAUDIT=netto-ownership-separator-audit-v1\nCOMMIT_SHA=%s\nAUDIT_TOOL_SHA256=%s\nBASE_REPLAY_TOOL_SHA256=%s\nPARSER_TOOL_SHA256=%s\nOWNERSHIP_TRUTH_SHA256=%s\nN9_MANIFEST_SHA256=%s\nPYMUPDF_VERSION=1.28.0\nPYMUPDF_RUNTIME_USER=andris\nPYMUPDF_PYTHON=/usr/bin/python3\nRUNNER_HAS_DOCKER_GROUP=false\nPRODUCTION_APPLY_AUTHORIZED=false\n' \
-  "$EXPECTED_SHA" "$AUDIT_SHA" "$BASE_REPLAY_SHA" "$PARSER_SHA" "$OWNERSHIP_TRUTH_SHA" "$EXPECTED_N9_SHA"
+printf 'INSTALL_RESULT=PASS\nAUDIT=netto-ownership-separator-audit-v1\nCOMMIT_SHA=%s\nAUDIT_TOOL_SHA256=%s\nBASE_REPLAY_TOOL_SHA256=%s\nPARSER_TOOL_SHA256=%s\nOWNERSHIP_TRUTH_SHA256=%s\nN9_MANIFEST_SHA256=%s\nPYMUPDF_VERSION=%s\nPYMUPDF_RUNTIME_USER=andris\nPYMUPDF_PYTHON=/usr/bin/python3\nRUNNER_HAS_DOCKER_GROUP=false\nPRODUCTION_APPLY_AUTHORIZED=false\n' \
+  "$EXPECTED_SHA" "$AUDIT_SHA" "$BASE_REPLAY_SHA" "$PARSER_SHA" "$OWNERSHIP_TRUTH_SHA" "$EXPECTED_N9_SHA" "$PYMUPDF_VERSION"
