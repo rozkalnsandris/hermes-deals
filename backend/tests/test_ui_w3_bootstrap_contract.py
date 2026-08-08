@@ -12,19 +12,17 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_w3_entry_is_now_a_real_browser_bootstrap_without_production_cutover() -> None:
+def test_w3_entry_is_a_side_effect_browser_bootstrap_for_classic_bundle() -> None:
     entry = read(FRONTEND / "src" / "app.js")
     bootstrap = read(FRONTEND / "src" / "bootstrap.js")
 
+    assert 'from "./core/weekly-payload-bridge.js"' in entry
     assert 'from "./bootstrap.js"' in entry
     assert 'typeof window !== "undefined" && typeof document !== "undefined"' in entry
+    assert "installWeeklyPayloadBridge(window)" in entry
     assert "bootstrapUi();" in entry
+    assert "export " not in entry
     assert 'BOOTSTRAP_CONTRACT = "w3-behavior-preserving-bootstrap-v1"' in bootstrap
-
-    # W3 source may become browser-complete before the immutable image starts
-    # consuming it. The serving boundary is still guarded in the older test.
-    assert "backend/app/ui/app.js" not in bootstrap
-    assert "frontend/dist" not in bootstrap
 
 
 def test_w3_bootstrap_preserves_legacy_state_timing_and_mode_contracts() -> None:
@@ -61,8 +59,6 @@ def test_w3_bootstrap_preserves_startup_boundary_without_silent_extra_requests()
     assert "loadGrid()," in bootstrap
     assert "dailyController.load()," in bootstrap
 
-    # Legacy defines loadInitialPage but does not invoke it at top level. W3
-    # intentionally does not turn that into an extra startup request fan-out.
     after_definition = bootstrap.split("async function loadInitialPage()", 1)[1]
     assert "await loadInitialPage()" not in after_definition
     assert "void loadInitialPage()" not in after_definition
@@ -91,7 +87,7 @@ def test_w3_preferences_filters_and_deal_details_are_explicit_boundaries() -> No
     storage = read(FRONTEND / "src" / "core" / "storage.js")
     filters = read(FRONTEND / "src" / "ui" / "filters.js")
     details = read(FRONTEND / "src" / "features" / "details.js")
-    entry = read(FRONTEND / "src" / "app.js")
+    bootstrap = read(FRONTEND / "src" / "bootstrap.js")
 
     assert "normalizeUiPrefs" in storage
     assert "normalizeViewPrefs" in storage
@@ -102,9 +98,9 @@ def test_w3_preferences_filters_and_deal_details_are_explicit_boundaries() -> No
     assert "export function initDealDetails" in details
     assert "Canonical identitāte apstiprināta" in details
     assert "Tikai retailer deal" in details
-    assert 'from "./features/details.js"' in entry
-    assert 'from "./ui/filters.js"' in entry
-    assert 'from "./ui/status.js"' in entry
+    assert 'from "./features/details.js"' in bootstrap
+    assert 'from "./ui/filters.js"' in bootstrap
+    assert 'from "./ui/status.js"' in bootstrap
 
 
 def test_w3_bootstrap_node_tests_exist() -> None:
