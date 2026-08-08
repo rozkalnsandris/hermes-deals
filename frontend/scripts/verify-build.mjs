@@ -32,6 +32,9 @@ const required = [
   "hermesDeals.filterPanel.v1",
   "hermesDealsReviewRefresh",
   "UiApiError",
+  "/api/health",
+  "/api/v1/ui/overview",
+  "/api/v1/review-items?source_chain=lidl&limit=500",
   "/api/v1/deals/current",
   "/api/v1/deals/daily-specials",
   "/api/v1/catalog",
@@ -41,6 +44,8 @@ const required = [
   "hermes-deals-review",
   "Dati īslaicīgi nav pieejami",
   "Canonical produkts",
+  "w3-behavior-preserving-bootstrap-v1",
+  "Ievadi datumu formātā DD.MM.GGGG",
 ];
 for (const marker of required) {
   if (!source.includes(marker)) throw new Error(`W3 build missing marker: ${marker}`);
