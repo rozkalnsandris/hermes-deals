@@ -48,8 +48,8 @@ def test_phase_d_owner_finalizer_bootstraps_trust_then_runs_read_only_preflight_
     assert preflight in text
     assert text.index(installer) < text.index(preflight)
 
-    assert '"$DISPATCHER" finalize-loopback' in text  # sudo authorization validation only
-    assert '"$DISPATCHER" verify-loopback' in text  # sudo authorization validation only
+    assert 'grep -Fq "$DISPATCHER finalize-loopback"' in text  # sudo authorization validation only
+    assert 'grep -Fq "$DISPATCHER verify-loopback"' in text  # sudo authorization validation only
     assert 'sudo -u github-runner -- sudo --non-interactive "$DISPATCHER" finalize-loopback' not in text
     assert 'sudo -u github-runner -- sudo --non-interactive "$DISPATCHER" verify-loopback' not in text
     assert 'sudo -u github-runner -- sudo --non-interactive "$DISPATCHER" rollback-dual' not in text
