@@ -1,0 +1,214 @@
+name: W4 hashed serving preview
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/app/runtime.py"
+      - "backend/app/ui_w4_shadow.py"
+      - "backend/app/ui/**"
+      - "backend/frontend/**"
+      - "backend/Dockerfile"
+      - "docker-compose.yml"
+      - "infra/nginx.conf"
+      - ".github/workflows/w4-serving-preview.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/app/runtime.py"
+      - "backend/app/ui_w4_shadow.py"
+      - "backend/app/ui/**"
+      - "backend/frontend/**"
+      - "backend/Dockerfile"
+      - "docker-compose.yml"
+      - "infra/nginx.conf"
+      - ".github/workflows/w4-serving-preview.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-w4-preview-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  same-image-preview:
+    name: W4 hashed preview and W3 rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build exact immutable release image once
+        run: |
+          docker build \
+            --file backend/Dockerfile \
+            --tag hermes-deals:w4-preview-ci \
+            backend
+
+      - name: Verify Node-free image and packaged W4 evidence
+        run: |
+          docker run --rm --entrypoint /bin/sh hermes-deals:w4-preview-ci -eu -c '
+            test ! -e /usr/local/bin/node
+            test ! -e /usr/local/bin/npm
+            test ! -d /ui
+            test -s /app/app/ui/index.html
+            test -s /app/app/ui_w4_shadow/index.html
+            test -s /app/app/ui_w4_shadow/w4-shadow-package.json
+            grep -Fq "data-hermes-production-bundle=\"app.js\"" /app/app/ui/index.html
+            grep -Fq "hermes-w4-shadow\" content=\"hashed-assets-v1" /app/app/ui_w4_shadow/index.html
+            grep -Fq "\"result\": \"PASS\"" /app/app/ui_w4_shadow/w4-shadow-package.json
+            grep -Fq "\"production_inline_bundle_preserved\": true" /app/app/ui_w4_shadow/w4-shadow-package.json
+          '
+
+      - name: Execute inline W3, hashed W4, then same-image W3 rollback
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          browser="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          test -n "$browser"
+
+          network="hermes-w4-preview-${GITHUB_RUN_ID}"
+          db="hermes-w4-db-${GITHUB_RUN_ID}"
+          api="hermes-w4-api-${GITHUB_RUN_ID}"
+          origin="http://127.0.0.1:18082"
+          database_url="postgresql+psycopg://hermes:hermes@${db}:5432/hermes_test"
+
+          cleanup_api() {
+            docker rm -f "$api" >/dev/null 2>&1 || true
+          }
+          cleanup() {
+            cleanup_api
+            docker rm -f "$db" >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cleanup
+
+          docker network create "$network" >/dev/null
+          docker run --detach --name "$db" --network "$network" \
+            --env POSTGRES_USER=hermes \
+            --env POSTGRES_PASSWORD=hermes \
+            --env POSTGRES_DB=hermes_test \
+            postgres:18.4 >/dev/null
+
+          for attempt in $(seq 1 40); do
+            if docker exec "$db" pg_isready -U hermes -d hermes_test >/dev/null 2>&1; then
+              break
+            fi
+            test "$attempt" -lt 40
+            sleep 1
+          done
+
+          docker run --rm --network "$network" \
+            --env DATABASE_URL="$database_url" \
+            --entrypoint python \
+            hermes-deals:w4-preview-ci \
+            -m alembic upgrade head
+
+          start_api() {
+            mode="$1"
+            cleanup_api
+            if [[ "$mode" == "default" ]]; then
+              docker run --detach --name "$api" --network "$network" \
+                --publish 127.0.0.1:18082:8000 \
+                --env DATABASE_URL="$database_url" \
+                hermes-deals:w4-preview-ci >/dev/null
+            else
+              docker run --detach --name "$api" --network "$network" \
+                --publish 127.0.0.1:18082:8000 \
+                --env DATABASE_URL="$database_url" \
+                --env HERMES_UI_ASSET_MODE="$mode" \
+                hermes-deals:w4-preview-ci >/dev/null
+            fi
+            for attempt in $(seq 1 60); do
+              if curl -fsS "$origin/api/health" >/dev/null 2>&1; then
+                return 0
+              fi
+              if ! docker inspect -f '{{.State.Running}}' "$api" 2>/dev/null | grep -qx true; then
+                docker logs "$api"
+                return 1
+              fi
+              test "$attempt" -lt 60
+              sleep 1
+            done
+          }
+
+          # 1. Default runtime mode must remain the existing inline W3 contract.
+          start_api default
+          curl -fsS -D /tmp/w4-inline.headers "$origin/ui" -o /tmp/w4-inline.html
+          grep -Fq 'data-hermes-production-bundle="styles.css"' /tmp/w4-inline.html
+          grep -Fq 'data-hermes-production-bundle="app.js"' /tmp/w4-inline.html
+          grep -Fq 'w3-behavior-preserving-bootstrap-v1' /tmp/w4-inline.html
+          ! grep -Fq 'hermes-w4-shadow' /tmp/w4-inline.html
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$origin/ui/assets/not-allowed.js")" = "404"
+
+          "$browser" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --virtual-time-budget=5000 \
+            --dump-dom \
+            "$origin/ui" > /tmp/w4-inline.dom.html
+          grep -Fq 'data-hermes-ui-bootstrap="w3-behavior-preserving-bootstrap-v1"' /tmp/w4-inline.dom.html
+          echo "HERMES_UI_W4B_INLINE_BASELINE=PASS"
+
+          # 2. Opt-in hashed mode must serve only package-selected same-build assets.
+          start_api hashed-w4
+          curl -fsS -D /tmp/w4-hashed.headers "$origin/ui" -o /tmp/w4-hashed.html
+          grep -Fiq 'x-hermes-ui-asset-mode: hashed-w4' /tmp/w4-hashed.headers
+          grep -Fiq 'cache-control: no-store' /tmp/w4-hashed.headers
+          grep -Fq '<meta name="hermes-w4-shadow" content="hashed-assets-v1">' /tmp/w4-hashed.html
+          ! grep -Fq 'data-hermes-production-bundle=' /tmp/w4-hashed.html
+          ! grep -Fq '/ui/app.js' /tmp/w4-hashed.html
+          ! grep -Fq '/ui/styles.css' /tmp/w4-hashed.html
+
+          js_path="$(grep -oE '/ui/assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.js' /tmp/w4-hashed.html | sort -u)"
+          css_path="$(grep -oE '/ui/assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.css' /tmp/w4-hashed.html | sort -u)"
+          test -n "$js_path"
+          test -n "$css_path"
+          test "$(printf '%s\n' "$js_path" | wc -l)" = "1"
+          test "$(printf '%s\n' "$css_path" | wc -l)" = "1"
+
+          curl -fsS -D /tmp/w4-js.headers "$origin$js_path" -o /tmp/w4-entry.js
+          curl -fsS -D /tmp/w4-css.headers "$origin$css_path" -o /tmp/w4-entry.css
+          grep -Fiq 'content-type: application/javascript' /tmp/w4-js.headers
+          grep -Fiq 'content-type: text/css' /tmp/w4-css.headers
+          grep -Fiq 'x-hermes-ui-asset-mode: hashed-w4' /tmp/w4-js.headers
+          grep -Fiq 'x-hermes-ui-asset-mode: hashed-w4' /tmp/w4-css.headers
+          grep -Fiq 'cache-control: no-store' /tmp/w4-js.headers
+          grep -Fiq 'cache-control: no-store' /tmp/w4-css.headers
+          grep -Fq 'w3-behavior-preserving-bootstrap-v1' /tmp/w4-entry.js
+          grep -Fq 'HERMES_UI_STYLE_OPEN:' /tmp/w4-entry.css
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$origin/ui/assets/not-in-package.js")" = "404"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$origin/ui/assets/w4-shadow-package.json")" = "404"
+
+          # Rollback endpoints remain present even while W4 is active.
+          curl -fsS "$origin/ui/app.js" | grep -Fq 'w3-behavior-preserving-bootstrap-v1'
+
+          "$browser" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --virtual-time-budget=5000 \
+            --dump-dom \
+            "$origin/ui" > /tmp/w4-hashed.dom.html
+          grep -Fq 'hermes-w4-shadow' /tmp/w4-hashed.dom.html
+          grep -Fq 'data-hermes-ui-bootstrap="w3-behavior-preserving-bootstrap-v1"' /tmp/w4-hashed.dom.html
+          grep -Fq 'Nav papildu filtru.' /tmp/w4-hashed.dom.html
+          echo "HERMES_UI_W4B_HASHED_PREVIEW=PASS"
+
+          # 3. Restart the exact same image with no mode override: W3 must return.
+          start_api default
+          curl -fsS "$origin/ui" -o /tmp/w4-rollback.html
+          grep -Fq 'data-hermes-production-bundle="styles.css"' /tmp/w4-rollback.html
+          grep -Fq 'data-hermes-production-bundle="app.js"' /tmp/w4-rollback.html
+          grep -Fq 'w3-behavior-preserving-bootstrap-v1' /tmp/w4-rollback.html
+          ! grep -Fq 'hermes-w4-shadow' /tmp/w4-rollback.html
+          echo "HERMES_UI_W4B_SAME_IMAGE_ROLLBACK=PASS"
