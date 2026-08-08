@@ -31,7 +31,7 @@ jobs:
 
           repo=os.environ['REPOSITORY']
           if repo!='rozkalnsandris/hermes-deals': raise SystemExit('unexpected repository')
-          headers={'Accept':'application/vnd.github+json','Authorization':f"Bearer {os.environ['GH_TOKEN']}",'X-GitHub-Api-Version':'2022-11-28','User-Agent':'hermes-lidl-r3-status-push-once'}
+          headers={'Accept':'application/vnd.github+json','Authorization':f"Bearer {os.environ['GH_TOKEN']}",'X-GitHub-Api-Version':'2022-11-28','User-Agent':'hermes-lidl-r3-authorizer-diagnostic'}
           def get(url):
               with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as r: return json.load(r)
           def post(body):
@@ -44,35 +44,62 @@ jobs:
           exact='/hermes-lidl-source-refresh-r3-promote pr=410 fingerprint=8aaf1f96a119e51c980a45da80031d5abd2db65d4cdc3516bd5368fd0537c7f9 auth=5227260615'
           if user.get('login')!='rozkalnsandris' or user.get('id')!=277435981 or str(command.get('body') or '').strip()!=exact:
               raise SystemExit('promotion command binding mismatch')
-          command_dt=datetime.fromisoformat(str(command['created_at']).replace('Z','+00:00'))
+          command_created=str(command['created_at'])
+          command_dt=datetime.fromisoformat(command_created.replace('Z','+00:00'))
 
           params=urllib.parse.urlencode({'event':'issue_comment','per_page':100})
           runs=get(f'https://api.github.com/repos/{repo}/actions/workflows/hermes-lidl-source-refresh-r3-promotion.yml/runs?{params}').get('workflow_runs') or []
-          authorized=[]
-          inspected=0
+          rows=[]
+          authorize_success=0
           for run in runs:
               created=datetime.fromisoformat(str(run['created_at']).replace('Z','+00:00'))
               if created < command_dt or run.get('head_branch')!='main': continue
-              inspected += 1
               rid=int(run['id'])
               jobs=get(f'https://api.github.com/repos/{repo}/actions/runs/{rid}/jobs?per_page=100').get('jobs') or []
               auth=[j for j in jobs if j.get('name')=='authorize']
-              if len(auth)==1 and auth[0].get('conclusion')=='success': authorized.append((run,jobs))
+              promote=[j for j in jobs if j.get('name')=='promote']
+              report=[j for j in jobs if j.get('name')=='report']
+              auth_job=auth[0] if len(auth)==1 else None
+              promote_job=promote[0] if len(promote)==1 else None
+              report_job=report[0] if len(report)==1 else None
+              if auth_job and auth_job.get('conclusion')=='success': authorize_success += 1
+              rows.append({
+                  'run_id':rid,
+                  'created_at':str(run.get('created_at')),
+                  'delta_seconds':int((created-command_dt).total_seconds()),
+                  'run_status':str(run.get('status')),
+                  'run_conclusion':run.get('conclusion'),
+                  'head_sha':str(run.get('head_sha')),
+                  'authorize_id':auth_job.get('id') if auth_job else None,
+                  'authorize_status':auth_job.get('status') if auth_job else 'missing',
+                  'authorize_conclusion':auth_job.get('conclusion') if auth_job else 'missing',
+                  'promote_id':promote_job.get('id') if promote_job else None,
+                  'promote_status':promote_job.get('status') if promote_job else 'missing',
+                  'promote_conclusion':promote_job.get('conclusion') if promote_job else 'missing',
+                  'report_id':report_job.get('id') if report_job else None,
+                  'report_status':report_job.get('status') if report_job else 'missing',
+                  'report_conclusion':report_job.get('conclusion') if report_job else 'missing',
+              })
+          rows.sort(key=lambda row:(row['delta_seconds'],row['run_id']))
 
-          lines=['## Lidl R3 promotion deterministic status probe','', '- probe source: trusted `push` of this diagnostic workflow only', '- promotion command: `5227503666`', f'- candidate issue_comment runs inspected: `{inspected}`', f'- authorize-success runs: `{len(authorized)}`', '- promotion retry issued: `false`', '']
-          if len(authorized)==1:
-              run,jobs=authorized[0]; rid=int(run['id'])
-              arts=get(f'https://api.github.com/repos/{repo}/actions/runs/{rid}/artifacts?per_page=100').get('artifacts') or []
-              lines += [f'- workflow run: `{rid}`', f"- status / conclusion: `{run.get('status')}` / `{run.get('conclusion')}`", f"- attempt: `{run.get('run_attempt')}`", f"- head SHA: `{run.get('head_sha')}`", f'- workflow: https://github.com/{repo}/actions/runs/{rid}', '', 'Jobs:']
-              for j in jobs: lines.append(f"- `{j.get('name')}` — `{j.get('status')}` / `{j.get('conclusion')}` (job `{j.get('id')}`)")
-              lines += ['', 'Artifacts:']
-              if arts:
-                  for a in arts: lines.append(f"- `{a.get('name')}` — id `{a.get('id')}`, digest `{a.get('digest')}`, expired `{str(bool(a.get('expired'))).lower()}`")
-              else: lines.append('- none')
-          elif len(authorized)==0:
-              lines += ['- authoritative observation: `NO_AUTHORIZE_SUCCESS_RUN_FOUND`', '- implication: the recorded promotion command did not reach a successfully authorized promotion workflow run; no retry is performed by this probe.']
+          lines=['## Lidl R3 authorizer failure diagnostic','', '- probe source: trusted `push` of this diagnostic workflow only', '- promotion command: `5227503666`', f'- command created_at: `{command_created}`', f'- candidate issue_comment runs inspected: `{len(rows)}`', f'- authorize-success runs: `{authorize_success}`', '- promotion retry issued: `false`', '', 'Candidate runs (sorted by seconds after the promotion command):']
+          if rows:
+              for row in rows:
+                  lines.append(
+                      f"- run `{row['run_id']}` +`{row['delta_seconds']}s` created `{row['created_at']}`; "
+                      f"run `{row['run_status']}`/`{row['run_conclusion']}`; "
+                      f"authorize job `{row['authorize_id']}` `{row['authorize_status']}`/`{row['authorize_conclusion']}`; "
+                      f"promote job `{row['promote_id']}` `{row['promote_status']}`/`{row['promote_conclusion']}`; "
+                      f"report job `{row['report_id']}` `{row['report_status']}`/`{row['report_conclusion']}`; head `{row['head_sha']}`"
+                  )
           else:
-              lines += ['- authoritative observation: `AMBIGUOUS_MULTIPLE_AUTHORIZE_SUCCESS_RUNS`', '- implication: do not retry; inspect matching runs individually.']
+              lines.append('- none')
+          if authorize_success==0:
+              lines += ['', '- authoritative observation: `NO_AUTHORIZE_SUCCESS_RUN_FOUND`']
+          elif authorize_success>1:
+              lines += ['', '- authoritative observation: `AMBIGUOUS_MULTIPLE_AUTHORIZE_SUCCESS_RUNS`']
+          else:
+              lines += ['', '- authoritative observation: `ONE_AUTHORIZE_SUCCESS_RUN_FOUND`']
           lines += ['', 'Safety: Actions metadata read-only. No RPi5/corpus/parser/DB/Review/publication/deploy/systemd/retry/Gate C-D/B15M2 V08 action.']
           post('\n'.join(lines))
           PY
