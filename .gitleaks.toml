@@ -1,0 +1,35 @@
+title = "Hermes Deals secret scanning"
+minVersion = "8.30.0"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "cloudflare-access-client-secret"
+description = "Cloudflare Access client secret assigned in source or configuration"
+regex = '''(?i)(?:CF_ACCESS_CLIENT_SECRET)[\s:=\"']+([A-Za-z0-9_./+=-]{16,})'''
+secretGroup = 1
+keywords = ["cf_access_client_secret"]
+
+[[rules]]
+id = "database-url-password"
+description = "Password embedded in a database connection URL"
+regex = '''(?i)(?:postgres(?:ql)?|mysql|mariadb|redis)://[^:\s/@]+:([^@\s/]{8,})@'''
+secretGroup = 1
+keywords = ["postgres://", "postgresql://", "mysql://", "mariadb://", "redis://"]
+
+[[rules]]
+id = "password-assignment"
+description = "Password assigned directly in configuration or source"
+regex = '''(?i)(?:POSTGRES_PASSWORD|DB_PASSWORD|ADMIN_PASSWORD|PASSWORD|PASSWD)[ \t]*(?:=|:)[ \t]*[\"']?([A-Za-z0-9_./+=@#$%^&*!?-]{12,})'''
+secretGroup = 1
+keywords = ["password", "passwd", "postgres_password", "db_password", "admin_password"]
+
+[allowlist]
+description = "Only explicit non-secret placeholders; historical false positives are pinned by exact immutable finding identity in security/gitleaks-history-allowlist.json"
+regexTarget = "match"
+regexes = [
+  '''CHANGE_ME''',
+  '''replace-with-a-random-secret''',
+  '''ci-placeholder-not-a-secret'''
+]
