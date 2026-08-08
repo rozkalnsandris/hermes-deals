@@ -21,8 +21,8 @@ SOURCE_ROOT="$(readlink -f -- "$(dirname -- "${BASH_SOURCE[0]}")/../..")"
 
 OPERATOR_SOURCE='tools/runner/release/hermes-deals-307-loopback-finalize'
 DISPATCHER_SOURCE='tools/runner/release/hermes-deals-307-phase-d-dispatch'
-EXPECTED_OPERATOR_SHA256='b9e46e63e6e3cbd1b93ec043ffd0009c48589d54cbc445b151479c0843311dc5'
-EXPECTED_DISPATCHER_SHA256='7e03eeb2ea6dfd07554ee7fd53d74bc18f9dec8eacfcc169e1031aa6bb82e841'
+EXPECTED_OPERATOR_SHA256='3bf4892be9b7cad4817b04ed1801bfb862c5671890453b3f01852dbded6244f0'
+EXPECTED_DISPATCHER_SHA256='a27a0c98cbff0c6f3caab36f3caac381afde82e565812f975a9b0b5b145f3ee6'
 INSTALLED_OPERATOR='/usr/local/libexec/hermes-deals-ops/issue-307/hermes-deals-307-loopback-finalize'
 INSTALLED_DISPATCHER='/usr/local/sbin/hermes-deals-307-phase-d-dispatch'
 SUDOERS='/etc/sudoers.d/hermes-deals-307-phase-d'
