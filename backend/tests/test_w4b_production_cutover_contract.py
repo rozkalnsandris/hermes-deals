@@ -6,6 +6,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 OPERATOR = ROOT / "tools" / "runner" / "w4b" / "hermes-deals-w4b-operator"
+RENDERER = ROOT / "tools" / "runner" / "w4b" / "render-hermes-deals-w4b-operator.py"
 DISPATCHER = ROOT / "tools" / "runner" / "w4b" / "hermes-deals-w4b-dispatch"
 FINALIZER = ROOT / "tools" / "runner" / "w4b" / "run-hermes-deals-w4b-owner-finalizer.sh"
 OVERRIDE = ROOT / "tools" / "runner" / "w4b" / "docker-compose.w4b.yml"
@@ -17,13 +18,32 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_w4b_root_scripts_are_shell_syntax_valid() -> None:
+def render_operator(tmp_path: Path) -> str:
+    output = tmp_path / "hermes-deals-w4b-operator"
+    subprocess.run(
+        ["python3", str(RENDERER), str(OPERATOR), str(output)],
+        check=True,
+    )
+    return output.read_text(encoding="utf-8")
+
+
+def test_w4b_root_scripts_are_syntax_valid(tmp_path: Path) -> None:
     for path in (OPERATOR, DISPATCHER, FINALIZER):
         subprocess.run(["bash", "-n", str(path)], check=True)
+    subprocess.run(["python3", "-m", "py_compile", str(RENDERER)], check=True)
+
+    rendered = tmp_path / "rendered-operator"
+    subprocess.run(
+        ["python3", str(RENDERER), str(OPERATOR), str(rendered)],
+        check=True,
+    )
+    subprocess.run(["bash", "-n", str(rendered)], check=True)
 
 
-def test_w4b_operator_is_exact_target_bounded_and_rollback_capable() -> None:
-    source = read(OPERATOR)
+def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
+    tmp_path: Path,
+) -> None:
+    source = render_operator(tmp_path)
 
     assert f"TARGET_SHA='{TARGET_SHA}'" in source
     assert "MODE=\"$1\"" in source
@@ -45,6 +65,18 @@ def test_w4b_operator_is_exact_target_bounded_and_rollback_capable() -> None:
     assert "cutover_validation_failed_auto_rollback_passed" in source
     assert "W4B_MODE=rollback" in source
 
+    # Current authoritative production images are main-<12sha>. Preserve a
+    # bounded legacy release-* rollback family, reject arbitrary tags, and bind
+    # managed-main tags to the exact revision label prefix.
+    assert '^hermes-deals-api:main-([0-9a-f]{12})$' in source
+    assert "current_api_main_tag_revision_mismatch" in source
+    assert '^hermes-deals-api:release-[A-Za-z0-9_.-]+$' in source
+    assert 'main_tag = re.fullmatch(r"hermes-deals-api:main-([0-9a-f]{12})", tag)' in source
+    assert "values[2].startswith(main_tag.group(1))" in source
+    assert 'values[0].startswith("hermes-deals-api:release-")' not in source
+    assert '[[ "$API_IMAGE_TAG" == hermes-deals-api:release-* ]]' not in source
+    assert "fail 'current_api_tag_not_release_managed'" in source
+
     for forbidden in (
         "alembic upgrade",
         "alembic downgrade",
@@ -60,6 +92,30 @@ def test_w4b_operator_is_exact_target_bounded_and_rollback_capable() -> None:
         assert forbidden not in source
 
 
+def test_w4b_operator_renderer_fails_closed_on_template_drift(tmp_path: Path) -> None:
+    drifted = tmp_path / "drifted-operator"
+    drifted.write_text(
+        read(OPERATOR).replace(
+            "current_api_tag_not_release_managed",
+            "unexpected_validator_drift",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    rendered = tmp_path / "rendered"
+    result = subprocess.run(
+        ["python3", str(RENDERER), str(drifted), str(rendered)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "managed-image baseline replacement expected exactly once" in (
+        result.stdout + result.stderr
+    )
+    assert not rendered.exists()
+
+
 def test_w4b_dispatcher_does_not_expose_rollback_to_runner() -> None:
     source = read(DISPATCHER)
 
@@ -71,11 +127,23 @@ def test_w4b_dispatcher_does_not_expose_rollback_to_runner() -> None:
     assert "rollback)" not in source
 
 
-def test_w4b_owner_finalizer_installs_narrow_runner_sudo_only() -> None:
+def test_w4b_owner_finalizer_refreshes_only_verified_exact_target_control_plane() -> None:
     source = read(FINALIZER)
 
     assert f"TARGET_SHA='{TARGET_SHA}'" in source
     assert "RUNNER_USER='github-release-runner'" in source
+    assert "render-hermes-deals-w4b-operator.py" in source
+    assert 'sudo install -o root -g root -m 0755 "$RENDERED_OPERATOR" "$OPERATOR"' in source
+    assert "tree_digest()" in source
+    assert "SNAPSHOT_DIGEST=" in source
+    assert "existing_target_source_mismatch" in source
+    assert "existing_target_runtime_symlink_unsafe" in source
+    assert "existing_target_source_symlink_unsafe" in source
+    assert "CONTROL_PLANE_INSTALL_MODE='fresh'" in source
+    assert "CONTROL_PLANE_INSTALL_MODE='refresh'" in source
+    assert "CONTROL_PLANE_INSTALL_MODE=%s" in source
+    assert "target_runtime_already_installed" not in source
+
     assert "$DISPATCHER preflight" in source
     assert "$DISPATCHER cutover" in source
     assert "$DISPATCHER verify" in source
