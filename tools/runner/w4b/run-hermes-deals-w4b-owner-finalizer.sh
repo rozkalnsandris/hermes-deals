@@ -26,7 +26,7 @@ fail() {
 BRIDGE_SHA="$1"
 [[ "$BRIDGE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'bridge_sha_invalid'
 [[ "$(id -un)" == andris ]] || fail 'owner_finalizer_must_run_as_andris'
-for command in curl git install sha256sum sudo tar visudo; do
+for command in curl git install python3 sha256sum sudo tar visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "missing_command_${command}"
 done
 [[ -d "$PRIMARY" && ! -L "$PRIMARY" ]] || fail 'production_repository_missing_or_unsafe'
@@ -55,6 +55,36 @@ cloudflared_pid() {
   systemctl show -p MainPID --value cloudflared.service
 }
 
+tree_digest() {
+  python3 - "$1" <<'PY'
+from __future__ import annotations
+
+from hashlib import sha256
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+if not root.is_dir() or root.is_symlink():
+    raise SystemExit(2)
+
+digest = sha256()
+for path in sorted(root.rglob("*"), key=lambda row: row.relative_to(root).as_posix()):
+    if path.is_symlink():
+        raise SystemExit(2)
+    rel = path.relative_to(root).as_posix().encode("utf-8")
+    if path.is_dir():
+        digest.update(b"D\0" + rel + b"\0")
+    elif path.is_file():
+        data = path.read_bytes()
+        digest.update(b"F\0" + rel + b"\0")
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(sha256(data).digest())
+    else:
+        raise SystemExit(2)
+print(digest.hexdigest())
+PY
+}
+
 PRIMARY_STATE_BEFORE="$(primary_state)"
 ENV_SHA_BEFORE="$(sha256sum "$PRIMARY/.env" | awk '{print $1}')"
 API_BEFORE="$(service_id api)"
@@ -69,6 +99,7 @@ cleanup() { rm -rf -- "$WORK"; }
 trap cleanup EXIT
 CLONE="$WORK/repo"
 SNAPSHOT="$WORK/source"
+RENDERED_OPERATOR="$WORK/hermes-deals-w4b-operator"
 install -d -m 0700 "$SNAPSHOT"
 
 git clone --quiet --filter=blob:none --no-checkout "$REPOSITORY" "$CLONE"
@@ -82,12 +113,18 @@ git -C "$CLONE" checkout --quiet --detach "$BRIDGE_SHA"
 
 for path in \
   tools/runner/w4b/hermes-deals-w4b-operator \
+  tools/runner/w4b/render-hermes-deals-w4b-operator.py \
   tools/runner/w4b/hermes-deals-w4b-dispatch \
   tools/runner/w4b/docker-compose.w4b.yml; do
   git -C "$CLONE" ls-files --error-unmatch "$path" >/dev/null || fail 'bridge_runtime_file_not_tracked'
 done
 bash -n "$CLONE/tools/runner/w4b/hermes-deals-w4b-operator"
 bash -n "$CLONE/tools/runner/w4b/hermes-deals-w4b-dispatch"
+python3 \
+  "$CLONE/tools/runner/w4b/render-hermes-deals-w4b-operator.py" \
+  "$CLONE/tools/runner/w4b/hermes-deals-w4b-operator" \
+  "$RENDERED_OPERATOR"
+bash -n "$RENDERED_OPERATOR"
 
 git -C "$CLONE" archive "$TARGET_SHA" \
   backend docker-compose.yml docker-compose.production.yml infra/nginx.conf |
@@ -102,24 +139,39 @@ grep -Fq 'HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:-inline-w3}' "$SNAPSHOT/d
   || fail 'target_compose_missing_w4_mode'
 grep -Fq 'location ^~ /ui/assets/' "$SNAPSHOT/infra/nginx.conf" \
   || fail 'target_nginx_missing_hashed_asset_proxy'
+SNAPSHOT_DIGEST="$(tree_digest "$SNAPSHOT")" || fail 'target_snapshot_digest_failed'
+[[ "$SNAPSHOT_DIGEST" =~ ^[0-9a-f]{64}$ ]] || fail 'target_snapshot_digest_invalid'
 
 sudo -v
+CONTROL_PLANE_INSTALL_MODE='fresh'
 if sudo test -e "$TARGET_ROOT"; then
-  fail 'target_runtime_already_installed'
+  sudo test ! -L "$TARGET_ROOT" || fail 'existing_target_runtime_symlink_unsafe'
+  sudo test -d "$TARGET_ROOT" || fail 'existing_target_runtime_not_directory'
+  sudo test ! -L "$SOURCE_ROOT" || fail 'existing_target_source_symlink_unsafe'
+  sudo test -d "$SOURCE_ROOT" || fail 'existing_target_source_missing'
+  [[ "$(sudo stat -c '%U:%G:%a' "$TARGET_ROOT")" == 'root:root:755' ]] \
+    || fail 'existing_target_runtime_metadata_invalid'
+  [[ "$(sudo stat -c '%U:%G:%a' "$SOURCE_ROOT")" == 'root:root:755' ]] \
+    || fail 'existing_target_source_metadata_invalid'
+  EXISTING_DIGEST="$(tree_digest "$SOURCE_ROOT")" || fail 'existing_target_source_digest_failed'
+  [[ "$EXISTING_DIGEST" == "$SNAPSHOT_DIGEST" ]] || fail 'existing_target_source_mismatch'
+  CONTROL_PLANE_INSTALL_MODE='refresh'
+else
+  sudo install -d -o root -g root -m 0755 "$INSTALL_ROOT" "$TARGET_ROOT" "$SOURCE_ROOT"
+  sudo cp -a "$SNAPSHOT/." "$SOURCE_ROOT/"
+  sudo chown -R root:root "$SOURCE_ROOT"
+  sudo find "$SOURCE_ROOT" -type d -exec chmod 0755 {} +
+  sudo find "$SOURCE_ROOT" -type f -exec chmod 0644 {} +
+  [[ "$(tree_digest "$SOURCE_ROOT")" == "$SNAPSHOT_DIGEST" ]] \
+    || fail 'installed_target_source_mismatch'
 fi
-sudo install -d -o root -g root -m 0755 "$INSTALL_ROOT" "$TARGET_ROOT" "$SOURCE_ROOT"
-sudo cp -a "$SNAPSHOT/." "$SOURCE_ROOT/"
-sudo chown -R root:root "$SOURCE_ROOT"
-sudo find "$SOURCE_ROOT" -type d -exec chmod 0755 {} +
-sudo find "$SOURCE_ROOT" -type f -exec chmod 0644 {} +
 sudo install -o root -g root -m 0644 \
   "$CLONE/tools/runner/w4b/docker-compose.w4b.yml" \
   "$TARGET_ROOT/docker-compose.w4b.yml"
-sudo install -o root -g root -m 0755 \
-  "$CLONE/tools/runner/w4b/hermes-deals-w4b-operator" "$OPERATOR"
+sudo install -o root -g root -m 0755 "$RENDERED_OPERATOR" "$OPERATOR"
 sudo install -o root -g root -m 0755 \
   "$CLONE/tools/runner/w4b/hermes-deals-w4b-dispatch" "$DISPATCHER"
-OPERATOR_SHA="$(sha256sum "$CLONE/tools/runner/w4b/hermes-deals-w4b-operator" | awk '{print $1}')"
+OPERATOR_SHA="$(sha256sum "$RENDERED_OPERATOR" | awk '{print $1}')"
 printf '%s\n' "$OPERATOR_SHA" | sudo tee "$HASH_FILE" >/dev/null
 sudo chown root:root "$HASH_FILE"
 sudo chmod 0644 "$HASH_FILE"
@@ -141,7 +193,7 @@ sudo visudo -cf "$SUDOERS" >/dev/null
 if sudo -u "$RUNNER_USER" sudo --non-interactive "$OPERATOR" rollback >/dev/null 2>&1; then
   fail 'runner_unexpectedly_authorized_for_root_only_rollback'
 fi
-PREFLIGHT_OUTPUT="$(sudo -u "$RUNNER_USER" sudo --non-interactive "$DISPATCHER" preflight)" 
+PREFLIGHT_OUTPUT="$(sudo -u "$RUNNER_USER" sudo --non-interactive "$DISPATCHER" preflight)"
 printf '%s\n' "$PREFLIGHT_OUTPUT"
 grep -Fq 'W4B_RESULT=PASS' <<<"$PREFLIGHT_OUTPUT" || fail 'runner_preflight_did_not_pass'
 grep -Fq 'W4B_MODE=preflight' <<<"$PREFLIGHT_OUTPUT" || fail 'runner_preflight_mode_mismatch'
@@ -163,6 +215,8 @@ CLOUDFLARED_AFTER="$(cloudflared_pid)"
 printf 'OWNER_FINALIZER_RESULT=PASS\n'
 printf 'BRIDGE_SHA=%s\n' "$BRIDGE_SHA"
 printf 'TARGET_SHA=%s\n' "$TARGET_SHA"
+printf 'CONTROL_PLANE_INSTALL_MODE=%s\n' "$CONTROL_PLANE_INSTALL_MODE"
+printf 'TARGET_SOURCE_SHA256=%s\n' "$SNAPSHOT_DIGEST"
 printf 'OPERATOR_SHA256=%s\n' "$OPERATOR_SHA"
 printf 'RUNNER_PREFLIGHT_AUTHORIZED=true\n'
 printf 'RUNNER_CUTOVER_AUTHORIZED=true\n'
