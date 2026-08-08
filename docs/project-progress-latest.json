@@ -294,114 +294,180 @@
       "weight": 3
     }
   ],
-  "completed_issue_count": 58,
-  "generated_at": "2026-08-07T05:26:14.986460Z",
-  "generated_at_local": "2026-08-07T07:26:14.986460+02:00",
+  "completed_issue_count": 87,
+  "generated_at": "2026-08-08T04:44:01.708481Z",
+  "generated_at_local": "2026-08-08T06:44:01.708481+02:00",
   "overall_percent": 60,
-  "previous_day": "2026-08-06",
-  "previous_day_completed_issue_count": 17,
+  "previous_day": "2026-08-07",
+  "previous_day_completed_issue_count": 28,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-05T22:49:20Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/160",
-      "number": 160,
-      "title": "Fix Docker inspect label template quoting in release register"
+      "closed_at": "2026-08-07T14:39:48Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/44",
+      "number": 44,
+      "title": "P0 Production: diagnose Cloudflare 502 origin failures and hide raw infrastructure errors"
     },
     {
-      "closed_at": "2026-08-05T23:58:43Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/162",
-      "number": 162,
-      "title": "Fix dispatcher fail-closed diagnostics and published health binding"
+      "closed_at": "2026-08-07T14:05:46Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/124",
+      "number": 124,
+      "title": "chore: add safe VS Code RPi5 deploy tasks"
     },
     {
-      "closed_at": "2026-08-06T12:49:58Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/170",
-      "number": 170,
-      "title": "P1 Infra: prepare disabled origin monitor installation package"
+      "closed_at": "2026-08-07T06:59:16Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/213",
+      "number": 213,
+      "title": "perf: move current-deals winner selection into SQL"
     },
     {
-      "closed_at": "2026-08-06T11:28:21Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/175",
-      "number": 175,
-      "title": "P0 deploy: prevent successful releases with broken UI assets"
+      "closed_at": "2026-08-07T06:09:05Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/215",
+      "number": 215,
+      "title": "P1 ALDI Gate D: build immutable offline visual adjudication pack"
     },
     {
-      "closed_at": "2026-08-06T11:54:20Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/177",
-      "number": 177,
-      "title": "P1 deploy: retry public UI contract during edge propagation"
+      "closed_at": "2026-08-07T03:59:32Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/219",
+      "number": 219,
+      "title": "Fix branding merge regression in UI legacy/static contracts"
     },
     {
-      "closed_at": "2026-08-06T12:27:26Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/179",
-      "number": 179,
-      "title": "P1 deploy: authenticate public verification through Cloudflare Access"
+      "closed_at": "2026-08-07T12:59:36Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/222",
+      "number": 222,
+      "title": "perf: add PostgreSQL current-deals scale and EXPLAIN regression"
     },
     {
-      "closed_at": "2026-08-06T12:39:54Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/181",
-      "number": 181,
-      "title": "docs: add Cloudflare Access service-auth deployment runbook"
+      "closed_at": "2026-08-07T07:19:20Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/223",
+      "number": 223,
+      "title": "P1 ALDI Gate D1: discover exact RPi5 frozen evidence for review-pack execution"
     },
     {
-      "closed_at": "2026-08-06T13:49:14Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/183",
-      "number": 183,
-      "title": "P1 UI: keep quick-date buttons on Europe/Berlin calendar days"
+      "closed_at": "2026-08-07T14:25:36Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/228",
+      "number": 228,
+      "title": "P1 Lidl Gate B: add family-agnostic frozen scan/profile promotion"
     },
     {
-      "closed_at": "2026-08-06T13:03:58Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/184",
-      "number": 184,
-      "title": "UI: Nedēļas pārskats ielādē pārāk daudz datu pirms pirmā satura"
+      "closed_at": "2026-08-07T07:47:17Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/230",
+      "number": 230,
+      "title": "P1 Lidl Gate A: distinguish volatile raw refresh from parser-input drift"
     },
     {
-      "closed_at": "2026-08-06T13:50:49Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/191",
-      "number": 191,
-      "title": "P1 ALDI A3.0: reconcile blocked 39/41 authoritative rollover without weakening strict gate"
+      "closed_at": "2026-08-07T07:50:49Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/231",
+      "number": 231,
+      "title": "perf: split current-deals Server-Timing by backend stage"
     },
     {
-      "closed_at": "2026-08-06T13:58:21Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/192",
-      "number": 192,
-      "title": "perf: ielādēt visu nedēļas pārskatu ar vienu kešojamu API atbildi"
+      "closed_at": "2026-08-07T07:37:36Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/232",
+      "number": 232,
+      "title": "P1 ALDI Gate D1: add exact-SHA RPi5 evidence-discovery execution boundary"
     },
     {
-      "closed_at": "2026-08-06T14:15:54Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/199",
-      "number": 199,
-      "title": "fix: weekly overview must not fail when one evidence source is unavailable"
+      "closed_at": "2026-08-07T09:59:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/247",
+      "number": 247,
+      "title": "fix: normalize runtime source permissions in production image"
     },
     {
-      "closed_at": "2026-08-06T14:28:19Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/200",
-      "number": 200,
-      "title": "P1 ALDI Gate B: build reconciled 41-page weekly shadow replay plan"
+      "closed_at": "2026-08-07T09:03:47Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/249",
+      "number": 249,
+      "title": "perf: prewarm current weekly bundle after production deploy"
     },
     {
-      "closed_at": "2026-08-06T14:51:42Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/204",
-      "number": 204,
-      "title": "perf: make full offers catalog load immediately"
+      "closed_at": "2026-08-07T08:56:16Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/250",
+      "number": 250,
+      "title": "P1 ALDI Gate D1: fix real Gate B transport identity and preserve failure diagnostics"
     },
     {
-      "closed_at": "2026-08-06T14:51:29Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/207",
-      "number": 207,
-      "title": "P1 Lidl Gate B: run exact-SHA read-only source-freeze plan on RPi5"
+      "closed_at": "2026-08-07T09:13:39Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/255",
+      "number": 255,
+      "title": "Add generated wide project banner to README"
     },
     {
-      "closed_at": "2026-08-06T15:48:07Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/208",
-      "number": 208,
-      "title": "P1 ALDI Gate C: validate shadow replay inputs and build bounded work package"
+      "closed_at": "2026-08-07T09:25:21Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/261",
+      "number": 261,
+      "title": "P1 ALDI Gate D2: diagnose missing frozen A3.0 49+41 page family"
     },
     {
-      "closed_at": "2026-08-06T15:27:30Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/211",
-      "number": 211,
-      "title": "P1 Lidl Gate B: execute merged read-only RPi5 plan and record fingerprint"
+      "closed_at": "2026-08-07T09:43:31Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/266",
+      "number": 266,
+      "title": "P1 ALDI Gate D3: inventory immutable legacy A3.0 recovery sources"
+    },
+    {
+      "closed_at": "2026-08-07T10:38:25Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/270",
+      "number": 270,
+      "title": "P1 ALDI Gate D3: harden recovery inventory before RPi5 execution"
+    },
+    {
+      "closed_at": "2026-08-07T11:11:54Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/273",
+      "number": 273,
+      "title": "P0 Infra regression: restore explicit owner authorization before production deploy"
+    },
+    {
+      "closed_at": "2026-08-07T14:39:19Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/278",
+      "number": 278,
+      "title": "P1 Infra: restore Cloudflare Tunnel health for public deploy verification"
+    },
+    {
+      "closed_at": "2026-08-07T11:07:30Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/280",
+      "number": 280,
+      "title": "P1 ALDI Gate D3: fix installed-tool traversal and sanitized failure reporting"
+    },
+    {
+      "closed_at": "2026-08-07T19:26:30Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/294",
+      "number": 294,
+      "title": "P2 Netto: keep successful geometry replay green when report comment fails"
+    },
+    {
+      "closed_at": "2026-08-07T19:11:47Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/295",
+      "number": 295,
+      "title": "P1 Lidl Gate A: isolate audit clone and preserve sanitized early-failure evidence"
+    },
+    {
+      "closed_at": "2026-08-07T20:34:48Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/301",
+      "number": 301,
+      "title": "P1 Netto N2: generate blind independent 100-cell source-review pack"
+    },
+    {
+      "closed_at": "2026-08-07T20:18:26Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/303",
+      "number": 303,
+      "title": "P1 Netto N2: complete blind independent review of frozen 100-cell source pack"
+    },
+    {
+      "closed_at": "2026-08-07T20:33:44Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/306",
+      "number": 306,
+      "title": "P1 Netto N2: expose and adjudicate member-price evidence for 7 frozen cells"
+    },
+    {
+      "closed_at": "2026-08-07T21:01:35Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/313",
+      "number": 313,
+      "title": "P1 Lidl Gate B: support immutable source revision under same flyer key"
+    },
+    {
+      "closed_at": "2026-08-07T21:59:46Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/318",
+      "number": 318,
+      "title": "P1 Lidl Gate B: freeze apply replan mistakes private staging for frozen source"
     }
   ],
   "previous_day_percentage_points": 0,
