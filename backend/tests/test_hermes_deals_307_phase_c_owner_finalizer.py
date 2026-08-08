@@ -18,7 +18,7 @@ def test_owner_finalizer_is_syntax_valid_and_pins_reviewed_bootstrap() -> None:
     text = source()
     subprocess.run(["bash", "-n", str(FINALIZER)], check=True)
 
-    assert "FINALIZER_VERSION='hermes-deals-307-phase-c-owner-finalizer-v1'" in text
+    assert "FINALIZER_VERSION='hermes-deals-307-phase-c-owner-finalizer-v2'" in text
     assert "SOURCE_PR='329'" in text
     assert f"TARGET_SHA='{TARGET_SHA}'" in text
     assert "AUDIT_REPO='/home/andris/hermes-deals-audit-source-307'" in text
@@ -36,7 +36,8 @@ def test_owner_finalizer_preserves_primary_and_uses_dedicated_clone() -> None:
     assert "PRIMARY_WORKTREE_UNCHANGED=true" in text
     assert "PRIMARY_INDEX_UNCHANGED=true" in text
     assert 'git -C "$AUDIT_REPO" fetch --prune origin main' in text
-    assert 'git -C "$AUDIT_REPO" switch --detach "$TARGET_SHA"' in text
+    assert 'git -C "$AUDIT_REPO" switch --detach --discard-changes "$TARGET_SHA"' in text
+    assert "AUDIT_REPO_MATERIALIZED=true" in text
 
     for forbidden in (
         'git -C "$PRIMARY" switch',
@@ -49,6 +50,20 @@ def test_owner_finalizer_preserves_primary_and_uses_dedicated_clone() -> None:
         'git -C "$PRIMARY" rebase',
     ):
         assert forbidden not in text
+
+
+def test_owner_finalizer_materializes_pinned_audit_tree_before_cleanliness_gate() -> None:
+    text = source()
+
+    origin_check = text.index("dedicated #307 audit repository origin is not allowlisted")
+    fetch = text.index('git -C "$AUDIT_REPO" fetch --prune origin main')
+    ancestor = text.index('merge-base --is-ancestor "$TARGET_SHA" origin/main')
+    materialize = text.index('git -C "$AUDIT_REPO" switch --detach --discard-changes "$TARGET_SHA"')
+    clean_gate = text.index("dedicated #307 audit repository is dirty after pinned materialization")
+
+    assert origin_check < fetch < ancestor < materialize < clean_gate
+    assert 'git -C "$AUDIT_REPO" clean' not in text
+    assert 'rm -rf -- "$AUDIT_REPO"' not in text
 
 
 def test_owner_finalizer_grants_no_generic_or_rollback_execution_path() -> None:

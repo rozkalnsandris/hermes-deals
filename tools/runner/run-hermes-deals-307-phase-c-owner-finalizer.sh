@@ -5,7 +5,7 @@ umask 077
 PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 export PATH
 
-FINALIZER_VERSION='hermes-deals-307-phase-c-owner-finalizer-v1'
+FINALIZER_VERSION='hermes-deals-307-phase-c-owner-finalizer-v2'
 REPOSITORY='rozkalnsandris/hermes-deals'
 SOURCE_PR='329'
 TARGET_SHA='019a33cb74cafee9d455fcf488d06f91337bc301'
@@ -131,7 +131,6 @@ fi
 [[ "$(readlink -f -- "$AUDIT_REPO")" == "$AUDIT_REPO" ]] || fail 'dedicated #307 audit repository path drift'
 [[ "$(stat -c '%U:%G' "$AUDIT_REPO")" == andris:andris ]] || fail 'dedicated #307 audit repository ownership mismatch'
 [[ ! -e "$AUDIT_REPO/.git/index.lock" ]] || fail 'dedicated #307 audit repository has an index lock'
-[[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'dedicated #307 audit repository is dirty'
 origin="$(git_read "$AUDIT_REPO" remote get-url origin)"
 case "$origin" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
@@ -141,9 +140,10 @@ esac
 git -C "$AUDIT_REPO" fetch --prune origin main
 git_read "$AUDIT_REPO" cat-file -e "$TARGET_SHA^{commit}" >/dev/null
 git_read "$AUDIT_REPO" merge-base --is-ancestor "$TARGET_SHA" origin/main >/dev/null
-git -C "$AUDIT_REPO" switch --detach "$TARGET_SHA"
+git -C "$AUDIT_REPO" switch --detach --discard-changes "$TARGET_SHA"
 [[ "$(git_read "$AUDIT_REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'dedicated #307 audit HEAD mismatch'
-[[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'dedicated #307 audit repository became dirty'
+[[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'dedicated #307 audit repository is dirty after pinned materialization'
+printf 'AUDIT_REPO_MATERIALIZED=true\n'
 verify_primary_unchanged
 
 INSTALLER="$AUDIT_REPO/$INSTALLER_REL"
