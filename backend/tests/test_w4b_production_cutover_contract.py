@@ -77,6 +77,18 @@ def test_w4b_rendered_operator_is_exact_target_bounded_and_rollback_capable(
     assert '[[ "$API_IMAGE_TAG" == hermes-deals-api:release-* ]]' not in source
     assert "fail 'current_api_tag_not_release_managed'" in source
 
+    # The root-owned operator must not weaken Git's safe.directory protection.
+    # Read-only production Git state is collected under the repository owner
+    # identity instead, and staged diff helpers are disabled.
+    assert "for command in curl docker flock grep install python3 runuser sha256sum stat systemctl; do" in source
+    assert 'runuser -u andris -- git -C "$PRIMARY" "$@"' in source
+    assert '"$(primary_git rev-parse HEAD)"' in source
+    assert '"$(primary_git branch --show-current)"' in source
+    assert '"$(primary_git status --porcelain=v1 --untracked-files=all)"' in source
+    assert '"$(primary_git diff --cached --binary --no-ext-diff --no-textconv)"' in source
+    assert 'git -C "$PRIMARY" rev-parse HEAD' not in source
+    assert "safe.directory" not in source
+
     for forbidden in (
         "alembic upgrade",
         "alembic downgrade",
@@ -111,6 +123,32 @@ def test_w4b_operator_renderer_fails_closed_on_template_drift(tmp_path: Path) ->
     )
     assert result.returncode != 0
     assert "managed-image baseline replacement expected exactly once" in (
+        result.stdout + result.stderr
+    )
+    assert not rendered.exists()
+
+
+def test_w4b_operator_renderer_fails_closed_on_production_git_state_drift(
+    tmp_path: Path,
+) -> None:
+    drifted = tmp_path / "drifted-git-state-operator"
+    drifted.write_text(
+        read(OPERATOR).replace(
+            'git -C "$PRIMARY" rev-parse HEAD',
+            'git -C "$PRIMARY" rev-parse --verify HEAD',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    rendered = tmp_path / "rendered"
+    result = subprocess.run(
+        ["python3", str(RENDERER), str(drifted), str(rendered)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "production Git state replacement expected exactly once" in (
         result.stdout + result.stderr
     )
     assert not rendered.exists()
