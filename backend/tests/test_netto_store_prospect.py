@@ -190,7 +190,13 @@ class NettoStoreProspectTest(unittest.TestCase):
             date(2026, 8, 3), date(2026, 8, 8), "03.08.26 - 08.08.26"
         )
 
-        bundle = fetch_netto_store_prospect(source)
+        class FixedDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 4, 12, 0, tzinfo=tz)
+
+        with patch("app.netto_store_prospect.datetime", FixedDatetime):
+            bundle = fetch_netto_store_prospect(source)
 
         self.assertEqual(bundle.validity_source_type, "prospect_html_meta")
         self.assertEqual(bundle.prospect_pdf, b"%PDF-fixture")
