@@ -1,0 +1,393 @@
+name: W2 production canonical smoke
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-w2-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner W2 smoke command
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+
+    steps:
+      - name: Validate owner, issue and exact command
+        id: authorize
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          owner = "rozkalnsandris"
+          repo = "rozkalnsandris/hermes-deals"
+          expected_command = "/hermes-319 w2-smoke"
+          expected_workflow_ref = (
+              "rozkalnsandris/hermes-deals/.github/workflows/"
+              "w2-production-smoke.yml@refs/heads/main"
+          )
+
+          if os.environ["EVENT_NAME"] != "issue_comment":
+              raise SystemExit("unexpected event")
+          if os.environ["REPOSITORY"] != repo:
+              raise SystemExit("unexpected repository")
+          if os.environ["REPOSITORY_OWNER"] != owner:
+              raise SystemExit("unexpected repository owner")
+          if os.environ["ACTOR"] != owner:
+              raise SystemExit("command actor is not repository owner")
+          if os.environ["TRIGGERING_ACTOR"] != owner:
+              raise SystemExit("triggering actor is not repository owner")
+          if os.environ["COMMENT_AUTHOR"] != owner:
+              raise SystemExit("comment author is not repository owner")
+          if os.environ["ISSUE_NUMBER"] != "319":
+              raise SystemExit("W2 smoke command is restricted to issue 319")
+          if os.environ["COMMENT_BODY"].strip() != expected_command:
+              raise SystemExit("comment does not match the exact W2 smoke command")
+          if os.environ["WORKFLOW_REF"] != expected_workflow_ref:
+              raise SystemExit("W2 smoke workflow must execute from main")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write("issue_number=319\n")
+              handle.write(f"comment_id={os.environ['COMMENT_ID']}\n")
+          PY
+
+  smoke:
+    name: Read-only W2 smoke on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-release
+    timeout-minutes: 10
+    permissions: {}
+    outputs:
+      result: ${{ steps.smoke.outputs.result }}
+      reason: ${{ steps.smoke.outputs.reason }}
+      engine: ${{ steps.smoke.outputs.engine }}
+      catalog_count: ${{ steps.smoke.outputs.catalog_count }}
+      catalog_bytes: ${{ steps.smoke.outputs.catalog_bytes }}
+      catalog_median_ms: ${{ steps.smoke.outputs.catalog_median_ms }}
+      catalog_min_ms: ${{ steps.smoke.outputs.catalog_min_ms }}
+      catalog_max_ms: ${{ steps.smoke.outputs.catalog_max_ms }}
+      overview_total_products: ${{ steps.smoke.outputs.overview_total_products }}
+      overview_bytes: ${{ steps.smoke.outputs.overview_bytes }}
+      overview_median_ms: ${{ steps.smoke.outputs.overview_median_ms }}
+      overview_min_ms: ${{ steps.smoke.outputs.overview_min_ms }}
+      overview_max_ms: ${{ steps.smoke.outputs.overview_max_ms }}
+
+    steps:
+      - name: Probe fixed local read-only endpoints
+        id: smoke
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          import statistics
+          from time import perf_counter
+          from urllib.error import HTTPError, URLError
+          from urllib.request import ProxyHandler, Request, build_opener
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          origin = "http://127.0.0.1:9128"
+          expected_engine = "batched-current-offers-v1"
+          opener = build_opener(ProxyHandler({}))
+          headers = {
+              "Accept": "application/json",
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache",
+              "User-Agent": "hermes-deals-w2-production-smoke/1",
+          }
+
+          def emit(values: dict[str, str]) -> None:
+              with output.open("a", encoding="utf-8") as handle:
+                  for key, value in values.items():
+                      handle.write(f"{key}={value}\n")
+
+          def request(path: str, timeout: float = 5.0):
+              started = perf_counter()
+              try:
+                  with opener.open(
+                      Request(origin + path, headers=headers),
+                      timeout=timeout,
+                  ) as response:
+                      body = response.read()
+                      status = response.status
+                      response_headers = response.headers
+              except (HTTPError, URLError, TimeoutError):
+                  raise RuntimeError("endpoint_unavailable") from None
+              elapsed_ms = (perf_counter() - started) * 1000.0
+              return status, response_headers, body, elapsed_ms
+
+          def parse_json(body: bytes):
+              try:
+                  return json.loads(body)
+              except (UnicodeDecodeError, json.JSONDecodeError):
+                  raise RuntimeError("invalid_json_response") from None
+
+          def validate_content_type(response_headers) -> None:
+              value = str(response_headers.get("Content-Type") or "")
+              if value.split(";", 1)[0].strip().casefold() != "application/json":
+                  raise RuntimeError("invalid_content_type")
+
+          def measure(path: str, validate_payload):
+              # One warm-up request plus five measured reads. All are GET/read-only.
+              warm_status, warm_headers, warm_body, _ = request(path)
+              if warm_status != 200:
+                  raise RuntimeError("non_200_response")
+              validate_content_type(warm_headers)
+              validate_payload(warm_headers, parse_json(warm_body))
+
+              timings: list[float] = []
+              last_body = b""
+              last_payload = None
+              last_headers = None
+              for _ in range(5):
+                  status, response_headers, body, elapsed_ms = request(path)
+                  if status != 200:
+                      raise RuntimeError("non_200_response")
+                  validate_content_type(response_headers)
+                  payload = parse_json(body)
+                  validate_payload(response_headers, payload)
+                  timings.append(elapsed_ms)
+                  last_body = body
+                  last_payload = payload
+                  last_headers = response_headers
+              return {
+                  "headers": last_headers,
+                  "payload": last_payload,
+                  "body_bytes": len(last_body),
+                  "median_ms": statistics.median(timings),
+                  "min_ms": min(timings),
+                  "max_ms": max(timings),
+              }
+
+          try:
+              health_status, _, health_body, _ = request("/api/health", 2.0)
+              health = parse_json(health_body)
+              if (
+                  health_status != 200
+                  or health.get("status") != "ok"
+                  or health.get("service") != "hermes-deals-api"
+              ):
+                  raise RuntimeError("invalid_health_contract")
+
+              def validate_catalog(response_headers, payload) -> None:
+                  if response_headers.get("X-Hermes-Canonical-Engine") != expected_engine:
+                      raise RuntimeError("catalog_engine_marker_mismatch")
+                  if not isinstance(payload, dict):
+                      raise RuntimeError("catalog_contract_mismatch")
+                  count = payload.get("count")
+                  products = payload.get("products")
+                  if (
+                      not isinstance(count, int)
+                      or count < 0
+                      or not isinstance(products, list)
+                      or len(products) != count
+                  ):
+                      raise RuntimeError("catalog_contract_mismatch")
+
+              def validate_overview(response_headers, payload) -> None:
+                  if response_headers.get("X-Hermes-Canonical-Engine") != expected_engine:
+                      raise RuntimeError("overview_engine_marker_mismatch")
+                  if not isinstance(payload, dict):
+                      raise RuntimeError("overview_contract_mismatch")
+                  required = (
+                      "total_products",
+                      "products_with_current_offers",
+                      "products_without_current_offers",
+                      "comparison_ready_products",
+                      "current_offer_count",
+                      "retailer_count",
+                  )
+                  for key in required:
+                      value = payload.get(key)
+                      if not isinstance(value, int) or value < 0:
+                          raise RuntimeError("overview_contract_mismatch")
+                  if (
+                      payload["products_with_current_offers"]
+                      + payload["products_without_current_offers"]
+                      != payload["total_products"]
+                  ):
+                      raise RuntimeError("overview_contract_mismatch")
+
+              catalog = measure("/api/v1/catalog?limit=100", validate_catalog)
+              overview = measure("/api/v1/ui/overview", validate_overview)
+
+              catalog_payload = catalog["payload"]
+              overview_payload = overview["payload"]
+              emit(
+                  {
+                      "result": "PASS",
+                      "reason": "batched_engine_active_and_read_only_smoke_passed",
+                      "engine": expected_engine,
+                      "catalog_count": str(catalog_payload["count"]),
+                      "catalog_bytes": str(catalog["body_bytes"]),
+                      "catalog_median_ms": f"{catalog['median_ms']:.2f}",
+                      "catalog_min_ms": f"{catalog['min_ms']:.2f}",
+                      "catalog_max_ms": f"{catalog['max_ms']:.2f}",
+                      "overview_total_products": str(overview_payload["total_products"]),
+                      "overview_bytes": str(overview["body_bytes"]),
+                      "overview_median_ms": f"{overview['median_ms']:.2f}",
+                      "overview_min_ms": f"{overview['min_ms']:.2f}",
+                      "overview_max_ms": f"{overview['max_ms']:.2f}",
+                  }
+              )
+          except RuntimeError as exc:
+              reason = str(exc)
+              allowed_reasons = {
+                  "endpoint_unavailable",
+                  "invalid_json_response",
+                  "invalid_content_type",
+                  "non_200_response",
+                  "invalid_health_contract",
+                  "catalog_engine_marker_mismatch",
+                  "overview_engine_marker_mismatch",
+                  "catalog_contract_mismatch",
+                  "overview_contract_mismatch",
+              }
+              if reason not in allowed_reasons:
+                  reason = "unexpected_smoke_failure"
+              emit(
+                  {
+                      "result": "BLOCKED",
+                      "reason": reason,
+                      "engine": "unavailable",
+                      "catalog_count": "unavailable",
+                      "catalog_bytes": "unavailable",
+                      "catalog_median_ms": "unavailable",
+                      "catalog_min_ms": "unavailable",
+                      "catalog_max_ms": "unavailable",
+                      "overview_total_products": "unavailable",
+                      "overview_bytes": "unavailable",
+                      "overview_median_ms": "unavailable",
+                      "overview_min_ms": "unavailable",
+                      "overview_max_ms": "unavailable",
+                  }
+              )
+              raise SystemExit(1)
+          PY
+
+      - name: Enforce smoke result
+        if: always()
+        env:
+          RESULT: ${{ steps.smoke.outputs.result }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RESULT" == "PASS" ]]
+
+  report:
+    name: Report sanitized W2 production smoke
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment sanitized result on tracker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          SMOKE_JOB_RESULT: ${{ needs.smoke.result }}
+          RESULT: ${{ needs.smoke.outputs.result }}
+          REASON: ${{ needs.smoke.outputs.reason }}
+          ENGINE: ${{ needs.smoke.outputs.engine }}
+          CATALOG_COUNT: ${{ needs.smoke.outputs.catalog_count }}
+          CATALOG_BYTES: ${{ needs.smoke.outputs.catalog_bytes }}
+          CATALOG_MEDIAN_MS: ${{ needs.smoke.outputs.catalog_median_ms }}
+          CATALOG_MIN_MS: ${{ needs.smoke.outputs.catalog_min_ms }}
+          CATALOG_MAX_MS: ${{ needs.smoke.outputs.catalog_max_ms }}
+          OVERVIEW_TOTAL_PRODUCTS: ${{ needs.smoke.outputs.overview_total_products }}
+          OVERVIEW_BYTES: ${{ needs.smoke.outputs.overview_bytes }}
+          OVERVIEW_MEDIAN_MS: ${{ needs.smoke.outputs.overview_median_ms }}
+          OVERVIEW_MIN_MS: ${{ needs.smoke.outputs.overview_min_ms }}
+          OVERVIEW_MAX_MS: ${{ needs.smoke.outputs.overview_max_ms }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ.get("RESULT") or "UNAVAILABLE"
+          reason = os.environ.get("REASON") or "smoke did not produce sanitized evidence"
+          body = (
+              "## Gate W2 production smoke result\n\n"
+              f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+              f"- workflow job: `{os.environ['SMOKE_JOB_RESULT']}`\n"
+              f"- result: `{result}`\n"
+              f"- reason: `{reason}`\n"
+              f"- canonical engine: `{os.environ.get('ENGINE') or 'unavailable'}`\n"
+              f"- catalog count / bytes: `{os.environ.get('CATALOG_COUNT') or 'unavailable'}` / "
+              f"`{os.environ.get('CATALOG_BYTES') or 'unavailable'}`\n"
+              f"- catalog wall ms median/min/max: `{os.environ.get('CATALOG_MEDIAN_MS') or 'unavailable'}` / "
+              f"`{os.environ.get('CATALOG_MIN_MS') or 'unavailable'}` / "
+              f"`{os.environ.get('CATALOG_MAX_MS') or 'unavailable'}`\n"
+              f"- overview total products / bytes: `{os.environ.get('OVERVIEW_TOTAL_PRODUCTS') or 'unavailable'}` / "
+              f"`{os.environ.get('OVERVIEW_BYTES') or 'unavailable'}`\n"
+              f"- overview wall ms median/min/max: `{os.environ.get('OVERVIEW_MEDIAN_MS') or 'unavailable'}` / "
+              f"`{os.environ.get('OVERVIEW_MIN_MS') or 'unavailable'}` / "
+              f"`{os.environ.get('OVERVIEW_MAX_MS') or 'unavailable'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              "Safety: fixed loopback GET requests only; no checkout on the RPi5 job, no GitHub token or secrets, "
+              "no sudo/root, no deploy/Docker/Cloudflare/UFW action, and no DB/Review/collector/parser/scheduler write authority."
+          )
+          payload = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-w2-smoke-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
