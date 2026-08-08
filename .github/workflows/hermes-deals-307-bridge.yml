@@ -44,9 +44,9 @@ jobs:
           python tools/github_deals_307_bridge.py
 
   phase-c:
-    name: Apply reviewed Deals 9128 dual bind
+    name: Apply or verify reviewed Deals 9128 dual bind
     needs: authorize
-    if: needs.authorize.result == 'success' && needs.authorize.outputs.operation == 'apply-dual'
+    if: needs.authorize.result == 'success' && (needs.authorize.outputs.operation == 'apply-dual' || needs.authorize.outputs.operation == 'verify-dual')
     runs-on:
       - self-hosted
       - Linux
@@ -70,6 +70,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_RUNTIME_SHA: ${{ needs.authorize.outputs.runtime_sha }}
+          OPERATION: ${{ needs.authorize.outputs.operation }}
         run: |
           set -Eeuo pipefail
           umask 077
@@ -91,7 +92,7 @@ jobs:
             printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
           }
 
-          emit result BLOCKED_BEFORE_APPLY
+          emit result BLOCKED_BEFORE_OPERATION
           emit reason validating_registered_runtime_sha
           emit check_pass false
           emit apply_pass false
@@ -101,10 +102,33 @@ jobs:
           emit production_head not_observed_from_restricted_runner
 
           [[ "$EXPECTED_RUNTIME_SHA" == '654ec9739f8cea74ee8a4ee93e25e12bf06482cc' ]]
+          [[ "$OPERATION" == 'apply-dual' || "$OPERATION" == 'verify-dual' ]]
           emit reason validating_installed_root_dispatcher
           [[ -f "$DISPATCHER" && ! -L "$DISPATCHER" && -x "$DISPATCHER" ]]
           [[ "$(stat -c '%U:%G:%a' "$DISPATCHER")" == 'root:root:755' ]]
 
+          if [[ "$OPERATION" == 'verify-dual' ]]; then
+            emit check_pass not_run
+            emit apply_pass not_run
+            emit reason verifying_existing_reviewed_dual_bind
+            set +e
+            sudo --non-interactive "$DISPATCHER" verify-dual >"$VERIFY_LOG" 2>&1
+            VERIFY_RC=$?
+            set -e
+            if [[ "$VERIFY_RC" -ne 0 ]]; then
+              emit result VERIFY_FAILED
+              emit reason existing_dual_bind_verify_failed
+              exit 1
+            fi
+            grep -Fx 'DISPATCH_MODE=verify-dual' "$VERIFY_LOG" >/dev/null
+            grep -Fx 'HERMES_DEALS_307_DUAL_BIND_VERIFY=PASS' "$VERIFY_LOG" >/dev/null
+            emit verify_pass true
+            emit result PASS
+            emit reason existing_reviewed_dual_bind_is_active_and_verified
+            exit 0
+          fi
+
+          emit result BLOCKED_BEFORE_APPLY
           emit reason testing_dispatcher_sudo_and_read_only_check
           set +e
           sudo --non-interactive "$DISPATCHER" check >"$CHECK_LOG" 2>&1
@@ -227,6 +251,7 @@ jobs:
               f"- production checkout HEAD: `{clean('PRODUCTION_HEAD')}`\n"
               f"- workflow: {clean('RUN_URL')}\n\n"
               "Safety boundary: the self-hosted job has no repository token and invokes only the installed root-owned #307 dispatcher. "
+              "The verify-dual command is read-only; apply-dual retains the existing guarded apply/rollback path. "
               "No Cloudflare route/Access/token action, UFW mutation, DB/Review/collector/API deploy, or shared cloudflared lifecycle action is exposed. "
               "Raw operator logs are not published."
           )
