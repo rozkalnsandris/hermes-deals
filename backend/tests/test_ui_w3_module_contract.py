@@ -21,8 +21,8 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
     assert package["engines"] == {"node": ">=22.12.0"}
     assert package["devDependencies"] == {"vite": "8.1.5"}
     assert package["scripts"] == {
-        "build": "vite build --config vite.config.js",
-        "build:check": "vite build --config vite.config.js && node scripts/verify-build.mjs",
+        "build": "node node_modules/vite/bin/vite.js build --config vite.config.js",
+        "build:check": "node node_modules/vite/bin/vite.js build --config vite.config.js && node scripts/verify-build.mjs",
     }
     assert read(FRONTEND / ".nvmrc") == "24.18.0\n"
 
