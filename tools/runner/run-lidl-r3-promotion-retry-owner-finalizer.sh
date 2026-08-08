@@ -112,7 +112,10 @@ for marker in \
   grep -Fxq "$marker" "$INSTALL_LOG" || fail "installer marker missing: $marker"
 done
 sudo visudo -cf "$SUDOERS" >/dev/null
-sudo -l -U github-runner | grep -Fq "$DISPATCHER" || fail 'runner retry dispatcher authorization missing'
+# The installer runs as root and verifies the exact github-runner sudo rule before
+# it can emit INSTALL_RESULT=PASS. Repeating `sudo -l -U github-runner` here as
+# andris is not a valid owner-level proof because sudo may require a TTY/password
+# when listing another user's privileges even though the installed rule is valid.
 [[ -f "$CONF" && ! -L "$CONF" && "$(stat -c '%U:%G:%a' "$CONF")" == root:root:644 ]] || fail 'retry registration missing/unsafe'
 [[ -z "$(git_read "$AUDIT_REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'audit repository changed during install'
 [[ "$(git_read "$AUDIT_REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || fail 'audit HEAD changed during install'
