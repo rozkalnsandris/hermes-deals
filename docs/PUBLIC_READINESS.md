@@ -1,10 +1,10 @@
 # Public-repository readiness
 
-Status: **PUBLIC; repository/CI security gates passed; post-switch control-plane protection audit pending**.
+Status: **PUBLIC; repository/CI security gates passed; active `main` ruleset enforcement verified; final fork-workflow approval confirmation pending**.
 
 The owner accepted the documented privacy tradeoffs and changed `rozkalnsandris/hermes-deals` from private to public on 2026-08-08. GitHub repository metadata was re-read after the change and reports `visibility=public`.
 
-The repository-code and CI security gates remain in force. The only remaining item in this document is the GitHub control-plane check for branch protection/rulesets and repository Actions settings, which cannot be proven from tracked files alone.
+The repository-code and CI security gates remain in force. The active `Protect main` ruleset was additionally exercised with a real documentation-only pull request after the visibility change.
 
 ## Required gates
 
@@ -16,7 +16,10 @@ The repository-code and CI security gates remain in force. The only remaining it
 - [x] Owner accepted that existing issue/PR history, workflow metadata and retained sanitized Actions evidence are public. Search review found credential-name/safety discussions but no credential values; GitHub-hosted secret masking and the repository's sanitization contracts remain relied upon for historical runtime logs.
 - [x] Owner accepted publication of operational metadata already present in Git history, including household/store selection identifiers, RPi5/internal-path references and private-LAN topology details. These are not credentials, but they are privacy-relevant metadata.
 - [x] Repository visibility changed to public on 2026-08-08 and was independently re-read as `visibility=public`.
-- [ ] Re-check/re-enable branch protection/rulesets and repository Actions permissions in GitHub control-plane settings after the visibility change.
+- [x] Configure an active `Protect main` branch ruleset targeting the default branch, with an empty bypass list, deletion protection, linear history, pull-request-only changes, zero required human approvals, the two CI jobs required, no up-to-date-before-merge requirement, force-push protection, and squash as the intended merge method.
+- [x] Exercise the ruleset with a real PR and verify that GitHub refuses a squash merge while both required checks are still in progress.
+- [x] Keep default workflow token permissions read-only for repository contents/packages and keep `Allow GitHub Actions to create and approve pull requests` disabled.
+- [ ] Confirm that `Approval for running fork pull request workflows from contributors` is saved as `Require approval for all external contributors`.
 
 ## Current security evidence
 
@@ -26,10 +29,11 @@ The repository-code and CI security gates remain in force. The only remaining it
 - Three `pull_request_target` and four `issue_comment` self-hosted workflows received manual public-repository threat review; see `docs/PUBLIC_READINESS_WORKFLOW_REVIEW.md`.
 - `.env.example` contains placeholders only. Runtime `.env`, private keys, dumps, backups and common credential files are excluded by `.gitignore`.
 - Cloudflare Access service credentials are GitHub secrets and must never be committed. Repository visibility is independent of the production Access policy.
-- A post-switch PR CI run is required before this documentation update is merged so the full-history secret scan, workflow-safety audit and complete test suite are exercised once while the repository is already public.
+- Post-switch PR #354 exercised the full-history secret scan, workflow-safety audit and complete test suite while the repository was already public.
+- Ruleset smoke-test PR #357 was deliberately offered for squash merge before its required checks completed. GitHub rejected the merge with a repository-rule violation stating that 2 of 2 required status checks were still in progress. This proves the required-check gate is active on `main` for the normal merge path.
 
 ## Visibility-change rule
 
 Do not weaken RPi5 trust boundaries because the repository is public. Standard PR CI must stay on GitHub-hosted runners. Self-hosted jobs remain owner-gated, post-merge/manual/controlled operations with no untrusted PR checkout.
 
-The remaining manual control-plane action is to verify branch protection/rulesets and repository Actions permissions in GitHub Settings. No production application deploy is required for this documentation-only state update.
+No production application deploy is required for this documentation-only control-plane verification.
