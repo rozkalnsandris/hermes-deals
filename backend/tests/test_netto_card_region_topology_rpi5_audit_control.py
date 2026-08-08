@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -64,6 +65,15 @@ class NettoCardRegionTopologyRpi5AuditControlTest(unittest.TestCase):
     def test_installer_does_not_execute_audit(self) -> None:
         self.assertIn('echo "AUDIT_EXECUTED=false"', self.installer)
         self.assertIn('echo "INSTALL_RESULT=PASS"', self.installer)
+
+    def test_installer_shell_syntax(self) -> None:
+        result = subprocess.run(
+            ["bash", "-n", str(INSTALLER)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
