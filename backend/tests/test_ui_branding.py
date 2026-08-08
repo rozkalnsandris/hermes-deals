@@ -15,14 +15,17 @@ client = TestClient(app)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_readme_shows_versioned_project_logo_at_top() -> None:
+def test_readme_uses_versioned_project_logo_without_legacy_banner() -> None:
     readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     logo = 'src="backend/app/ui/assets/deals-logo.svg"'
-    banner = 'src="assets/branding/readme-banner.jpg"'
+    legacy_banner = 'src="assets/branding/readme-banner.jpg"'
+    heading = '<h1 align="center">Hermes Deals</h1>'
 
     assert logo in readme
-    assert banner in readme
-    assert readme.index(logo) < readme.index(banner) < readme.index("# Hermes Deals")
+    assert 'width="128" height="128"' in readme
+    assert legacy_banner not in readme
+    assert heading in readme
+    assert readme.index(logo) < readme.index(heading)
 
 
 def test_main_ui_uses_versioned_project_logo_and_favicons() -> None:
