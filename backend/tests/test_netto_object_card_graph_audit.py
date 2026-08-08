@@ -276,6 +276,7 @@ def test_required_mixed_canaries_are_diagnostic_only() -> None:
     assert "candidate_ownership_binding" not in source
 
 
+# Keep the diagnostic contract explicit: this test must stay source-only/read-only.
 def test_source_contract_forbids_parser_decision_ocr_or_writes() -> None:
     source = MODULE_PATH.read_text(encoding="utf-8")
     assert 'page.get_text("blocks", sort=False)' in source
