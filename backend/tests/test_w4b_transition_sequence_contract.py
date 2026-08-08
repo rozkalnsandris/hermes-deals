@@ -30,6 +30,7 @@ def test_cutover_sequences_target_api_before_forced_web_recreate(tmp_path: Path)
         'compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" '
         'up -d --no-deps --no-build --wait api'
     )
+    transition_call = 'if (( APPLY_RC == 0 )) && ! assert_target_api_transition; then'
     web_phase = (
         'compose "w4b-$TARGET_SHORT" hashed-w4 "$NGINX_TARGET" '
         'up -d --no-deps --no-build --wait --force-recreate web'
@@ -38,8 +39,8 @@ def test_cutover_sequences_target_api_before_forced_web_recreate(tmp_path: Path)
     assert combined not in source
     assert source.count(api_phase) == 1
     assert source.count(web_phase) == 1
-    assert source.index(api_phase) < source.index("assert_target_api_transition")
-    assert source.index("assert_target_api_transition", source.index(api_phase)) < source.index(web_phase)
+    assert source.count(transition_call) == 1
+    assert source.index(api_phase) < source.index(transition_call) < source.index(web_phase)
 
 
 def test_rollback_sequences_previous_api_before_forced_web_recreate(tmp_path: Path) -> None:
