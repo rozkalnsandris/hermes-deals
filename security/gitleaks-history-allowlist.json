@@ -1,0 +1,65 @@
+[
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_gate_b_freeze_plan.py",
+    "line": 58,
+    "commit": "7c65fec430f6c065e552e9260f90d3a048bd8fac",
+    "reason": "Deterministic Lidl flyer fixture identifier assigned to a variable named flyer_key; not a credential."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_gate_b_freeze_plan.py",
+    "line": 58,
+    "commit": "cd790f77293e562c4c0161a0792463d327b8d85a",
+    "reason": "Same deterministic Lidl flyer fixture identifier in an earlier immutable commit."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_github_gate_b_plan_bridge.py",
+    "line": 94,
+    "commit": "11ccf15cb5d10c9b20f31294b800fdf47c60a574",
+    "reason": "Deterministic Gate A run key used by a mocked GitHub bridge test; not an authentication key."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_github_gate_b_plan_bridge.py",
+    "line": 94,
+    "commit": "b1baaa682ac2555b2a898419766ef2610d32589e",
+    "reason": "Same deterministic mocked Gate A run key in an earlier immutable commit."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "tools/runner/bootstrap-origin-monitor-control.sh",
+    "line": 67,
+    "commit": "3040418ae1de1d44abb2902a58ee17d4c1a68e43",
+    "reason": "Sudoers NOPASSWD command-alias syntax, not a password assignment."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "tools/runner/bootstrap-origin-monitor-control.sh",
+    "line": 67,
+    "commit": "c4f6dccb5fe9b13fa05b5d4816cc49b6375016d8",
+    "reason": "Same sudoers NOPASSWD syntax in an earlier immutable commit."
+  },
+  {
+    "rule_id": "database-url-password",
+    "file": "backend/tests/test_origin_incident_evidence_contract.py",
+    "line": 101,
+    "commit": "40e6a1c5958f6d05426e92fa36911696ff19db1e",
+    "reason": "Synthetic database URL deliberately embedded in a redaction-contract test fixture."
+  },
+  {
+    "rule_id": "database-url-password",
+    "file": "backend/tests/test_origin_incident_evidence_contract.py",
+    "line": 101,
+    "commit": "99168f96850a0b5beef594d71a23ff347bea44d4",
+    "reason": "Same synthetic redaction fixture in an earlier immutable commit."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "tools/lidl_parser_provenance/v631/manifest.json",
+    "line": 15,
+    "commit": "9940cff61ca77248932ca7590fe98e7efc682686",
+    "reason": "Content-addressed Lidl flyer provenance identifier stored under flyer_key; not an authentication key."
+  }
+]
