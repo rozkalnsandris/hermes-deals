@@ -22,11 +22,21 @@ def test_installed_dispatcher_gate_precedes_any_apply() -> None:
     sudo_gate = text.index("testing_dispatcher_sudo_and_read_only_check")
     check = text.index('sudo --non-interactive "$DISPATCHER" check')
     apply = text.index('sudo --non-interactive "$DISPATCHER" apply-dual')
-    verify = text.index('sudo --non-interactive "$DISPATCHER" verify-dual')
-    assert runtime < dispatcher < sudo_gate < check < apply < verify
+    post_apply_verify = text.rindex('sudo --non-interactive "$DISPATCHER" verify-dual')
+    assert runtime < dispatcher < sudo_gate < check < apply < post_apply_verify
     assert "exact_dispatcher_sudo_not_authorized" in text
     assert "dispatcher_check_failed" in text
     assert "exact_operator_sudo_not_authorized" not in text
+
+
+def test_read_only_verify_branch_exits_before_apply_path() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    verify_branch = text.index("if [[ \"$OPERATION\" == 'verify-dual' ]]")
+    verify = text.index('sudo --non-interactive "$DISPATCHER" verify-dual', verify_branch)
+    success_exit = text.index("exit 0", verify)
+    sudo_gate = text.index("testing_dispatcher_sudo_and_read_only_check")
+    apply = text.index('sudo --non-interactive "$DISPATCHER" apply-dual')
+    assert verify_branch < verify < success_exit < sudo_gate < apply
 
 
 def test_raw_logs_are_cleaned_on_every_exit_and_never_uploaded() -> None:
