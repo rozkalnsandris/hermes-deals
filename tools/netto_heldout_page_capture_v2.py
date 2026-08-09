@@ -10,9 +10,11 @@ from typing import Any, Mapping
 from netto_heldout_ownership_protocol_v2 import prepare_v2_freeze
 from netto_heldout_page_capture import capture_heldout
 from netto_local_span_auto_single_candidate import freeze_candidate
+from netto_shadow_promotion import EvidenceBinding
 
 
 STRATEGY = "netto_heldout_all_pages_candidate_capture_v2"
+SELECTOR_STRATEGY = "netto_heldout_verified_source_selector_v1"
 CANDIDATE_IMPLEMENTATION_COMMIT = "17ceedf0fdb0342acb594ed20679519ec4910e3c"
 V2_MEMBERS = (
     "freeze-manifest.json",
@@ -53,6 +55,54 @@ def _load(path: Path) -> dict[str, Any]:
     return value
 
 
+def _normalize_binding_payload(payload: Mapping[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """Accept either a direct EvidenceBinding or the verified-selector envelope.
+
+    Historical v1 capture consumes the direct EvidenceBinding mapping. The
+    current selector deliberately emits an envelope so selection provenance can
+    be audited independently. V2 is the adapter boundary: it validates that
+    envelope and unwraps only the nested binding, without changing v1.
+    """
+    if "binding" not in payload:
+        return dict(payload), None
+
+    if payload.get("strategy") != SELECTOR_STRATEGY:
+        raise HeldoutCaptureV2Error("selector envelope strategy mismatch")
+    binding = payload.get("binding")
+    if not isinstance(binding, Mapping):
+        raise HeldoutCaptureV2Error("selector envelope binding is missing")
+    if payload.get("review_only") is not True or payload.get("promotion_ready") is not False:
+        raise HeldoutCaptureV2Error("selector envelope safety state mismatch")
+    selection = payload.get("selection")
+    if not isinstance(selection, Mapping) or selection.get("fallback_to_older_campaign_allowed") is not False:
+        raise HeldoutCaptureV2Error("selector envelope fallback policy mismatch")
+
+    try:
+        parsed = EvidenceBinding.from_mapping(binding)
+        parsed.validate()
+    except (TypeError, ValueError) as exc:
+        raise HeldoutCaptureV2Error(f"selector nested binding is invalid: {exc}") from exc
+    if parsed.store_external_id != "5659" or parsed.scope != "family_primary_netto":
+        raise HeldoutCaptureV2Error("selector nested binding store/scope mismatch")
+
+    expected_identity = str(payload.get("evidence_identity_sha256") or "")
+    if parsed.identity_sha256() != expected_identity:
+        raise HeldoutCaptureV2Error("selector envelope evidence identity mismatch")
+
+    campaign = str(payload.get("campaign_key") or "").strip()
+    if not campaign:
+        raise HeldoutCaptureV2Error("selector envelope campaign identity is missing")
+    window = payload.get("campaign_window")
+    expected_window = {
+        "start": parsed.valid_from.isoformat(),
+        "end": parsed.valid_until.isoformat(),
+    }
+    if window != expected_window:
+        raise HeldoutCaptureV2Error("selector envelope campaign window mismatch")
+
+    return dict(binding), campaign
+
+
 def _write_create_only(path: Path, value: Mapping[str, Any]) -> str:
     if path.exists() or path.is_symlink():
         raise HeldoutCaptureV2Error(f"v2 output already exists: {path.name}")
@@ -80,9 +130,12 @@ def capture_heldout_v2(
     if output.exists() or output.is_symlink():
         raise HeldoutCaptureV2Error("held-out v2 output directory must not already exist")
 
+    direct_binding, selected_campaign = _normalize_binding_payload(binding_payload)
     completed = False
     try:
-        v1_summary = capture_heldout(binding_payload, output)
+        v1_summary = capture_heldout(direct_binding, output)
+        if selected_campaign is not None and v1_summary.get("campaign_key") != selected_campaign:
+            raise HeldoutCaptureV2Error("selector campaign identity changed during v1 capture")
         source_path = output / "source-evidence.json"
         predictions_path = output / "predictions.json"
         v1_manifest_path = output / "freeze-manifest.json"
