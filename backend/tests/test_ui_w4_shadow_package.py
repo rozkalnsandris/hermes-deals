@@ -20,14 +20,46 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
     (build / "assets").mkdir()
     source.mkdir()
 
+    source.joinpath("ui-architecture-contract.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "active_release": {
+                    "bundle_meta": "minimal-v2",
+                    "release": "reference-v1",
+                    "body_classes": ["ui2-control-room", "ui-minimal-v2"],
+                    "production_asset_mode": "hashed-w4",
+                    "production_cache_policy": "w4c-immutable",
+                },
+                "w5_freeze": {
+                    "legacy_daily_special_helpers": [
+                        "DAILY_SPECIAL_PAGE_LIMIT",
+                        "DAILY_SPECIAL_MAX_PAGES",
+                        "legacyCurrentDealDailySpecialContract",
+                        "dailySpecialsUrl",
+                        "fetchAllDailyDeals",
+                    ],
+                    "explicit_daily_special_contract_tokens": [
+                        "/api/v1/deals/daily-specials",
+                        "explicit_immutable_retailer_evidence_only",
+                    ],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     source.joinpath("index.html").write_text(
         """<!doctype html>
 <html><head>
-<meta name="x" content="reference-v11-explicit-daily-special-api">
-<meta name="x" content="weekly-overview-v6-active-retailer-compaction">
-<meta name="x" content="netto-daily-quality-v1">
+<meta name="hermes-ui-bundle" content="minimal-v2">
+<meta name="hermes-ui-release" content="reference-v1">
 <link rel="stylesheet" href="/ui/styles.css">
-</head><body><div class="ui2-shell reference-app"></div>
+</head><body class="ui2-control-room ui-minimal-v2" data-ui-release="reference-v1">
+<div class="ui2-shell reference-app">
+<h1 id="weeklyOverviewTitle">Weekly</h1>
+<section id="dailySpecialsSection"></section>
+</div>
 <script src="/ui/weekly-payload-bridge.js"></script>
 <script src="/ui/app.js"></script>
 </body></html>
@@ -37,7 +69,11 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
 
     js_relative = "assets/w4-entry.abcdefgh.js"
     css_relative = "assets/w4-entry.ijklmnop.css"
-    js = b'console.log("w3-behavior-preserving-bootstrap-v1");\n'
+    js = (
+        b'console.log("w3-behavior-preserving-bootstrap-v1",'
+        b'"/api/v1/deals/daily-specials",'
+        b'"explicit_immutable_retailer_evidence_only");\n'
+    )
     css = b'/* HERMES_UI_STYLE_OPEN: fixture */\nbody{margin:0}\n'
     build.joinpath(js_relative).write_bytes(js)
     build.joinpath(css_relative).write_bytes(css)
@@ -96,6 +132,7 @@ def test_w4_shadow_package_rewrites_only_manifest_assets(tmp_path: Path) -> None
     assert "/ui/app.js" not in html
     assert "/ui/weekly-payload-bridge.js" not in html
     assert "data-hermes-production-bundle" not in html
+    assert "hermes-ui-fix" not in html
 
     package = json.loads(build.joinpath("w4-shadow-package.json").read_text())
     assert package["result"] == "PASS"
@@ -112,7 +149,9 @@ def test_w4_shadow_package_rewrites_only_manifest_assets(tmp_path: Path) -> None
 def test_w4_shadow_package_fails_closed_on_asset_drift(tmp_path: Path) -> None:
     source, build = _fixture(tmp_path)
     build.joinpath("assets/w4-entry.abcdefgh.js").write_text(
-        'console.log("w3-behavior-preserving-bootstrap-v1 changed");\n',
+        'console.log("w3-behavior-preserving-bootstrap-v1 changed",'
+        '"/api/v1/deals/daily-specials",'
+        '"explicit_immutable_retailer_evidence_only");\n',
         encoding="utf-8",
     )
 
@@ -128,4 +167,48 @@ def test_w4_shadow_package_rejects_unhashed_manifest_entry(tmp_path: Path) -> No
     manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
     with pytest.raises(W4ShadowError, match="entry JS is not content-hashed"):
+        build_w4_shadow_package(source, build)
+
+
+def test_w4_shadow_package_rejects_historical_fix_metadata(tmp_path: Path) -> None:
+    source, build = _fixture(tmp_path)
+    index_path = source / "index.html"
+    index_path.write_text(
+        index_path.read_text(encoding="utf-8").replace(
+            "</head>",
+            '<meta name="hermes-ui-fix" content="should-not-return">\n</head>',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(W4ShadowError, match="historical hermes-ui-fix metadata"):
+        build_w4_shadow_package(source, build)
+
+
+def test_w4_shadow_package_rejects_release_contract_drift(tmp_path: Path) -> None:
+    source, build = _fixture(tmp_path)
+    contract_path = source / "ui-architecture-contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["active_release"]["release"] = "drifted-release"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+
+    with pytest.raises(W4ShadowError, match="source UI release metadata"):
+        build_w4_shadow_package(source, build)
+
+
+def test_w4_shadow_package_rejects_missing_explicit_daily_special_contract(
+    tmp_path: Path,
+) -> None:
+    source, build = _fixture(tmp_path)
+    js_path = build / "assets" / "w4-entry.abcdefgh.js"
+    js = b'console.log("w3-behavior-preserving-bootstrap-v1");\n'
+    js_path.write_bytes(js)
+    evidence_path = build / "w4-shadow-build.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["js"]["bytes"] = len(js)
+    evidence["js"]["sha256"] = _digest(js)
+    evidence_path.write_text(json.dumps(evidence) + "\n", encoding="utf-8")
+
+    with pytest.raises(W4ShadowError, match="lost explicit daily-special contract"):
         build_w4_shadow_package(source, build)
