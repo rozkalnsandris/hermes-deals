@@ -140,6 +140,7 @@ def test_owner_wrapper_is_non_root_exact_main_and_read_only() -> None:
     assert "/home/andris/hermes-deals/data/raw" in text
     assert "/home/andris/hermes-deals-audits" in text
     assert "PyMuPDF 1.28.0 required" in text
+    assert "find . -type f ! -path './SHA256SUMS' -print0" in text
     assert "REPOSITORY_WRITE=false" in text
     assert "DATABASE_WRITE=false" in text
     assert "REVIEW_WRITE=false" in text
