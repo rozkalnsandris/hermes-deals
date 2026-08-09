@@ -1,0 +1,212 @@
+name: Netto hz33 completed truth exact-blob import
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: netto-hz33-completed-truth-import-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  EXPECTED_HEAD: feat/491-netto-hz33-completed-source-truth
+  TRIGGER_LABEL: audit:netto-hz33-completed-truth-import-v1
+  EXPECTED_BLOB_SHA1: 2972cc717bd7cb0156d766f80679c94d26123b2b
+  EXPECTED_COMPLETED_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+  EXPECTED_REVIEW_PACK_RUN: "31325617692"
+  EXPECTED_REVIEW_PACK_ARTIFACT: netto-heldout-review-pack-hz33-run-31325617692
+  EXPECTED_REVIEW_PACK_DIGEST: 4962071277fbf4a49e9328dd20153cff2a9e566ff7a33381955f93c94015420a
+  EXPECTED_REVIEW_PACK_MANIFEST: e47e1acc337f55dcdbbbfbbb5c200b3c100427ee5e022ad7d0e5e947e2f7274c
+  EXPECTED_BLANK_LEDGER: 9edd7f354fe8931dd0675e4876d344d700c1164499ecce19354903564649bb4a
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.auth.outputs.head_sha }}
+      head_ref: ${{ steps.auth.outputs.head_ref }}
+    steps:
+      - name: Authorize exact owner PR and label
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json, os
+          event = json.load(open(os.environ["EVENT_PATH"], encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          label = (event.get("label") or {}).get("name")
+          repo = event.get("repository") or {}
+          checks = {
+              "label": label == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "head": (pr.get("head") or {}).get("ref") == os.environ["EXPECTED_HEAD"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "open": pr.get("state") == "open",
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          head_sha = str((pr.get("head") or {}).get("sha") or "")
+          if len(head_sha) != 40:
+              raise SystemExit("missing exact PR head SHA")
+          out = os.environ["GITHUB_OUTPUT"]
+          with open(out, "a", encoding="utf-8") as handle:
+              handle.write(f"head_sha={head_sha}\n")
+              handle.write(f"head_ref={os.environ['EXPECTED_HEAD']}\n")
+          PY
+
+  import_exact_truth:
+    needs: authorize
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout exact owner PR head without executing repository code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify exact checkout and clean worktree
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor origin/main HEAD
+
+      - name: Import and validate exact existing Git blob
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, json, math, os, pathlib, urllib.request
+
+          blob_sha = os.environ["EXPECTED_BLOB_SHA1"]
+          url = f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{blob_sha}"
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              blob = json.load(response)
+          if blob.get("sha") != blob_sha or blob.get("encoding") != "base64":
+              raise SystemExit("Git blob response identity/encoding mismatch")
+          stored = base64.b64decode(str(blob.get("content") or "").replace("\n", ""), validate=True)
+          git_sha = hashlib.sha1(f"blob {len(stored)}\0".encode() + stored).hexdigest()
+          if git_sha != blob_sha:
+              raise SystemExit("Git blob byte identity mismatch")
+          plain = gzip.decompress(stored)
+          if hashlib.sha256(plain).hexdigest() != os.environ["EXPECTED_COMPLETED_SHA256"]:
+              raise SystemExit("completed source-truth SHA mismatch")
+          payload = json.loads(plain.decode("utf-8"))
+          if payload.get("campaign_key") != "hz33_hasb": raise SystemExit("campaign mismatch")
+          if payload.get("campaign_window") != {"start":"2026-08-10","end":"2026-08-15"}: raise SystemExit("window mismatch")
+          if payload.get("store_external_id") != "5659": raise SystemExit("store mismatch")
+          if payload.get("scope") != "family_primary_netto": raise SystemExit("scope mismatch")
+          if payload.get("review_pack_manifest_sha256") != os.environ["EXPECTED_REVIEW_PACK_MANIFEST"]: raise SystemExit("review-pack manifest mismatch")
+          if payload.get("blank_source_truth_ledger_sha256") != os.environ["EXPECTED_BLANK_LEDGER"]: raise SystemExit("blank-ledger mismatch")
+          if payload.get("frozen_predictions_opened") is not False: raise SystemExit("predictions were exposed")
+          if payload.get("adjudication_started") is not False: raise SystemExit("adjudication already started")
+          pages = payload.get("pages")
+          if not isinstance(pages, list) or len(pages) != 77: raise SystemExit("page count mismatch")
+          ids=set(); total=inside=excluded=partial=0
+          forbidden={"single_source","mixed_source","excluded_control"}
+          for expected_page, page in enumerate(pages, start=1):
+              if page.get("page_number") != expected_page: raise SystemExit("page sequence mismatch")
+              width=float(page.get("page_width_points") or 0); height=float(page.get("page_height_points") or 0)
+              rows=page.get("source_regions")
+              if not rows: raise SystemExit(f"empty page {expected_page}")
+              rects=[]
+              for row in rows:
+                  rid=str(row.get("source_region_id") or "")
+                  if not rid or rid in ids: raise SystemExit("duplicate/empty region id")
+                  ids.add(rid)
+                  if any(value in forbidden for value in row.values() if isinstance(value,str)): raise SystemExit("prediction outcome leaked into truth")
+                  rect=[float(v) for v in row.get("rect_points", [])]
+                  if len(rect)!=4 or not all(math.isfinite(v) for v in rect): raise SystemExit("invalid rect")
+                  x0,y0,x1,y1=rect
+                  if x1<=x0 or y1<=y0 or x0<0 or y0<0 or x1>width or y1>height: raise SystemExit("out-of-page rect")
+                  for other in rects:
+                      if min(x1,other[2])>max(x0,other[0]) and min(y1,other[3])>max(y0,other[1]): raise SystemExit("truth rect overlap")
+                  rects.append(rect)
+                  scope=row.get("source_scope"); boundary=row.get("boundary_state"); confidence=row.get("reviewer_confidence")
+                  if scope not in {"in_scope","excluded_non_target"}: raise SystemExit("bad scope")
+                  if boundary not in {"clear_single_card","partial_single_card"}: raise SystemExit("bad boundary")
+                  if confidence not in {"high","medium","low"}: raise SystemExit("bad confidence")
+                  inside += scope == "in_scope"; excluded += scope == "excluded_non_target"; partial += boundary == "partial_single_card"; total += 1
+          if (total,inside,excluded,partial)!=(341,309,32,9): raise SystemExit("completed truth distribution mismatch")
+
+          evidence = pathlib.Path("audit/netto/hz33/completed-source-truth.json.gz")
+          receipt = pathlib.Path("audit/netto/hz33/completed-source-truth-receipt.json")
+          if evidence.exists() or receipt.exists(): raise SystemExit("evidence outputs are create-only")
+          evidence.parent.mkdir(parents=True, exist_ok=True)
+          evidence.write_bytes(stored)
+          receipt_payload = {
+              "schema_version": 1,
+              "strategy": "netto_hz33_completed_source_truth_receipt_v1",
+              "git_blob_sha1": blob_sha,
+              "completed_source_truth_sha256": os.environ["EXPECTED_COMPLETED_SHA256"],
+              "campaign_key": "hz33_hasb",
+              "review_pack_run_id": int(os.environ["EXPECTED_REVIEW_PACK_RUN"]),
+              "review_pack_artifact": os.environ["EXPECTED_REVIEW_PACK_ARTIFACT"],
+              "review_pack_artifact_digest_sha256": os.environ["EXPECTED_REVIEW_PACK_DIGEST"],
+              "review_pack_manifest_sha256": os.environ["EXPECTED_REVIEW_PACK_MANIFEST"],
+              "blank_source_truth_ledger_sha256": os.environ["EXPECTED_BLANK_LEDGER"],
+              "pages": 77,
+              "regions": 341,
+              "in_scope": 309,
+              "excluded_non_target": 32,
+              "partial_single_card": 9,
+              "frozen_predictions_opened": False,
+              "adjudication_started": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          receipt.write_text(json.dumps(receipt_payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Commit only immutable truth evidence
+        env:
+          HEAD_REF: ${{ needs.authorize.outputs.head_ref }}
+        run: |
+          git add -- audit/netto/hz33/completed-source-truth.json.gz audit/netto/hz33/completed-source-truth-receipt.json
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          test "$(git diff --cached --name-only | sed -n '1p')" = "audit/netto/hz33/completed-source-truth-receipt.json"
+          test "$(git diff --cached --name-only | sed -n '2p')" = "audit/netto/hz33/completed-source-truth.json.gz"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "netto: freeze exact hz33 completed source truth"
+          git push origin "HEAD:${HEAD_REF}"
+
+      - name: Report immutable evidence commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = require('child_process').execFileSync('git', ['rev-parse', 'HEAD'], {encoding:'utf8'}).trim();
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## hz33 completed source truth imported\n\n- exact Git blob: \`${process.env.EXPECTED_BLOB_SHA1}\`\n- completed truth SHA256: \`${process.env.EXPECTED_COMPLETED_SHA256}\`\n- evidence commit: \`${sha}\`\n- pages/regions: \`77 / 341\`\n- predictions opened: **false**\n- adjudication started: **false**`,
+            });
