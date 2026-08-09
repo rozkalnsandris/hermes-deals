@@ -60,10 +60,11 @@ def test_review_pack_workflow_extracts_only_reviewer_safe_source_members() -> No
     assert "capture/freeze-manifest.json" in text
     assert "capture/freeze-receipt.json" in text
     assert "capture/blind-review-template.json" in text
+    assert '"source/netto/5659-hz33_hasb-"' in text
     assert (
-        "source/netto/5659-hz33_hasb-"
-        "7e9ac8c87b6a1c0f25f1832def945bfbe0c2be9b3371d897d98079d88789c0ba.pdf"
-    ) in text
+        '"7e9ac8c87b6a1c0f25f1832def945bfbe0c2be9b3371d897d98079d88789c0ba.pdf"'
+        in text
+    )
     assert "capture_root=$safe_root" in text
     for forbidden in (
         "predictions.json",
