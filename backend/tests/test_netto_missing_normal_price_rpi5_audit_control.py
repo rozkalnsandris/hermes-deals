@@ -40,11 +40,13 @@ def test_historical_ci_fallback_never_changes_approved_sha() -> None:
     assert "sha={head_sha}" not in text
 
 
-def test_report_always_clears_one_shot_label_after_authorization_failure() -> None:
+def test_report_always_clears_one_shot_label_and_reports_run_id() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "PR_NUMBER: ${{ github.event.pull_request.number }}" in text
+    assert "RUN_ID: ${{ github.run_id }}" in text
     assert "AUTH_RESULT: ${{ needs.authorize.result }}" in text
     assert "AUTHORIZATION_FAIL" in text
+    assert "Workflow run: \\`${RUN_ID}\\`" in text
     assert 'gh api --method DELETE "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/' in text
 
 
