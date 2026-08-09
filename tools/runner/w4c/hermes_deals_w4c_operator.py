@@ -92,7 +92,11 @@ def sha_file(path: Path) -> str:
 
 
 def primary_git(*args: str) -> str:
-    result = run(["runuser", "-u", "andris", "--", "git", "-C", str(PRIMARY), *args])
+    env = {**BASE_ENV, "HOME": "/home/andris"}
+    result = run(
+        ["runuser", "-u", "andris", "--", "git", "-C", str(PRIMARY), *args],
+        env=env,
+    )
     return result.stdout
 
 
@@ -759,6 +763,14 @@ def baseline_dict(snapshot: Snapshot) -> dict[str, str]:
 def write_rollback_state(snapshot: Snapshot) -> None:
     STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(STATE_DIR, 0o700)
+    state_dir_stat = STATE_DIR.stat()
+    gate(
+        not STATE_DIR.is_symlink()
+        and state_dir_stat.st_uid == 0
+        and state_dir_stat.st_gid == 0
+        and (state_dir_stat.st_mode & 0o777) == 0o700,
+        "rollback_state_directory_unsafe",
+    )
     payload = baseline_dict(snapshot)
     temp = STATE_DIR / f".rollback.{os.getpid()}.tmp"
     temp.write_text(
@@ -774,9 +786,12 @@ def read_rollback_state() -> dict[str, str]:
         ROLLBACK_STATE.is_file() and not ROLLBACK_STATE.is_symlink(),
         "rollback_state_missing_or_unsafe",
     )
+    state_stat = ROLLBACK_STATE.stat()
     gate(
-        (ROLLBACK_STATE.stat().st_mode & 0o777) == 0o600,
-        "rollback_state_mode_invalid",
+        state_stat.st_uid == 0
+        and state_stat.st_gid == 0
+        and (state_stat.st_mode & 0o777) == 0o600,
+        "rollback_state_metadata_invalid",
     )
     try:
         data = json.loads(ROLLBACK_STATE.read_text(encoding="utf-8"))
@@ -1020,13 +1035,17 @@ def cutover() -> None:
         gate(web_apply.returncode == 0, "cutover_web_apply_failed")
         after = capture_snapshot()
         assert_target_current(after, baseline_dict(before))
-    except GateError as exc:
-        original_error = exc
+    except Exception as exc:
+        original_error = (
+            exc
+            if isinstance(exc, GateError)
+            else GateError("cutover_unexpected_failure")
+        )
 
     if original_error is not None:
         try:
             rollback_from_state()
-        except GateError:
+        except Exception:
             output(
                 W4C_RESULT="BLOCKED",
                 W4C_REASON=original_error.reason,
@@ -1138,8 +1157,11 @@ def main() -> NoReturn | None:
             mode in {"preflight", "cutover", "verify", "rollback"},
             "invalid_mode",
         )
-        for command in ("curl", "docker", "git", "runuser", "systemctl"):
-            gate(shutil.which(command) is not None, f"missing_command_{command}")
+        for command in ("curl", "docker", "git", "python3", "runuser", "systemctl"):
+            gate(
+                shutil.which(command, path=SAFE_PATH) is not None,
+                f"missing_command_{command}",
+            )
         gate(
             PRIMARY.is_dir() and not PRIMARY.is_symlink(),
             "production_root_missing_or_unsafe",
@@ -1162,6 +1184,13 @@ def main() -> NoReturn | None:
         output(
             W4C_RESULT="BLOCKED",
             W4C_REASON=exc.reason,
+            PRODUCTION_MUTATED="true" if PRODUCTION_MUTATED else "false",
+        )
+        raise SystemExit(1)
+    except Exception:
+        output(
+            W4C_RESULT="BLOCKED",
+            W4C_REASON="internal_failure",
             PRODUCTION_MUTATED="true" if PRODUCTION_MUTATED else "false",
         )
         raise SystemExit(1)
