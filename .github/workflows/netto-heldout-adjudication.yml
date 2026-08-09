@@ -1,0 +1,500 @@
+name: Netto held-out hz33 adjudication
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/netto-heldout-adjudication.yml
+      - tools/netto_heldout_prediction_group_adjudication.py
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-heldout-hz33-adjudication
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    name: Ensure held-out adjudication label
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or reconcile owner-gated label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          label = {
+              "name": "audit:netto-heldout-adjudication-v1",
+              "color": "b60205",
+              "description": "Adjudicate frozen hz33 prediction groups against frozen independent source truth",
+          }
+          repo, token = os.environ["REPOSITORY"], os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-heldout-adjudication-label",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          payload = json.dumps(label).encode()
+          try:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels/{encoded}",
+                  data=payload, method="PATCH", headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels",
+                  data=payload, method="POST", headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          PY
+
+  authorize:
+    name: Authorize merged-PR held-out adjudication
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-heldout-adjudication-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate owner, merged PR and main ancestry
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals" or os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("unexpected repository/workflow ref")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("held-out adjudication actor is not repository owner")
+          number = int((event.get("pull_request") or {}).get("number") or 0)
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-heldout-adjudication-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("held-out adjudication accepts only merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("merged pull request SHA is invalid")
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("held-out adjudication implementation is not reachable from current main")
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr_number={number}\nactor={sender['login']}\n")
+          PY
+
+  adjudicate:
+    name: Adjudicate exact frozen hz33 prediction groups
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      adjudication_sha256: ${{ steps.run.outputs.adjudication_sha256 }}
+      prediction_group_count: ${{ steps.run.outputs.prediction_group_count }}
+      resolved_group_count: ${{ steps.run.outputs.resolved_group_count }}
+      single_source_count: ${{ steps.run.outputs.single_source_count }}
+      mixed_source_count: ${{ steps.run.outputs.mixed_source_count }}
+      excluded_control_count: ${{ steps.run.outputs.excluded_control_count }}
+      unresolved_group_count: ${{ steps.run.outputs.unresolved_group_count }}
+      not_evaluable_count: ${{ steps.run.outputs.not_evaluable_count }}
+      acceptance_all_pass: ${{ steps.run.outputs.acceptance_all_pass }}
+      artifact_name: ${{ steps.run.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    env:
+      UPSTREAM_RUN_ID: "31324156565"
+      UPSTREAM_ARTIFACT: netto-heldout-github-c0701d76bfa6412cbf89b4bf9816a68ccb3c2ab8-run-31324156565
+      UPSTREAM_ARTIFACT_DIGEST: sha256:cc289165aaac8796b33391917edb03df1085a841b82d17fc08aa93efa1d66ec4
+      UPSTREAM_ARTIFACT_BYTES: "37892979"
+      EXPECTED_PREDICTIONS_SHA256: 70c3c8abace632f6be298abb5d02b398b3e8b91e8d53565b21eface536ed7b94
+      EXPECTED_CAPTURE_SUMS_SHA256: 9711f54387a02c1e3d18fa979acca599166b860c3d823fa1b66c318e580c1f9d
+      EXPECTED_FREEZE_FILE_SHA256: 977479c653424a0daea187045828141e8224b059a5d13f2bd1c772837deb3bf3
+      EXPECTED_FREEZE_RECEIPT_FILE_SHA256: 7b4265208ce6c4c8fb2539e952b5fc1b17e25ad1d5c781b3ac22f0c0267a47fe
+      EXPECTED_LOGICAL_FREEZE_SHA256: 38bb9445ad5f2c3cc0159bd4332a4138f1d81cab03591de0542825b3f88db087
+      EXPECTED_TRUTH_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+    steps:
+      - name: Checkout exact reviewed adjudication merge
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download and verify exact pre-truth capture ZIP
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          zip_path="${RUNNER_TEMP}/netto-heldout-adjudication-upstream-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip"
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          ZIP_PATH="$zip_path" python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.error, urllib.parse, urllib.request
+          repo = os.environ["REPOSITORY"]
+          run_id = os.environ["UPSTREAM_RUN_ID"]
+          name = os.environ["UPSTREAM_ARTIFACT"]
+          expected_digest = os.environ["UPSTREAM_ARTIFACT_DIGEST"]
+          expected_bytes = int(os.environ["UPSTREAM_ARTIFACT_BYTES"])
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-heldout-adjudication-upstream",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(name, safe="")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?name={encoded}",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              artifacts = (json.load(response).get("artifacts") or [])
+          if len(artifacts) != 1:
+              raise SystemExit(f"expected exactly one pre-truth artifact, found {len(artifacts)}")
+          artifact = artifacts[0]
+          if artifact.get("name") != name or artifact.get("expired") is not False:
+              raise SystemExit("pre-truth artifact identity/expiry mismatch")
+          if artifact.get("digest") != expected_digest:
+              raise SystemExit("pre-truth artifact API digest mismatch")
+          if int(artifact.get("size_in_bytes") or 0) != expected_bytes:
+              raise SystemExit("pre-truth artifact API size mismatch")
+          workflow = artifact.get("workflow_run") or {}
+          if str(workflow.get("id")) != run_id:
+              raise SystemExit("pre-truth artifact workflow-run mismatch")
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  return None
+
+          archive_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact['id']}/zip",
+              headers=headers,
+          )
+          opener = urllib.request.build_opener(NoRedirect)
+          try:
+              opener.open(archive_request, timeout=20)
+              raise SystemExit("artifact archive endpoint unexpectedly did not redirect")
+          except urllib.error.HTTPError as error:
+              if error.code not in {301, 302, 303, 307, 308}:
+                  raise
+              location = error.headers.get("Location")
+          if not location:
+              raise SystemExit("artifact archive redirect is missing")
+
+          path = pathlib.Path(os.environ["ZIP_PATH"])
+          if path.exists() or path.is_symlink():
+              raise SystemExit("pre-truth ZIP destination already exists")
+          digest = hashlib.sha256()
+          size = 0
+          with urllib.request.urlopen(location, timeout=120) as response, path.open("xb") as output:
+              while True:
+                  chunk = response.read(1024 * 1024)
+                  if not chunk:
+                      break
+                  output.write(chunk)
+                  digest.update(chunk)
+                  size += len(chunk)
+          actual_digest = f"sha256:{digest.hexdigest()}"
+          if actual_digest != expected_digest or size != expected_bytes:
+              path.unlink(missing_ok=True)
+              raise SystemExit("downloaded pre-truth ZIP digest/size mismatch")
+          print(f"UPSTREAM_ARTIFACT_ID={artifact['id']}")
+          print(f"UPSTREAM_ARTIFACT_DIGEST={actual_digest}")
+          print(f"UPSTREAM_ARTIFACT_BYTES={size}")
+          PY
+
+      - name: Extract only frozen adjudication members
+        id: safe
+        env:
+          ZIP_PATH: ${{ steps.upstream.outputs.zip_path }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          safe_root="${RUNNER_TEMP}/netto-heldout-adjudication-safe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "root=$safe_root" >> "$GITHUB_OUTPUT"
+          SAFE_ROOT="$safe_root" python3 - <<'PY'
+          import os, pathlib, shutil, stat, zipfile
+          source = pathlib.Path(os.environ["ZIP_PATH"])
+          destination = pathlib.Path(os.environ["SAFE_ROOT"])
+          if destination.exists() or destination.is_symlink():
+              raise SystemExit("adjudication extraction root already exists")
+          destination.mkdir(mode=0o700)
+          allowed = {
+              "SHA256SUMS",
+              "capture/SHA256SUMS",
+              "capture/freeze-manifest.json",
+              "capture/freeze-receipt.json",
+              "capture/predictions.json",
+          }
+          with zipfile.ZipFile(source) as archive:
+              infos = archive.infolist()
+              if len(infos) != 15:
+                  raise SystemExit(f"unexpected pre-truth archive member count: {len(infos)}")
+              if len({info.filename for info in infos}) != len(infos):
+                  raise SystemExit("duplicate pre-truth archive member name")
+              names = {info.filename for info in infos}
+              if not allowed.issubset(names):
+                  raise SystemExit("required frozen adjudication members are missing")
+              for info in infos:
+                  pure = pathlib.PurePosixPath(info.filename)
+                  mode = (info.external_attr >> 16) & 0xFFFF
+                  if (
+                      info.is_dir()
+                      or info.filename.startswith("/")
+                      or "\\" in info.filename
+                      or any(part in {"", ".", ".."} for part in pure.parts)
+                      or stat.S_ISLNK(mode)
+                      or stat.S_ISCHR(mode)
+                      or stat.S_ISBLK(mode)
+                      or stat.S_ISFIFO(mode)
+                      or stat.S_ISSOCK(mode)
+                  ):
+                      raise SystemExit(f"unsafe upstream archive member: {info.filename}")
+              for name in sorted(allowed):
+                  target = destination.joinpath(*pathlib.PurePosixPath(name).parts)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  if target.exists() or target.is_symlink():
+                      raise SystemExit(f"duplicate adjudication destination: {name}")
+                  with archive.open(name) as src, target.open("xb") as dst:
+                      shutil.copyfileobj(src, dst)
+          source.unlink()
+          PY
+
+      - name: Verify nested frozen prediction/freeze identity
+        env:
+          SAFE_ROOT: ${{ steps.safe.outputs.root }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(os.environ["SAFE_ROOT"])
+          def sha(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          expected = {
+              "capture/SHA256SUMS": os.environ["EXPECTED_CAPTURE_SUMS_SHA256"],
+              "capture/freeze-manifest.json": os.environ["EXPECTED_FREEZE_FILE_SHA256"],
+              "capture/freeze-receipt.json": os.environ["EXPECTED_FREEZE_RECEIPT_FILE_SHA256"],
+              "capture/predictions.json": os.environ["EXPECTED_PREDICTIONS_SHA256"],
+          }
+          for rel, digest in expected.items():
+              if sha(root / rel) != digest:
+                  raise SystemExit(f"frozen adjudication member SHA mismatch: {rel}")
+
+          root_sums = {}
+          for line in (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+              digest, rel = line.split(None, 1)
+              root_sums[rel.removeprefix("./")] = digest
+          for rel, digest in expected.items():
+              if root_sums.get(rel) != digest:
+                  raise SystemExit(f"root SHA256SUMS mismatch: {rel}")
+
+          capture_sums = {}
+          for line in (root / "capture/SHA256SUMS").read_text(encoding="utf-8").splitlines():
+              digest, rel = line.split(None, 1)
+              capture_sums[rel] = digest
+          for name, digest in {
+              "freeze-manifest.json": os.environ["EXPECTED_FREEZE_FILE_SHA256"],
+              "freeze-receipt.json": os.environ["EXPECTED_FREEZE_RECEIPT_FILE_SHA256"],
+              "predictions.json": os.environ["EXPECTED_PREDICTIONS_SHA256"],
+          }.items():
+              if capture_sums.get(name) != digest:
+                  raise SystemExit(f"capture SHA256SUMS mismatch: {name}")
+
+          manifest = json.loads((root / "capture/freeze-manifest.json").read_text(encoding="utf-8"))
+          receipt = json.loads((root / "capture/freeze-receipt.json").read_text(encoding="utf-8"))
+          if manifest.get("predictions_sha256") != os.environ["EXPECTED_PREDICTIONS_SHA256"]:
+              raise SystemExit("freeze manifest prediction identity mismatch")
+          if manifest.get("truth_sha256") is not None or manifest.get("adjudication_sha256") is not None:
+              raise SystemExit("pre-truth freeze unexpectedly contains truth/adjudication")
+          if receipt.get("freeze_manifest_sha256") != os.environ["EXPECTED_LOGICAL_FREEZE_SHA256"]:
+              raise SystemExit("logical freeze identity mismatch")
+          if receipt.get("truth_available_at_freeze") is not False:
+              raise SystemExit("freeze receipt truth-blind contract mismatch")
+          PY
+
+      - name: Run deterministic post-truth adjudication
+        id: run
+        env:
+          SAFE_ROOT: ${{ steps.safe.outputs.root }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/netto-heldout-adjudication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -m 700 "$output"
+          result="$(python3 tools/netto_heldout_prediction_group_adjudication.py \
+            --predictions "${SAFE_ROOT}/capture/predictions.json" \
+            --truth evidence/netto/heldout/hz33/completed-independent-source-truth-ledger.json.gz.b64 \
+            --output "$output/adjudication.json")"
+          printf '%s\n' "$result"
+          sha256sum "$output/adjudication.json" | sed "s#  $output/##" > "$output/SHA256SUMS"
+          echo "output=$output" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=netto-heldout-hz33-adjudication-run-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          RESULT_JSON="$result" OUTPUT_JSON="$output/adjudication.json" python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json, os, pathlib, sys
+          summary = json.loads(os.environ["RESULT_JSON"])
+          payload = json.loads(pathlib.Path(os.environ["OUTPUT_JSON"]).read_text(encoding="utf-8"))
+          if payload.get("completed_source_truth_sha256") != os.environ["EXPECTED_TRUTH_SHA256"]:
+              raise SystemExit("adjudication truth SHA mismatch")
+          if payload.get("predictions_sha256") != os.environ["EXPECTED_PREDICTIONS_SHA256"]:
+              raise SystemExit("adjudication prediction SHA mismatch")
+          if payload.get("promotion_ready") is not False or payload.get("review_only") is not True:
+              raise SystemExit("adjudication crossed promotion boundary")
+          counts = payload["outcome_counts"]
+          total = int(summary["prediction_group_count"])
+          resolved = int(summary["resolved_prediction_group_count"])
+          unresolved = total - resolved
+          with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:
+              handle.write(f"adjudication_sha256={summary['adjudication_sha256']}\n")
+              handle.write(f"prediction_group_count={total}\n")
+              handle.write(f"resolved_group_count={resolved}\n")
+              handle.write(f"single_source_count={int(counts.get('single_source', 0))}\n")
+              handle.write(f"mixed_source_count={int(counts.get('mixed_source', 0))}\n")
+              handle.write(f"excluded_control_count={int(counts.get('excluded_control', 0))}\n")
+              handle.write(f"unresolved_group_count={unresolved}\n")
+              handle.write(f"not_evaluable_count={int(summary['required_metric_not_evaluable_count'])}\n")
+              handle.write(f"acceptance_all_pass={str(bool(summary['acceptance_all_pass'])).lower()}\n")
+          PY
+
+      - name: Upload held-out adjudication artifact
+        id: upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.run.outputs.artifact_name }}
+          path: ${{ steps.run.outputs.output }}
+          if-no-files-found: error
+          retention-days: 14
+
+  report:
+    name: Report held-out hz33 adjudication
+    needs:
+      - authorize
+      - adjudicate
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment result and clear trigger label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          ADJUDICATION_RESULT: ${{ needs.adjudicate.result }}
+          ADJUDICATION_SHA256: ${{ needs.adjudicate.outputs.adjudication_sha256 }}
+          GROUP_COUNT: ${{ needs.adjudicate.outputs.prediction_group_count }}
+          RESOLVED_COUNT: ${{ needs.adjudicate.outputs.resolved_group_count }}
+          SINGLE_COUNT: ${{ needs.adjudicate.outputs.single_source_count }}
+          MIXED_COUNT: ${{ needs.adjudicate.outputs.mixed_source_count }}
+          EXCLUDED_COUNT: ${{ needs.adjudicate.outputs.excluded_control_count }}
+          UNRESOLVED_COUNT: ${{ needs.adjudicate.outputs.unresolved_group_count }}
+          NOT_EVALUABLE_COUNT: ${{ needs.adjudicate.outputs.not_evaluable_count }}
+          ACCEPTANCE_ALL_PASS: ${{ needs.adjudicate.outputs.acceptance_all_pass }}
+          ARTIFACT_NAME: ${{ needs.adjudicate.outputs.artifact_name }}
+          ARTIFACT_ID: ${{ needs.adjudicate.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.adjudicate.outputs.artifact_digest }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          repo, number = os.environ["REPOSITORY"], int(os.environ["PR_NUMBER"])
+          label = "audit:netto-heldout-adjudication-v1"
+          body = (
+              "## Netto held-out hz33 adjudication result\n\n"
+              f"- Trigger actor: `{os.environ['ACTOR']}`\n"
+              f"- Adjudication job: **{os.environ['ADJUDICATION_RESULT']}**\n"
+              f"- Implementation commit: `{os.environ['REGISTERED_SHA']}`\n"
+              f"- Workflow run ID: `{os.environ['RUN_ID']}`\n"
+              f"- Artifact: `{os.environ['ARTIFACT_NAME'] or 'not-created'}` (ID `{os.environ['ARTIFACT_ID'] or 'unavailable'}`)\n"
+              f"- Artifact digest: `{os.environ['ARTIFACT_DIGEST'] or 'unavailable'}`\n"
+              f"- Adjudication SHA256: `{os.environ['ADJUDICATION_SHA256'] or 'unavailable'}`\n"
+              f"- Frozen groups: `{os.environ['GROUP_COUNT'] or 'unknown'}`; resolved `{os.environ['RESOLVED_COUNT'] or 'unknown'}`\n"
+              f"- Ownership outcomes: single `{os.environ['SINGLE_COUNT'] or 'unknown'}`, mixed `{os.environ['MIXED_COUNT'] or 'unknown'}`, excluded `{os.environ['EXCLUDED_COUNT'] or 'unknown'}`, unresolved `{os.environ['UNRESOLVED_COUNT'] or 'unknown'}`\n"
+              f"- Required metrics NOT_EVALUABLE: `{os.environ['NOT_EVALUABLE_COUNT'] or 'unknown'}`\n"
+              f"- All predeclared acceptance metrics PASS: **{os.environ['ACCEPTANCE_ALL_PASS'] or 'false'}**\n"
+              "- Promotion ready: **false**\n"
+              "- Parser behavior changed: **false**\n"
+              "- Production deployment: **not authorized**\n"
+              "- Database/Review writes: **not authorized**\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-heldout-adjudication-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/comments",
+              data=json.dumps({"body": body}).encode(), method="POST", headers=headers,
+          )
+          urllib.request.urlopen(request, timeout=20).close()
+          remove = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}",
+              method="DELETE", headers=headers,
+          )
+          try:
+              urllib.request.urlopen(remove, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          PY
