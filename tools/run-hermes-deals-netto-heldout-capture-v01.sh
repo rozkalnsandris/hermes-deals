@@ -99,7 +99,7 @@ done
 
 (
   cd "$RUN_ROOT"
-  find . -type f ! -name SHA256SUMS -print0 \
+  find . -type f ! -path './SHA256SUMS' -print0 \
     | sort -z \
     | while IFS= read -r -d '' path; do
         sha256sum -- "$path"
