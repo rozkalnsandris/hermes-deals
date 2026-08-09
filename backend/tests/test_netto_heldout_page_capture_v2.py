@@ -15,6 +15,7 @@ import netto_heldout_page_capture_v2 as capture_v2
 from netto_heldout_ownership_protocol import ACCEPTANCE, freeze_receipt
 from netto_heldout_ownership_protocol_v2 import EXPECTED_CANDIDATE_CONFIG, HeldoutV2Error
 from netto_local_span_auto_single_candidate import STRATEGY as CANDIDATE_STRATEGY, payload_sha256
+from netto_shadow_promotion import EvidenceBinding
 
 
 SOURCE_ID = "a" * 64
@@ -27,6 +28,46 @@ def _sha(path: Path) -> str:
 
 def _write(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _selector_envelope(campaign: str = "hz34_hasb") -> dict:
+    binding = {
+        "manifest_path": "/tmp/store-manifest.json",
+        "manifest_sha256": "1" * 64,
+        "html_path": "/tmp/store.html",
+        "html_sha256": "2" * 64,
+        "evidence_status": "pdf_bound",
+        "pdf_path": "/tmp/prospect.pdf",
+        "pdf_sha256": "3" * 64,
+        "parser_identity": "netto_store_prospect_v1",
+        "store_external_id": "5659",
+        "scope": "family_primary_netto",
+        "valid_from": "2026-08-17",
+        "valid_until": "2026-08-22",
+        "no_pdf_reason": None,
+    }
+    identity = EvidenceBinding.from_mapping(binding).identity_sha256()
+    return {
+        "schema_version": 1,
+        "strategy": capture_v2.SELECTOR_STRATEGY,
+        "as_of": "2026-08-16",
+        "campaign_key": campaign,
+        "campaign_window": {"start": "2026-08-17", "end": "2026-08-22"},
+        "evidence_identity_sha256": identity,
+        "binding": binding,
+        "selection": {
+            "scanned_json_count": 1,
+            "eligible_manifest_count": 1,
+            "latest_window_manifest_count": 1,
+            "verified_latest_manifest_count": 1,
+            "selected_manifest_name": "store-manifest.json",
+            "fallback_to_older_campaign_allowed": False,
+        },
+        "review_only": True,
+        "promotion_ready": False,
+        "database_write_performed": False,
+        "deployment_performed": False,
+    }
 
 
 def _fake_v1_capture(campaign: str):
@@ -122,6 +163,51 @@ def _fake_candidate(campaign: str):
         payload["candidate_provenance_sha256"] = payload_sha256(payload)
         return payload
     return fake
+
+
+def test_selector_envelope_is_verified_and_unwrapped_before_v1_capture() -> None:
+    envelope = _selector_envelope()
+    direct, campaign = capture_v2._normalize_binding_payload(envelope)
+    assert campaign == "hz34_hasb"
+    assert "binding" not in direct
+    assert direct == envelope["binding"]
+    assert direct["valid_from"] == "2026-08-17"
+    assert direct["valid_until"] == "2026-08-22"
+
+
+def test_selector_envelope_fails_closed_on_identity_window_or_strategy_drift() -> None:
+    envelope = _selector_envelope()
+    envelope["evidence_identity_sha256"] = "f" * 64
+    with pytest.raises(capture_v2.HeldoutCaptureV2Error, match="evidence identity mismatch"):
+        capture_v2._normalize_binding_payload(envelope)
+
+    envelope = _selector_envelope()
+    envelope["campaign_window"]["start"] = "2026-08-18"
+    with pytest.raises(capture_v2.HeldoutCaptureV2Error, match="campaign window mismatch"):
+        capture_v2._normalize_binding_payload(envelope)
+
+    envelope = _selector_envelope()
+    envelope["strategy"] = "unexpected_selector"
+    with pytest.raises(capture_v2.HeldoutCaptureV2Error, match="strategy mismatch"):
+        capture_v2._normalize_binding_payload(envelope)
+
+
+def test_v2_capture_passes_only_nested_binding_to_historical_v1(monkeypatch, tmp_path: Path) -> None:
+    output = tmp_path / "capture"
+    seen: dict = {}
+    base_fake = _fake_v1_capture("hz34_hasb")
+
+    def capturing_fake(binding_payload, root: Path):
+        seen.update(binding_payload)
+        return base_fake(binding_payload, root)
+
+    monkeypatch.setattr(capture_v2, "capture_heldout", capturing_fake)
+    monkeypatch.setattr(capture_v2, "freeze_candidate", _fake_candidate("hz34_hasb"))
+    capture_v2.capture_heldout_v2(_selector_envelope(), output)
+
+    assert seen["valid_from"] == "2026-08-17"
+    assert seen["valid_until"] == "2026-08-22"
+    assert "binding" not in seen
 
 
 def test_v2_capture_preserves_v1_members_and_adds_create_only_provenance(monkeypatch, tmp_path: Path) -> None:
