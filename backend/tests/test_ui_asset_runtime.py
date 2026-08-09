@@ -10,7 +10,9 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.runtime import (
+    HASHED_ASSET_CACHE_CONTROL,
     HASHED_W4,
+    HTML_CACHE_CONTROL,
     INLINE_W3,
     UiAssetModeApp,
     UiAssetRuntimeError,
@@ -116,6 +118,11 @@ def test_asset_mode_allowlist_defaults_to_inline_w3(monkeypatch: pytest.MonkeyPa
         resolve_ui_asset_mode("preview")
 
 
+def test_w4c_cache_constants_are_exact() -> None:
+    assert HTML_CACHE_CONTROL == "no-cache"
+    assert HASHED_ASSET_CACHE_CONTROL == "public, max-age=31536000, immutable"
+
+
 def test_inline_w3_is_passthrough_and_hashed_namespace_is_closed(tmp_path: Path) -> None:
     root, js_relative, _ = _shadow_package(tmp_path)
     client = TestClient(UiAssetModeApp(_wrapped_app(), mode=INLINE_W3, shadow_dir=root))
@@ -123,7 +130,9 @@ def test_inline_w3_is_passthrough_and_hashed_namespace_is_closed(tmp_path: Path)
     assert client.get("/ui").text == "inline-w3"
     assert client.get("/ui/app.js").text == "legacy-app"
     assert client.get("/ui/review").text == "review-ui"
-    assert client.get(f"/ui/{js_relative}").status_code == 404
+    missing = client.get(f"/ui/{js_relative}")
+    assert missing.status_code == 404
+    assert "immutable" not in missing.headers.get("cache-control", "").casefold()
 
 
 def test_hashed_w4_serves_only_package_proven_assets_and_keeps_rollback_endpoints(
@@ -140,31 +149,47 @@ def test_hashed_w4_serves_only_package_proven_assets_and_keeps_rollback_endpoint
     assert "/ui/app.js" not in ui.text
     assert "/ui/styles.css" not in ui.text
     assert ui.headers["x-hermes-ui-asset-mode"] == HASHED_W4
-    assert ui.headers["cache-control"] == "no-store"
+    assert ui.headers["cache-control"] == HTML_CACHE_CONTROL
+    assert "immutable" not in ui.headers["cache-control"].casefold()
 
     js = client.get(f"/ui/{js_relative}")
     css = client.get(f"/ui/{css_relative}")
     assert js.status_code == 200
     assert js.headers["content-type"] == "application/javascript"
+    assert js.headers["cache-control"] == HASHED_ASSET_CACHE_CONTROL
     assert "w3-behavior-preserving-bootstrap-v1" in js.text
     assert css.status_code == 200
     assert css.headers["content-type"] == "text/css"
+    assert css.headers["cache-control"] == HASHED_ASSET_CACHE_CONTROL
     assert "HERMES_UI_STYLE_OPEN:" in css.text
 
-    assert client.get("/ui/assets/not-in-package.js").status_code == 404
-    assert client.get("/ui/assets/../w4-shadow-package.json").status_code == 404
+    missing = client.get("/ui/assets/not-in-package.js")
+    traversal = client.get("/ui/assets/../w4-shadow-package.json")
+    assert missing.status_code == 404
+    assert traversal.status_code == 404
+    assert "immutable" not in missing.headers.get("cache-control", "").casefold()
+    assert "immutable" not in traversal.headers.get("cache-control", "").casefold()
     assert client.get("/ui/app.js").text == "legacy-app"
     assert client.get("/ui/review").text == "review-ui"
 
 
-def test_hashed_w4_head_requests_return_no_body(tmp_path: Path) -> None:
-    root, js_relative, _ = _shadow_package(tmp_path)
+def test_hashed_w4_head_requests_return_no_body_and_keep_cache_policy(tmp_path: Path) -> None:
+    root, js_relative, css_relative = _shadow_package(tmp_path)
     client = TestClient(UiAssetModeApp(_wrapped_app(), mode=HASHED_W4, shadow_dir=root))
 
-    assert client.head("/ui").status_code == 200
-    asset = client.head(f"/ui/{js_relative}")
-    assert asset.status_code == 200
-    assert asset.content == b""
+    ui = client.head("/ui")
+    assert ui.status_code == 200
+    assert ui.content == b""
+    assert ui.headers["cache-control"] == HTML_CACHE_CONTROL
+
+    js = client.head(f"/ui/{js_relative}")
+    css = client.head(f"/ui/{css_relative}")
+    assert js.status_code == 200
+    assert js.content == b""
+    assert js.headers["cache-control"] == HASHED_ASSET_CACHE_CONTROL
+    assert css.status_code == 200
+    assert css.content == b""
+    assert css.headers["cache-control"] == HASHED_ASSET_CACHE_CONTROL
 
 
 def test_hashed_w4_fails_closed_if_packaged_asset_drifted(tmp_path: Path) -> None:
