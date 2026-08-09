@@ -35,6 +35,8 @@ def source_manifest(
     *,
     pdf_bytes: bytes | None = None,
     html_text: str | None = None,
+    include_html_binding: bool = True,
+    include_pdf_binding: bool = True,
 ) -> tuple[Path, Path, Path]:
     root = raw_root / name
     root.mkdir(parents=True)
@@ -50,12 +52,12 @@ def source_manifest(
         "prospect_slug": campaign,
         "valid_from": start,
         "valid_until": end,
-        "store_path": "source.html",
-        "store_sha256": sha(html),
-        "prospect_pdf_path": "source.pdf",
-        "prospect_pdf_sha256": sha(pdf),
         "parser_identity": "netto-source-fixture-v1",
     }
+    if include_html_binding:
+        payload.update({"store_path": "source.html", "store_sha256": sha(html)})
+    if include_pdf_binding:
+        payload.update({"prospect_pdf_path": "source.pdf", "prospect_pdf_sha256": sha(pdf)})
     manifest.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     return manifest, html, pdf
 
@@ -93,6 +95,42 @@ def test_latest_corrupt_source_fails_closed_instead_of_falling_back(tmp_path: Pa
 
     with pytest.raises(HeldoutSourceSelectionError, match="contains unverified source manifests"):
         select_verified_source(raw, date(2026, 8, 9))
+
+
+def test_latest_missing_pdf_fails_closed_instead_of_falling_back(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    source_manifest(raw, "older-good", "heldout_hz32b", "2026-08-04", "2026-08-09")
+    source_manifest(
+        raw,
+        "latest-not-yet-pdf-bound",
+        "heldout_hz33",
+        "2026-08-10",
+        "2026-08-15",
+        include_pdf_binding=False,
+    )
+
+    with pytest.raises(HeldoutSourceSelectionError, match="contains unverified source manifests") as error:
+        select_verified_source(raw, date(2026, 8, 9))
+    assert "missing a PDF binding" in str(error.value)
+
+
+def test_latest_missing_html_fails_closed_instead_of_falling_back(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    source_manifest(raw, "older-good", "heldout_hz32b", "2026-08-04", "2026-08-09")
+    source_manifest(
+        raw,
+        "latest-incomplete",
+        "heldout_hz33",
+        "2026-08-10",
+        "2026-08-15",
+        include_html_binding=False,
+    )
+
+    with pytest.raises(HeldoutSourceSelectionError, match="contains unverified source manifests") as error:
+        select_verified_source(raw, date(2026, 8, 9))
+    assert "missing an HTML binding" in str(error.value)
 
 
 def test_latest_window_with_two_campaigns_is_ambiguous(tmp_path: Path) -> None:
