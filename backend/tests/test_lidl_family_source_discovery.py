@@ -28,8 +28,10 @@ from app.lidl_family_source_discovery import (
 
 CURRENT_SLUG = "aktionsprospekt-27-07-2026-01-08-2026-c338f8"
 NEXT_SLUG = "aktionsprospekt-03-08-2026-08-08-2026-5ec593"
+FOLLOWING_SLUG = "aktionsprospekt-10-08-2026-15-08-2026-future1"
 CURRENT_VIEWER = f"https://www.lidl.de/l/prospekte/{CURRENT_SLUG}/ar/7"
 NEXT_VIEWER = f"https://www.lidl.de/l/prospekte/{NEXT_SLUG}/ar/21"
+FOLLOWING_VIEWER = f"https://www.lidl.de/l/prospekte/{FOLLOWING_SLUG}/ar/7"
 
 
 def candidate(
@@ -118,6 +120,67 @@ class LidlFamilySourceDiscoveryTest(unittest.TestCase):
         ]
         with self.assertRaises(LidlFamilyDiscoveryError):
             select_current_and_next(rows, today=date(2026, 7, 30))
+
+    def test_select_current_and_next_allows_sunday_gap_with_unique_next(self) -> None:
+        rows = [
+            candidate(
+                NEXT_SLUG,
+                "21",
+                date(2026, 8, 3),
+                date(2026, 8, 8),
+            ),
+            candidate(
+                FOLLOWING_SLUG,
+                "7",
+                date(2026, 8, 10),
+                date(2026, 8, 15),
+            ),
+        ]
+        selected = select_current_and_next(rows, today=date(2026, 8, 9))
+        self.assertIsNone(selected["current"])
+        self.assertEqual(selected["next"].slug, FOLLOWING_SLUG)
+        self.assertEqual(selected["next"].route_region, "7")
+
+    def test_select_current_and_next_fails_closed_on_nearest_next_ambiguity(self) -> None:
+        rows = [
+            candidate(
+                NEXT_SLUG,
+                "21",
+                date(2026, 8, 3),
+                date(2026, 8, 8),
+            ),
+            candidate(
+                FOLLOWING_SLUG,
+                "7",
+                date(2026, 8, 10),
+                date(2026, 8, 15),
+            ),
+            candidate(
+                FOLLOWING_SLUG,
+                "21",
+                date(2026, 8, 10),
+                date(2026, 8, 15),
+            ),
+        ]
+        with self.assertRaises(LidlFamilyDiscoveryError):
+            select_current_and_next(rows, today=date(2026, 8, 9))
+
+    def test_select_current_and_next_allows_expired_only_gap(self) -> None:
+        rows = [
+            candidate(
+                NEXT_SLUG,
+                "21",
+                date(2026, 8, 3),
+                date(2026, 8, 8),
+            )
+        ]
+        selected = select_current_and_next(rows, today=date(2026, 8, 9))
+        self.assertIsNone(selected["current"])
+        self.assertIsNone(selected["next"])
+
+    def test_select_current_and_next_fails_closed_on_empty_hub(self) -> None:
+        with self.assertRaises(LidlFamilyDiscoveryError):
+            select_current_and_next([], today=date(2026, 8, 9))
 
     def test_validate_flyer_payload_requires_matching_region_and_period(self) -> None:
         row = candidate(
@@ -219,6 +282,62 @@ class LidlFamilySourceDiscoveryTest(unittest.TestCase):
         self.assertEqual(summary["targets"]["next"]["route_region"], "21")
         self.assertEqual(evidence["current"].source_pdf, b"%PDF-current")
         self.assertEqual(evidence["next"].source_pdf, b"%PDF-next")
+
+    def test_discovery_end_to_end_sunday_gap_fetches_only_unique_next(self) -> None:
+        hub = f"""
+        <a href="/l/prospekte/{NEXT_SLUG}/ar/21">Expired</a>
+        <a href="/l/prospekte/{FOLLOWING_SLUG}/ar/7">Next</a>
+        """
+        api_regions: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if url.startswith(HUB_URL):
+                return httpx.Response(200, text=hub, request=request)
+            if url.startswith(FOLLOWING_VIEWER):
+                return httpx.Response(200, text="<html/>", request=request)
+            if url.startswith(NEXT_VIEWER):
+                self.fail("expired flyer viewer must not be fetched as current")
+            if url.startswith(FLYER_API_URL):
+                region = request.url.params["region_id"]
+                api_regions.append(region)
+                self.assertEqual(region, "7")
+                return httpx.Response(
+                    200,
+                    json={
+                        "flyer": {
+                            "id": FOLLOWING_SLUG,
+                            "offerStartDate": "2026-08-10",
+                            "offerEndDate": "2026-08-15",
+                            "hiResPdfUrl": "https://assets.example.invalid/following.pdf",
+                            "regions": [{"code": "7"}],
+                            "pages": [{}, {}],
+                        }
+                    },
+                    request=request,
+                )
+            if url == "https://assets.example.invalid/following.pdf":
+                return httpx.Response(200, content=b"%PDF-following", request=request)
+            return httpx.Response(404, request=request)
+
+        binding = StoreBinding()
+        with httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+            cookies=selected_store_cookies(binding),
+        ) as client:
+            summary, evidence = discover_selected_store_flyers(
+                client,
+                binding=binding,
+                today=date(2026, 8, 9),
+            )
+
+        self.assertEqual(api_regions, ["7"])
+        self.assertEqual(summary["targets"]["current"], {"available": False})
+        self.assertEqual(summary["targets"]["next"]["valid_from"], "2026-08-10")
+        self.assertEqual(summary["targets"]["next"]["valid_until"], "2026-08-15")
+        self.assertNotIn("current", evidence)
+        self.assertEqual(evidence["next"].source_pdf, b"%PDF-following")
 
     def test_evidence_writer_is_atomic_and_refuses_nonempty_output(self) -> None:
         binding = StoreBinding()
