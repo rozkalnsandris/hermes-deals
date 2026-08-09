@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+import sys
 
 import pytest
 
-from tools.netto_heldout_ownership_protocol import ACCEPTANCE, freeze_receipt
-from tools.netto_heldout_ownership_protocol_v2 import (
+TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from netto_heldout_ownership_protocol import ACCEPTANCE, freeze_receipt
+from netto_heldout_ownership_protocol_v2 import (
     EXPECTED_CANDIDATE_CONFIG,
     FORBIDDEN_HELDOUT_CAMPAIGNS,
     HeldoutV2Error,
@@ -14,7 +20,7 @@ from tools.netto_heldout_ownership_protocol_v2 import (
     automatic_candidate_parent_reuse_count,
     prepare_v2_freeze,
 )
-from tools.netto_local_span_auto_single_candidate import STRATEGY, payload_sha256
+from netto_local_span_auto_single_candidate import STRATEGY, payload_sha256
 
 
 SHA_A = "a" * 64
@@ -130,23 +136,25 @@ def test_v2_freezes_candidate_provenance_without_changing_v1_acceptance() -> Non
     assert receipt["automatic_candidate_parent_reuse_count"] == 0
 
 
-def test_v2_rejects_all_exposed_campaigns() -> None:
+def test_v2_forbids_all_exposed_campaigns_and_rejects_hz33_after_valid_v1_freeze() -> None:
     assert {"hz31_hasb_4", "hz32_hasb", "hz33_hasb"} <= FORBIDDEN_HELDOUT_CAMPAIGNS
-    for campaign in sorted(FORBIDDEN_HELDOUT_CAMPAIGNS):
-        base = _base_manifest(campaign)
-        candidate = _candidate()
-        candidate["campaign_key"] = campaign
-        candidate["candidate_provenance_sha256"] = payload_sha256(
-            {key: value for key, value in candidate.items() if key != "candidate_provenance_sha256"}
+
+    # hz31/hz32 are already rejected by v1. hz33 is the important new v2
+    # exclusion because v1 legitimately froze it before its truth was exposed.
+    base = _base_manifest("hz33_hasb")
+    candidate = _candidate()
+    candidate["campaign_key"] = "hz33_hasb"
+    candidate["candidate_provenance_sha256"] = payload_sha256(
+        {key: value for key, value in candidate.items() if key != "candidate_provenance_sha256"}
+    )
+    with pytest.raises(HeldoutV2Error, match="overlaps exposed"):
+        prepare_v2_freeze(
+            base,
+            freeze_receipt(base),
+            candidate,
+            candidate_file_sha256=SHA_E,
+            candidate_implementation_commit="1" * 40,
         )
-        with pytest.raises(HeldoutV2Error, match="overlaps exposed"):
-            prepare_v2_freeze(
-                base,
-                freeze_receipt(base),
-                candidate,
-                candidate_file_sha256=SHA_E,
-                candidate_implementation_commit="1" * 40,
-            )
 
 
 def test_v2_rejects_post_freeze_candidate_tampering_and_config_drift() -> None:
