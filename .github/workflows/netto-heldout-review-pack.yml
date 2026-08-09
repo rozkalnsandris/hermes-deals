@@ -43,7 +43,7 @@ jobs:
           label = {
               "name": "audit:netto-heldout-review-pack-v1",
               "color": "5319e7",
-              "description": "Generate source-only blind review pack for frozen Netto hz33 held-out evidence",
+              "description": "Generate source-only blind review pack for frozen Netto hz33 evidence",
           }
           repo, token = os.environ["REPOSITORY"], os.environ["GH_TOKEN"]
           headers = {
@@ -58,7 +58,9 @@ jobs:
           try:
               request = urllib.request.Request(
                   f"https://api.github.com/repos/{repo}/labels/{encoded}",
-                  data=payload, method="PATCH", headers=headers,
+                  data=payload,
+                  method="PATCH",
+                  headers=headers,
               )
               urllib.request.urlopen(request, timeout=20).close()
           except urllib.error.HTTPError as error:
@@ -66,7 +68,9 @@ jobs:
                   raise
               request = urllib.request.Request(
                   f"https://api.github.com/repos/{repo}/labels",
-                  data=payload, method="POST", headers=headers,
+                  data=payload,
+                  method="POST",
+                  headers=headers,
               )
               urllib.request.urlopen(request, timeout=20).close()
           PY
@@ -146,10 +150,13 @@ jobs:
       ledger_sha256: ${{ steps.generate.outputs.ledger_sha256 }}
       page_count: ${{ steps.generate.outputs.page_count }}
       artifact_name: ${{ steps.generate.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     env:
       UPSTREAM_RUN_ID: "31324156565"
       UPSTREAM_ARTIFACT: netto-heldout-github-c0701d76bfa6412cbf89b4bf9816a68ccb3c2ab8-run-31324156565
       UPSTREAM_ARTIFACT_DIGEST: sha256:cc289165aaac8796b33391917edb03df1085a841b82d17fc08aa93efa1d66ec4
+      UPSTREAM_ARTIFACT_BYTES: "37892979"
       UPSTREAM_COMMIT: c0701d76bfa6412cbf89b4bf9816a68ccb3c2ab8
       EXPECTED_CAMPAIGN: hz33_hasb
       EXPECTED_VALID_FROM: "2026-08-10"
@@ -178,25 +185,31 @@ jobs:
           python -m pip install -r backend/requirements.txt
           python -m pip check
 
-      - name: Verify exact upstream GitHub artifact identity
+      - name: Download and verify exact upstream artifact ZIP
+        id: upstream
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
-          import json, os, urllib.parse, urllib.request
+          zip_path="${RUNNER_TEMP}/netto-heldout-upstream-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip"
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          ZIP_PATH="$zip_path" python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.error, urllib.parse, urllib.request
+
           repo = os.environ["REPOSITORY"]
           run_id = os.environ["UPSTREAM_RUN_ID"]
           name = os.environ["UPSTREAM_ARTIFACT"]
-          encoded = urllib.parse.quote(name, safe="")
+          expected_digest = os.environ["UPSTREAM_ARTIFACT_DIGEST"]
+          expected_bytes = int(os.environ["UPSTREAM_ARTIFACT_BYTES"])
           headers = {
               "Accept": "application/vnd.github+json",
               "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
               "User-Agent": "hermes-deals-netto-heldout-upstream-verifier",
               "X-GitHub-Api-Version": "2022-11-28",
           }
+          encoded = urllib.parse.quote(name, safe="")
           request = urllib.request.Request(
               f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?name={encoded}",
               headers=headers,
@@ -207,36 +220,136 @@ jobs:
           if len(artifacts) != 1:
               raise SystemExit(f"expected exactly one upstream artifact, found {len(artifacts)}")
           artifact = artifacts[0]
-          if artifact.get("name") != name:
-              raise SystemExit("upstream artifact name mismatch")
-          if artifact.get("expired") is not False:
-              raise SystemExit("upstream artifact is expired")
-          if artifact.get("digest") != os.environ["UPSTREAM_ARTIFACT_DIGEST"]:
-              raise SystemExit("upstream artifact digest mismatch")
+          if artifact.get("name") != name or artifact.get("expired") is not False:
+              raise SystemExit("upstream artifact identity/expiry mismatch")
+          if artifact.get("digest") != expected_digest:
+              raise SystemExit("upstream artifact API digest mismatch")
+          if int(artifact.get("size_in_bytes") or 0) != expected_bytes:
+              raise SystemExit("upstream artifact API size mismatch")
           workflow = artifact.get("workflow_run") or {}
           if str(workflow.get("id")) != run_id:
-              raise SystemExit("upstream artifact run identity mismatch")
+              raise SystemExit("upstream artifact workflow-run mismatch")
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  return None
+
+          archive_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact['id']}/zip",
+              headers=headers,
+          )
+          opener = urllib.request.build_opener(NoRedirect)
+          try:
+              opener.open(archive_request, timeout=20)
+              raise SystemExit("artifact archive endpoint unexpectedly did not redirect")
+          except urllib.error.HTTPError as error:
+              if error.code not in {301, 302, 303, 307, 308}:
+                  raise
+              location = error.headers.get("Location")
+          if not location:
+              raise SystemExit("artifact archive redirect is missing")
+
+          path = pathlib.Path(os.environ["ZIP_PATH"])
+          if path.exists() or path.is_symlink():
+              raise SystemExit("upstream ZIP destination already exists")
+          digest = hashlib.sha256()
+          size = 0
+          with urllib.request.urlopen(location, timeout=120) as response, path.open("xb") as output:
+              while True:
+                  chunk = response.read(1024 * 1024)
+                  if not chunk:
+                      break
+                  output.write(chunk)
+                  digest.update(chunk)
+                  size += len(chunk)
+          actual_digest = f"sha256:{digest.hexdigest()}"
+          if actual_digest != expected_digest or size != expected_bytes:
+              path.unlink(missing_ok=True)
+              raise SystemExit("downloaded upstream ZIP digest/size mismatch")
           print(f"UPSTREAM_ARTIFACT_ID={artifact['id']}")
-          print(f"UPSTREAM_ARTIFACT_DIGEST={artifact['digest']}")
+          print(f"UPSTREAM_ARTIFACT_DIGEST={actual_digest}")
+          print(f"UPSTREAM_ARTIFACT_BYTES={size}")
           PY
 
-      - name: Download exact frozen held-out artifact
-        uses: actions/download-artifact@v5
-        with:
-          name: ${{ env.UPSTREAM_ARTIFACT }}
-          path: ${{ runner.temp }}/netto-heldout-upstream
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ env.UPSTREAM_RUN_ID }}
+      - name: Extract only reviewer-safe source members
+        id: safe
+        env:
+          ZIP_PATH: ${{ steps.upstream.outputs.zip_path }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          safe_root="${RUNNER_TEMP}/netto-heldout-safe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "capture_root=$safe_root" >> "$GITHUB_OUTPUT"
+          SAFE_ROOT="$safe_root" python3 - <<'PY'
+          import os, pathlib, shutil, stat, zipfile
+
+          source = pathlib.Path(os.environ["ZIP_PATH"])
+          destination = pathlib.Path(os.environ["SAFE_ROOT"])
+          if destination.exists() or destination.is_symlink():
+              raise SystemExit("safe extraction root already exists")
+          destination.mkdir(mode=0o700)
+
+          pdf_name = (
+              "source/netto/5659-hz33_hasb-"
+              "7e9ac8c87b6a1c0f25f1832def945bfbe0c2be9b3371d897d98079d88789c0ba.pdf"
+          )
+          allowed = {
+              "github-capture-result.json",
+              "live-source.json",
+              "selected-binding.json",
+              "capture/freeze-manifest.json",
+              "capture/freeze-receipt.json",
+              "capture/blind-review-template.json",
+              pdf_name,
+          }
+          with zipfile.ZipFile(source) as archive:
+              infos = archive.infolist()
+              if len(infos) != 15:
+                  raise SystemExit(f"unexpected upstream member count: {len(infos)}")
+              if len({info.filename for info in infos}) != len(infos):
+                  raise SystemExit("duplicate upstream archive member name")
+              names = {info.filename for info in infos}
+              if not allowed.issubset(names):
+                  raise SystemExit("reviewer-safe upstream allowlist is incomplete")
+              for info in infos:
+                  pure = pathlib.PurePosixPath(info.filename)
+                  mode = (info.external_attr >> 16) & 0xFFFF
+                  if (
+                      info.is_dir()
+                      or info.filename.startswith("/")
+                      or "\\" in info.filename
+                      or ".." in pure.parts
+                      or stat.S_ISLNK(mode)
+                  ):
+                      raise SystemExit(f"unsafe upstream archive member: {info.filename}")
+              for name in sorted(allowed):
+                  info = archive.getinfo(name)
+                  target = destination / pathlib.PurePosixPath(name)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with archive.open(info, "r") as src, target.open("xb") as dst:
+                      shutil.copyfileobj(src, dst, length=1024 * 1024)
+
+          actual = {
+              path.relative_to(destination).as_posix()
+              for path in destination.rglob("*")
+              if path.is_file() and not path.is_symlink()
+          }
+          if actual != allowed:
+              raise SystemExit("safe extraction output member set mismatch")
+          print(f"SAFE_SOURCE_MEMBER_COUNT={len(actual)}")
+          PY
+          rm -f -- "$ZIP_PATH"
 
       - name: Generate blind 77-page source-card review pack
         id: generate
+        env:
+          CAPTURE_ROOT: ${{ steps.safe.outputs.capture_root }}
         shell: bash
         run: |
           set -Eeuo pipefail
           output="${RUNNER_TEMP}/netto-heldout-review-pack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           result="$(python3 tools/netto_heldout_blind_review_pack.py \
-            --capture-root "${RUNNER_TEMP}/netto-heldout-upstream" \
+            --capture-root "$CAPTURE_ROOT" \
             --output "$output" \
             --expected-commit "$UPSTREAM_COMMIT" \
             --expected-campaign "$EXPECTED_CAMPAIGN" \
@@ -254,7 +367,7 @@ jobs:
           import json, os, pathlib, sys
           payload = json.loads(os.environ["RESULT_JSON"])
           if payload.get("parser_predictions_included") is not False:
-              raise SystemExit("generated pack exposed parser predictions")
+              raise SystemExit("generated pack exposed parser data")
           if payload.get("expected_truth_included") is not False:
               raise SystemExit("generated pack exposed expected truth")
           output = pathlib.Path(sys.argv[1])
@@ -265,12 +378,28 @@ jobs:
           PY
 
       - name: Upload frozen blind review pack
+        id: upload
         uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.generate.outputs.artifact_name }}
           path: ${{ steps.generate.outputs.output }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Clean temporary source-only state
+        if: always()
+        env:
+          ZIP_PATH: ${{ steps.upstream.outputs.zip_path }}
+          CAPTURE_ROOT: ${{ steps.safe.outputs.capture_root }}
+          PACK_ROOT: ${{ steps.generate.outputs.output }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for path in "${ZIP_PATH:-}" "${CAPTURE_ROOT:-}" "${PACK_ROOT:-}"; do
+            if [[ -n "$path" && "$path" == "$RUNNER_TEMP"/netto-heldout-* ]]; then
+              rm -rf -- "$path"
+            fi
+          done
 
   report:
     name: Report blind review-pack result
@@ -297,6 +426,8 @@ jobs:
           LEDGER_SHA256: ${{ needs.pack.outputs.ledger_sha256 }}
           PAGE_COUNT: ${{ needs.pack.outputs.page_count }}
           ARTIFACT_NAME: ${{ needs.pack.outputs.artifact_name }}
+          ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
@@ -312,6 +443,8 @@ jobs:
               f"- Implementation commit: `{os.environ['REGISTERED_SHA']}`\n"
               f"- Workflow run ID: `{os.environ['RUN_ID']}`\n"
               f"- Artifact: `{os.environ['ARTIFACT_NAME'] or 'not-created'}`\n"
+              f"- Artifact ID: `{os.environ['ARTIFACT_ID'] or 'not-created'}`\n"
+              f"- Artifact digest: `{os.environ['ARTIFACT_DIGEST'] or 'unavailable'}`\n"
               f"- Page count: `{os.environ['PAGE_COUNT'] or 'unknown'}`\n"
               f"- Manifest SHA256: `{os.environ['MANIFEST_SHA256'] or 'unavailable'}`\n"
               f"- Blank ledger SHA256: `{os.environ['LEDGER_SHA256'] or 'unavailable'}`\n"
@@ -329,12 +462,15 @@ jobs:
           }
           request = urllib.request.Request(
               f"https://api.github.com/repos/{repo}/issues/{number}/comments",
-              data=json.dumps({"body": body}).encode(), method="POST", headers=headers,
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers=headers,
           )
           urllib.request.urlopen(request, timeout=20).close()
           remove = urllib.request.Request(
               f"https://api.github.com/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}",
-              method="DELETE", headers=headers,
+              method="DELETE",
+              headers=headers,
           )
           try:
               urllib.request.urlopen(remove, timeout=20).close()
