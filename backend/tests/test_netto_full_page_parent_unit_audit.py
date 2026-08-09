@@ -12,6 +12,7 @@ if str(TOOLS) not in sys.path:
 from netto_full_page_parent_unit_audit import (  # noqa: E402
     CANDIDATE_STRATEGY,
     PAGE_COUNT,
+    ParentUnitAuditError,
     RECT_MIN_HEIGHT_FRACTION,
     RECT_MIN_WIDTH_FRACTION,
     _sha_payload,
@@ -198,6 +199,32 @@ def test_candidate_reuses_existing_rectangle_separator_thresholds() -> None:
     assert frozen["candidate_strategy"] == CANDIDATE_STRATEGY
     assert len(frozen["pages"][0]["parent_units"]) == 1
     assert frozen["pages"][0]["groups"][0]["candidate_parent_count"] == 1
+
+
+def test_zero_area_source_vector_rectangles_are_ignored_before_eligibility() -> None:
+    source = source_payload(
+        [
+            rectangle(10, 10, 10, 50),  # finite zero width: drawing artifact
+            rectangle(0, 20, 30, 20),  # finite zero height: drawing artifact
+            rectangle(0, 0, 20, 20),
+        ]
+    )
+    predictions = prediction_payload([group("g001", [0])], [span(0, 5, 5, 7, 7)])
+    frozen = freeze_parent_candidates(source, predictions)
+    assert len(frozen["pages"][0]["parent_units"]) == 1
+    assert frozen["pages"][0]["parent_units"][0]["bbox"] == [0.0, 0.0, 20.0, 20.0]
+    assert frozen["pages"][0]["groups"][0]["candidate_parent_count"] == 1
+
+
+def test_non_finite_source_vector_rectangle_still_fails_closed() -> None:
+    source = source_payload([rectangle(0, 0, float("inf"), 20)])
+    predictions = prediction_payload([group("g001", [0])], [span(0, 5, 5, 7, 7)])
+    try:
+        freeze_parent_candidates(source, predictions)
+    except ParentUnitAuditError as exc:
+        assert "non-finite source vector rectangle" in str(exc)
+    else:
+        raise AssertionError("non-finite source vector rectangle must fail closed")
 
 
 def test_candidate_preserves_multiple_nested_parents_and_chooses_smallest_primary() -> None:
