@@ -99,9 +99,63 @@ replace_once(
     '[[ "$(git -C "$REPO" rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ]] || fail "Hermes Deals repository is unavailable"',
 )
 replace_once(
+    runner,
+    '''[[ "$(git -C "$REPO" branch --show-current)" == 'main' ]] || fail "repository branch is not main"''',
+    '''REMOTE="$(git -C "$REPO" remote get-url origin)"
+case "$REMOTE" in
+  https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
+  *) fail "repository origin is not the Hermes Deals repository" ;;
+esac
+git -C "$REPO" show-ref --verify --quiet refs/remotes/origin/main || fail "origin/main is unavailable"
+git -C "$REPO" merge-base --is-ancestor "$HERMES_AUDIT_EXPECTED_HEAD" refs/remotes/origin/main || fail "registered audit SHA is not reachable from origin/main"''',
+)
+replace_once(
     tool,
     'if resolved != Path("/home/andris/hermes-deals") and os.environ.get("HERMES_AUDIT_TEST_MODE") != "1":',
     f'if resolved != Path({source_repo!r}) and os.environ.get("HERMES_AUDIT_TEST_MODE") != "1":',
+)
+replace_once(
+    tool,
+    '''    if not (resolved / ".git").exists() or git(resolved, "branch", "--show-current") != "main":
+        raise ValueError("audit repository must be a main-branch Git checkout")
+    if git(resolved, "rev-parse", "HEAD") != expected_head:
+        raise ValueError("audit repository HEAD mismatch")
+    status = git(resolved, "status", "--porcelain=v1", "--untracked-files=all")
+    if status:
+        raise ValueError("audit repository must be clean")
+    return status''',
+    '''    try:
+        inside = git(resolved, "rev-parse", "--is-inside-work-tree")
+    except subprocess.CalledProcessError as exc:
+        raise ValueError("audit repository must be a Git worktree") from exc
+    if inside != "true":
+        raise ValueError("audit repository must be a Git worktree")
+    if git(resolved, "rev-parse", "HEAD") != expected_head:
+        raise ValueError("audit repository HEAD mismatch")
+    status = git(resolved, "status", "--porcelain=v1", "--untracked-files=all")
+    if status:
+        raise ValueError("audit repository must be clean")
+    remote = git(resolved, "remote", "get-url", "origin")
+    if remote not in {
+        "https://github.com/rozkalnsandris/hermes-deals",
+        "https://github.com/rozkalnsandris/hermes-deals.git",
+        "git@github.com:rozkalnsandris/hermes-deals.git",
+    }:
+        raise ValueError("audit repository origin is not the Hermes Deals repository")
+    try:
+        git(resolved, "rev-parse", "refs/remotes/origin/main")
+    except subprocess.CalledProcessError as exc:
+        raise ValueError("audit repository origin/main is unavailable") from exc
+    ancestor = subprocess.run(
+        ["git", "-C", str(resolved), "merge-base", "--is-ancestor", expected_head, "refs/remotes/origin/main"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if ancestor.returncode != 0:
+        raise ValueError("audit repository HEAD is not reachable from origin/main")
+    return status''',
 )
 PY
 
