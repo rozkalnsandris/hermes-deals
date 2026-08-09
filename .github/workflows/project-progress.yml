@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   issues: read
 
 concurrency:
@@ -27,7 +27,10 @@ jobs:
   update-project-progress:
     name: Update auditable project progress
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
+
+    env:
+      UPDATE_BRANCH: automation/project-progress
 
     steps:
       - name: Verify default-branch execution
@@ -41,7 +44,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -93,20 +96,160 @@ jobs:
         run: |
           python tools/update_project_progress.py
 
-      - name: Commit changed generated files
+      - name: Validate generated update
+        id: generated
         if: steps.freshness.outputs.refresh == 'true'
         run: |
           git fetch --no-tags origin main
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          base_sha="$(git rev-parse origin/main)"
+          test "$(git rev-parse HEAD)" = "${base_sha}"
 
           if git diff --quiet -- README.md docs/project-progress-latest.json; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
             echo "Project progress is already current."
             exit 0
           fi
 
+          unexpected="$(git diff --name-only | grep -Ev '^(README\.md|docs/project-progress-latest\.json)$' || true)"
+          test -z "${unexpected}"
           git diff --check -- README.md docs/project-progress-latest.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+          echo "base_sha=${base_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Require GitHub App publisher credentials
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          APP_CLIENT_ID: ${{ vars.PROJECT_PROGRESS_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.PROJECT_PROGRESS_APP_PRIVATE_KEY }}
+        run: |
+          test -n "${APP_CLIENT_ID}"
+          test -n "${APP_PRIVATE_KEY}"
+
+      - name: Create protected publisher token
+        id: app-token
+        if: steps.generated.outputs.changed == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PROJECT_PROGRESS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PROJECT_PROGRESS_APP_PRIVATE_KEY }}
+          permission-checks: read
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Resolve publisher bot identity
+        id: app-user
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          user_id="$(gh api "/users/${APP_SLUG}[bot]" --jq .id)"
+          test -n "${user_id}"
+          echo "user_id=${user_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit and push automation branch
+        id: publish
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          APP_USER_ID: ${{ steps.app-user.outputs.user_id }}
+        run: |
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
+          gh auth setup-git
+
+          remote_sha="$(git ls-remote --heads origin "refs/heads/${UPDATE_BRANCH}" | awk '{print $1}')"
+          git checkout -B "${UPDATE_BRANCH}"
           git add README.md docs/project-progress-latest.json
-          git commit -m "docs: update project progress [skip ci]"
-          git push origin HEAD:main
+          git commit -m "docs: update project progress"
+          head_sha="$(git rev-parse HEAD)"
+
+          if [ -n "${remote_sha}" ]; then
+            git push --force-with-lease="refs/heads/${UPDATE_BRANCH}:${remote_sha}" origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          else
+            git push origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          fi
+
+          echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create or reuse protected progress pull request
+        id: pr
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          pr_number="$(gh pr list \
+            --base main \
+            --head "${UPDATE_BRANCH}" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [ -z "${pr_number}" ]; then
+            cat > /tmp/project-progress-pr-body.md <<'EOF'
+          Automated, auditable Project Progress V2 refresh.
+
+          This pull request is generated only from the reviewed progress manifest and current GitHub issue state. It changes only:
+
+          - `README.md` project-progress marker block;
+          - `docs/project-progress-latest.json`.
+
+          The protected `main` ruleset, normal pull-request CI and squash-merge path remain authoritative. No production deploy, RPi5 action, database access/write, retailer collection, Review action or publication is performed.
+          EOF
+            pr_url="$(gh pr create \
+              --base main \
+              --head "${UPDATE_BRANCH}" \
+              --title "docs: update project progress" \
+              --body-file /tmp/project-progress-pr-body.md)"
+            pr_number="${pr_url##*/}"
+          fi
+
+          test "${pr_number}" -gt 0
+          echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify generated pull request scope
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          printf '%s\n' README.md docs/project-progress-latest.json | sort > /tmp/expected-files.txt
+          gh pr diff "${PR_NUMBER}" --name-only | sort > /tmp/actual-files.txt
+          diff -u /tmp/expected-files.txt /tmp/actual-files.txt
+          test "$(gh pr view "${PR_NUMBER}" --json headRefOid --jq .headRefOid)" = "${{ steps.publish.outputs.head_sha }}"
+
+      - name: Wait for pull request CI
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          checks_seen=0
+          for attempt in $(seq 1 60); do
+            count="$(gh pr checks "${PR_NUMBER}" --json name --jq 'length' 2>/dev/null || printf '0')"
+            if [ "${count}" -gt 0 ] 2>/dev/null; then
+              checks_seen=1
+              break
+            fi
+            sleep 5
+          done
+          test "${checks_seen}" -eq 1
+          gh pr checks "${PR_NUMBER}" --watch --fail-fast --interval 10
+
+      - name: Squash merge protected progress pull request
+        if: steps.generated.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          BASE_SHA: ${{ steps.generated.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "${BASE_SHA}"
+          test "$(gh pr view "${PR_NUMBER}" --json headRefOid --jq .headRefOid)" = "${HEAD_SHA}"
+          gh pr merge "${PR_NUMBER}" \
+            --squash \
+            --delete-branch \
+            --match-head-commit "${HEAD_SHA}" \
+            --subject "docs: update project progress"
