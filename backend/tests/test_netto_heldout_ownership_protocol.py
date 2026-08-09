@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import importlib.util
+from pathlib import Path
+import sys
 
 import pytest
 
-from tools.netto_heldout_ownership_protocol import (
-    ACCEPTANCE,
-    OWNERSHIP_CLASSES,
-    PROTOCOL_NAME,
-    adjudication_binding,
-    freeze_receipt,
-    protocol_digest,
-    validate_freeze_manifest,
-)
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOL = ROOT / "tools/netto_heldout_ownership_protocol.py"
+SPEC = importlib.util.spec_from_file_location("netto_heldout_ownership_protocol_tested", TOOL)
+assert SPEC and SPEC.loader
+MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
+SPEC.loader.exec_module(MODULE)
+
+ACCEPTANCE = MODULE.ACCEPTANCE
+OWNERSHIP_CLASSES = MODULE.OWNERSHIP_CLASSES
+PROTOCOL_NAME = MODULE.PROTOCOL_NAME
+adjudication_binding = MODULE.adjudication_binding
+freeze_receipt = MODULE.freeze_receipt
+protocol_digest = MODULE.protocol_digest
+validate_freeze_manifest = MODULE.validate_freeze_manifest
 
 
 SHA_A = "a" * 64
