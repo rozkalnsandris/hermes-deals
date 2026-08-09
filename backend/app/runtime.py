@@ -20,6 +20,8 @@ DEFAULT_W4_DIR = Path(__file__).resolve().parent / "ui_w4_shadow"
 HASHED_JS = re.compile(r"assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.js")
 HASHED_CSS = re.compile(r"assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.css")
 HEX_SHA256 = re.compile(r"[0-9a-f]{64}")
+HTML_CACHE_CONTROL = "no-cache"
+HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 class UiAssetRuntimeError(RuntimeError):
@@ -227,6 +229,7 @@ class UiAssetModeApp:
         *,
         payload: bytes,
         content_type: str,
+        cache_control: str,
     ) -> None:
         body = payload if scope.get("method") != "HEAD" else b""
         response = Response(
@@ -234,7 +237,7 @@ class UiAssetModeApp:
             status_code=200,
             headers={
                 "Content-Type": content_type,
-                "Cache-Control": "no-store",
+                "Cache-Control": cache_control,
                 "X-Hermes-UI-Asset-Mode": self.mode,
             },
         )
@@ -266,6 +269,7 @@ class UiAssetModeApp:
                 send,
                 payload=payload,
                 content_type=content_type,
+                cache_control=HASHED_ASSET_CACHE_CONTROL,
             )
             return
 
@@ -278,6 +282,7 @@ class UiAssetModeApp:
                 send,
                 payload=self._shadow_html,
                 content_type="text/html; charset=utf-8",
+                cache_control=HTML_CACHE_CONTROL,
             )
             return
 
