@@ -255,7 +255,7 @@ def test_readme_replacement_requires_exactly_one_marker_pair() -> None:
         tool.replace_readme_block(duplicated, "block")
 
 
-def test_workflow_has_off_hour_retry_catchup_and_minimal_scope() -> None:
+def test_workflow_uses_ruleset_safe_app_pr_publisher() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert 'cron: "17 6 * * *"' in text
     assert 'cron: "17 7 * * *"' in text
@@ -271,9 +271,24 @@ def test_workflow_has_off_hour_retry_catchup_and_minimal_scope() -> None:
     assert 'os.environ["GITHUB_EVENT_NAME"] == "schedule"' in text
     assert 'snapshot["generated_at_local"]' in text
     assert "snapshot already generated today" in text
-    assert "contents: write" in text
-    assert "issues: read" in text
-    assert "pull-requests: write" not in text
+    assert "permissions:\n  contents: read\n  issues: read" in text
+    assert "actions/create-github-app-token@v3" in text
+    assert "PROJECT_PROGRESS_APP_CLIENT_ID" in text
+    assert "PROJECT_PROGRESS_APP_PRIVATE_KEY" in text
+    assert "permission-checks: read" in text
+    assert "permission-contents: write" in text
+    assert "permission-pull-requests: write" in text
+    assert "UPDATE_BRANCH: automation/project-progress" in text
+    assert "gh auth setup-git" in text
+    assert "gh pr create" in text
+    assert "gh pr diff" in text
+    assert "gh pr checks" in text
+    assert "--watch --fail-fast" in text
+    assert "gh pr merge" in text
+    assert "--squash" in text
+    assert "--match-head-commit" in text
+    assert "git push origin HEAD:main" not in text
+    assert "--admin" not in text
     assert "runs-on: ubuntu-latest" in text
     assert "self-hosted" not in text
     assert "docs/project-progress-latest.json" in text

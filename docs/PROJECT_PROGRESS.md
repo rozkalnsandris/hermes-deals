@@ -153,21 +153,56 @@ For deterministic local tests or audits, the tool accepts `--issues-json` so a f
 
 Scheduled runs first inspect `docs/project-progress-latest.json`. If a valid snapshot has already been generated on the current `Europe/Berlin` calendar day, the later scheduled run exits without generating or committing a duplicate update. Missing, invalid or stale snapshots fail toward regeneration.
 
-The workflow also supports manual execution and a narrow `push` trigger on `main` when the progress workflow, manifest or generator itself changes. Those non-scheduled triggers force regeneration, so a merged automation/model fix refreshes the README immediately instead of waiting until the next morning.
+The workflow also supports manual execution and a narrow `push` trigger on `main` when the progress workflow, manifest or generator itself changes. Those non-scheduled triggers force regeneration, so a merged automation/model fix can refresh immediately instead of waiting until the next morning.
 
-It uses only:
+### Protected-main publication contract
+
+`main` is protected by the repository ruleset and requires changes to arrive through a pull request with required checks. The progress workflow therefore **must not push generated commits directly to `main`**.
+
+The built-in workflow token remains read-only except for issue inventory access:
 
 ```yaml
 permissions:
-  contents: write
+  contents: read
   issues: read
 ```
 
-The job runs on a GitHub-hosted runner. It performs no RPi5 execution, production deployment, Docker action, service restart, retailer collection, Review action, publication, or database access/write.
+If generated files changed, the workflow obtains a repository-scoped GitHub App installation token, writes only the fixed `automation/project-progress` branch, creates or reuses a pull request, verifies that the PR contains exactly `README.md` and `docs/project-progress-latest.json`, waits for the normal PR CI checks, and squash-merges only when the protected branch requirements pass. The merge uses the exact generated head SHA and never uses `--admin` or a ruleset bypass.
 
-Before committing generated changes, the workflow verifies that its checkout still matches current `origin/main`. A concurrent `main` update causes that run to stop instead of overwriting newer work; the later schedule slot provides a bounded daily retry opportunity.
+A concurrent update to `main` causes publication to fail closed before merge. The next scheduled or manual run regenerates from the newer `main` instead of merging stale progress.
+
+This design intentionally preserves the repository's empty ruleset bypass list. It also avoids relying on `GITHUB_TOKEN` to create the generated PR: GitHub documents that pull requests created or updated by `GITHUB_TOKEN` place resulting `pull_request` workflows into an approval-required state, whereas events created with a GitHub App installation token can trigger the normal workflows automatically.
+
+### Publisher GitHub App
+
+Create one private GitHub App dedicated to this repository and install it only on `rozkalnsandris/hermes-deals`.
+
+Grant only these repository permissions:
+
+- **Checks: Read-only** — read PR CI status;
+- **Contents: Read and write** — push the generated branch and merge the checked PR;
+- **Pull requests: Read and write** — create/read the generated PR.
+
+No Issues permission is required for the App because the generator reads issues with the built-in repository `GITHUB_TOKEN`.
+
+Store the App credentials in repository Actions configuration:
+
+- variable `PROJECT_PROGRESS_APP_CLIENT_ID` = the GitHub App Client ID;
+- secret `PROJECT_PROGRESS_APP_PRIVATE_KEY` = the App private key PEM.
+
+Do not commit the private key. The workflow uses GitHub's `actions/create-github-app-token@v3`, requests only the three permissions above, scopes the installation token to the current repository, and lets the action revoke the temporary token at the end of the job.
+
+The repository setting **Allow GitHub Actions to create and approve pull requests** can remain disabled because the generated PR is created by the dedicated GitHub App rather than the built-in `GITHUB_TOKEN`.
+
+### Scheduling reliability
 
 The schedule intentionally avoids minute `00`. GitHub documents that scheduled Actions runs can be delayed during high load, that the start of an hour is a high-load period, and that sufficiently loaded queued jobs can be dropped. GitHub recommends scheduling at another minute of the hour.
+
+The second `07:17` slot is a bounded catch-up, not a second daily update: it publishes only when the current-day snapshot is still missing/stale.
+
+### Safety boundary
+
+The job runs on a GitHub-hosted runner. It performs no RPi5 execution, production deployment, Docker action, service restart, retailer collection, Review action, publication, or database access/write.
 
 ## Updating V2 weights
 
