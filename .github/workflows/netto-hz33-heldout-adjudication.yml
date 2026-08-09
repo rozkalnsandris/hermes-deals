@@ -1,0 +1,263 @@
+name: Netto hz33 held-out ownership adjudication
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: netto-hz33-heldout-adjudication-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  TRIGGER_LABEL: audit:netto-hz33-adjudication-v1
+  EXPECTED_BASE: main
+  CAPTURE_RUN_ID: "31324156565"
+  CAPTURE_ARTIFACT_ID: "9041052231"
+  CAPTURE_ARTIFACT_DIGEST_SHA256: cc289165aaac8796b33391917edb03df1085a841b82d17fc08aa93efa1d66ec4
+  COMPLETED_TRUTH_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+  COMPLETED_TRUTH_BLOB_SHA1: 2972cc717bd7cb0156d766f80679c94d26123b2b
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      implementation_sha: ${{ steps.auth.outputs.implementation_sha }}
+    steps:
+      - name: Authorize exact owner merged PR
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json, os
+          event = json.load(open(os.environ["EVENT_PATH"], encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "merged": pr.get("merged") is True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("missing exact merged implementation SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"implementation_sha={sha}\n")
+          PY
+
+  adjudicate:
+    needs: authorize
+    runs-on: ubuntu-latest
+    outputs:
+      acceptance_pass: ${{ steps.result.outputs.acceptance_pass }}
+      adjudication_sha256: ${{ steps.result.outputs.adjudication_sha256 }}
+      reviewed_cells: ${{ steps.result.outputs.reviewed_cells }}
+      mixed_source_cells: ${{ steps.result.outputs.mixed_source_cells }}
+      auto_single_precision: ${{ steps.result.outputs.auto_single_precision }}
+      mixed_source_auto_single: ${{ steps.result.outputs.mixed_source_auto_single }}
+      excluded_control_auto_eligible: ${{ steps.result.outputs.excluded_control_auto_eligible }}
+      cross_cell_group_reuse: ${{ steps.result.outputs.cross_cell_group_reuse }}
+      unmatched_review_required: ${{ steps.result.outputs.unmatched_review_required }}
+      scope_overlap_review_required: ${{ steps.result.outputs.scope_overlap_review_required }}
+    steps:
+      - name: Checkout exact merged implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.implementation_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify implementation is immutable main ancestry
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$IMPLEMENTATION_SHA" origin/main
+          test -z "$(git status --porcelain)"
+
+      - name: Verify committed completed truth identity
+        run: |
+          test "$(git hash-object audit/netto/hz33/completed-source-truth.json.gz)" = "$COMPLETED_TRUTH_BLOB_SHA1"
+          python - <<'PY'
+          import gzip, hashlib, os, pathlib
+          stored = pathlib.Path("audit/netto/hz33/completed-source-truth.json.gz").read_bytes()
+          plain = gzip.decompress(stored)
+          actual = hashlib.sha256(plain).hexdigest()
+          if actual != os.environ["COMPLETED_TRUTH_SHA256"]:
+              raise SystemExit(f"completed truth SHA mismatch: {actual}")
+          PY
+
+      - name: Download exact frozen capture artifact and extract only adjudication inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, pathlib, urllib.request, zipfile
+          artifact_id = int(os.environ["CAPTURE_ARTIFACT_ID"])
+          run_id = int(os.environ["CAPTURE_RUN_ID"])
+          expected_digest = os.environ["CAPTURE_ARTIFACT_DIGEST_SHA256"]
+          base = f"https://api.github.com/repos/{os.environ['REPOSITORY']}/actions/artifacts/{artifact_id}"
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          with urllib.request.urlopen(urllib.request.Request(base, headers=headers), timeout=30) as response:
+              meta = json.load(response)
+          if int(meta.get("id") or 0) != artifact_id:
+              raise SystemExit("artifact ID mismatch")
+          if int((meta.get("workflow_run") or {}).get("id") or 0) != run_id:
+              raise SystemExit("artifact workflow-run mismatch")
+          api_digest = str(meta.get("digest") or "")
+          if api_digest != f"sha256:{expected_digest}":
+              raise SystemExit("artifact API digest mismatch")
+          with urllib.request.urlopen(urllib.request.Request(base + "/zip", headers=headers), timeout=60) as response:
+              archive = response.read()
+          actual_digest = hashlib.sha256(archive).hexdigest()
+          if actual_digest != expected_digest:
+              raise SystemExit(f"artifact ZIP digest mismatch: {actual_digest}")
+          allow = {
+              "capture/predictions.json",
+              "capture/freeze-manifest.json",
+              "capture/freeze-receipt.json",
+          }
+          root = pathlib.Path(".hz33-adjudication-input")
+          root.mkdir(mode=0o700)
+          with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+              names = set(zf.namelist())
+              missing = sorted(allow - names)
+              if missing:
+                  raise SystemExit(f"missing adjudication members: {missing}")
+              for name in sorted(allow):
+                  info = zf.getinfo(name)
+                  if info.is_dir() or name.startswith("/") or ".." in pathlib.PurePosixPath(name).parts:
+                      raise SystemExit(f"unsafe artifact member: {name}")
+                  target = root / pathlib.PurePosixPath(name).name
+                  target.write_bytes(zf.read(info))
+          PY
+
+      - name: Run post-truth read-only adjudication
+        run: |
+          mkdir -p .hz33-adjudication-output
+          python tools/netto_heldout_hz33_adjudication.py \
+            --completed-truth audit/netto/hz33/completed-source-truth.json.gz \
+            --predictions .hz33-adjudication-input/predictions.json \
+            --freeze-manifest .hz33-adjudication-input/freeze-manifest.json \
+            --freeze-receipt .hz33-adjudication-input/freeze-receipt.json \
+            --output .hz33-adjudication-output/adjudication.json
+
+      - name: Freeze adjudication receipt and job outputs
+        id: result
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          path = pathlib.Path(".hz33-adjudication-output/adjudication.json")
+          raw = path.read_bytes()
+          payload = json.loads(raw)
+          metrics = payload["metrics"]
+          checks = payload["acceptance_checks"]
+          receipt = {
+              "schema_version": 1,
+              "strategy": "netto_hz33_heldout_ownership_adjudication_receipt_v1",
+              "capture_run_id": int(os.environ["CAPTURE_RUN_ID"]),
+              "capture_artifact_id": int(os.environ["CAPTURE_ARTIFACT_ID"]),
+              "capture_artifact_digest_sha256": os.environ["CAPTURE_ARTIFACT_DIGEST_SHA256"],
+              "completed_source_truth_sha256": os.environ["COMPLETED_TRUTH_SHA256"],
+              "adjudication_sha256": hashlib.sha256(raw).hexdigest(),
+              "acceptance": payload["acceptance"],
+              "metrics": metrics,
+              "acceptance_checks": checks,
+              "acceptance_pass": payload["acceptance_pass"],
+              "review_only": True,
+              "promotion_ready": False,
+              "parser_behavior_changed": False,
+              "database_write_performed": False,
+              "review_write_performed": False,
+              "deployment_performed": False,
+          }
+          receipt_path = pathlib.Path(".hz33-adjudication-output/adjudication-receipt.json")
+          receipt_path.write_text(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          out = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with out.open("a", encoding="utf-8") as handle:
+              handle.write(f"acceptance_pass={str(payload['acceptance_pass']).lower()}\n")
+              handle.write(f"adjudication_sha256={receipt['adjudication_sha256']}\n")
+              for key in (
+                  "reviewed_cells",
+                  "mixed_source_cells",
+                  "auto_single_precision",
+                  "mixed_source_auto_single",
+                  "excluded_control_auto_eligible",
+                  "cross_cell_group_reuse",
+                  "unmatched_review_required",
+                  "scope_overlap_review_required",
+              ):
+                  handle.write(f"{key}={metrics[key]}\n")
+          PY
+
+      - name: Upload immutable adjudication evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: netto-hz33-heldout-adjudication-run-${{ github.run_id }}
+          path: .hz33-adjudication-output/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report held-out result on merged PR
+        uses: actions/github-script@v7
+        env:
+          ACCEPTANCE_PASS: ${{ steps.result.outputs.acceptance_pass }}
+          ADJUDICATION_SHA256: ${{ steps.result.outputs.adjudication_sha256 }}
+          REVIEWED_CELLS: ${{ steps.result.outputs.reviewed_cells }}
+          MIXED_SOURCE_CELLS: ${{ steps.result.outputs.mixed_source_cells }}
+          AUTO_SINGLE_PRECISION: ${{ steps.result.outputs.auto_single_precision }}
+          MIXED_AUTO_SINGLE: ${{ steps.result.outputs.mixed_source_auto_single }}
+          EXCLUDED_AUTO: ${{ steps.result.outputs.excluded_control_auto_eligible }}
+          GROUP_REUSE: ${{ steps.result.outputs.cross_cell_group_reuse }}
+          UNMATCHED: ${{ steps.result.outputs.unmatched_review_required }}
+          SCOPE_OVERLAP: ${{ steps.result.outputs.scope_overlap_review_required }}
+        with:
+          script: |
+            const body = [
+              '## Netto hz33 held-out ownership adjudication',
+              '',
+              `- Workflow run: \`${context.runId}\``,
+              `- Completed truth SHA256: \`${process.env.COMPLETED_TRUTH_SHA256}\``,
+              `- Adjudication SHA256: \`${process.env.ADJUDICATION_SHA256}\``,
+              `- Reviewed cells: \`${process.env.REVIEWED_CELLS}\``,
+              `- Mixed-source cells: \`${process.env.MIXED_SOURCE_CELLS}\``,
+              `- Auto-single precision: \`${process.env.AUTO_SINGLE_PRECISION}\``,
+              `- Mixed -> auto-single: \`${process.env.MIXED_AUTO_SINGLE}\``,
+              `- Excluded -> auto-eligible: \`${process.env.EXCLUDED_AUTO}\``,
+              `- Cross-cell group reuse: \`${process.env.GROUP_REUSE}\``,
+              `- Unmatched review-required: \`${process.env.UNMATCHED}\``,
+              `- Scope-overlap review-required: \`${process.env.SCOPE_OVERLAP}\``,
+              `- Frozen acceptance: **${process.env.ACCEPTANCE_PASS === 'true' ? 'PASS' : 'FAIL'}**`,
+              '- Parser behavior changed: **false**',
+              '- Production deployment / DB / Review writes: **false**',
+              '- Promotion ready: **false**',
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
+
+      - name: Fail closed when frozen acceptance does not pass
+        if: steps.result.outputs.acceptance_pass != 'true'
+        run: |
+          echo "Held-out acceptance did not pass; evidence was preserved and no thresholds were changed." >&2
+          exit 2
