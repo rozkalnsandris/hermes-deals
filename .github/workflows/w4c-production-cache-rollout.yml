@@ -1,0 +1,272 @@
+name: W4C production cache rollout bridge
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-production-release
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner W4C command
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.authorize.outputs.mode }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+
+    steps:
+      - name: Validate owner, issue, workflow ref and exact command
+        id: authorize
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          owner = "rozkalnsandris"
+          repo = "rozkalnsandris/hermes-deals"
+          expected_ref = (
+              "rozkalnsandris/hermes-deals/.github/workflows/"
+              "w4c-production-cache-rollout.yml@refs/heads/main"
+          )
+          commands = {
+              "/hermes-477 preflight": "preflight",
+              "/hermes-477 cutover": "cutover",
+              "/hermes-477 verify": "verify",
+          }
+
+          if os.environ["EVENT_NAME"] != "issue_comment":
+              raise SystemExit("unexpected event")
+          if os.environ["RUN_ATTEMPT"] != "1":
+              raise SystemExit("W4C owner commands cannot be replayed by rerunning a workflow")
+          if os.environ["REPOSITORY"] != repo or os.environ["REPOSITORY_OWNER"] != owner:
+              raise SystemExit("unexpected repository owner")
+          for key in ("ACTOR", "TRIGGERING_ACTOR", "COMMENT_AUTHOR"):
+              if os.environ[key] != owner:
+                  raise SystemExit(f"{key.lower()} is not repository owner")
+          if os.environ["ISSUE_NUMBER"] != "477":
+              raise SystemExit("W4C command is restricted to issue 477")
+          if os.environ["WORKFLOW_REF"] != expected_ref:
+              raise SystemExit("W4C bridge must execute from main")
+          mode = commands.get(os.environ["COMMENT_BODY"].strip())
+          if mode is None:
+              raise SystemExit("comment is not an exact W4C owner command")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"mode={mode}\n")
+              handle.write("issue_number=477\n")
+              handle.write(f"comment_id={os.environ['COMMENT_ID']}\n")
+          PY
+
+  operate:
+    name: Run installed W4C dispatcher on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-release
+    timeout-minutes: 45
+    permissions: {}
+    outputs:
+      result: ${{ steps.operator.outputs.result }}
+      reason: ${{ steps.operator.outputs.reason }}
+      mode: ${{ steps.operator.outputs.mode }}
+      ui_state: ${{ steps.operator.outputs.ui_state }}
+      baseline_cache: ${{ steps.operator.outputs.baseline_cache }}
+      target_cache: ${{ steps.operator.outputs.target_cache }}
+      target_source_ready: ${{ steps.operator.outputs.target_source_ready }}
+      hashed_assets: ${{ steps.operator.outputs.hashed_assets }}
+      loopback_bind: ${{ steps.operator.outputs.loopback_bind }}
+      database_unchanged: ${{ steps.operator.outputs.database_unchanged }}
+      production_git_unchanged: ${{ steps.operator.outputs.production_git_unchanged }}
+      production_env_unchanged: ${{ steps.operator.outputs.production_env_unchanged }}
+      cloudflared_stable: ${{ steps.operator.outputs.cloudflared_stable }}
+      rollback_available: ${{ steps.operator.outputs.rollback_available }}
+      auto_rollback: ${{ steps.operator.outputs.auto_rollback }}
+      production_mutated: ${{ steps.operator.outputs.production_mutated }}
+      next_action: ${{ steps.operator.outputs.next_action }}
+
+    steps:
+      - name: Invoke only the installed root-owned W4C dispatcher
+        id: operator
+        continue-on-error: true
+        env:
+          MODE: ${{ needs.authorize.outputs.mode }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          raw="$(sudo --non-interactive /usr/local/sbin/hermes-deals-w4c-dispatch "$MODE" 2>&1)"
+          rc=$?
+          set -e
+          python3 - "$rc" "$raw" <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import sys
+
+          rc = int(sys.argv[1])
+          raw = sys.argv[2]
+          allowed = {
+              "W4C_RESULT": "result",
+              "W4C_REASON": "reason",
+              "W4C_MODE": "mode",
+              "UI_STATE": "ui_state",
+              "BASELINE_CACHE": "baseline_cache",
+              "TARGET_CACHE": "target_cache",
+              "TARGET_SOURCE_READY": "target_source_ready",
+              "HASHED_ASSETS": "hashed_assets",
+              "LOOPBACK_BIND": "loopback_bind",
+              "DATABASE_UNCHANGED": "database_unchanged",
+              "PRODUCTION_GIT_UNCHANGED": "production_git_unchanged",
+              "PRODUCTION_ENV_UNCHANGED": "production_env_unchanged",
+              "CLOUDFLARED_STABLE": "cloudflared_stable",
+              "ROLLBACK_AVAILABLE": "rollback_available",
+              "AUTO_ROLLBACK": "auto_rollback",
+              "PRODUCTION_MUTATED": "production_mutated",
+              "NEXT_ACTION": "next_action",
+          }
+          values = {name: "unavailable" for name in allowed.values()}
+          for line in raw.splitlines():
+              key, sep, value = line.partition("=")
+              if not sep or key not in allowed:
+                  continue
+              if not re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", value):
+                  continue
+              values[allowed[key]] = value
+          if values["result"] == "unavailable":
+              values["result"] = "BLOCKED" if rc else "UNAVAILABLE"
+          if values["reason"] == "unavailable" and rc:
+              values["reason"] = "dispatcher_failed_without_sanitized_reason"
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+          exit "$rc"
+
+      - name: Enforce PASS
+        if: always()
+        env:
+          RESULT: ${{ steps.operator.outputs.result }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RESULT" == "PASS" ]]
+
+  report:
+    name: Report sanitized W4C production result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - operate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment sanitized evidence on issue 477
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          JOB_RESULT: ${{ needs.operate.result }}
+          RESULT: ${{ needs.operate.outputs.result }}
+          REASON: ${{ needs.operate.outputs.reason }}
+          MODE: ${{ needs.operate.outputs.mode }}
+          UI_STATE: ${{ needs.operate.outputs.ui_state }}
+          BASELINE_CACHE: ${{ needs.operate.outputs.baseline_cache }}
+          TARGET_CACHE: ${{ needs.operate.outputs.target_cache }}
+          TARGET_SOURCE_READY: ${{ needs.operate.outputs.target_source_ready }}
+          HASHED_ASSETS: ${{ needs.operate.outputs.hashed_assets }}
+          LOOPBACK_BIND: ${{ needs.operate.outputs.loopback_bind }}
+          DATABASE_UNCHANGED: ${{ needs.operate.outputs.database_unchanged }}
+          PRODUCTION_GIT_UNCHANGED: ${{ needs.operate.outputs.production_git_unchanged }}
+          PRODUCTION_ENV_UNCHANGED: ${{ needs.operate.outputs.production_env_unchanged }}
+          CLOUDFLARED_STABLE: ${{ needs.operate.outputs.cloudflared_stable }}
+          ROLLBACK_AVAILABLE: ${{ needs.operate.outputs.rollback_available }}
+          AUTO_ROLLBACK: ${{ needs.operate.outputs.auto_rollback }}
+          PRODUCTION_MUTATED: ${{ needs.operate.outputs.production_mutated }}
+          NEXT_ACTION: ${{ needs.operate.outputs.next_action }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          fields = [
+              ("command comment", os.environ["COMMENT_ID"]),
+              ("requested mode", os.environ.get("MODE") or "unavailable"),
+              ("workflow job", os.environ["JOB_RESULT"]),
+              ("result", os.environ.get("RESULT") or "unavailable"),
+              ("reason", os.environ.get("REASON") or "unavailable"),
+              ("UI state", os.environ.get("UI_STATE") or "unavailable"),
+              ("baseline cache", os.environ.get("BASELINE_CACHE") or "unavailable"),
+              ("target cache", os.environ.get("TARGET_CACHE") or "unavailable"),
+              ("target source ready", os.environ.get("TARGET_SOURCE_READY") or "unavailable"),
+              ("hashed assets", os.environ.get("HASHED_ASSETS") or "unavailable"),
+              ("loopback bind", os.environ.get("LOOPBACK_BIND") or "unavailable"),
+              ("database unchanged", os.environ.get("DATABASE_UNCHANGED") or "unavailable"),
+              ("production Git unchanged", os.environ.get("PRODUCTION_GIT_UNCHANGED") or "unavailable"),
+              ("production env unchanged", os.environ.get("PRODUCTION_ENV_UNCHANGED") or "unavailable"),
+              ("cloudflared stable", os.environ.get("CLOUDFLARED_STABLE") or "unavailable"),
+              ("rollback available", os.environ.get("ROLLBACK_AVAILABLE") or "unavailable"),
+              ("automatic rollback", os.environ.get("AUTO_ROLLBACK") or "unavailable"),
+              ("production mutated", os.environ.get("PRODUCTION_MUTATED") or "unavailable"),
+              ("next action", os.environ.get("NEXT_ACTION") or "unavailable"),
+          ]
+          lines = ["## #477 W4C production bridge result", ""]
+          lines.extend(f"- {label}: `{value}`" for label, value in fields)
+          lines.extend([
+              f"- workflow: {os.environ['RUN_URL']}",
+              "",
+              "Safety boundary: the self-hosted job has no repository token and no checkout, and invokes only the installed root-owned hash-pinned W4C dispatcher. The runner cannot invoke root-only rollback. No DB migration/write, Review/publication, parser/collector/scheduler, Cloudflare/DNS/Access/token, UFW, or shared cloudflared lifecycle action is exposed.",
+          ])
+          payload = json.dumps({"body": "\n".join(lines)}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=payload,
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-w4c-production-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY

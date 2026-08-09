@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+ROOT='/usr/local/libexec/hermes-deals-w4c'
+OPERATOR="$ROOT/hermes_deals_w4c_operator.py"
+MANIFEST="$ROOT/control.sha256"
+W4B_IMAGE='hermes-deals-api:w4b-128325461f24'
+W4B_REVISION='128325461f249791af8a5653163772e955dd2b89'
+
+blocked() {
+  printf 'W4C_RESULT=BLOCKED\nW4C_REASON=%s\nPRODUCTION_MUTATED=false\n' "$1"
+  exit 1
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || blocked 'dispatcher_must_run_as_root'
+[[ $# -eq 1 ]] || blocked 'invalid_argument_count'
+MODE="$1"
+[[ "$MODE" =~ ^(preflight|cutover|verify)$ ]] || blocked 'runner_mode_not_authorized'
+[[ -d "$ROOT" && ! -L "$ROOT" ]] || blocked 'control_root_missing_or_unsafe'
+[[ -f "$OPERATOR" && ! -L "$OPERATOR" && -f "$MANIFEST" && ! -L "$MANIFEST" ]] \
+  || blocked 'control_file_missing_or_unsafe'
+[[ "$(stat -c '%U:%G:%a' "$ROOT")" == 'root:root:755' ]] \
+  || blocked 'control_root_metadata_invalid'
+sha256sum --check --strict --quiet "$MANIFEST" \
+  || blocked 'control_hash_mismatch'
+
+# Before the two modes that depend on the live W4B baseline, prove the exact
+# local W4B tag still resolves to the same immutable image as the running API.
+# A running container's Config.Image string alone does not prove the tag still
+# exists or has not been moved, so this check is required before claiming the
+# W4B image is available for restoration.
+if [[ "$MODE" == 'preflight' || "$MODE" == 'cutover' ]]; then
+  mapfile -t api_ids < <(
+    docker ps \
+      --filter 'label=com.docker.compose.project=hermes-deals' \
+      --filter 'label=com.docker.compose.service=api' \
+      --format '{{.ID}}'
+  )
+  [[ ${#api_ids[@]} -eq 1 && -n "${api_ids[0]}" ]] \
+    || blocked 'w4b_api_container_count_invalid'
+
+  python3 - "${api_ids[0]}" "$W4B_IMAGE" "$W4B_REVISION" <<'PY' \
+    || blocked 'w4b_image_unavailable_or_mismatched'
+import json
+import subprocess
+import sys
+
+container_id, expected_ref, expected_revision = sys.argv[1:]
+
+
+def inspect(args: list[str]) -> dict:
+    result = subprocess.run(
+        args,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        env={
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME": "/root",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        },
+    )
+    if result.returncode != 0:
+        raise SystemExit(2)
+    try:
+        rows = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise SystemExit(2)
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise SystemExit(2)
+    return rows[0]
+
+
+container = inspect(["docker", "inspect", container_id])
+image = inspect(["docker", "image", "inspect", expected_ref])
+container_config = container.get("Config") or {}
+image_config = image.get("Config") or {}
+container_labels = container_config.get("Labels") or {}
+image_labels = image_config.get("Labels") or {}
+
+if container_config.get("Image") != expected_ref:
+    raise SystemExit(2)
+if container.get("Image") != image.get("Id"):
+    raise SystemExit(2)
+if container_labels.get("org.opencontainers.image.revision") != expected_revision:
+    raise SystemExit(2)
+if image_labels.get("org.opencontainers.image.revision") != expected_revision:
+    raise SystemExit(2)
+PY
+fi
+
+exec python3 "$OPERATOR" "$MODE"
