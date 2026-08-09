@@ -96,9 +96,9 @@
       "weight_units": 100,
       "items": [
         {"id": "edeka-foundation", "label": "Market-bound collector, persistence and normalization foundation", "units": 50, "completion": {"type": "fixed", "evidence": ["README.md", "issues #35 and #39"]}},
-        {"id": "edeka-market-binding", "label": "Exact family-market binding with fallback forbidden", "units": 3, "completion": {"type": "issue", "issue": 166}},
-        {"id": "edeka-source-manifest", "label": "Fail-closed regional source manifest/state contract", "units": 3, "completion": {"type": "issue", "issue": 167}},
-        {"id": "edeka-provenance", "label": "Candidate provenance contract", "units": 3, "completion": {"type": "issue", "issue": 168}},
+        {"id": "edeka-market-binding", "label": "Exact family-market binding with fallback forbidden", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #166"]}},
+        {"id": "edeka-source-manifest", "label": "Fail-closed regional source manifest/state contract", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #167"]}},
+        {"id": "edeka-provenance", "label": "Candidate provenance contract", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #168"]}},
         {"id": "edeka-live-shadow-bridge", "label": "Live shadow to Gate C provenance bridge", "units": 4, "completion": {"type": "issue", "issue": 236}},
         {"id": "edeka-retained-artifact", "label": "Owner-only retained-artifact derivation boundary", "units": 2, "completion": {"type": "issue", "issue": 237}},
         {"id": "edeka-archive-compatibility", "label": "Real archive regular-file compatibility fix", "units": 2, "completion": {"type": "issue", "issue": 246}},
