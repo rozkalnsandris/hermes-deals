@@ -14,12 +14,38 @@ def test_workflow_is_owner_gated_exact_sha_read_only() -> None:
     assert "audit:netto-missing-normal-price-v1" in text
     assert "EXPECTED_OWNER_LOGIN: rozkalnsandris" in text
     assert "EXPECTED_OWNER_ID: '277435981'" in text
-    assert "exact merged SHA has no successful main-push CI" in text
+    assert "audit requires same-repository PR head" in text
+    assert "merged SHA is not reachable from current main" in text
+    assert "merge_push_ci" in text
+    assert "tree_equivalent_pr_head_ci" in text
+    assert "neither merge SHA nor exact PR head has successful CI" in text
+    assert "tested PR head tree differs from squash merge tree" in text
+    assert "/git/commits/{sha}" in text
+    assert "/git/commits/{head_sha}" in text
     assert "runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]" in text
     assert "hermes-deals-netto-missing-normal-price-audit-dispatch" in text
     assert "Database/Review writes: **not authorized**" in text
     assert "Production deploy: **not authorized**" in text
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in text
+
+
+def test_historical_ci_fallback_never_changes_approved_sha() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "head_sha = str((pr.get('head') or {}).get('sha') or '')" in text
+    assert "sha = str(pr.get('merge_commit_sha') or '')" in text
+    assert "head_tree = str((head_commit.get('tree') or {}).get('sha') or '')" in text
+    assert "merge_tree = str((merge_commit.get('tree') or {}).get('sha') or '')" in text
+    assert "merge_tree != head_tree" in text
+    assert "out.write(f'should_run=true\\nsha={sha}\\npr_number={pr_number}\\nci_mode={ci_mode}\\n')" in text
+    assert "sha={head_sha}" not in text
+
+
+def test_report_always_clears_one_shot_label_after_authorization_failure() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "PR_NUMBER: ${{ github.event.pull_request.number }}" in text
+    assert "AUTH_RESULT: ${{ needs.authorize.result }}" in text
+    assert "AUTHORIZATION_FAIL" in text
+    assert 'gh api --method DELETE "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/' in text
 
 
 def test_installer_pins_exact_corpus_and_runtime_identity() -> None:
