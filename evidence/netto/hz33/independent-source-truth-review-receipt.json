@@ -1,0 +1,56 @@
+{
+  "adjudication_started": false,
+  "b15m2_issue_20_touched": false,
+  "blank_source_truth_artifact_id": 9041615267,
+  "blank_source_truth_ledger_sha256": "9edd7f354fe8931dd0675e4876d344d700c1164499ecce19354903564649bb4a",
+  "blank_source_truth_receipt_sha256": "c5fd4ba29866d05e08c19673379742968b2428a02e394c7e28ca82893eab4d2a",
+  "blank_source_truth_run_id": 31326263730,
+  "boundary_counts": {
+    "clear_single_card": 405
+  },
+  "campaign_key": "hz33_hasb",
+  "campaign_window": {
+    "end": "2026-08-15",
+    "start": "2026-08-10"
+  },
+  "completed_source_truth_ledger_sha256": "4bb9f6f54bb7431cf19eabac3167958ec330faa3aa5874a776eebb460f97a2a5",
+  "confidence_counts": {
+    "high": 394,
+    "medium": 11
+  },
+  "database_write_performed": false,
+  "deployment_performed": false,
+  "freeze_manifest_sha256": "38bb9445ad5f2c3cc0159bd4332a4138f1d81cab03591de0542825b3f88db087",
+  "issue": 489,
+  "page_order": "strict_ascending_1_to_77",
+  "pages_reviewed": 77,
+  "parser_or_threshold_changed": false,
+  "prediction_payload_used": false,
+  "predictions_opened": false,
+  "repository_evidence_encoding": "gzip+base64-concatenated-parts",
+  "repository_evidence_gzip_sha256": "0df5d30195b6f095784c4fce7e70f679e9d30057cfb826cdd392db9366b07c76",
+  "repository_evidence_parts": [
+    "evidence/netto/hz33/independent-source-truth-ledger.part-001.b64",
+    "evidence/netto/hz33/independent-source-truth-ledger.part-002.b64",
+    "evidence/netto/hz33/independent-source-truth-ledger.part-003.b64",
+    "evidence/netto/hz33/independent-source-truth-ledger.part-004.b64",
+    "evidence/netto/hz33/independent-source-truth-ledger.part-005.b64"
+  ],
+  "review_pack_artifact_id": 9041440247,
+  "review_pack_manifest_sha256": "e47e1acc337f55dcdbbbfbbb5c200b3c100427ee5e022ad7d0e5e947e2f7274c",
+  "review_pack_run_id": 31325617692,
+  "review_pack_zip_sha256": "4962071277fbf4a49e9328dd20153cff2a9e566ff7a33381955f93c94015420a",
+  "review_write_performed": false,
+  "scheduler_or_host_change_performed": false,
+  "schema_version": 1,
+  "scope": "family_primary_netto",
+  "scope_counts": {
+    "excluded_non_target": 131,
+    "in_scope": 274
+  },
+  "source_pdf_sha256": "7e9ac8c87b6a1c0f25f1832def945bfbe0c2be9b3371d897d98079d88789c0ba",
+  "source_region_count": 405,
+  "source_sha256": "e38bfa550ce64aae0d2cefcec307ca4126c8753374a64d76cc2684a98b788bcb",
+  "store_external_id": "5659",
+  "strategy": "netto_heldout_independent_source_truth_review_receipt_v1"
+}
