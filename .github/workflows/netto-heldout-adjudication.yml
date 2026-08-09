@@ -379,7 +379,8 @@ jobs:
             --truth evidence/netto/heldout/hz33/completed-independent-source-truth-ledger.json.gz.b64 \
             --output "$output/adjudication.json")"
           printf '%s\n' "$result"
-          sha256sum "$output/adjudication.json" | sed "s#  $output/##" > "$output/SHA256SUMS"
+          digest="$(sha256sum "$output/adjudication.json" | cut -d' ' -f1)"
+          printf '%s  adjudication.json\n' "$digest" > "$output/SHA256SUMS"
           echo "output=$output" >> "$GITHUB_OUTPUT"
           echo "artifact_name=netto-heldout-hz33-adjudication-run-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
           RESULT_JSON="$result" OUTPUT_JSON="$output/adjudication.json" python3 - "$GITHUB_OUTPUT" <<'PY'
