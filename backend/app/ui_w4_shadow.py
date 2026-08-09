@@ -16,12 +16,13 @@ SHADOW_META = '<meta name="hermes-w4-shadow" content="hashed-assets-v1">'
 ENTRY_KEY = "src/w4-entry.js"
 HASHED_JS = re.compile(r"assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.js")
 HASHED_CSS = re.compile(r"assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.css")
+BODY_RE = re.compile(r"<body\b([^>]*)>", re.IGNORECASE)
+CLASS_RE = re.compile(r'class=["\']([^"\']*)["\']', re.IGNORECASE)
 
-_REQUIRED_HTML_MARKERS = (
-    'content="reference-v11-explicit-daily-special-api"',
-    'content="weekly-overview-v6-active-retailer-compaction"',
-    'content="netto-daily-quality-v1"',
+_REQUIRED_CURRENT_HTML_MARKERS = (
     'class="ui2-shell reference-app"',
+    'id="weeklyOverviewTitle"',
+    'id="dailySpecialsSection"',
 )
 
 
@@ -65,12 +66,104 @@ def _safe_build_asset(build_dir: Path, relative: str) -> Path:
     return candidate
 
 
+def _load_ui_contract(source_ui_dir: Path) -> dict[str, object]:
+    payload = _read_required(
+        source_ui_dir / "ui-architecture-contract.json",
+        "UI architecture contract",
+    )
+    try:
+        contract = json.loads(_decode_utf8(payload, "UI architecture contract"))
+    except json.JSONDecodeError as exc:
+        raise W4ShadowError("UI architecture contract is not valid JSON") from exc
+    if not isinstance(contract, dict) or contract.get("schema_version") != 1:
+        raise W4ShadowError("UI architecture contract schema is unsupported")
+    return contract
+
+
+def _require_current_html_contract(source_html: str, contract: dict[str, object]) -> None:
+    active_release = contract.get("active_release")
+    if not isinstance(active_release, dict):
+        raise W4ShadowError("UI architecture contract is missing active_release")
+    bundle_meta = active_release.get("bundle_meta")
+    release = active_release.get("release")
+    body_classes = active_release.get("body_classes")
+    if (
+        not isinstance(bundle_meta, str)
+        or not isinstance(release, str)
+        or not isinstance(body_classes, list)
+        or not body_classes
+        or not all(isinstance(item, str) and item for item in body_classes)
+    ):
+        raise W4ShadowError("UI architecture active_release is malformed")
+
+    _require_exactly_once(
+        source_html,
+        f'<meta name="hermes-ui-bundle" content="{bundle_meta}">',
+        "source UI bundle metadata",
+    )
+    _require_exactly_once(
+        source_html,
+        f'<meta name="hermes-ui-release" content="{release}">',
+        "source UI release metadata",
+    )
+
+    body_match = BODY_RE.search(source_html)
+    if body_match is None:
+        raise W4ShadowError("source UI HTML is missing body")
+    body_attributes = body_match.group(1)
+    class_match = CLASS_RE.search(body_attributes)
+    actual_classes = set(class_match.group(1).split()) if class_match else set()
+    missing_classes = [item for item in body_classes if item not in actual_classes]
+    if missing_classes:
+        raise W4ShadowError(
+            f"source UI body is missing active release classes: {missing_classes}"
+        )
+    if f'data-ui-release="{release}"' not in body_attributes:
+        raise W4ShadowError("source UI body release does not match architecture contract")
+
+    missing = [
+        marker for marker in _REQUIRED_CURRENT_HTML_MARKERS if marker not in source_html
+    ]
+    if missing:
+        raise W4ShadowError(f"source UI HTML is missing current structure: {missing}")
+    if 'name="hermes-ui-fix"' in source_html:
+        raise W4ShadowError("source UI HTML retained historical hermes-ui-fix metadata")
+
+
+def _require_current_js_contract(js_text: str, contract: dict[str, object]) -> None:
+    freeze = contract.get("w5_freeze")
+    if not isinstance(freeze, dict):
+        raise W4ShadowError("UI architecture contract is missing w5_freeze")
+    explicit_tokens = freeze.get("explicit_daily_special_contract_tokens")
+    legacy_helpers = freeze.get("legacy_daily_special_helpers")
+    if (
+        not isinstance(explicit_tokens, list)
+        or not explicit_tokens
+        or not all(isinstance(item, str) and item for item in explicit_tokens)
+        or not isinstance(legacy_helpers, list)
+        or not all(isinstance(item, str) and item for item in legacy_helpers)
+    ):
+        raise W4ShadowError("UI architecture daily-special contract is malformed")
+
+    missing = [token for token in explicit_tokens if token not in js_text]
+    if missing:
+        raise W4ShadowError(
+            f"W4 JavaScript lost explicit daily-special contract: {missing}"
+        )
+    retained = [token for token in legacy_helpers if token in js_text]
+    if retained:
+        raise W4ShadowError(
+            f"W4 JavaScript retained legacy daily-special helpers: {retained}"
+        )
+
+
 def build_w4_shadow_package(source_ui_dir: Path, build_dir: Path) -> Path:
     source_ui_dir = source_ui_dir.resolve(strict=True)
     build_dir = build_dir.resolve(strict=True)
 
     source_html_bytes = _read_required(source_ui_dir / "index.html", "source UI HTML")
     source_html = _decode_utf8(source_html_bytes, "source UI HTML")
+    ui_contract = _load_ui_contract(source_ui_dir)
     manifest_path = build_dir / ".vite" / "manifest.json"
     manifest_bytes = _read_required(manifest_path, "W4 manifest")
     try:
@@ -102,6 +195,7 @@ def build_w4_shadow_package(source_ui_dir: Path, build_dir: Path) -> Path:
     css_text = _decode_utf8(css_bytes, "W4 CSS asset")
     if "w3-behavior-preserving-bootstrap-v1" not in js_text:
         raise W4ShadowError("W4 JavaScript lost the W3 behavior marker")
+    _require_current_js_contract(js_text, ui_contract)
     if "HERMES_UI_STYLE_OPEN:" not in css_text:
         raise W4ShadowError("W4 CSS lost the reviewed style marker")
 
@@ -129,9 +223,7 @@ def build_w4_shadow_package(source_ui_dir: Path, build_dir: Path) -> Path:
     _require_exactly_once(source_html, WEEKLY_BRIDGE_TAG, "source weekly bridge reference")
     _require_exactly_once(source_html, SCRIPT_TAG, "source application reference")
     _require_exactly_once(source_html, "</head>", "source HTML head closing tag")
-    missing = [marker for marker in _REQUIRED_HTML_MARKERS if marker not in source_html]
-    if missing:
-        raise W4ShadowError(f"source UI HTML is missing required markers: {missing}")
+    _require_current_html_contract(source_html, ui_contract)
     if SHADOW_META in source_html or "hermes-production-bundle" in source_html:
         raise W4ShadowError("source UI HTML is already generated")
 
