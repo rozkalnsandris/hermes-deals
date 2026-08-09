@@ -177,7 +177,12 @@ def build_state(
         "previous_evidence_identity": latest["evidence_identity"] if latest else None,
         "shadow_passed": None,
         "retry_count": 0,
-        "last_success_valid_until": latest["valid_until"] if latest else None,
+        # This artifact is observation history, not proof that a production
+        # shadow/apply succeeded. Feeding an observed validity end into the
+        # controller's success-staleness field creates a false Monday stale
+        # alert after the normal Saturday->Monday Netto gap. Expired source
+        # evidence is already rejected by the verified source selector.
+        "last_success_valid_until": None,
     }
     verified, verification_reason = verify_weekly_input(WeeklyInput.from_mapping(raw_input))
     decision = decide_weekly_action(verified)
