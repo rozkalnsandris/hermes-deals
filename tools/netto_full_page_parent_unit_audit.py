@@ -90,6 +90,20 @@ def _bbox(raw: Any, *, label: str) -> tuple[float, float, float, float]:
     return x0, y0, x1, y1
 
 
+def _source_vector_bbox_or_none(
+    raw: Mapping[str, Any],
+) -> tuple[float, float, float, float] | None:
+    values = [raw.get(key) for key in ("x0", "y0", "x1", "y1")]
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+        raise ParentUnitAuditError("non-numeric source vector rectangle")
+    x0, y0, x1, y1 = (float(value) for value in values)
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        raise ParentUnitAuditError("non-finite source vector rectangle")
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return x0, y0, x1, y1
+
+
 def _center(box: tuple[float, float, float, float]) -> tuple[float, float]:
     return (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
 
@@ -185,7 +199,9 @@ def _deduplicated_parent_rectangles(
     for raw in rows:
         if not isinstance(raw, Mapping):
             raise ParentUnitAuditError("source vector rectangle must be an object")
-        box = _bbox(raw, label="source vector rectangle")
+        box = _source_vector_bbox_or_none(raw)
+        if box is None:
+            continue
         width_fraction = (box[2] - box[0]) / width
         height_fraction = (box[3] - box[1]) / height
         if (
