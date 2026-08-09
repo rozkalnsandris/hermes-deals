@@ -49,7 +49,7 @@ def test_activity_keeps_counts_visible_and_collapses_long_issue_list() -> None:
     tool = load_tool()
     block = tool.render_readme_block(snapshot_with_issues(17))
 
-    assert "**Development activity:** **123 issues fixed total** · **17 during 08.08.2026**" in block
+    assert "**Development activity:** **Issues fixed:** **123 total** · **17 during the previous day**" in block
     assert "<details>" in block
     assert "<summary>Show 17 issues fixed on 08.08.2026</summary>" in block
     assert "[#300](https://github.com/rozkalnsandris/hermes-deals/issues/300)" in block
@@ -62,6 +62,6 @@ def test_activity_omits_empty_details_when_no_issues_closed_yesterday() -> None:
     tool = load_tool()
     block = tool.render_readme_block(snapshot_with_issues(0))
 
-    assert "**Development activity:** **123 issues fixed total** · **0 during 08.08.2026**" in block
+    assert "**Development activity:** **Issues fixed:** **123 total** · **0 during the previous day**" in block
     assert "<details>" not in block
     assert "Show 0 issues" not in block
