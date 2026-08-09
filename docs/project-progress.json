@@ -99,12 +99,12 @@
         {"id": "edeka-market-binding", "label": "Exact family-market binding with fallback forbidden", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #166"]}},
         {"id": "edeka-source-manifest", "label": "Fail-closed regional source manifest/state contract", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #167"]}},
         {"id": "edeka-provenance", "label": "Candidate provenance contract", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #168"]}},
-        {"id": "edeka-live-shadow-bridge", "label": "Live shadow to Gate C provenance bridge", "units": 4, "completion": {"type": "issue", "issue": 236}},
-        {"id": "edeka-retained-artifact", "label": "Owner-only retained-artifact derivation boundary", "units": 2, "completion": {"type": "issue", "issue": 237}},
-        {"id": "edeka-archive-compatibility", "label": "Real archive regular-file compatibility fix", "units": 2, "completion": {"type": "issue", "issue": 246}},
-        {"id": "edeka-semantic-noop", "label": "Semantic unchanged-source identity and NO_OP contract", "units": 3, "completion": {"type": "issue", "issue": 257}},
-        {"id": "edeka-dedicated-audit-clone", "label": "Retailer-dedicated EDEKA audit clone", "units": 3, "completion": {"type": "issue", "issue": 265}},
-        {"id": "edeka-canary-plan", "label": "Exact preparation-only three-row production canary plan", "units": 2, "completion": {"type": "issue", "issue": 267}},
+        {"id": "edeka-live-shadow-bridge", "label": "Live shadow to Gate C provenance bridge", "units": 4, "completion": {"type": "fixed", "evidence": ["PR #236"]}},
+        {"id": "edeka-retained-artifact", "label": "Owner-only retained-artifact derivation boundary", "units": 2, "completion": {"type": "fixed", "evidence": ["PR #237"]}},
+        {"id": "edeka-archive-compatibility", "label": "Real archive regular-file compatibility fix", "units": 2, "completion": {"type": "fixed", "evidence": ["PR #246"]}},
+        {"id": "edeka-semantic-noop", "label": "Semantic unchanged-source identity and NO_OP contract", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #257"]}},
+        {"id": "edeka-dedicated-audit-clone", "label": "Retailer-dedicated EDEKA audit clone", "units": 3, "completion": {"type": "fixed", "evidence": ["PR #265"]}},
+        {"id": "edeka-canary-plan", "label": "Exact preparation-only three-row production canary plan", "units": 2, "completion": {"type": "fixed", "evidence": ["PR #267"]}},
         {"id": "edeka-second-family", "label": "Second distinct Patzer weekly campaign and two-cycle ledger", "units": 10, "completion": {"type": "issue", "issue": 291}},
         {"id": "edeka-weekly", "label": "Canary replay, scheduler, stale-source monitoring and rollback", "units": 15, "completion": {"type": "issue", "issue": 26}}
       ]
