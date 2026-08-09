@@ -165,6 +165,7 @@ def validate_freeze_receipt(payload: dict[str, Any], receipt: dict[str, Any]) ->
 def prepare_freeze(
     binding_payload: dict[str, Any],
     campaign_key: str,
+    prediction_parser_identity: str,
     evidence_path: Path,
     predictions_path: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -177,6 +178,8 @@ def prepare_freeze(
         raise ValueError(f"held-out source binding is not verified: {verification.reason}")
     if not binding.pdf_sha256:
         raise ValueError("held-out ownership capture requires a PDF SHA256")
+    if not isinstance(prediction_parser_identity, str) or not prediction_parser_identity.strip():
+        raise ValueError("prediction parser identity is required")
 
     try:
         same_input = evidence_path.resolve() == predictions_path.resolve()
@@ -194,10 +197,11 @@ def prepare_freeze(
             "start": binding.valid_from.isoformat(),
             "end": binding.valid_until.isoformat(),
         },
-        # Bind the freeze to the complete verified source identity: store/scope,
-        # validity, manifest, HTML, PDF/evidence state and parser identity.
+        # Source identity includes store/scope, validity, immutable manifest/HTML/PDF
+        # bindings and the source-side parser identity. The separate parser_identity
+        # below names the parser that produced the frozen held-out predictions.
         "source_sha256": binding.identity_sha256(),
-        "parser_identity": binding.parser_identity,
+        "parser_identity": prediction_parser_identity.strip(),
         "evidence_sha256": file_sha256(evidence_path, "held-out evidence"),
         "predictions_sha256": file_sha256(predictions_path, "held-out predictions"),
         "truth_sha256": None,
@@ -261,6 +265,7 @@ def main() -> int:
     prepare = sub.add_parser("prepare")
     prepare.add_argument("binding", type=Path)
     prepare.add_argument("--campaign-key", required=True)
+    prepare.add_argument("--prediction-parser-identity", required=True)
     prepare.add_argument("--evidence", type=Path, required=True)
     prepare.add_argument("--predictions", type=Path, required=True)
     prepare.add_argument("--manifest-output", type=Path, required=True)
@@ -283,6 +288,7 @@ def main() -> int:
         manifest, receipt = prepare_freeze(
             _load(args.binding),
             args.campaign_key,
+            args.prediction_parser_identity,
             args.evidence,
             args.predictions,
         )
