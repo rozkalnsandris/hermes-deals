@@ -1,8 +1,17 @@
 name: Update project progress
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/project-progress.yml"
+      - "docs/project-progress.json"
+      - "tools/update_project_progress.py"
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "17 6 * * *"
+      timezone: "Europe/Berlin"
+    - cron: "17 7 * * *"
       timezone: "Europe/Berlin"
   workflow_dispatch:
 
@@ -39,13 +48,53 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Check scheduled freshness
+        id: freshness
+        env:
+          PROGRESS_TIMEZONE: Europe/Berlin
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          refresh = True
+          reason = "non-scheduled trigger"
+
+          if os.environ["GITHUB_EVENT_NAME"] == "schedule":
+              reason = "snapshot missing, invalid, or stale"
+              try:
+                  snapshot = json.loads(
+                      Path("docs/project-progress-latest.json").read_text(encoding="utf-8")
+                  )
+                  zone = ZoneInfo(os.environ["PROGRESS_TIMEZONE"])
+                  generated = datetime.fromisoformat(str(snapshot["generated_at_local"]))
+                  generated_day = generated.astimezone(zone).date()
+                  current_day = datetime.now(zone).date()
+                  if generated_day == current_day:
+                      refresh = False
+                      reason = "snapshot already generated today"
+              except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                  refresh = True
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"refresh={'true' if refresh else 'false'}\n")
+
+          print(f"PROJECT_PROGRESS_REFRESH={'yes' if refresh else 'no'}")
+          print(f"PROJECT_PROGRESS_REASON={reason}")
+          PY
+
       - name: Generate progress snapshot and README block
+        if: steps.freshness.outputs.refresh == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python tools/update_project_progress.py
 
       - name: Commit changed generated files
+        if: steps.freshness.outputs.refresh == 'true'
         run: |
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"

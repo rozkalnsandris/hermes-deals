@@ -149,7 +149,11 @@ For deterministic local tests or audits, the tool accepts `--issues-json` so a f
 
 ## Automation
 
-`.github/workflows/project-progress.yml` runs daily at `06:00` in the IANA timezone `Europe/Berlin` and supports manual execution.
+`.github/workflows/project-progress.yml` uses two daily, timezone-aware schedule slots at `06:17` and `07:17` in `Europe/Berlin`. The first slot is the normal refresh; the second is a catch-up attempt if the first scheduled event was delayed, dropped or failed before publishing a snapshot.
+
+Scheduled runs first inspect `docs/project-progress-latest.json`. If a valid snapshot has already been generated on the current `Europe/Berlin` calendar day, the later scheduled run exits without generating or committing a duplicate update. Missing, invalid or stale snapshots fail toward regeneration.
+
+The workflow also supports manual execution and a narrow `push` trigger on `main` when the progress workflow, manifest or generator itself changes. Those non-scheduled triggers force regeneration, so a merged automation/model fix refreshes the README immediately instead of waiting until the next morning.
 
 It uses only:
 
@@ -161,7 +165,9 @@ permissions:
 
 The job runs on a GitHub-hosted runner. It performs no RPi5 execution, production deployment, Docker action, service restart, retailer collection, Review action, publication, or database access/write.
 
-Before committing generated changes, the workflow verifies that its checkout still matches current `origin/main`. A concurrent `main` update causes the run to stop instead of overwriting newer work.
+Before committing generated changes, the workflow verifies that its checkout still matches current `origin/main`. A concurrent `main` update causes that run to stop instead of overwriting newer work; the later schedule slot provides a bounded daily retry opportunity.
+
+The schedule intentionally avoids minute `00`. GitHub documents that scheduled Actions runs can be delayed during high load, that the start of an hour is a high-load period, and that sufficiently loaded queued jobs can be dropped. GitHub recommends scheduling at another minute of the hour.
 
 ## Updating V2 weights
 

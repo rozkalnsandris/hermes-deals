@@ -255,11 +255,22 @@ def test_readme_replacement_requires_exactly_one_marker_pair() -> None:
         tool.replace_readme_block(duplicated, "block")
 
 
-def test_workflow_is_daily_berlin_only_and_minimally_scoped() -> None:
+def test_workflow_has_off_hour_retry_catchup_and_minimal_scope() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'cron: "0 6 * * *"' in text
-    assert 'timezone: "Europe/Berlin"' in text
+    assert 'cron: "17 6 * * *"' in text
+    assert 'cron: "17 7 * * *"' in text
+    assert 'cron: "0 6 * * *"' not in text
+    assert text.count('timezone: "Europe/Berlin"') == 2
+    assert "push:" in text
+    assert "- main" in text
+    assert '".github/workflows/project-progress.yml"' in text
+    assert '"docs/project-progress.json"' in text
+    assert '"tools/update_project_progress.py"' in text
     assert "workflow_dispatch:" in text
+    assert "Check scheduled freshness" in text
+    assert 'os.environ["GITHUB_EVENT_NAME"] == "schedule"' in text
+    assert 'snapshot["generated_at_local"]' in text
+    assert "snapshot already generated today" in text
     assert "contents: write" in text
     assert "issues: read" in text
     assert "pull-requests: write" not in text
