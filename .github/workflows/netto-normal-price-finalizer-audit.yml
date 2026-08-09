@@ -1,0 +1,194 @@
+name: Netto normal-price finalizer frozen contract audit
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: netto-normal-price-finalizer-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  TRIGGER_LABEL: audit:netto-normal-price-finalizer-v1
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      implementation_sha: ${{ steps.auth.outputs.implementation_sha }}
+    steps:
+      - name: Authorize exact owner merged PR
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json, os
+          event = json.load(open(os.environ["EVENT_PATH"], encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "merged": pr.get("merged") is True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("missing exact merged implementation SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"implementation_sha={sha}\n")
+          PY
+
+  audit:
+    needs: authorize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merged implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.implementation_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable main ancestry and clean checkout
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$IMPLEMENTATION_SHA" origin/main
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install exact backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip check
+
+      - name: Verify exact four-case frozen regression contract
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib
+          test_path = pathlib.Path("backend/tests/test_netto_normal_price_finalizer.py")
+          tool_path = pathlib.Path("tools/netto_normal_price_finalizer.py")
+          if not test_path.is_file() or not tool_path.is_file():
+              raise SystemExit("normal-price finalizer contract files are missing")
+          text = test_path.read_text(encoding="utf-8")
+          cases = [
+              {"label": "Lederkäse 250g", "needle": "Lederkäse", "expected_normal_price_eur": "1.69"},
+              {"label": "Grill-/Pfannenkäse 200g", "needle": "Grill-/Pfannenkäse", "expected_normal_price_eur": "1.99"},
+              {"label": "Hähnchen-Geschnetzeltes 400g", "needle": "Hähnchen-Geschnetzeltes", "expected_normal_price_eur": "3.79"},
+              {"label": "Melone Galia Stück", "needle": "Melone Galia", "expected_normal_price_eur": "1.99"},
+          ]
+          for case in cases:
+              if case["needle"] not in text or case["expected_normal_price_eur"] not in text:
+                  raise SystemExit(f"frozen case missing from focused regression: {case['label']}")
+          pathlib.Path(".netto-normal-price-audit").mkdir()
+          preflight = {
+              "schema_version": 1,
+              "strategy": "netto_normal_price_finalizer_frozen_contract_audit_v1",
+              "cases": cases,
+              "test_file_sha256": hashlib.sha256(test_path.read_bytes()).hexdigest(),
+              "finalizer_file_sha256": hashlib.sha256(tool_path.read_bytes()).hexdigest(),
+              "repository_write": False,
+              "database_write": False,
+              "review_write": False,
+              "publication": False,
+              "deployment": False,
+          }
+          pathlib.Path(".netto-normal-price-audit/preflight.json").write_text(
+              json.dumps(preflight, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run focused four-case finalizer regression
+        run: |
+          python -m pytest -q backend/tests/test_netto_normal_price_finalizer.py \
+            --junitxml=.netto-normal-price-audit/junit.xml
+
+      - name: Freeze audit receipt
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(".netto-normal-price-audit")
+          preflight = json.loads((root / "preflight.json").read_text(encoding="utf-8"))
+          junit = root / "junit.xml"
+          receipt = {
+              "schema_version": 1,
+              "strategy": "netto_normal_price_finalizer_frozen_contract_receipt_v1",
+              "implementation_sha": os.environ["IMPLEMENTATION_SHA"],
+              "cases": preflight["cases"],
+              "test_file_sha256": preflight["test_file_sha256"],
+              "finalizer_file_sha256": preflight["finalizer_file_sha256"],
+              "junit_sha256": hashlib.sha256(junit.read_bytes()).hexdigest(),
+              "focused_regression_pass": True,
+              "repository_write": False,
+              "database_write": False,
+              "review_write": False,
+              "publication": False,
+              "deployment": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          (root / "receipt.json").write_text(
+              json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload frozen audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: netto-normal-price-finalizer-audit-run-${{ github.run_id }}
+          path: .netto-normal-price-audit/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report focused contract audit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const r = JSON.parse(fs.readFileSync('.netto-normal-price-audit/receipt.json', 'utf8'));
+            const lines = r.cases.map(c => `  - ${c.label}: expected normal price €${c.expected_normal_price_eur}`);
+            const body = [
+              '## Netto normal-price finalizer frozen contract audit',
+              '',
+              `- Workflow run: \`${context.runId}\``,
+              `- Implementation: \`${r.implementation_sha}\``,
+              `- Test SHA256: \`${r.test_file_sha256}\``,
+              `- Finalizer SHA256: \`${r.finalizer_file_sha256}\``,
+              `- JUnit SHA256: \`${r.junit_sha256}\``,
+              '- Frozen cases:',
+              ...lines,
+              '- Focused regression: **PASS**',
+              '- Repository / DB / Review / publication / deploy writes: **false**',
+              '- Review-only / promotion-ready: **true / false**',
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
