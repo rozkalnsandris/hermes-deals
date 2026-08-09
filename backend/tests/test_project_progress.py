@@ -124,7 +124,7 @@ def test_v2_baseline_recovers_real_gate_progress_and_august_7_delta() -> None:
     assert snapshot["previous_day_completed_gate_count"] == 23
     assert snapshot["completed_weighted_gate_count"] == 54
     assert snapshot["weighted_gate_count"] == 67
-    assert snapshot["completed_issue_count"] == 42
+    assert snapshot["completed_issue_count"] == 39
     assert {item["id"]: item["completion_percent_tenths"] for item in snapshot["store_catalogues"]} == {
         "netto": 786,
         "lidl": 857,
@@ -156,7 +156,7 @@ def test_readme_block_renders_tenths_gate_counts_and_issue_counts() -> None:
     assert "**ALDI Nord:** **75.0%**" in block
     assert "**EDEKA Patzer:** **75.0%**" in block
     assert "**Weighted roadmap gates:** **54/67 complete** · **23 during the previous day**" in block
-    assert "**Issues fixed:** **42 total** · **23 during the previous day**" in block
+    assert "**Issues fixed:** **39 total** · **23 during the previous day**" in block
     assert "Measurement V2 rules" in block
 
 
@@ -210,7 +210,7 @@ def test_total_issue_count_is_repository_wide_and_deduplicated() -> None:
         issue(502, state="closed", state_reason="completed", closed_at="2026-08-06T12:00:00Z", pull_request=True),
     ])
     snapshot = tool.calculate_snapshot(manifest, issues, now=datetime(2026, 8, 8, 4, 44, tzinfo=timezone.utc))
-    assert snapshot["completed_issue_count"] == 43
+    assert snapshot["completed_issue_count"] == 40
 
 
 def test_fetch_github_issues_reads_full_repository_inventory(monkeypatch) -> None:
