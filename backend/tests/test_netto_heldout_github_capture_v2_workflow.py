@@ -1,9 +1,11 @@
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/netto-heldout-github-capture-v2.yml"
 LAUNCHER = ROOT / "tools/run-netto-heldout-github-capture-v02.sh"
+CANDIDATE_COMMIT = "17ceedf0fdb0342acb594ed20679519ec4910e3c"
 
 
 def test_v2_workflow_is_owner_gated_non_root_and_uses_v2_launcher() -> None:
@@ -46,7 +48,15 @@ def test_v2_launcher_uses_v1_source_selection_but_v2_capture() -> None:
     assert "freeze-receipt-v2.json" in text
     assert "candidate-provenance.json" in text
     assert "candidate_decisions_frozen_before_truth" in text
+    assert f'CANDIDATE_COMMIT="{CANDIDATE_COMMIT}"' in text
+    assert 'git -C "$REPO" merge-base --is-ancestor "$CANDIDATE_COMMIT" "$EXPECTED_SHA"' in text
+    assert 'git -C "$REPO" diff --quiet "$CANDIDATE_COMMIT" -- "$CANDIDATE_PATH"' in text
+    assert '--candidate-implementation-commit "$CANDIDATE_COMMIT"' in text
     assert 'DATABASE_WRITE=false' in text
     assert 'REVIEW_WRITE=false' in text
     assert 'PRODUCTION_DEPLOY=false' in text
     assert 'PROMOTION_READY=false' in text
+
+
+def test_v2_launcher_has_valid_bash_syntax() -> None:
+    subprocess.run(["bash", "-n", str(LAUNCHER)], check=True)
