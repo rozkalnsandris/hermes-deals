@@ -19,6 +19,7 @@ UI_ROOT = ROOT / "backend" / "app" / "ui"
 STYLES = UI_ROOT / "styles.css"
 INDEX = UI_ROOT / "index.html"
 APP = UI_ROOT / "app.js"
+DAILY_SPECIALS = ROOT / "backend" / "frontend" / "src" / "features" / "daily-specials.js"
 CONTRACT = UI_ROOT / "ui-architecture-contract.json"
 
 STYLE_OPEN_RE = re.compile(r"HERMES_UI_STYLE_OPEN:([A-Za-z0-9+/=]+)")
@@ -72,7 +73,8 @@ def _first(regex: re.Pattern[str], text: str) -> str | None:
 def build_report() -> dict[str, object]:
     css = _read(STYLES)
     html = _read(INDEX)
-    js = _read(APP)
+    app_js = _read(APP)
+    daily_specials = _read(DAILY_SPECIALS)
     contract = json.loads(_read(CONTRACT))
 
     body_match = BODY_RE.search(html)
@@ -91,6 +93,7 @@ def build_report() -> dict[str, object]:
             "styles_css_bytes": STYLES.stat().st_size,
             "index_html_bytes": INDEX.stat().st_size,
             "app_js_bytes": APP.stat().st_size,
+            "daily_specials_js_bytes": DAILY_SPECIALS.stat().st_size,
         },
         "active_release": {
             "bundle_meta": _first(BUNDLE_META_RE, html),
@@ -114,11 +117,12 @@ def build_report() -> dict[str, object]:
         },
         "javascript_archaeology": {
             "legacy_daily_special_helpers": {
-                token: token in js for token in legacy_helpers
+                token: token in daily_specials for token in legacy_helpers
             },
             "explicit_daily_special_contract": {
-                token: token in js for token in explicit_tokens
+                token: token in daily_specials for token in explicit_tokens
             },
+            "non_authoritative_raw_app_bytes": len(app_js.encode("utf-8")),
         },
         "target_css_hierarchy": contract["w5_freeze"]["target_css_hierarchy"],
     }
