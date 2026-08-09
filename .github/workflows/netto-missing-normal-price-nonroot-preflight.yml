@@ -1,0 +1,299 @@
+name: Netto missing normal price non-root corpus preflight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/netto-missing-normal-price-nonroot-preflight.yml
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-missing-normal-price-nonroot-preflight
+  cancel-in-progress: false
+
+env:
+  TRIGGER_LABEL: audit:netto-missing-normal-price-nonroot
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: '277435981'
+
+jobs:
+  ensure-label:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Ensure one-shot preflight label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          repo = os.environ['REPOSITORY']
+          label = {
+              'name': os.environ['TRIGGER_LABEL'],
+              'color': 'bfd4f2',
+              'description': 'Probe exact Netto frozen corpus readability as non-root GitHub runner',
+          }
+          headers = {
+              'Accept':'application/vnd.github+json',
+              'Authorization':f"Bearer {os.environ['GH_TOKEN']}",
+              'Content-Type':'application/json',
+              'User-Agent':'hermes-deals-netto-nonroot-preflight-label',
+              'X-GitHub-Api-Version':'2022-11-28',
+          }
+          data = json.dumps(label).encode()
+          encoded = urllib.parse.quote(label['name'], safe='')
+          try:
+              urllib.request.urlopen(urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/labels/{encoded}', data=data, method='PATCH', headers=headers
+              ), timeout=20).close()
+          except urllib.error.HTTPError as exc:
+              if exc.code != 404: raise
+              urllib.request.urlopen(urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/labels', data=data, method='POST', headers=headers
+              ), timeout=20).close()
+          PY
+
+  authorize:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-missing-normal-price-nonroot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate exact owner merged-main trigger
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re, urllib.request
+          repo = os.environ['REPOSITORY']
+          if repo != 'rozkalnsandris/hermes-deals' or os.environ['WORKFLOW_REF'] != 'refs/heads/main':
+              raise SystemExit('unexpected repository/workflow ref')
+          event = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          sender = event.get('sender') or {}
+          if sender.get('login') != os.environ['EXPECTED_OWNER_LOGIN'] or sender.get('id') != int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('actor is not repository owner')
+          pr_number = int((event.get('pull_request') or {}).get('number') or 0)
+          headers = {
+              'Accept':'application/vnd.github+json',
+              'Authorization':f"Bearer {os.environ['GH_TOKEN']}",
+              'User-Agent':'hermes-deals-netto-nonroot-preflight-authorizer',
+              'X-GitHub-Api-Version':'2022-11-28',
+          }
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+          pr = get(f'https://api.github.com/repos/{repo}/pulls/{pr_number}')
+          if not pr.get('merged') or pr['base']['ref'] != 'main' or pr['base']['repo']['full_name'] != repo:
+              raise SystemExit('trigger PR is not merged into repository main')
+          sha = str(pr.get('merge_commit_sha') or '')
+          if not re.fullmatch(r'[0-9a-f]{40}', sha):
+              raise SystemExit('merge SHA invalid')
+          comparison = get(f'https://api.github.com/repos/{repo}/compare/{sha}...main')
+          if comparison.get('status') not in {'ahead','identical'}:
+              raise SystemExit('merge is not reachable from current main')
+          with pathlib.Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as out:
+              out.write(f"sha={sha}\npr_number={pr_number}\nactor={sender['login']}\n")
+          PY
+
+  preflight:
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 10
+    permissions: {}
+    outputs:
+      non_root_ready: ${{ steps.probe.outputs.non_root_ready }}
+      blocked_at: ${{ steps.probe.outputs.blocked_at }}
+      artifact_name: ${{ steps.probe.outputs.artifact_name }}
+    steps:
+      - name: Verify non-root runner boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(id -un)" == "github-runner" ]]
+          [[ "$(id -u)" -ne 0 ]]
+          ! id -nG | tr ' ' '\n' | grep -Fxq docker
+          [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]]
+
+      - name: Probe exact immutable corpus readability
+        id: probe
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/netto-missing-normal-price-nonroot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          artifact="netto-missing-normal-price-nonroot-preflight-${GITHUB_RUN_ID}"
+          echo "artifact_name=$artifact" >> "$GITHUB_OUTPUT"
+          echo "artifact_path=$output" >> "$GITHUB_OUTPUT"
+          python3 - "$output" <<'PY'
+          import hashlib, json, os, pathlib, stat, sys
+
+          N9 = pathlib.Path('/home/andris/hermes-deals-audits/netto-n9-visual-cell-validation-pack-v1-20260802T202304Z/generated/fixture-manifest.json')
+          N9_SHA = '2b180d67af4c5d1e586704088e3d685cff21ae2e12f3052254daf4553dd4e147'
+          CORPUS = pathlib.Path('/home/andris/hermes-deals-netto-corpus/flyers')
+          EXPECTED = {
+              'hz31_hasb_4': {'sha256':'9e878399868bd3ff5422954e7547ea68cfd2a518209ed01c96940a0eafb258ca', 'page_count':76},
+              'hz32_hasb': {'sha256':'f87bb55bc735ecd7fbbf0735ad848615b30a543639a94265464d1c57e621cb36', 'page_count':49},
+          }
+
+          def sha_file(path):
+              digest = hashlib.sha256()
+              with path.open('rb') as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def safe_stat(path):
+              try:
+                  st = path.stat()
+                  return {'stat_ok': True, 'mode': oct(stat.S_IMODE(st.st_mode)), 'uid': st.st_uid, 'gid': st.st_gid}
+              except (OSError, PermissionError):
+                  return {'stat_ok': False, 'mode': None, 'uid': None, 'gid': None}
+
+          n9_readable = N9.is_file() and os.access(N9, os.R_OK)
+          n9_sha = None
+          if n9_readable:
+              try: n9_sha = sha_file(N9)
+              except OSError: n9_readable = False
+          n9_sha_match = n9_readable and n9_sha == N9_SHA
+
+          corpus_readable = CORPUS.is_dir() and os.access(CORPUS, os.R_OK | os.X_OK)
+          campaigns = {
+              key: {'manifest_count': 0, 'pdf_readable': False, 'pdf_sha_match': False, 'page_count_match': False}
+              for key in EXPECTED
+          }
+          if corpus_readable:
+              try:
+                  manifests = sorted(CORPUS.glob('*/corpus-manifest.json'))
+              except OSError:
+                  manifests = []
+                  corpus_readable = False
+              for manifest_path in manifests:
+                  try:
+                      if manifest_path.is_symlink() or not manifest_path.is_file() or not os.access(manifest_path, os.R_OK):
+                          continue
+                      payload = json.loads(manifest_path.read_text(encoding='utf-8'))
+                  except (OSError, UnicodeError, json.JSONDecodeError):
+                      continue
+                  campaign = str(payload.get('publication_slug') or '')
+                  if campaign not in EXPECTED:
+                      continue
+                  row = campaigns[campaign]
+                  row['manifest_count'] += 1
+                  pdf = manifest_path.parent / 'source.pdf'
+                  readable = pdf.is_file() and not pdf.is_symlink() and os.access(pdf, os.R_OK)
+                  row['pdf_readable'] = row['pdf_readable'] or readable
+                  if readable:
+                      try:
+                          row['pdf_sha_match'] = row['pdf_sha_match'] or sha_file(pdf) == EXPECTED[campaign]['sha256']
+                      except OSError:
+                          pass
+                  row['page_count_match'] = row['page_count_match'] or payload.get('page_count') in (None, EXPECTED[campaign]['page_count'])
+
+          campaign_ready = all(
+              row['manifest_count'] == 1 and row['pdf_readable'] and row['pdf_sha_match'] and row['page_count_match']
+              for row in campaigns.values()
+          )
+          non_root_ready = bool(n9_sha_match and corpus_readable and campaign_ready)
+          if not n9_readable:
+              blocked_at = 'n9_manifest_unreadable'
+          elif not n9_sha_match:
+              blocked_at = 'n9_manifest_identity_mismatch'
+          elif not corpus_readable:
+              blocked_at = 'corpus_root_unreadable'
+          elif not campaign_ready:
+              blocked_at = 'campaign_pdf_unreadable_or_identity_mismatch'
+          else:
+              blocked_at = 'none'
+
+          result = {
+              'schema_version': 1,
+              'strategy': 'netto_missing_normal_price_nonroot_access_preflight_v1',
+              'runner_user': os.environ.get('USER') or 'unknown',
+              'runner_uid': os.getuid(),
+              'n9_manifest_readable': n9_readable,
+              'n9_manifest_sha256_match': n9_sha_match,
+              'n9_parent_access': {
+                  '/home/andris': {'read': os.access('/home/andris', os.R_OK), 'execute': os.access('/home/andris', os.X_OK), **safe_stat(pathlib.Path('/home/andris'))},
+                  str(N9.parent): {'read': os.access(N9.parent, os.R_OK), 'execute': os.access(N9.parent, os.X_OK), **safe_stat(N9.parent)},
+              },
+              'corpus_root_readable': corpus_readable,
+              'corpus_root_access': {'read': os.access(CORPUS, os.R_OK), 'execute': os.access(CORPUS, os.X_OK), **safe_stat(CORPUS)},
+              'campaigns': campaigns,
+              'non_root_ready': non_root_ready,
+              'blocked_at': blocked_at,
+              'sudo_used': False,
+              'file_contents_exported': False,
+              'database_write_performed': False,
+              'review_write_performed': False,
+              'deployment_performed': False,
+          }
+          pathlib.Path(sys.argv[1]).write_text(json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps(result, sort_keys=True))
+          with pathlib.Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as out:
+              out.write(f"non_root_ready={'true' if non_root_ready else 'false'}\nblocked_at={blocked_at}\n")
+          PY
+
+      - name: Upload bounded preflight metadata
+        if: always() && steps.probe.outputs.artifact_path != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.probe.outputs.artifact_name }}
+          path: ${{ steps.probe.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false
+          include-hidden-files: false
+
+  report:
+    needs: [authorize, preflight]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment result and clear one-shot label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          RUN_ID: ${{ github.run_id }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          NON_ROOT_READY: ${{ needs.preflight.outputs.non_root_ready }}
+          BLOCKED_AT: ${{ needs.preflight.outputs.blocked_at }}
+          ARTIFACT_NAME: ${{ needs.preflight.outputs.artifact_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          body="Netto #321 non-root corpus preflight. Workflow run: \`${RUN_ID}\`. Job: **${PREFLIGHT_RESULT}**. Non-root exact corpus ready: **${NON_ROOT_READY}**. Blocked at: \`${BLOCKED_AT}\`. Artifact: \`${ARTIFACT_NAME}\`. No sudo, file-content export, parser execution, DB/Review write or production deploy."
+          gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$body"
+          gh api --method DELETE "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["TRIGGER_LABEL"], safe=""))')" || true
