@@ -46,19 +46,16 @@ def test_w5_archaeology_inventory_matches_frozen_active_release() -> None:
     assert isinstance(css["cascade_layer_declaration_present"], bool)
 
 
-def test_w5_freeze_blocks_new_html_fix_markers_but_allows_cleanup() -> None:
-    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+def test_w5b_removes_user_facing_html_archaeology() -> None:
     report = load_audit_module().build_report()
     html = report["html_archaeology"]
-    known = contract["w5_freeze"]["known_html_fix_markers"]
 
-    assert html["fix_marker_count"] <= contract["w5_freeze"]["max_html_fix_marker_count"]
-    assert set(html["fix_markers"]) <= set(known)
-    assert is_ordered_subsequence(html["fix_markers"], known)
-    assert html["archived_contract_comment_count"] >= 0
+    assert html["fix_marker_count"] == 0
+    assert html["fix_markers"] == []
+    assert html["archived_contract_comment_count"] == 0
 
 
-def test_w5_inventory_keeps_explicit_daily_special_contract_visible() -> None:
+def test_w5b_keeps_explicit_daily_special_contract_and_removes_fallback() -> None:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     report = load_audit_module().build_report()
     javascript = report["javascript_archaeology"]
@@ -67,9 +64,8 @@ def test_w5_inventory_keeps_explicit_daily_special_contract_visible() -> None:
     assert set(javascript["legacy_daily_special_helpers"]) == set(
         contract["w5_freeze"]["legacy_daily_special_helpers"]
     )
-    # Presence values are inventory, not a permanent requirement: W5B may turn
-    # any/all of these false while the explicit endpoint contract stays true.
-    assert all(isinstance(value, bool) for value in javascript["legacy_daily_special_helpers"].values())
+    assert not any(javascript["legacy_daily_special_helpers"].values())
+    assert javascript["non_authoritative_raw_app_bytes"] > 0
 
 
 def test_w5_audit_cli_emits_deterministic_json() -> None:
@@ -94,6 +90,7 @@ def test_w5_audit_cli_emits_deterministic_json() -> None:
     assert payload["files"]["styles_css_bytes"] > 0
     assert payload["files"]["index_html_bytes"] > 0
     assert payload["files"]["app_js_bytes"] > 0
+    assert payload["files"]["daily_specials_js_bytes"] > 0
     assert payload["target_css_hierarchy"] == [
         "tokens",
         "base",
