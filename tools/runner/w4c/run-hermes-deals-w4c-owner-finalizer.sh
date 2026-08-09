@@ -92,11 +92,10 @@ mapfile -t runtime_changes < <(
 git -C "$REPO" diff --check "$W4B_TARGET_SHA" "$TARGET_SHA" -- "${RUNTIME_PATHS[@]}" \
   || blocked 'w4c_runtime_delta_whitespace_invalid'
 
-git -C "$REPO" show "$TARGET_SHA:backend/app/runtime.py" \
-  | grep -Fq 'HTML_CACHE_CONTROL = "no-cache"' \
+git -C "$REPO" show "$TARGET_SHA:backend/app/runtime.py" > "$W/target-runtime.py"
+grep -Fq 'HTML_CACHE_CONTROL = "no-cache"' "$W/target-runtime.py" \
   || blocked 'target_html_cache_contract_missing'
-git -C "$REPO" show "$TARGET_SHA:backend/app/runtime.py" \
-  | grep -Fq 'HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"' \
+grep -Fq 'HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"' "$W/target-runtime.py" \
   || blocked 'target_asset_cache_contract_missing'
 
 git -C "$REPO" archive --format=tar "$TARGET_SHA" > "$W/target.tar"
@@ -227,15 +226,16 @@ set +e
 PREFLIGHT_OUTPUT="$(sudo --non-interactive "$DISPATCHER" preflight 2>&1)"
 PREFLIGHT_RC=$?
 set -e
-printf '%s\n' "$PREFLIGHT_OUTPUT" | grep -E '^(W4C_RESULT|W4C_REASON|W4C_MODE|UI_STATE|BASELINE_CACHE|TARGET_CACHE|TARGET_SOURCE_READY|HASHED_ASSETS|LOOPBACK_BIND|DATABASE_UNCHANGED|PRODUCTION_GIT_UNCHANGED|PRODUCTION_ENV_UNCHANGED|CLOUDFLARED_STABLE|ROLLBACK_AVAILABLE|AUTO_ROLLBACK|PRODUCTION_MUTATED|NEXT_ACTION)=[A-Za-z0-9_.-]{1,96}$' || true
+printf '%s\n' "$PREFLIGHT_OUTPUT" > "$W/preflight.out"
+grep -E '^(W4C_RESULT|W4C_REASON|W4C_MODE|UI_STATE|BASELINE_CACHE|TARGET_CACHE|TARGET_SOURCE_READY|HASHED_ASSETS|LOOPBACK_BIND|DATABASE_UNCHANGED|PRODUCTION_GIT_UNCHANGED|PRODUCTION_ENV_UNCHANGED|CLOUDFLARED_STABLE|ROLLBACK_AVAILABLE|AUTO_ROLLBACK|PRODUCTION_MUTATED|NEXT_ACTION)=[A-Za-z0-9_.-]{1,96}$' "$W/preflight.out" || true
 [[ $PREFLIGHT_RC -eq 0 ]] || blocked 'read_only_preflight_failed'
-printf '%s\n' "$PREFLIGHT_OUTPUT" | grep -Fxq 'W4C_RESULT=PASS' \
+grep -Fxq 'W4C_RESULT=PASS' "$W/preflight.out" \
   || blocked 'read_only_preflight_not_pass'
-printf '%s\n' "$PREFLIGHT_OUTPUT" | grep -Fxq 'W4C_MODE=preflight' \
+grep -Fxq 'W4C_MODE=preflight' "$W/preflight.out" \
   || blocked 'read_only_preflight_mode_invalid'
-printf '%s\n' "$PREFLIGHT_OUTPUT" | grep -Fxq 'PRODUCTION_MUTATED=false' \
+grep -Fxq 'PRODUCTION_MUTATED=false' "$W/preflight.out" \
   || blocked 'read_only_preflight_mutation_flag_invalid'
-printf '%s\n' "$PREFLIGHT_OUTPUT" | grep -Fxq 'NEXT_ACTION=cutover' \
+grep -Fxq 'NEXT_ACTION=cutover' "$W/preflight.out" \
   || blocked 'read_only_preflight_next_action_invalid'
 
 PRIMARY_AFTER="$(primary_state)"
