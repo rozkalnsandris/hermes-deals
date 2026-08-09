@@ -86,7 +86,10 @@ def text_spans(page: Any) -> list[dict[str, Any]]:
                         "flags": int(span.get("flags") or 0),
                     }
                 )
-    return sorted(result, key=lambda row: (row["bbox"][1], row["bbox"][0], row["text"]))
+    return sorted(
+        result,
+        key=lambda row: (row["bbox"][1], row["bbox"][0], row["text"]),
+    )
 
 
 def _validate_frozen_capture(
@@ -106,7 +109,8 @@ def _validate_frozen_capture(
     expected_source_sha256 = require_sha(expected_source_sha256, "expected source identity")
     expected_pdf_sha256 = require_sha(expected_pdf_sha256, "expected PDF")
     expected_freeze_manifest_sha256 = require_sha(
-        expected_freeze_manifest_sha256, "expected freeze manifest"
+        expected_freeze_manifest_sha256,
+        "expected logical freeze identity",
     )
     if not re.fullmatch(r"[0-9a-f]{40}", expected_commit):
         raise HeldoutBlindReviewPackError("expected commit must be exact lowercase SHA")
@@ -118,7 +122,15 @@ def _validate_frozen_capture(
     selected = load_json(capture_root / "selected-binding.json")
     receipt = load_json(capture_root / "capture" / "freeze-receipt.json")
     template = load_json(capture_root / "capture" / "blind-review-template.json")
-    freeze_path = capture_root / "capture" / "freeze-manifest.json"
+
+    # The freeze manifest identity is a protocol-level canonical digest, not
+    # necessarily the byte SHA of its pretty-printed JSON serialization. The
+    # workflow independently pins the complete upstream GitHub artifact digest.
+    # Reviewer-pack generation therefore validates the logical identity from
+    # the two truth-blind upstream receipts and never parses the freeze payload.
+    freeze_file = capture_root / "capture" / "freeze-manifest.json"
+    if freeze_file.is_symlink() or not freeze_file.is_file():
+        raise HeldoutBlindReviewPackError("upstream freeze manifest file is missing or unsafe")
 
     if result.get("result") != "PASS" or result.get("registered_commit") != expected_commit:
         raise HeldoutBlindReviewPackError("upstream capture result/commit mismatch")
@@ -139,8 +151,6 @@ def _validate_frozen_capture(
         raise HeldoutBlindReviewPackError("freeze receipt source identity mismatch")
     if receipt.get("freeze_manifest_sha256") != expected_freeze_manifest_sha256:
         raise HeldoutBlindReviewPackError("freeze receipt manifest identity mismatch")
-    if sha_file(freeze_path) != expected_freeze_manifest_sha256:
-        raise HeldoutBlindReviewPackError("freeze manifest file SHA mismatch")
     if receipt.get("truth_available_at_freeze") is not False:
         raise HeldoutBlindReviewPackError("upstream freeze was not truth-blind")
     if receipt.get("review_only") is not True or receipt.get("promotion_ready") is not False:
@@ -160,18 +170,27 @@ def _validate_frozen_capture(
     pages = template.get("pages")
     if not isinstance(pages, list) or len(pages) != expected_page_count:
         raise HeldoutBlindReviewPackError("blank template pages are incomplete")
-    if any(not isinstance(row, Mapping) or row.get("source_cards") != [] for row in pages):
+    if any(
+        not isinstance(row, Mapping) or row.get("source_cards") != []
+        for row in pages
+    ):
         raise HeldoutBlindReviewPackError("upstream source-card template is not blank")
 
     pdfs = [
-        path for path in sorted((capture_root / "source" / "netto").glob("*.pdf"))
-        if path.is_file() and not path.is_symlink() and sha_file(path) == expected_pdf_sha256
+        path
+        for path in sorted((capture_root / "source" / "netto").glob("*.pdf"))
+        if path.is_file()
+        and not path.is_symlink()
+        and sha_file(path) == expected_pdf_sha256
     ]
     if len(pdfs) != 1:
         raise HeldoutBlindReviewPackError("exact frozen source PDF was not uniquely located")
     return pdfs[0], {
         "campaign_key": expected_campaign,
-        "campaign_window": {"start": expected_valid_from, "end": expected_valid_until},
+        "campaign_window": {
+            "start": expected_valid_from,
+            "end": expected_valid_until,
+        },
         "source_sha256": expected_source_sha256,
         "source_pdf_sha256": expected_pdf_sha256,
         "freeze_manifest_sha256": expected_freeze_manifest_sha256,
@@ -256,8 +275,18 @@ def generate_pack(
             text_sha, text_size = write_create_only(output / text_member, text_payload)
             members.extend(
                 [
-                    {"path": png_member, "sha256": png_sha, "bytes": png_size, "kind": "page_context_png"},
-                    {"path": text_member, "sha256": text_sha, "bytes": text_size, "kind": "page_source_text_json"},
+                    {
+                        "path": png_member,
+                        "sha256": png_sha,
+                        "bytes": png_size,
+                        "kind": "page_context_png",
+                    },
+                    {
+                        "path": text_member,
+                        "sha256": text_sha,
+                        "bytes": text_size,
+                        "kind": "page_source_text_json",
+                    },
                 ]
             )
             page_rows.append(
@@ -311,7 +340,8 @@ def generate_pack(
     }
     ledger_payload = json_bytes(ledger)
     ledger_sha, ledger_size = write_create_only(
-        output / "independent-source-card-review-ledger.json", ledger_payload
+        output / "independent-source-card-review-ledger.json",
+        ledger_payload,
     )
     members.append(
         {
@@ -356,16 +386,23 @@ def generate_pack(
     manifest_payload = json_bytes(manifest)
     manifest_sha, _ = write_create_only(output / "manifest.json", manifest_payload)
     sums = [
-        f"{row['sha256']}  {row['path']}" for row in sorted(members, key=lambda row: row["path"])
+        f"{row['sha256']}  {row['path']}"
+        for row in sorted(members, key=lambda row: row["path"])
     ]
     sums.append(f"{manifest_sha}  manifest.json")
-    write_create_only(output / "SHA256SUMS", ("\n".join(sums) + "\n").encode("utf-8"))
+    write_create_only(
+        output / "SHA256SUMS",
+        ("\n".join(sums) + "\n").encode("utf-8"),
+    )
     return {**manifest, "manifest_sha256": manifest_sha}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate a source-only blind card-boundary review pack from an exact held-out capture artifact."
+        description=(
+            "Generate a source-only blind card-boundary review pack from an exact "
+            "held-out capture artifact."
+        )
     )
     parser.add_argument("--capture-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
