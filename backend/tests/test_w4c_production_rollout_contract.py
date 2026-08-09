@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OPERATOR = ROOT / "tools" / "runner" / "w4c" / "hermes_deals_w4c_operator.py"
 DISPATCHER = ROOT / "tools" / "runner" / "w4c" / "hermes-deals-w4c-dispatch"
 FINALIZER = ROOT / "tools" / "runner" / "w4c" / "run-hermes-deals-w4c-owner-finalizer.sh"
-OVERRIDE = ROOT / "tools" / "runner"" / "w4c" / "docker-compose.w4c.yml"
+OVERRIDE = ROOT / "tools" / "runner" / "w4c" / "docker-compose.w4c.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "w4c-production-cache-rollout.yml"
 
 TARGET = "42238d93045e60430a42cd13b85b598e78c7d528"
