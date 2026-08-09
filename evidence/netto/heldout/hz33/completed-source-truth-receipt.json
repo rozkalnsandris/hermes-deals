@@ -1,0 +1,20 @@
+{
+  "adjudication_started": false,
+  "campaign_key": "hz33_hasb",
+  "completed_source_truth_sha256": "ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6",
+  "compressed_payload_sha256": "06ccb28e632d8eb6604741b58083a4dd8b45e0c24f8b945b87cd46ff405fbfaf",
+  "excluded_non_target_region_count": 32,
+  "freeze_manifest_sha256": "38bb9445ad5f2c3cc0159bd4332a4138f1d81cab03591de0542825b3f88db087",
+  "frozen_predictions_opened": false,
+  "in_scope_region_count": 309,
+  "page_count": 77,
+  "partial_single_card_count": 9,
+  "promotion_ready": false,
+  "review_only": true,
+  "review_pack_manifest_sha256": "e47e1acc337f55dcdbbbfbbb5c200b3c100427ee5e022ad7d0e5e947e2f7274c",
+  "schema_version": 1,
+  "source_pdf_sha256": "7e9ac8c87b6a1c0f25f1832def945bfbe0c2be9b3371d897d98079d88789c0ba",
+  "source_region_count": 341,
+  "source_sha256": "e38bfa550ce64aae0d2cefcec307ca4126c8753374a64d76cc2684a98b788bcb",
+  "strategy": "netto_heldout_completed_source_truth_receipt_v1"
+}
