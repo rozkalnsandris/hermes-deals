@@ -11,11 +11,11 @@ def test_source_truth_workflow_is_exact_owner_gated_and_source_only() -> None:
     assert "audit:netto-heldout-source-truth-v1" in text
     assert "pull_request_target:" in text
     assert 'EXPECTED_OWNER_ID: "277435981"' in text
-    assert 'UPSTREAM_RUN_ID: "31324981193"' in text
-    assert "UPSTREAM_ARTIFACT: netto-heldout-review-pack-hz33-run-31324981193" in text
+    assert 'UPSTREAM_RUN_ID: "31325617692"' in text
+    assert "UPSTREAM_ARTIFACT: netto-heldout-review-pack-hz33-run-31325617692" in text
     assert (
         "UPSTREAM_ARTIFACT_DIGEST: "
-        "sha256:5e3a80fd1187a557984d4a4e47530c7514723d31e82c0183caaf4498277f3cf6"
+        "sha256:4962071277fbf4a49e9328dd20153cff2a9e566ff7a33381955f93c94015420a"
     ) in text
     assert (
         "EXPECTED_PACK_MANIFEST_SHA256: "
@@ -47,5 +47,7 @@ def test_source_truth_workflow_never_crosses_prediction_or_production_boundary()
         "psql ",
         "systemctl ",
         "/home/andris",
+        "31324981193",
+        "5e3a80fd1187a557984d4a4e47530c7514723d31e82c0183caaf4498277f3cf6",
     ):
         assert forbidden not in text
