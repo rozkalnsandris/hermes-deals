@@ -101,7 +101,52 @@ class LidlFamilySourceDiscoveryTest(unittest.TestCase):
         self.assertEqual(selected["current"].route_region, "7")
         self.assertEqual(selected["next"].route_region, "21")
 
-    def test_select_current_and_next_fails_closed_on_ambiguity(self) -> None:
+    def test_select_current_and_next_keeps_saturday_current_only(self) -> None:
+        rows = [
+            candidate(
+                CURRENT_SLUG,
+                "7",
+                date(2026, 7, 27),
+                date(2026, 8, 1),
+            )
+        ]
+        selected = select_current_and_next(rows, today=date(2026, 8, 1))
+        self.assertEqual(selected["current"].route_region, "7")
+        self.assertIsNone(selected["next"])
+
+    def test_select_current_and_next_allows_sunday_gap_with_unique_next(self) -> None:
+        rows = [
+            candidate(
+                CURRENT_SLUG,
+                "7",
+                date(2026, 7, 27),
+                date(2026, 8, 1),
+            ),
+            candidate(
+                NEXT_SLUG,
+                "21",
+                date(2026, 8, 3),
+                date(2026, 8, 8),
+            ),
+        ]
+        selected = select_current_and_next(rows, today=date(2026, 8, 2))
+        self.assertIsNone(selected["current"])
+        self.assertEqual(selected["next"].route_region, "21")
+
+    def test_select_current_and_next_allows_no_current_or_future(self) -> None:
+        rows = [
+            candidate(
+                CURRENT_SLUG,
+                "7",
+                date(2026, 7, 27),
+                date(2026, 8, 1),
+            )
+        ]
+        selected = select_current_and_next(rows, today=date(2026, 8, 2))
+        self.assertIsNone(selected["current"])
+        self.assertIsNone(selected["next"])
+
+    def test_select_current_and_next_fails_closed_on_current_ambiguity(self) -> None:
         rows = [
             candidate(
                 CURRENT_SLUG,
@@ -118,6 +163,30 @@ class LidlFamilySourceDiscoveryTest(unittest.TestCase):
         ]
         with self.assertRaises(LidlFamilyDiscoveryError):
             select_current_and_next(rows, today=date(2026, 7, 30))
+
+    def test_select_current_and_next_fails_closed_on_nearest_next_ambiguity(self) -> None:
+        rows = [
+            candidate(
+                CURRENT_SLUG,
+                "7",
+                date(2026, 7, 27),
+                date(2026, 8, 1),
+            ),
+            candidate(
+                NEXT_SLUG,
+                "21",
+                date(2026, 8, 3),
+                date(2026, 8, 8),
+            ),
+            candidate(
+                NEXT_SLUG,
+                "7",
+                date(2026, 8, 3),
+                date(2026, 8, 8),
+            ),
+        ]
+        with self.assertRaises(LidlFamilyDiscoveryError):
+            select_current_and_next(rows, today=date(2026, 8, 2))
 
     def test_validate_flyer_payload_requires_matching_region_and_period(self) -> None:
         row = candidate(
