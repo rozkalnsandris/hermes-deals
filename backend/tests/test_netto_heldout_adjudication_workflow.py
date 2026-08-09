@@ -54,3 +54,10 @@ def test_adjudication_workflow_extracts_only_bounded_frozen_members() -> None:
     assert 'source.unlink()' in text
     assert 'promotion_ready") is not False' in text
     assert 'review_only") is not True' in text
+
+
+def test_adjudication_artifact_sha256sums_keeps_required_two_space_separator() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "sed \"s#  $output/##\"" not in text
+    assert "digest=\"$(sha256sum \"$output/adjudication.json\" | cut -d' ' -f1)\"" in text
+    assert "printf '%s  adjudication.json\\n' \"$digest\" > \"$output/SHA256SUMS\"" in text
