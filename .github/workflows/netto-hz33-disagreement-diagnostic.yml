@@ -1,0 +1,181 @@
+name: Netto hz33 held-out disagreement diagnostic
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: netto-hz33-disagreement-diagnostic-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  TRIGGER_LABEL: audit:netto-hz33-disagreement-v1
+  EXPECTED_TRUTH_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+  EXPECTED_CAPTURE_RUN_ID: "31324156565"
+  EXPECTED_CAPTURE_ARTIFACT_ID: "9041052231"
+  EXPECTED_CAPTURE_DIGEST: cc289165aaac8796b33391917edb03df1085a841b82c0183caaf4498277f3cf6
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      implementation_sha: ${{ steps.auth.outputs.implementation_sha }}
+    steps:
+      - name: Authorize exact owner merged PR
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json, os
+          event = json.load(open(os.environ["EVENT_PATH"], encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "merged": pr.get("merged") is True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("missing exact merged implementation SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"implementation_sha={sha}\n")
+          PY
+
+  diagnose:
+    needs: authorize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merged implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.implementation_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify implementation is immutable main ancestry
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$IMPLEMENTATION_SHA" origin/main
+          test -z "$(git status --porcelain)"
+
+      - name: Verify exact committed evidence identities
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          adj = pathlib.Path("audit/netto/hz33/heldout-adjudication.json")
+          receipt = json.loads(pathlib.Path("audit/netto/hz33/heldout-adjudication-receipt.json").read_text(encoding="utf-8"))
+          if hashlib.sha256(adj.read_bytes()).hexdigest() != receipt.get("adjudication_sha256"):
+              raise SystemExit("committed adjudication SHA/receipt mismatch")
+          if receipt.get("completed_source_truth_sha256") != os.environ["EXPECTED_TRUTH_SHA256"]:
+              raise SystemExit("truth SHA mismatch")
+          if receipt.get("capture_run_id") != int(os.environ["EXPECTED_CAPTURE_RUN_ID"]):
+              raise SystemExit("capture run mismatch")
+          if receipt.get("capture_artifact_id") != int(os.environ["EXPECTED_CAPTURE_ARTIFACT_ID"]):
+              raise SystemExit("capture artifact mismatch")
+          if receipt.get("capture_artifact_digest_sha256") != os.environ["EXPECTED_CAPTURE_DIGEST"]:
+              raise SystemExit("capture digest mismatch")
+          PY
+
+      - name: Generate deterministic disagreement taxonomy
+        run: |
+          mkdir -p .hz33-diagnostic
+          python tools/netto_hz33_adjudication_diagnostic.py \
+            --adjudication audit/netto/hz33/heldout-adjudication.json \
+            --receipt audit/netto/hz33/heldout-adjudication-receipt.json \
+            --output .hz33-diagnostic/report.json
+
+      - name: Freeze report receipt
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib
+          report_path = pathlib.Path(".hz33-diagnostic/report.json")
+          raw = report_path.read_bytes()
+          report = json.loads(raw)
+          receipt = {
+              "schema_version": 1,
+              "strategy": "netto_hz33_heldout_disagreement_taxonomy_receipt_v1",
+              "report_sha256": hashlib.sha256(raw).hexdigest(),
+              "adjudication_sha256": report["adjudication_sha256"],
+              "completed_source_truth_sha256": report["completed_source_truth_sha256"],
+              "frozen_acceptance_pass": report["frozen_acceptance_pass"],
+              "row_count": report["row_count"],
+              "primary_counts": report["primary_counts"],
+              "unsafe_or_evidence_gap_count": report["unsafe_or_evidence_gap_count"],
+              "conservative_review_count": report["conservative_review_count"],
+              "mixed_held_review_count": report["mixed_held_review_count"],
+              "cross_cell_group_reuse_count": report["cross_cell_group_reuse_count"],
+              "threshold_tuning_performed": False,
+              "parser_behavior_changed": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          pathlib.Path(".hz33-diagnostic/report-receipt.json").write_text(
+              json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload diagnostic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netto-hz33-disagreement-diagnostic-run-${{ github.run_id }}
+          path: .hz33-diagnostic/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report disagreement taxonomy on merged PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const reportRaw = fs.readFileSync('.hz33-diagnostic/report.json');
+            const report = JSON.parse(reportRaw);
+            const counts = report.primary_counts;
+            const hotspots = report.page_hotspots.slice(0, 10).map(
+              p => `  - p${String(p.page_number).padStart(3,'0')}: unsafe/gap=${p.unsafe_or_evidence_gap}, conservative=${p.conservative_review}, mixed-held=${p.mixed_held_review}`
+            );
+            const body = [
+              '## Netto hz33 disagreement taxonomy',
+              '',
+              `- Workflow run: \`${context.runId}\``,
+              `- Report SHA256: \`${crypto.createHash('sha256').update(reportRaw).digest('hex')}\``,
+              `- Frozen acceptance: **${report.frozen_acceptance_pass ? 'PASS' : 'FAIL'}**`,
+              `- Rows: \`${report.row_count}\``,
+              `- Unsafe auto-single: \`${counts.unsafe_auto_single || 0}\``,
+              `- Conservative Review: \`${counts.conservative_review || 0}\``,
+              `- Missed excluded: \`${counts.missed_excluded || 0}\``,
+              `- Over-excluded: \`${counts.over_excluded || 0}\``,
+              `- Mixed held Review-only: \`${counts.mixed_held_review || 0}\``,
+              `- Unmatched evidence gaps: \`${counts.unmatched_evidence_gap || 0}\``,
+              `- Scope-overlap evidence gaps: \`${counts.scope_overlap_evidence_gap || 0}\``,
+              `- Cross-cell group reuse rows: \`${report.cross_cell_group_reuse_count}\``,
+              '- Top page hotspots:',
+              ...(hotspots.length ? hotspots : ['  - none']),
+              '',
+              '- Threshold tuning: **false**',
+              '- Parser behavior changed: **false**',
+              '- Review-only / promotion-ready: **true / false**',
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
