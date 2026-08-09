@@ -195,7 +195,7 @@ jobs:
           - `README.md` project-progress marker block;
           - `docs/project-progress-latest.json`.
 
-          The protected `main` ruleset, normal pull-request CI and squash-merge path remain authoritative. No production deploy, RPi5 action, database access/write, retailer collection, Review action or publication is performed.
+          The protected `main` ruleset, normal pull-request CI and squash-merge path remain authoritative. No production deploy, RPi5 action, data-store access/write, retailer collection, Review action or publication is performed.
           EOF
             pr_url="$(gh pr create \
               --base main \
