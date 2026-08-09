@@ -47,12 +47,14 @@ def test_previous_day_overall_progress_is_directly_below_overall() -> None:
 
     overall_line = "**Overall:** **72.0%**"
     progress_line = (
-        "**Progress during 07.08.2026:** "
+        "**Weighted roadmap progress during 07.08.2026:** "
         "**+12.0 percentage points** **(60.0% → 72.0%)**"
     )
     store_heading = "**Store catalogues**"
 
     assert overall_line in block
+    assert "weighted project completion" in block
     assert progress_line in block
     assert block.index(overall_line) < block.index(progress_line) < block.index(store_heading)
+    assert "**Progress during 07.08.2026:**" not in block
     assert "**Overall project progress (07.08.2026):**" not in block
