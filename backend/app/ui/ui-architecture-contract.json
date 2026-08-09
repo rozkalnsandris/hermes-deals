@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "active_release": {
+    "bundle_meta": "minimal-v2",
+    "release": "reference-v1",
+    "body_classes": [
+      "ui2-control-room",
+      "ui-minimal-v2"
+    ],
+    "production_asset_mode": "hashed-w4",
+    "production_cache_policy": "w4c-immutable"
+  },
+  "w5_freeze": {
+    "max_style_fragment_count": 12,
+    "known_style_fragment_ids": [
+      "anonymous-base",
+      "ui-minimal-v2-overrides",
+      "ui-reference-v1",
+      "ui-reference-v2-fixes",
+      "ui-reference-v3-hover-fix",
+      "ui-reference-v4c-layout-fix",
+      "ui-reference-v5-details-restoration",
+      "ui-reference-v6-single-scroll-sidebar",
+      "ui-reference-v7-stable-sidebar-anchor",
+      "ui-reference-v8-calendar-icon-centering",
+      "ui-reference-v9-daily-specials-overview",
+      "ui-weekly-overview-v1"
+    ],
+    "max_html_fix_marker_count": 20,
+    "known_html_fix_markers": [
+      "reference-v2",
+      "reference-v3-hover",
+      "reference-v4c-doc-audited",
+      "reference-v5-details-restoration",
+      "reference-v6-single-scroll-sidebar",
+      "reference-v7-stable-sidebar-anchor",
+      "reference-v8-calendar-icon-centering",
+      "reference-v9-daily-specials-overview",
+      "reference-v9a-legacy-contract",
+      "reference-v9b-exact-legacy-markers",
+      "reference-v10-complete-daily-special-pagination",
+      "reference-v10a-legacy-contract-fix",
+      "reference-v10b-complete-v9b-contract",
+      "reference-v10c-available-count-pagination",
+      "reference-v11-explicit-daily-special-api",
+      "weekly-overview-v1",
+      "weekly-overview-v2-short-period-filter",
+      "weekly-overview-v3-empty-day-polish",
+      "weekly-overview-v6-active-retailer-compaction",
+      "netto-daily-quality-v1"
+    ],
+    "legacy_daily_special_helpers": [
+      "DAILY_SPECIAL_PAGE_LIMIT",
+      "DAILY_SPECIAL_MAX_PAGES",
+      "legacyCurrentDealDailySpecialContract",
+      "dailySpecialsUrl",
+      "fetchAllDailyDeals"
+    ],
+    "explicit_daily_special_contract_tokens": [
+      "/api/v1/deals/daily-specials",
+      "explicit_immutable_retailer_evidence_only"
+    ],
+    "target_css_hierarchy": [
+      "tokens",
+      "base",
+      "layout",
+      "controls",
+      "components",
+      "features",
+      "responsive",
+      "utilities"
+    ],
+    "deferred_to_w6": [
+      "desktop-body-zoom-density-workaround"
+    ]
+  }
+}
