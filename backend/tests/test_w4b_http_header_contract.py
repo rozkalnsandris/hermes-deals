@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import subprocess
 
 
@@ -39,7 +40,8 @@ def run_helper(tmp_path: Path, header_bytes: bytes, mode: str, name: str, expect
     helper = extract_helper(source)
     headers = tmp_path / "headers.txt"
     headers.write_bytes(header_bytes)
-    script = helper + f"\nhttp_header_matches {headers!s!r} {mode!r} {name!r} {expected!r}\n"
+    arguments = " ".join(shlex.quote(value) for value in (str(headers), mode, name, expected))
+    script = helper + f"\nhttp_header_matches {arguments}\n"
     return subprocess.run(["bash", "-c", script], check=False).returncode
 
 
