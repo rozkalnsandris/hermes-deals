@@ -144,9 +144,9 @@ jobs:
       receipt_sha256: ${{ steps.generate.outputs.receipt_sha256 }}
       artifact_name: ${{ steps.generate.outputs.artifact_name }}
     env:
-      UPSTREAM_RUN_ID: "31324981193"
-      UPSTREAM_ARTIFACT: netto-heldout-review-pack-hz33-run-31324981193
-      UPSTREAM_ARTIFACT_DIGEST: sha256:5e3a80fd1187a557984d4a4e47530c7514723d31e82c0183caaf4498277f3cf6
+      UPSTREAM_RUN_ID: "31325617692"
+      UPSTREAM_ARTIFACT: netto-heldout-review-pack-hz33-run-31325617692
+      UPSTREAM_ARTIFACT_DIGEST: sha256:4962071277fbf4a49e9328dd20153cff2a9e566ff7a33381955f93c94015420a
       EXPECTED_PACK_MANIFEST_SHA256: e47e1acc337f55dcdbbbfbbb5c200b3c100427ee5e022ad7d0e5e947e2f7274c
       EXPECTED_OLD_BLANK_LEDGER_SHA256: bc7170d05f075bcd7d90d12952b5811b14a51e69da60304337fcb4aeec557f55
       EXPECTED_PAGE_COUNT: "77"
