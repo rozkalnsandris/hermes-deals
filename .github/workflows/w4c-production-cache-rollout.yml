@@ -37,6 +37,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           COMMENT_ID: ${{ github.event.comment.id }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -58,6 +59,8 @@ jobs:
 
           if os.environ["EVENT_NAME"] != "issue_comment":
               raise SystemExit("unexpected event")
+          if os.environ["RUN_ATTEMPT"] != "1":
+              raise SystemExit("W4C owner commands cannot be replayed by rerunning a workflow")
           if os.environ["REPOSITORY"] != repo or os.environ["REPOSITORY_OWNER"] != owner:
               raise SystemExit("unexpected repository owner")
           for key in ("ACTOR", "TRIGGERING_ACTOR", "COMMENT_AUTHOR"):
