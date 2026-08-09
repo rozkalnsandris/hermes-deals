@@ -277,7 +277,7 @@ def render_readme_block(snapshot: Mapping[str, Any]) -> str:
         "",
         f"**Weighted roadmap gates:** **{snapshot['completed_weighted_gate_count']}/{snapshot['weighted_gate_count']} complete** · **{snapshot['previous_day_completed_gate_count']} during the previous day**",
         "",
-        f"**Development activity:** **Issues fixed:** **{snapshot['completed_issue_count']} total** · **{snapshot['previous_day_completed_issue_count']} during the previous day**",
+        f"**Development activity:** **Issues fixed:** **{snapshot['completed_issue_count']} total** · **{snapshot['previous_day_completed_issue_count']} during the previous day** ({previous_day})",
         "",
         *activity_details,
         "_Issue activity is informative; only completed weighted roadmap gates move project completion._",
