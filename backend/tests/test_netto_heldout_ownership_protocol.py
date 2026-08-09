@@ -162,11 +162,13 @@ def test_prepare_freeze_hashes_verified_pdf_binding_before_truth(tmp_path: Path)
     predictions.write_text('{"predictions":[]}\n', encoding="utf-8")
 
     frozen, receipt = prepare_freeze(binding, "heldout_hz33", evidence, predictions)
+    expected_source_identity = MODULE.EvidenceBinding.from_mapping(binding).identity_sha256()
 
     assert frozen["store_external_id"] == "5659"
     assert frozen["campaign_key"] == "heldout_hz33"
     assert frozen["campaign_window"] == {"start": "2026-08-10", "end": "2026-08-15"}
-    assert frozen["source_sha256"] == binding["pdf_sha256"]
+    assert frozen["source_sha256"] == expected_source_identity
+    assert frozen["source_sha256"] != binding["pdf_sha256"]
     assert frozen["evidence_sha256"] == digest(evidence)
     assert frozen["predictions_sha256"] == digest(predictions)
     assert frozen["truth_sha256"] is None
