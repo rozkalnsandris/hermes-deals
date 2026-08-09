@@ -1,0 +1,344 @@
+name: Netto held-out blind review pack
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/netto-heldout-review-pack.yml
+      - tools/netto_heldout_blind_review_pack.py
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-heldout-review-pack
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    name: Ensure held-out review-pack label
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or reconcile owner-gated label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          label = {
+              "name": "audit:netto-heldout-review-pack-v1",
+              "color": "5319e7",
+              "description": "Generate source-only blind review pack for frozen Netto hz33 held-out evidence",
+          }
+          repo, token = os.environ["REPOSITORY"], os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-heldout-review-pack-label",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          payload = json.dumps(label).encode()
+          try:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels/{encoded}",
+                  data=payload, method="PATCH", headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels",
+                  data=payload, method="POST", headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          PY
+
+  authorize:
+    name: Authorize merged-PR blind review pack
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-heldout-review-pack-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate owner, merged PR and main ancestry
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals" or os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("unexpected repository/workflow ref")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("review-pack actor is not the repository owner")
+          if (event.get("label") or {}).get("name") != "audit:netto-heldout-review-pack-v1":
+              raise SystemExit("unexpected review-pack label")
+          number = int((event.get("pull_request") or {}).get("number") or 0)
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-heldout-review-pack-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("review pack accepts only merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("merged pull request SHA is invalid")
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged review-pack SHA is not reachable from current main")
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr_number={number}\nactor={sender['login']}\n")
+          PY
+
+  pack:
+    name: Generate exact frozen source-only review pack
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      manifest_sha256: ${{ steps.generate.outputs.manifest_sha256 }}
+      ledger_sha256: ${{ steps.generate.outputs.ledger_sha256 }}
+      page_count: ${{ steps.generate.outputs.page_count }}
+      artifact_name: ${{ steps.generate.outputs.artifact_name }}
+    env:
+      UPSTREAM_RUN_ID: "31324156565"
+      UPSTREAM_ARTIFACT: netto-heldout-github-c0701d76bfa6412cbf89b4bf9816a68ccb3c2ab8-run-31324156565
+      UPSTREAM_ARTIFACT_DIGEST: sha256:cc289165aaac8796b33391917edb03df1085a841b82d17fc08aa93efa1d66ec4
+      UPSTREAM_COMMIT: c0701d76bfa6412cbf89b4bf9816a68ccb3c2ab8
+      EXPECTED_CAMPAIGN: hz33_hasb
+      EXPECTED_VALID_FROM: "2026-08-10"
+      EXPECTED_VALID_UNTIL: "2026-08-15"
+      EXPECTED_SOURCE_SHA256: e38bfa550ce64aae0d2cefcec307ca4126c8753374a64d76cc2684a98b788bcb
+      EXPECTED_PDF_SHA256: 7e9ac8c87b6a1c0f25f1832def945bfbe0c2be9b3371d897d98079d88789c0ba
+      EXPECTED_FREEZE_MANIFEST_SHA256: 38bb9445ad5f2c3cc0159bd4332a4138f1d81cab03591de0542825b3f88db087
+      EXPECTED_PAGE_COUNT: "77"
+    steps:
+      - name: Checkout exact reviewed implementation merge
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install exact backend dependencies
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python -m pip check
+
+      - name: Verify exact upstream GitHub artifact identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          repo = os.environ["REPOSITORY"]
+          run_id = os.environ["UPSTREAM_RUN_ID"]
+          name = os.environ["UPSTREAM_ARTIFACT"]
+          encoded = urllib.parse.quote(name, safe="")
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-heldout-upstream-verifier",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?name={encoded}",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          artifacts = payload.get("artifacts") or []
+          if len(artifacts) != 1:
+              raise SystemExit(f"expected exactly one upstream artifact, found {len(artifacts)}")
+          artifact = artifacts[0]
+          if artifact.get("name") != name:
+              raise SystemExit("upstream artifact name mismatch")
+          if artifact.get("expired") is not False:
+              raise SystemExit("upstream artifact is expired")
+          if artifact.get("digest") != os.environ["UPSTREAM_ARTIFACT_DIGEST"]:
+              raise SystemExit("upstream artifact digest mismatch")
+          workflow = artifact.get("workflow_run") or {}
+          if str(workflow.get("id")) != run_id:
+              raise SystemExit("upstream artifact run identity mismatch")
+          print(f"UPSTREAM_ARTIFACT_ID={artifact['id']}")
+          print(f"UPSTREAM_ARTIFACT_DIGEST={artifact['digest']}")
+          PY
+
+      - name: Download exact frozen held-out artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.UPSTREAM_ARTIFACT }}
+          path: ${{ runner.temp }}/netto-heldout-upstream
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.UPSTREAM_RUN_ID }}
+
+      - name: Generate blind 77-page source-card review pack
+        id: generate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/netto-heldout-review-pack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          result="$(python3 tools/netto_heldout_blind_review_pack.py \
+            --capture-root "${RUNNER_TEMP}/netto-heldout-upstream" \
+            --output "$output" \
+            --expected-commit "$UPSTREAM_COMMIT" \
+            --expected-campaign "$EXPECTED_CAMPAIGN" \
+            --expected-valid-from "$EXPECTED_VALID_FROM" \
+            --expected-valid-until "$EXPECTED_VALID_UNTIL" \
+            --expected-source-sha256 "$EXPECTED_SOURCE_SHA256" \
+            --expected-pdf-sha256 "$EXPECTED_PDF_SHA256" \
+            --expected-freeze-manifest-sha256 "$EXPECTED_FREEZE_MANIFEST_SHA256" \
+            --expected-page-count "$EXPECTED_PAGE_COUNT")"
+          printf '%s\n' "$result"
+          echo "output=$output" >> "$GITHUB_OUTPUT"
+          artifact_name="netto-heldout-review-pack-hz33-run-${GITHUB_RUN_ID}"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          RESULT_JSON="$result" python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json, os, pathlib, sys
+          payload = json.loads(os.environ["RESULT_JSON"])
+          if payload.get("parser_predictions_included") is not False:
+              raise SystemExit("generated pack exposed parser predictions")
+          if payload.get("expected_truth_included") is not False:
+              raise SystemExit("generated pack exposed expected truth")
+          output = pathlib.Path(sys.argv[1])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"manifest_sha256={payload['manifest_sha256']}\n")
+              handle.write(f"ledger_sha256={payload['blank_review_ledger_sha256']}\n")
+              handle.write(f"page_count={payload['page_count']}\n")
+          PY
+
+      - name: Upload frozen blind review pack
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.generate.outputs.artifact_name }}
+          path: ${{ steps.generate.outputs.output }}
+          if-no-files-found: error
+          retention-days: 14
+
+  report:
+    name: Report blind review-pack result
+    needs:
+      - authorize
+      - pack
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment result and clear trigger label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          PACK_RESULT: ${{ needs.pack.result }}
+          MANIFEST_SHA256: ${{ needs.pack.outputs.manifest_sha256 }}
+          LEDGER_SHA256: ${{ needs.pack.outputs.ledger_sha256 }}
+          PAGE_COUNT: ${{ needs.pack.outputs.page_count }}
+          ARTIFACT_NAME: ${{ needs.pack.outputs.artifact_name }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          repo, number = os.environ["REPOSITORY"], int(os.environ["PR_NUMBER"])
+          label = "audit:netto-heldout-review-pack-v1"
+          body = (
+              "## Netto held-out blind review-pack result\n\n"
+              f"- Trigger actor: `{os.environ['ACTOR']}`\n"
+              f"- Pack job: **{os.environ['PACK_RESULT']}**\n"
+              f"- Implementation commit: `{os.environ['REGISTERED_SHA']}`\n"
+              f"- Workflow run ID: `{os.environ['RUN_ID']}`\n"
+              f"- Artifact: `{os.environ['ARTIFACT_NAME'] or 'not-created'}`\n"
+              f"- Page count: `{os.environ['PAGE_COUNT'] or 'unknown'}`\n"
+              f"- Manifest SHA256: `{os.environ['MANIFEST_SHA256'] or 'unavailable'}`\n"
+              f"- Blank ledger SHA256: `{os.environ['LEDGER_SHA256'] or 'unavailable'}`\n"
+              "- Parser predictions included: **false**\n"
+              "- Expected truth included: **false**\n"
+              "- Production deployment: **not authorized**\n"
+              "- Database/Review writes: **not authorized**\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-heldout-review-pack-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/comments",
+              data=json.dumps({"body": body}).encode(), method="POST", headers=headers,
+          )
+          urllib.request.urlopen(request, timeout=20).close()
+          remove = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}",
+              method="DELETE", headers=headers,
+          )
+          try:
+              urllib.request.urlopen(remove, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          PY
