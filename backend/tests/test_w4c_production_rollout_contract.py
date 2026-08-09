@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +19,20 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def test_w4c_control_plane_sources_compile_and_shell_parse() -> None:
+    compile(read(OPERATOR), str(OPERATOR), "exec")
+    checker = ROOT / "tools" / "runner" / "w4c" / "http_header_contract.py"
+    compile(read(checker), str(checker), "exec")
+    for script in (DISPATCHER, FINALIZER):
+        result = subprocess.run(
+            ["bash", "-n", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+
 def test_w4c_operator_is_exact_target_pinned_and_keeps_w4b_as_rollback() -> None:
     operator = read(OPERATOR)
 
@@ -33,6 +48,8 @@ def test_w4c_operator_is_exact_target_pinned_and_keeps_w4b_as_rollback() -> None
     assert '"DEALS_HTTP_PORT": "9128"' in operator
     assert '"HERMES_UI_ASSET_MODE": ui_mode' in operator
     assert '"W4C_NGINX_CONFIG": str(nginx_config)' in operator
+    assert 'env = {**BASE_ENV, "HOME": "/home/andris"}' in operator
+    assert 'shutil.which(command, path=SAFE_PATH)' in operator
 
 
 def test_w4c_operator_preserves_database_git_env_and_cloudflared_boundaries() -> None:
@@ -69,6 +86,17 @@ def test_w4c_cutover_and_rollback_are_api_first_then_forced_web_recreate() -> No
     rollback_web = rollback.index('"--force-recreate"')
     assert rollback_api < rollback_web
     assert 'assert_hashed_ui(restored.web_base, "w4b")' in rollback
+
+
+def test_w4c_rollback_state_is_root_owned_and_mode_pinned() -> None:
+    operator = read(OPERATOR)
+
+    assert 'state_dir_stat.st_uid == 0' in operator
+    assert 'state_dir_stat.st_gid == 0' in operator
+    assert '(state_dir_stat.st_mode & 0o777) == 0o700' in operator
+    assert 'state_stat.st_uid == 0' in operator
+    assert 'state_stat.st_gid == 0' in operator
+    assert '(state_stat.st_mode & 0o777) == 0o600' in operator
 
 
 def test_w4c_cache_contract_is_application_owned_and_exact() -> None:
@@ -124,6 +152,8 @@ def test_w4c_owner_finalizer_pins_isolated_runtime_delta_and_read_only_preflight
         assert path in finalizer
     assert "w4c_runtime_delta_not_isolated" in finalizer
     assert 'PREFLIGHT_OUTPUT="$(sudo --non-interactive "$DISPATCHER" preflight 2>&1)"' in finalizer
+    assert 'grep -Fq \'HTML_CACHE_CONTROL = "no-cache"\' "$W/target-runtime.py"' in finalizer
+    assert "| grep -Fq" not in finalizer
     assert "PRODUCTION_MUTATED=false" in finalizer
     assert "production_runtime_changed_during_finalizer" in finalizer
     assert "production_env_changed_during_finalizer" in finalizer
