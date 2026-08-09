@@ -46,7 +46,7 @@ def issue(
 
 
 BASELINE_CLOSED = {12, 13, 15, 17, 18, 21, 22, 23, 25, 32}
-PREVIOUSLY_COMPLETED_EDEKA = {166, 167, 168, 236, 237, 246, 257, 265, 267}
+PR_EVIDENCE_NUMBERS = {166, 167, 168, 236, 237, 246, 257, 265, 267}
 AUGUST_7_WEIGHTED_GATES = {
     124,
     213,
@@ -77,7 +77,6 @@ AUGUST_7_WEIGHTED_GATES = {
 def configured_issues(manifest: dict) -> list[dict]:
     closed_at: dict[int, str] = {
         **{number: "2026-08-05T10:00:00Z" for number in BASELINE_CLOSED},
-        **{number: "2026-08-06T10:00:00Z" for number in PREVIOUSLY_COMPLETED_EDEKA},
         **{number: "2026-08-07T12:00:00Z" for number in AUGUST_7_WEIGHTED_GATES},
     }
     return [
@@ -103,6 +102,22 @@ def test_manifest_is_auditable_v2_1000_unit_contract() -> None:
     assert [category_id for category_id, _ in tool.STORE_CATEGORIES] == ["netto", "lidl", "aldi", "edeka"]
 
 
+def test_known_pull_request_evidence_is_never_dynamic_issue_completion() -> None:
+    tool = load_tool()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    configured = set(tool.configured_issue_numbers(manifest))
+    assert configured.isdisjoint(PR_EVIDENCE_NUMBERS)
+
+    fixed_evidence = {
+        evidence
+        for category in manifest["categories"]
+        for item in category["items"]
+        if item["completion"]["type"] == "fixed"
+        for evidence in item["completion"]["evidence"]
+    }
+    assert {f"PR #{number}" for number in PR_EVIDENCE_NUMBERS} <= fixed_evidence
+
+
 def test_invalid_manifest_total_fails_closed() -> None:
     tool = load_tool()
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -124,7 +139,7 @@ def test_v2_baseline_recovers_real_gate_progress_and_august_7_delta() -> None:
     assert snapshot["previous_day_completed_gate_count"] == 23
     assert snapshot["completed_weighted_gate_count"] == 54
     assert snapshot["weighted_gate_count"] == 67
-    assert snapshot["completed_issue_count"] == 39
+    assert snapshot["completed_issue_count"] == 33
     assert {item["id"]: item["completion_percent_tenths"] for item in snapshot["store_catalogues"]} == {
         "netto": 786,
         "lidl": 857,
@@ -144,6 +159,16 @@ def test_open_parent_trackers_do_not_hide_completed_child_gates() -> None:
     assert next(item for item in categories["edeka"]["items"] if item["issue"] == 26)["completed"] is False
 
 
+def test_missing_dynamic_issue_still_fails_closed() -> None:
+    tool = load_tool()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    issues = configured_issues(manifest)
+    missing = tool.configured_issue_numbers(manifest)[0]
+    issues = [candidate for candidate in issues if candidate["number"] != missing]
+    with pytest.raises(tool.ProjectProgressError, match=rf"GitHub issue #{missing} is missing"):
+        tool.calculate_snapshot(manifest, issues, now=datetime(2026, 8, 8, 4, 44, tzinfo=timezone.utc))
+
+
 def test_readme_block_renders_tenths_gate_counts_and_issue_counts() -> None:
     tool = load_tool()
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -156,7 +181,7 @@ def test_readme_block_renders_tenths_gate_counts_and_issue_counts() -> None:
     assert "**ALDI Nord:** **75.0%**" in block
     assert "**EDEKA Patzer:** **75.0%**" in block
     assert "**Weighted roadmap gates:** **54/67 complete** · **23 during the previous day**" in block
-    assert "**Issues fixed:** **39 total** · **23 during the previous day**" in block
+    assert "**Issues fixed:** **33 total** · **23 during the previous day**" in block
     assert "Measurement V2 rules" in block
 
 
@@ -210,7 +235,7 @@ def test_total_issue_count_is_repository_wide_and_deduplicated() -> None:
         issue(502, state="closed", state_reason="completed", closed_at="2026-08-06T12:00:00Z", pull_request=True),
     ])
     snapshot = tool.calculate_snapshot(manifest, issues, now=datetime(2026, 8, 8, 4, 44, tzinfo=timezone.utc))
-    assert snapshot["completed_issue_count"] == 40
+    assert snapshot["completed_issue_count"] == 34
 
 
 def test_fetch_github_issues_reads_full_repository_inventory(monkeypatch) -> None:
