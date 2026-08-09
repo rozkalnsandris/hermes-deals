@@ -14,6 +14,8 @@ LIVE_SUMMARY="$RUN_ROOT/live-source.json"
 BINDING="$RUN_ROOT/selected-binding.json"
 CAPTURE_ROOT="$RUN_ROOT/capture"
 RESULT="$RUN_ROOT/github-capture-result-v2.json"
+CANDIDATE_COMMIT="17ceedf0fdb0342acb594ed20679519ec4910e3c"
+CANDIDATE_PATH="tools/netto_local_span_auto_single_candidate.py"
 
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid exact SHA"
 python3 - "$AS_OF" <<'PY'
@@ -30,6 +32,9 @@ case "$REMOTE" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
   *) fail "unexpected repository origin" ;;
 esac
+git -C "$REPO" cat-file -e "$CANDIDATE_COMMIT^{commit}" || fail "candidate implementation commit is unavailable"
+git -C "$REPO" merge-base --is-ancestor "$CANDIDATE_COMMIT" "$EXPECTED_SHA" || fail "candidate implementation commit is not in reviewed history"
+git -C "$REPO" diff --quiet "$CANDIDATE_COMMIT" -- "$CANDIDATE_PATH" || fail "candidate implementation file drifted from pinned commit"
 [[ ! -e "$RUN_ROOT" && ! -L "$RUN_ROOT" ]] || fail "output root must be create-only"
 mkdir -m 0700 -p -- "$RUN_ROOT"
 
@@ -54,6 +59,7 @@ python3 "$REPO/tools/netto_heldout_source_selector.py" \
 
 python3 "$REPO/tools/netto_heldout_page_capture_v2.py" \
   "$BINDING" \
+  --candidate-implementation-commit "$CANDIDATE_COMMIT" \
   --output "$CAPTURE_ROOT"
 
 python3 - "$EXPECTED_SHA" "$AS_OF" "$LIVE_SUMMARY" "$BINDING" "$CAPTURE_ROOT" "$RESULT" <<'PY'
@@ -121,6 +127,7 @@ echo "GITHUB_HELDOUT_CAPTURE_V2_RESULT=PASS"
 echo "REGISTERED_COMMIT=$EXPECTED_SHA"
 echo "AS_OF=$AS_OF"
 echo "RUN_ROOT=$RUN_ROOT"
+echo "CANDIDATE_IMPLEMENTATION_COMMIT=$CANDIDATE_COMMIT"
 echo "CANDIDATE_FROZEN_BEFORE_TRUTH=true"
 echo "DATABASE_WRITE=false"
 echo "REVIEW_WRITE=false"
