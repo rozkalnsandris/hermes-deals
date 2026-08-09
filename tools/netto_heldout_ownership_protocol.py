@@ -4,7 +4,19 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from netto_shadow_promotion import (  # noqa: E402
+    EvidenceBinding,
+    EvidenceStatus,
+    verify_binding_files,
+)
 
 
 PROTOCOL_NAME = "netto-heldout-ownership-v1"
@@ -62,6 +74,23 @@ def protocol_digest(payload: dict[str, Any]) -> str:
 
 def acceptance_digest() -> str:
     return hashlib.sha256(_canonical_bytes(ACCEPTANCE)).hexdigest()
+
+
+def file_sha256(path: Path, label: str) -> str:
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    if not path.exists():
+        raise ValueError(f"{label} is missing")
+    if not path.is_file():
+        raise ValueError(f"{label} must be a regular file")
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise ValueError(f"{label} cannot be read: {exc}") from exc
+    return digest.hexdigest()
 
 
 def validate_freeze_manifest(payload: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +162,53 @@ def validate_freeze_receipt(payload: dict[str, Any], receipt: dict[str, Any]) ->
         raise ValueError("freeze receipt does not match the immutable prediction/evidence freeze")
 
 
+def prepare_freeze(
+    binding_payload: dict[str, Any],
+    campaign_key: str,
+    evidence_path: Path,
+    predictions_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    binding = EvidenceBinding.from_mapping(binding_payload)
+    binding.validate()
+    if binding.evidence_status is not EvidenceStatus.PDF_BOUND:
+        raise ValueError("held-out ownership capture requires pdf_bound evidence")
+    verification = verify_binding_files(binding)
+    if verification.status is not EvidenceStatus.PDF_BOUND:
+        raise ValueError(f"held-out source binding is not verified: {verification.reason}")
+    if not binding.pdf_sha256:
+        raise ValueError("held-out ownership capture requires a PDF SHA256")
+
+    try:
+        same_input = evidence_path.resolve() == predictions_path.resolve()
+    except OSError as exc:
+        raise ValueError(f"held-out evidence paths cannot be resolved: {exc}") from exc
+    if same_input:
+        raise ValueError("evidence and predictions must be separate frozen files")
+
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "protocol": PROTOCOL_NAME,
+        "store_external_id": binding.store_external_id,
+        "campaign_key": campaign_key,
+        "campaign_window": {
+            "start": binding.valid_from.isoformat(),
+            "end": binding.valid_until.isoformat(),
+        },
+        "source_sha256": binding.pdf_sha256,
+        "parser_identity": binding.parser_identity,
+        "evidence_sha256": file_sha256(evidence_path, "held-out evidence"),
+        "predictions_sha256": file_sha256(predictions_path, "held-out predictions"),
+        "truth_sha256": None,
+        "adjudication_sha256": None,
+        "acceptance": dict(ACCEPTANCE),
+        "ownership_classes": list(OWNERSHIP_CLASSES),
+        "review_only": True,
+        "promotion_ready": False,
+    }
+    validate_freeze_manifest(manifest)
+    return manifest, freeze_receipt(manifest)
+
+
 def adjudication_binding(
     freeze_manifest: dict[str, Any],
     receipt: dict[str, Any],
@@ -168,9 +244,25 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _require_new_outputs(*paths: Path) -> None:
+    if len({path.resolve() for path in paths}) != len(paths):
+        raise ValueError("output paths must be distinct")
+    existing = [str(path) for path in paths if path.exists() or path.is_symlink()]
+    if existing:
+        raise ValueError(f"freeze outputs already exist: {existing}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate the predeclared Netto held-out ownership protocol")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    prepare = sub.add_parser("prepare")
+    prepare.add_argument("binding", type=Path)
+    prepare.add_argument("--campaign-key", required=True)
+    prepare.add_argument("--evidence", type=Path, required=True)
+    prepare.add_argument("--predictions", type=Path, required=True)
+    prepare.add_argument("--manifest-output", type=Path, required=True)
+    prepare.add_argument("--receipt-output", type=Path, required=True)
 
     freeze = sub.add_parser("freeze")
     freeze.add_argument("manifest", type=Path)
@@ -184,6 +276,17 @@ def main() -> int:
     adjudicate.add_argument("--output", type=Path, required=True)
 
     args = parser.parse_args()
+    if args.command == "prepare":
+        _require_new_outputs(args.manifest_output, args.receipt_output)
+        manifest, receipt = prepare_freeze(
+            _load(args.binding),
+            args.campaign_key,
+            args.evidence,
+            args.predictions,
+        )
+        _write(args.manifest_output, manifest)
+        _write(args.receipt_output, receipt)
+        return 0
     if args.command == "freeze":
         _write(args.output, freeze_receipt(_load(args.manifest)))
         return 0
