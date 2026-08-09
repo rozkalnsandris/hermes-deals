@@ -188,6 +188,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
           AUTH_RESULT: ${{ needs.authorize.result }}
           APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
           CI_MODE: ${{ needs.authorize.outputs.ci_mode }}
@@ -197,11 +198,11 @@ jobs:
           set -Eeuo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || exit 0
           if [[ "$AUTH_RESULT" != success ]]; then
-            body="Netto missing-normal-price audit **AUTHORIZATION_FAIL**. No RPi5 audit ran. Read-only control-plane only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
+            body="Netto missing-normal-price audit **AUTHORIZATION_FAIL**. Workflow run: \`${RUN_ID}\`. No RPi5 audit ran. Read-only control-plane only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
           else
             outcome=FAIL
             [[ "$AUDIT_RESULT" == success ]] && outcome=PASS
-            body="Netto missing-normal-price RPi5 audit ${outcome}. Exact registered SHA: \`${APPROVED_SHA}\`. CI evidence: \`${CI_MODE}\`. Read-only diagnostic only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
+            body="Netto missing-normal-price RPi5 audit ${outcome}. Workflow run: \`${RUN_ID}\`. Exact registered SHA: \`${APPROVED_SHA}\`. CI evidence: \`${CI_MODE}\`. Read-only diagnostic only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
           fi
           gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$body"
           gh api --method DELETE "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/$(python3 -c 'import urllib.parse; print(urllib.parse.quote("audit:netto-missing-normal-price-v1", safe=""))')" || true
