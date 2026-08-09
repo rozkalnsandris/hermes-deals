@@ -1,0 +1,248 @@
+name: Netto hz33 held-out adjudication evidence freeze
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: netto-hz33-adjudication-evidence-freeze-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  EXPECTED_HEAD: feat/netto-hz33-adjudication-evidence-v1
+  TRIGGER_LABEL: audit:netto-hz33-adjudication-freeze-v1
+  SEED_PATH: audit/netto/hz33/heldout-adjudication-import-request.json
+  CAPTURE_RUN_ID: "31324156565"
+  CAPTURE_ARTIFACT_ID: "9041052231"
+  CAPTURE_ARTIFACT_DIGEST_SHA256: cc289165aaac8796b33391917edb03df1085a841b82d17fc08aa93efa1d66ec4
+  COMPLETED_TRUTH_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+  COMPLETED_TRUTH_BLOB_SHA1: 2972cc717bd7cb0156d766f80679c94d26123b2b
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      base_sha: ${{ steps.auth.outputs.base_sha }}
+      head_sha: ${{ steps.auth.outputs.head_sha }}
+      head_ref: ${{ steps.auth.outputs.head_ref }}
+    steps:
+      - name: Authorize exact owner evidence PR
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json, os
+          event = json.load(open(os.environ["EVENT_PATH"], encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "head": (pr.get("head") or {}).get("ref") == os.environ["EXPECTED_HEAD"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "open": pr.get("state") == "open",
+              "not_merged": pr.get("merged") is not True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          base_sha = str((pr.get("base") or {}).get("sha") or "")
+          head_sha = str((pr.get("head") or {}).get("sha") or "")
+          if len(base_sha) != 40 or len(head_sha) != 40:
+              raise SystemExit("missing exact PR base/head SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"base_sha={base_sha}\n")
+              handle.write(f"head_sha={head_sha}\n")
+              handle.write(f"head_ref={os.environ['EXPECTED_HEAD']}\n")
+          PY
+
+  freeze:
+    needs: authorize
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout trusted exact main base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prove current main and evidence seed-only branch
+        env:
+          BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git fetch --no-tags origin main "$HEAD_SHA"
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"
+          test "$(git diff --name-only "$BASE_SHA..$HEAD_SHA" | wc -l)" -eq 1
+          test "$(git diff --name-only "$BASE_SHA..$HEAD_SHA")" = "$SEED_PATH"
+          test -z "$(git status --porcelain)"
+
+      - name: Verify immutable completed source truth on trusted main
+        run: |
+          test "$(git hash-object audit/netto/hz33/completed-source-truth.json.gz)" = "$COMPLETED_TRUTH_BLOB_SHA1"
+          python - <<'PY'
+          import gzip, hashlib, os, pathlib
+          stored = pathlib.Path("audit/netto/hz33/completed-source-truth.json.gz").read_bytes()
+          actual = hashlib.sha256(gzip.decompress(stored)).hexdigest()
+          if actual != os.environ["COMPLETED_TRUTH_SHA256"]:
+              raise SystemExit(f"completed truth SHA mismatch: {actual}")
+          PY
+
+      - name: Download exact frozen capture and extract only adjudication inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, pathlib, urllib.request, zipfile
+          artifact_id = int(os.environ["CAPTURE_ARTIFACT_ID"])
+          run_id = int(os.environ["CAPTURE_RUN_ID"])
+          expected_digest = os.environ["CAPTURE_ARTIFACT_DIGEST_SHA256"]
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          base = f"https://api.github.com/repos/{os.environ['REPOSITORY']}/actions/artifacts/{artifact_id}"
+          with urllib.request.urlopen(urllib.request.Request(base, headers=headers), timeout=30) as response:
+              meta = json.load(response)
+          if int(meta.get("id") or 0) != artifact_id:
+              raise SystemExit("artifact ID mismatch")
+          if int((meta.get("workflow_run") or {}).get("id") or 0) != run_id:
+              raise SystemExit("artifact workflow-run mismatch")
+          if str(meta.get("digest") or "") != f"sha256:{expected_digest}":
+              raise SystemExit("artifact API digest mismatch")
+          with urllib.request.urlopen(urllib.request.Request(base + "/zip", headers=headers), timeout=60) as response:
+              archive = response.read()
+          if hashlib.sha256(archive).hexdigest() != expected_digest:
+              raise SystemExit("artifact ZIP digest mismatch")
+          allow = {
+              "capture/predictions.json",
+              "capture/freeze-manifest.json",
+              "capture/freeze-receipt.json",
+          }
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "hz33-frozen-input"
+          root.mkdir(mode=0o700)
+          with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+              names = set(zf.namelist())
+              missing = sorted(allow - names)
+              if missing:
+                  raise SystemExit(f"missing adjudication members: {missing}")
+              for name in sorted(allow):
+                  info = zf.getinfo(name)
+                  if info.is_dir() or name.startswith("/") or ".." in pathlib.PurePosixPath(name).parts:
+                      raise SystemExit(f"unsafe artifact member: {name}")
+                  (root / pathlib.PurePosixPath(name).name).write_bytes(zf.read(info))
+          PY
+
+      - name: Run trusted-main post-truth adjudicator
+        run: |
+          out="$RUNNER_TEMP/hz33-adjudication"
+          mkdir -p "$out"
+          python tools/netto_heldout_hz33_adjudication.py \
+            --completed-truth audit/netto/hz33/completed-source-truth.json.gz \
+            --predictions "$RUNNER_TEMP/hz33-frozen-input/predictions.json" \
+            --freeze-manifest "$RUNNER_TEMP/hz33-frozen-input/freeze-manifest.json" \
+            --freeze-receipt "$RUNNER_TEMP/hz33-frozen-input/freeze-receipt.json" \
+            --output "$out/heldout-adjudication.json"
+
+      - name: Build deterministic evidence receipt
+        env:
+          BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "hz33-adjudication"
+          adjudication = root / "heldout-adjudication.json"
+          raw = adjudication.read_bytes()
+          payload = json.loads(raw)
+          receipt = {
+              "schema_version": 1,
+              "strategy": "netto_hz33_heldout_adjudication_evidence_receipt_v1",
+              "trusted_main_sha": os.environ["BASE_SHA"],
+              "capture_run_id": int(os.environ["CAPTURE_RUN_ID"]),
+              "capture_artifact_id": int(os.environ["CAPTURE_ARTIFACT_ID"]),
+              "capture_artifact_digest_sha256": os.environ["CAPTURE_ARTIFACT_DIGEST_SHA256"],
+              "completed_source_truth_sha256": os.environ["COMPLETED_TRUTH_SHA256"],
+              "adjudication_sha256": hashlib.sha256(raw).hexdigest(),
+              "acceptance": payload["acceptance"],
+              "metrics": payload["metrics"],
+              "acceptance_checks": payload["acceptance_checks"],
+              "acceptance_pass": payload["acceptance_pass"],
+              "review_only": True,
+              "promotion_ready": False,
+              "parser_behavior_changed": False,
+              "database_write_performed": False,
+              "review_write_performed": False,
+              "deployment_performed": False,
+          }
+          (root / "heldout-adjudication-receipt.json").write_text(
+              json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Switch to exact evidence branch and commit only two evidence files
+        env:
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+          HEAD_REF: ${{ needs.authorize.outputs.head_ref }}
+        run: |
+          git checkout -B "$HEAD_REF" "$HEAD_SHA"
+          test ! -e audit/netto/hz33/heldout-adjudication.json
+          test ! -e audit/netto/hz33/heldout-adjudication-receipt.json
+          cp "$RUNNER_TEMP/hz33-adjudication/heldout-adjudication.json" audit/netto/hz33/heldout-adjudication.json
+          cp "$RUNNER_TEMP/hz33-adjudication/heldout-adjudication-receipt.json" audit/netto/hz33/heldout-adjudication-receipt.json
+          git add -- audit/netto/hz33/heldout-adjudication.json audit/netto/hz33/heldout-adjudication-receipt.json
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          test "$(git diff --cached --name-only | sed -n '1p')" = "audit/netto/hz33/heldout-adjudication-receipt.json"
+          test "$(git diff --cached --name-only | sed -n '2p')" = "audit/netto/hz33/heldout-adjudication.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "netto: freeze hz33 held-out adjudication evidence"
+          git push origin "HEAD:${HEAD_REF}"
+
+      - name: Report frozen evidence on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const receipt = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/hz33-adjudication/heldout-adjudication-receipt.json`, 'utf8'));
+            const m = receipt.metrics;
+            const body = [
+              '## hz33 held-out adjudication evidence frozen',
+              '',
+              `- Evidence commit: \`${require('child_process').execFileSync('git', ['rev-parse','HEAD'], {encoding:'utf8'}).trim()}\``,
+              `- Adjudication SHA256: \`${receipt.adjudication_sha256}\``,
+              `- Reviewed cells: \`${m.reviewed_cells}\``,
+              `- Mixed-source cells: \`${m.mixed_source_cells}\``,
+              `- Auto-single precision: \`${m.auto_single_precision}\``,
+              `- Mixed -> auto-single: \`${m.mixed_source_auto_single}\``,
+              `- Excluded -> auto-eligible: \`${m.excluded_control_auto_eligible}\``,
+              `- Cross-cell group reuse: \`${m.cross_cell_group_reuse}\``,
+              `- Unmatched review-required: \`${m.unmatched_review_required}\``,
+              `- Scope-overlap review-required: \`${m.scope_overlap_review_required}\``,
+              `- Frozen acceptance: **${receipt.acceptance_pass ? 'PASS' : 'FAIL'}**`,
+              '- Review-only / promotion-ready: **true / false**',
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
