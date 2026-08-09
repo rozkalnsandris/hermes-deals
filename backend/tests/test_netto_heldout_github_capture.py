@@ -94,22 +94,29 @@ def test_github_capture_runner_is_read_only_and_exact_sha_bound() -> None:
         assert forbidden not in text
 
 
-def test_workflow_is_owner_gated_github_hosted_and_nonproduction() -> None:
+def test_workflow_is_owner_gated_nonroot_rpi5_and_nonproduction() -> None:
     path = ROOT / ".github" / "workflows" / "netto-heldout-github-capture.yml"
     text = path.read_text(encoding="utf-8")
     assert "audit:netto-heldout-github-v1" in text
     assert "pull_request_target:" in text
     assert 'EXPECTED_OWNER_ID: "277435981"' in text
-    assert "runs-on: ubuntu-latest" in text
+    assert "      - self-hosted\n      - Linux\n      - ARM64\n      - hermes-deals-audit" in text
+    assert '[[ "$(id -un)" == "github-runner" ]]' in text
+    assert '[[ "$(id -u)" -ne 0 ]]' in text
+    assert "python3 -m venv" in text
+    assert "persist-credentials: false" in text
+    assert 'PYTHONDONTWRITEBYTECODE: "1"' in text
     assert "ref: ${{ needs.authorize.outputs.sha }}" in text
     assert "actions/upload-artifact@v6" in text
     assert "Production deployment: **not authorized**" in text
     assert "Database/Review writes: **not authorized**" in text
     assert "Promotion ready: **false**" in text
     for forbidden in (
-        "self-hosted",
         "sudo --non-interactive",
+        "/home/andris",
         "docker compose",
+        "docker exec",
         "psql ",
+        "systemctl ",
     ):
         assert forbidden not in text
