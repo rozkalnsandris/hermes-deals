@@ -12,7 +12,7 @@
   },
   "w5_freeze": {
     "max_style_fragment_count": 12,
-    "expected_style_fragment_ids": [
+    "known_style_fragment_ids": [
       "anonymous-base",
       "ui-minimal-v2-overrides",
       "ui-reference-v1",
@@ -27,6 +27,28 @@
       "ui-weekly-overview-v1"
     ],
     "max_html_fix_marker_count": 20,
+    "known_html_fix_markers": [
+      "reference-v2",
+      "reference-v3-hover",
+      "reference-v4c-doc-audited",
+      "reference-v5-details-restoration",
+      "reference-v6-single-scroll-sidebar",
+      "reference-v7-stable-sidebar-anchor",
+      "reference-v8-calendar-icon-centering",
+      "reference-v9-daily-specials-overview",
+      "reference-v9a-legacy-contract",
+      "reference-v9b-exact-legacy-markers",
+      "reference-v10-complete-daily-special-pagination",
+      "reference-v10a-legacy-contract-fix",
+      "reference-v10b-complete-v9b-contract",
+      "reference-v10c-available-count-pagination",
+      "reference-v11-explicit-daily-special-api",
+      "weekly-overview-v1",
+      "weekly-overview-v2-short-period-filter",
+      "weekly-overview-v3-empty-day-polish",
+      "weekly-overview-v6-active-retailer-compaction",
+      "netto-daily-quality-v1"
+    ],
     "legacy_daily_special_helpers": [
       "DAILY_SPECIAL_PAGE_LIMIT",
       "DAILY_SPECIAL_MAX_PAGES",
