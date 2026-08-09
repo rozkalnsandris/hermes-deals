@@ -24,6 +24,7 @@ SCHEMA_VERSION = 1
 STORE_EXTERNAL_ID = "5659"
 EXISTING_EVALUATION_CAMPAIGNS = frozenset({"hz31_hasb_4", "hz32_hasb"})
 OWNERSHIP_CLASSES = ("single_source", "mixed_source", "excluded_control")
+SOURCE_CAMPAIGN_KEYS = ("campaign_key", "corpus_key", "prospect_slug", "publication_slug")
 
 # Frozen before any held-out ownership truth is inspected. If the sample cannot
 # satisfy these evidence minima, the result is insufficient evidence rather
@@ -91,6 +92,23 @@ def file_sha256(path: Path, label: str) -> str:
     except OSError as exc:
         raise ValueError(f"{label} cannot be read: {exc}") from exc
     return digest.hexdigest()
+
+
+def source_campaign_key(binding: EvidenceBinding) -> str:
+    path = Path(binding.manifest_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("verified source manifest is not valid UTF-8 JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("verified source manifest must contain a JSON object")
+    for key in SOURCE_CAMPAIGN_KEYS:
+        value = payload.get(key)
+        if value not in (None, ""):
+            campaign = str(value).strip()
+            if campaign:
+                return campaign
+    raise ValueError("verified source manifest does not contain a campaign identity")
 
 
 def validate_freeze_manifest(payload: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +182,6 @@ def validate_freeze_receipt(payload: dict[str, Any], receipt: dict[str, Any]) ->
 
 def prepare_freeze(
     binding_payload: dict[str, Any],
-    campaign_key: str,
     prediction_parser_identity: str,
     evidence_path: Path,
     predictions_path: Path,
@@ -180,6 +197,10 @@ def prepare_freeze(
         raise ValueError("held-out ownership capture requires a PDF SHA256")
     if not isinstance(prediction_parser_identity, str) or not prediction_parser_identity.strip():
         raise ValueError("prediction parser identity is required")
+
+    campaign_key = source_campaign_key(binding)
+    if campaign_key in EXISTING_EVALUATION_CAMPAIGNS:
+        raise ValueError("held-out campaign overlaps the existing evaluation corpus")
 
     try:
         same_input = evidence_path.resolve() == predictions_path.resolve()
@@ -264,7 +285,6 @@ def main() -> int:
 
     prepare = sub.add_parser("prepare")
     prepare.add_argument("binding", type=Path)
-    prepare.add_argument("--campaign-key", required=True)
     prepare.add_argument("--prediction-parser-identity", required=True)
     prepare.add_argument("--evidence", type=Path, required=True)
     prepare.add_argument("--predictions", type=Path, required=True)
@@ -287,7 +307,6 @@ def main() -> int:
         _require_new_outputs(args.manifest_output, args.receipt_output)
         manifest, receipt = prepare_freeze(
             _load(args.binding),
-            args.campaign_key,
             args.prediction_parser_identity,
             args.evidence,
             args.predictions,
