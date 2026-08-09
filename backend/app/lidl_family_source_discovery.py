@@ -158,11 +158,16 @@ def select_current_and_next(
     today: date,
 ) -> dict[str, FlyerCandidate | None]:
     rows = list(candidates)
+    if not rows:
+        raise LidlFamilyDiscoveryError(
+            "selected-store hub yielded no flyer candidates"
+        )
+
     current = [
         row for row in rows
         if row.valid_from <= today <= row.valid_until
     ]
-    if len(current) != 1:
+    if len(current) > 1:
         raise LidlFamilyDiscoveryError(
             f"selected-store current ambiguity: count={len(current)} rows={current}"
         )
@@ -176,7 +181,10 @@ def select_current_and_next(
             raise LidlFamilyDiscoveryError(
                 f"selected-store next ambiguity: count={len(nearest)} rows={nearest}"
             )
-    return {"current": current[0], "next": nearest[0] if nearest else None}
+    return {
+        "current": current[0] if current else None,
+        "next": nearest[0] if nearest else None,
+    }
 
 
 def berlin_today(now: datetime | None = None) -> date:
