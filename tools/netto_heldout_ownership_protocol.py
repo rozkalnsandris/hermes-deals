@@ -194,7 +194,9 @@ def prepare_freeze(
             "start": binding.valid_from.isoformat(),
             "end": binding.valid_until.isoformat(),
         },
-        "source_sha256": binding.pdf_sha256,
+        # Bind the freeze to the complete verified source identity: store/scope,
+        # validity, manifest, HTML, PDF/evidence state and parser identity.
+        "source_sha256": binding.identity_sha256(),
         "parser_identity": binding.parser_identity,
         "evidence_sha256": file_sha256(evidence_path, "held-out evidence"),
         "predictions_sha256": file_sha256(predictions_path, "held-out predictions"),
