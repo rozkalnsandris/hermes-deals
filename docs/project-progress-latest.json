@@ -1,45 +1,66 @@
 {
   "categories": [
     {
-      "completed_points": 20,
-      "completion_percent": 100,
+      "completed_units": 200,
+      "completion_percent_tenths": 1000,
       "id": "foundation",
       "items": [
         {
           "completed": true,
-          "id": "core-foundation",
+          "id": "core-data-trust",
           "issue": null,
-          "label": "Database, immutable evidence, offer API and base family UI",
-          "points": 14
+          "label": "Database, immutable evidence and offer API foundation",
+          "units": 100
+        },
+        {
+          "completed": true,
+          "id": "family-ui-foundation",
+          "issue": null,
+          "label": "Base family deals UI foundation",
+          "units": 30
         },
         {
           "completed": true,
           "id": "ui-bundle",
           "issue": 17,
           "label": "Maintainable split UI bundle",
-          "points": 2
+          "units": 20
         },
         {
           "completed": true,
           "id": "review-state",
           "issue": 18,
           "label": "Authoritative Review Queue state",
-          "points": 2
+          "units": 15
         },
         {
           "completed": true,
           "id": "date-mobile",
           "issue": 32,
           "label": "Date, calendar and mobile regression gate",
-          "points": 2
+          "units": 15
+        },
+        {
+          "completed": true,
+          "id": "current-deals-sql",
+          "issue": 213,
+          "label": "Move current-deals winner selection into SQL",
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "current-deals-scale",
+          "issue": 222,
+          "label": "Current-deals PostgreSQL scale and EXPLAIN regression",
+          "units": 10
         }
       ],
       "label": "Foundation, data trust and UI reliability",
-      "weight": 20
+      "weight_units": 200
     },
     {
-      "completed_points": 8,
-      "completion_percent": 80,
+      "completed_units": 80,
+      "completion_percent_tenths": 800,
       "id": "release",
       "items": [
         {
@@ -47,73 +68,164 @@
           "id": "ci-audit-foundation",
           "issue": null,
           "label": "GitHub CI and least-privilege audit foundation",
-          "points": 4
+          "units": 30
         },
         {
           "completed": true,
           "id": "controlled-release",
           "issue": 21,
           "label": "Controlled exact-SHA release workflow",
-          "points": 4
+          "units": 25
+        },
+        {
+          "completed": true,
+          "id": "runtime-source-permissions",
+          "issue": 247,
+          "label": "Normalize runtime source permissions in production image",
+          "units": 5
+        },
+        {
+          "completed": true,
+          "id": "owner-authorization",
+          "issue": 273,
+          "label": "Restore explicit owner authorization before production deploy",
+          "units": 5
+        },
+        {
+          "completed": true,
+          "id": "public-edge-health",
+          "issue": 278,
+          "label": "Restore Cloudflare Tunnel health for public deploy verification",
+          "units": 5
+        },
+        {
+          "completed": true,
+          "id": "bundle-prewarm",
+          "issue": 249,
+          "label": "Prewarm current weekly bundle after production deploy",
+          "units": 5
+        },
+        {
+          "completed": true,
+          "id": "safe-vscode-deploy",
+          "issue": 124,
+          "label": "Safe VS Code RPi5 deploy tasks",
+          "units": 5
         },
         {
           "completed": false,
           "id": "netto-production-verification",
           "issue": 19,
           "label": "Production verification of merged Netto daily-special fixes",
-          "points": 2
+          "units": 20
         }
       ],
       "label": "GitHub CI, audit and controlled production release",
-      "weight": 10
+      "weight_units": 100
     },
     {
-      "completed_points": 5,
-      "completion_percent": 36,
+      "completed_units": 110,
+      "completion_percent_tenths": 786,
       "id": "netto",
       "items": [
+        {
+          "completed": true,
+          "id": "netto-store-campaign-identity",
+          "issue": null,
+          "label": "Family store and campaign identity foundation",
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "netto-immutable-evidence",
+          "issue": null,
+          "label": "Immutable HTML/PDF campaign evidence foundation",
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "netto-parser-geometry-foundation",
+          "issue": null,
+          "label": "Visual parser safety and unrotated geometry foundation",
+          "units": 15
+        },
+        {
+          "completed": true,
+          "id": "netto-replay-control-plane",
+          "issue": null,
+          "label": "Exact-SHA read-only RPi5 replay control plane",
+          "units": 5
+        },
         {
           "completed": true,
           "id": "netto-daily-ui",
           "issue": 12,
           "label": "Daily specials visible in the family UI",
-          "points": 2
+          "units": 10
         },
         {
           "completed": true,
           "id": "netto-date-selection",
           "issue": 13,
           "label": "Requested-date immutable snapshot selection",
-          "points": 2
+          "units": 10
         },
         {
           "completed": true,
           "id": "netto-review-policy",
           "issue": 15,
           "label": "Audited title/package review-only source policy",
-          "points": 1
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "netto-real-geometry-replay",
+          "issue": 294,
+          "label": "Successful real 17-page / 100-cell geometry replay evidence",
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "netto-blind-review-pack",
+          "issue": 301,
+          "label": "Blind independent 100-cell source-review pack",
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "netto-independent-review",
+          "issue": 303,
+          "label": "Completed blind independent review of 100 frozen cells",
+          "units": 10
+        },
+        {
+          "completed": true,
+          "id": "netto-member-price-adjudication",
+          "issue": 306,
+          "label": "Independent normal/member-price evidence adjudication",
+          "units": 10
         },
         {
           "completed": false,
           "id": "netto-extraction-gates",
           "issue": 27,
-          "label": "Audited title/package promotion gates",
-          "points": 4
+          "label": "Audited per-field promotion gates",
+          "units": 15
         },
         {
           "completed": false,
           "id": "netto-weekly",
           "issue": 28,
-          "label": "Unattended evidence-aware weekly refresh",
-          "points": 5
+          "label": "Two genuine unattended weekly transitions and monitoring",
+          "units": 15
         }
       ],
       "label": "Netto 5659 trusted weekly pipeline",
-      "weight": 14
+      "weight_units": 140
     },
     {
-      "completed_points": 10,
-      "completion_percent": 71,
+      "completed_units": 120,
+      "completion_percent_tenths": 857,
       "id": "lidl",
       "items": [
         {
@@ -121,36 +233,71 @@
           "id": "lidl-base",
           "issue": null,
           "label": "Precision-first parser and Review workflow foundation",
-          "points": 4
+          "units": 40
         },
         {
           "completed": true,
           "id": "lidl-identity",
           "issue": 22,
           "label": "Parser identity and immutable corpus roles",
-          "points": 3
+          "units": 30
         },
         {
           "completed": true,
           "id": "lidl-semantics",
           "issue": 23,
           "label": "Extraction semantics and eligibility gates",
-          "points": 3
+          "units": 30
+        },
+        {
+          "completed": true,
+          "id": "lidl-family-scan-profile",
+          "issue": 228,
+          "label": "Family-agnostic frozen scan/profile promotion",
+          "units": 5
+        },
+        {
+          "completed": true,
+          "id": "lidl-parser-input-drift",
+          "issue": 230,
+          "label": "Separate volatile raw refresh from parser-input drift",
+          "units": 5
+        },
+        {
+          "completed": true,
+          "id": "lidl-dedicated-audit-clone",
+          "issue": 295,
+          "label": "Dedicated Gate A audit clone and sanitized early-failure evidence",
+          "units": 4
+        },
+        {
+          "completed": true,
+          "id": "lidl-source-revision",
+          "issue": 313,
+          "label": "Immutable source revisions under one logical flyer key",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "lidl-freeze-replan",
+          "issue": 318,
+          "label": "Transactional freeze replan ignores only its own private staging",
+          "units": 3
         },
         {
           "completed": false,
           "id": "lidl-weekly",
           "issue": 24,
-          "label": "Weekly discovery, Review gate and controlled rollout",
-          "points": 4
+          "label": "Second weekly family, controlled canary, timer and rollback",
+          "units": 20
         }
       ],
       "label": "Lidl physical-store trusted weekly pipeline",
-      "weight": 14
+      "weight_units": 140
     },
     {
-      "completed_points": 6,
-      "completion_percent": 60,
+      "completed_units": 75,
+      "completion_percent_tenths": 750,
       "id": "aldi",
       "items": [
         {
@@ -158,36 +305,85 @@
           "id": "aldi-shadow-base",
           "issue": null,
           "label": "Audited A2.1 shadow extraction foundation",
-          "points": 3
+          "units": 30
         },
         {
           "completed": true,
           "id": "aldi-frozen-corpus",
           "issue": 25,
           "label": "A3.0 frozen corpus acquisition gate",
-          "points": 3
+          "units": 30
+        },
+        {
+          "completed": true,
+          "id": "aldi-offline-visual-pack",
+          "issue": 215,
+          "label": "Immutable offline visual-adjudication pack contract",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "aldi-retained-evidence-discovery",
+          "issue": 223,
+          "label": "Exact retained-evidence discovery contract",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "aldi-transport-identity",
+          "issue": 250,
+          "label": "Real Gate B transport identity and failure diagnostics",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "aldi-missing-family-diagnosis",
+          "issue": 261,
+          "label": "Diagnose missing legacy 49+41 frozen family",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "aldi-recovery-inventory",
+          "issue": 266,
+          "label": "Bounded immutable recovery inventory contract",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "aldi-recovery-hardening",
+          "issue": 270,
+          "label": "Least-privilege and tar hardening for recovery inventory",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "aldi-sanitized-traversal",
+          "issue": 280,
+          "label": "Installed-tool traversal and sanitized failure reporting",
+          "units": 2
         },
         {
           "completed": false,
           "id": "aldi-parity-ledger",
           "issue": 56,
-          "label": "Deterministic offer-to-page parity ledger",
-          "points": 2
+          "label": "Complete real A3.1 visual offer-to-page parity ledger",
+          "units": 15
         },
         {
           "completed": false,
-          "id": "aldi-rollover",
-          "issue": 80,
-          "label": "Browser-backed cycle rollover and review gate",
-          "points": 2
+          "id": "aldi-weekly",
+          "issue": 165,
+          "label": "Two weekly shadow families, canary, timer and rollback",
+          "units": 10
         }
       ],
       "label": "ALDI Nord frozen evidence and weekly pipeline",
-      "weight": 10
+      "weight_units": 100
     },
     {
-      "completed_points": 5,
-      "completion_percent": 50,
+      "completed_units": 75,
+      "completion_percent_tenths": 750,
       "id": "edeka",
       "items": [
         {
@@ -195,22 +391,92 @@
           "id": "edeka-foundation",
           "issue": null,
           "label": "Market-bound collector, persistence and normalization foundation",
-          "points": 5
+          "units": 50
+        },
+        {
+          "completed": true,
+          "id": "edeka-market-binding",
+          "issue": null,
+          "label": "Exact family-market binding with fallback forbidden",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "edeka-source-manifest",
+          "issue": null,
+          "label": "Fail-closed regional source manifest/state contract",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "edeka-provenance",
+          "issue": null,
+          "label": "Candidate provenance contract",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "edeka-live-shadow-bridge",
+          "issue": null,
+          "label": "Live shadow to Gate C provenance bridge",
+          "units": 4
+        },
+        {
+          "completed": true,
+          "id": "edeka-retained-artifact",
+          "issue": null,
+          "label": "Owner-only retained-artifact derivation boundary",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "edeka-archive-compatibility",
+          "issue": null,
+          "label": "Real archive regular-file compatibility fix",
+          "units": 2
+        },
+        {
+          "completed": true,
+          "id": "edeka-semantic-noop",
+          "issue": null,
+          "label": "Semantic unchanged-source identity and NO_OP contract",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "edeka-dedicated-audit-clone",
+          "issue": null,
+          "label": "Retailer-dedicated EDEKA audit clone",
+          "units": 3
+        },
+        {
+          "completed": true,
+          "id": "edeka-canary-plan",
+          "issue": null,
+          "label": "Exact preparation-only three-row production canary plan",
+          "units": 2
+        },
+        {
+          "completed": false,
+          "id": "edeka-second-family",
+          "issue": 291,
+          "label": "Second distinct Patzer weekly campaign and two-cycle ledger",
+          "units": 10
         },
         {
           "completed": false,
           "id": "edeka-weekly",
           "issue": 26,
-          "label": "Regional source, provenance and weekly production gate",
-          "points": 5
+          "label": "Canary replay, scheduler, stale-source monitoring and rollback",
+          "units": 15
         }
       ],
       "label": "EDEKA Patzer trusted regional weekly pipeline",
-      "weight": 10
+      "weight_units": 100
     },
     {
-      "completed_points": 4,
-      "completion_percent": 40,
+      "completed_units": 40,
+      "completion_percent_tenths": 400,
       "id": "comparison",
       "items": [
         {
@@ -218,29 +484,29 @@
           "id": "comparison-foundation",
           "issue": null,
           "label": "Canonical identity, unit basis and comparison-family schema",
-          "points": 4
+          "units": 40
         },
         {
           "completed": false,
           "id": "comparison-canaries",
           "issue": 29,
           "label": "Audited comparison-family identity canaries",
-          "points": 3
+          "units": 30
         },
         {
           "completed": false,
           "id": "comparison-api-ui",
           "issue": 30,
           "label": "Best-price API and family-facing UI",
-          "points": 3
+          "units": 30
         }
       ],
       "label": "Canonical identity and fair best-price comparison",
-      "weight": 10
+      "weight_units": 100
     },
     {
-      "completed_points": 2,
-      "completion_percent": 40,
+      "completed_units": 20,
+      "completion_percent_tenths": 400,
       "id": "weekly-overview",
       "items": [
         {
@@ -248,22 +514,22 @@
           "id": "weekly-preview",
           "issue": null,
           "label": "Special-period weekly overview foundation",
-          "points": 2
+          "units": 20
         },
         {
           "completed": false,
           "id": "weekly-complete",
           "issue": 31,
           "label": "Trustworthy all-retailer weekly overview",
-          "points": 3
+          "units": 30
         }
       ],
       "label": "Whole-week family decision overview",
-      "weight": 5
+      "weight_units": 50
     },
     {
-      "completed_points": 0,
-      "completion_percent": 0,
+      "completed_units": 0,
+      "completion_percent_tenths": 0,
       "id": "shopping-list",
       "items": [
         {
@@ -271,15 +537,15 @@
           "id": "shopping-list-complete",
           "issue": 33,
           "label": "Persistent family list and explainable basket allocation",
-          "points": 4
+          "units": 40
         }
       ],
       "label": "Persistent shopping list and basket optimization",
-      "weight": 4
+      "weight_units": 40
     },
     {
-      "completed_points": 0,
-      "completion_percent": 0,
+      "completed_units": 0,
+      "completion_percent_tenths": 0,
       "id": "meal-planning",
       "items": [
         {
@@ -287,222 +553,265 @@
           "id": "meal-planning-complete",
           "issue": 34,
           "label": "Recipe and meal suggestions integrated with the shopping list",
-          "points": 3
+          "units": 30
         }
       ],
       "label": "Meal planning from trusted deals",
-      "weight": 3
+      "weight_units": 30
     }
   ],
-  "completed_issue_count": 87,
-  "generated_at": "2026-08-08T04:44:01.708481Z",
-  "generated_at_local": "2026-08-08T06:44:01.708481+02:00",
-  "overall_percent": 60,
-  "previous_day": "2026-08-07",
-  "previous_day_completed_issue_count": 28,
+  "completed_issue_count": 122,
+  "completed_weighted_gate_count": 54,
+  "generated_at": "2026-08-09T12:59:34.766760Z",
+  "generated_at_local": "2026-08-09T14:59:34.766760+02:00",
+  "overall_completed_units": 720,
+  "overall_percent_tenths": 720,
+  "previous_day": "2026-08-08",
+  "previous_day_completed_gate_count": 0,
+  "previous_day_completed_gates": [],
+  "previous_day_completed_issue_count": 34,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-07T14:39:48Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/44",
-      "number": 44,
-      "title": "P0 Production: diagnose Cloudflare 502 origin failures and hide raw infrastructure errors"
+      "closed_at": "2026-08-08T03:10:37Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/300",
+      "number": 300,
+      "title": "P3 Netto: restore automatic replay report/label metadata writes"
     },
     {
-      "closed_at": "2026-08-07T14:05:46Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/124",
-      "number": 124,
-      "title": "chore: add safe VS Code RPi5 deploy tasks"
+      "closed_at": "2026-08-08T13:35:02Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/307",
+      "number": 307,
+      "title": "Bind Deals web origin 9128 to loopback and coordinate Cloudflare cutover"
     },
     {
-      "closed_at": "2026-08-07T06:59:16Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/213",
-      "number": 213,
-      "title": "perf: move current-deals winner selection into SQL"
+      "closed_at": "2026-08-07T22:01:56Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/310",
+      "number": 310,
+      "title": "P1 Netto: classify Netto-plus prices as member-price evidence"
     },
     {
-      "closed_at": "2026-08-07T06:09:05Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/215",
-      "number": 215,
-      "title": "P1 ALDI Gate D: build immutable offline visual adjudication pack"
+      "closed_at": "2026-08-08T09:35:27Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/335",
+      "number": 335,
+      "title": "P2 Docs: replace coarse project-progress counter with weighted gate-based V2"
     },
     {
-      "closed_at": "2026-08-07T03:59:32Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/219",
-      "number": 219,
-      "title": "Fix branding merge regression in UI legacy/static contracts"
+      "closed_at": "2026-08-08T09:37:01Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/336",
+      "number": 336,
+      "title": "perf: batch canonical catalog and overview current-offer comparison work"
     },
     {
-      "closed_at": "2026-08-07T12:59:36Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/222",
-      "number": 222,
-      "title": "perf: add PostgreSQL current-deals scale and EXPLAIN regression"
+      "closed_at": "2026-08-08T09:25:59Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/337",
+      "number": 337,
+      "title": "Add one-shot owner finalizer for #307 Phase C trust bootstrap"
     },
     {
-      "closed_at": "2026-08-07T07:19:20Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/223",
-      "number": 223,
-      "title": "P1 ALDI Gate D1: discover exact RPi5 frozen evidence for review-pack execution"
+      "closed_at": "2026-08-08T12:10:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/340",
+      "number": 340,
+      "title": "P1 Netto #305: add one-shot owner finalizer for ownership audit trust bootstrap"
     },
     {
-      "closed_at": "2026-08-07T14:25:36Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/228",
-      "number": 228,
-      "title": "P1 Lidl Gate B: add family-agnostic frozen scan/profile promotion"
+      "closed_at": "2026-08-08T09:48:17Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/341",
+      "number": 341,
+      "title": "P3 Netto ownership audit: allow reporter to update PR metadata"
     },
     {
-      "closed_at": "2026-08-07T07:47:17Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/230",
-      "number": 230,
-      "title": "P1 Lidl Gate A: distinguish volatile raw refresh from parser-input drift"
+      "closed_at": "2026-08-08T12:11:36Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/348",
+      "number": 348,
+      "title": "refactor(ui): split main app.js into behavior-preserving ES modules"
     },
     {
-      "closed_at": "2026-08-07T07:50:49Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/231",
-      "number": 231,
-      "title": "perf: split current-deals Server-Timing by backend stage"
+      "closed_at": "2026-08-08T09:50:44Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/349",
+      "number": 349,
+      "title": "Fix #307 owner finalizer fresh audit clone bootstrap"
     },
     {
-      "closed_at": "2026-08-07T07:37:36Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/232",
-      "number": 232,
-      "title": "P1 ALDI Gate D1: add exact-SHA RPi5 evidence-discovery execution boundary"
+      "closed_at": "2026-08-08T14:43:15Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/359",
+      "number": 359,
+      "title": "P1 infra: diagnose queued Netto ownership audit after public visibility switch"
     },
     {
-      "closed_at": "2026-08-07T09:59:08Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/247",
-      "number": 247,
-      "title": "fix: normalize runtime source permissions in production image"
+      "closed_at": "2026-08-08T13:18:32Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/365",
+      "number": 365,
+      "title": "Finalize #307 from verified dual-bind to loopback-only"
     },
     {
-      "closed_at": "2026-08-07T09:03:47Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/249",
-      "number": 249,
-      "title": "perf: prewarm current weekly bundle after production deploy"
+      "closed_at": "2026-08-08T13:49:02Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/368",
+      "number": 368,
+      "title": "perf: verify W2 batched canonical engine on RPi5 production"
     },
     {
-      "closed_at": "2026-08-07T08:56:16Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/250",
-      "number": 250,
-      "title": "P1 ALDI Gate D1: fix real Gate B transport identity and preserve failure diagnostics"
+      "closed_at": "2026-08-08T13:58:44Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/370",
+      "number": 370,
+      "title": "ui: W4A package content-hashed frontend shadow build in immutable release image"
     },
     {
-      "closed_at": "2026-08-07T09:13:39Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/255",
-      "number": 255,
-      "title": "Add generated wide project banner to README"
+      "closed_at": "2026-08-08T14:09:56Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/372",
+      "number": 372,
+      "title": "ui: W4B add opt-in hashed-asset serving mode with W3 rollback"
     },
     {
-      "closed_at": "2026-08-07T09:25:21Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/261",
-      "number": 261,
-      "title": "P1 ALDI Gate D2: diagnose missing frozen A3.0 49+41 page family"
+      "closed_at": "2026-08-08T15:01:29Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/376",
+      "number": 376,
+      "title": "fix(w4b): accept managed main release tags and safely refresh installed control plane"
     },
     {
-      "closed_at": "2026-08-07T09:43:31Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/266",
-      "number": 266,
-      "title": "P1 ALDI Gate D3: inventory immutable legacy A3.0 recovery sources"
+      "closed_at": "2026-08-08T15:24:41Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/380",
+      "number": 380,
+      "title": "W4B preflight: read production Git state as repository owner"
     },
     {
-      "closed_at": "2026-08-07T10:38:25Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/270",
-      "number": 270,
-      "title": "P1 ALDI Gate D3: harden recovery inventory before RPi5 execution"
+      "closed_at": "2026-08-08T15:44:41Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/387",
+      "number": 387,
+      "title": "P1 Netto: one-shot owner finalizer for card-region topology audit bootstrap"
     },
     {
-      "closed_at": "2026-08-07T11:11:54Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/273",
-      "number": 273,
-      "title": "P0 Infra regression: restore explicit owner authorization before production deploy"
+      "closed_at": "2026-08-08T15:42:51Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/388",
+      "number": 388,
+      "title": "W4B preflight: preserve Compose JSON stdin for validator"
     },
     {
-      "closed_at": "2026-08-07T14:39:19Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/278",
-      "number": 278,
-      "title": "P1 Infra: restore Cloudflare Tunnel health for public deploy verification"
+      "closed_at": "2026-08-08T15:54:33Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/391",
+      "number": 391,
+      "title": "W4B preflight: cleanup RETURN trap leaks local temp variables"
     },
     {
-      "closed_at": "2026-08-07T11:07:30Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/280",
-      "number": 280,
-      "title": "P1 ALDI Gate D3: fix installed-tool traversal and sanitized failure reporting"
+      "closed_at": "2026-08-08T16:29:42Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/393",
+      "number": 393,
+      "title": "P1 Netto: object-level card graph against frozen 100-cell ownership review"
     },
     {
-      "closed_at": "2026-08-07T19:26:30Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/294",
-      "number": 294,
-      "title": "P2 Netto: keep successful geometry replay green when report comment fails"
+      "closed_at": "2026-08-08T16:07:42Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/394",
+      "number": 394,
+      "title": "W4B preflight: accept reviewed inline-w3 mode in clean production Compose"
     },
     {
-      "closed_at": "2026-08-07T19:11:47Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/295",
-      "number": 295,
-      "title": "P1 Lidl Gate A: isolate audit clone and preserve sanitized early-failure evidence"
+      "closed_at": "2026-08-08T16:35:23Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/399",
+      "number": 399,
+      "title": "docs: modernize repository landing page"
     },
     {
-      "closed_at": "2026-08-07T20:34:48Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/301",
-      "number": 301,
-      "title": "P1 Netto N2: generate blind independent 100-cell source-review pack"
+      "closed_at": "2026-08-08T16:46:55Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/401",
+      "number": 401,
+      "title": "P1 Netto: owner-gated RPi5 object-card graph audit control plane"
     },
     {
-      "closed_at": "2026-08-07T20:18:26Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/303",
-      "number": 303,
-      "title": "P1 Netto N2: complete blind independent review of frozen 100-cell source pack"
+      "closed_at": "2026-08-08T17:12:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/402",
+      "number": 402,
+      "title": "W4B: report exact sanitized post-cutover validation failure"
     },
     {
-      "closed_at": "2026-08-07T20:33:44Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/306",
-      "number": 306,
-      "title": "P1 Netto N2: expose and adjudicate member-price evidence for 7 frozen cells"
+      "closed_at": "2026-08-08T17:28:06Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/405",
+      "number": 405,
+      "title": "P1 Netto: one-shot object-card graph RPi5 audit owner finalizer"
     },
     {
-      "closed_at": "2026-08-07T21:01:35Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/313",
-      "number": 313,
-      "title": "P1 Lidl Gate B: support immutable source revision under same flyer key"
+      "closed_at": "2026-08-08T17:54:51Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/408",
+      "number": 408,
+      "title": "P1 Netto: tolerate zero-area PyMuPDF image bbox in object-card graph audit"
     },
     {
-      "closed_at": "2026-08-07T21:59:46Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/318",
-      "number": 318,
-      "title": "P1 Lidl Gate B: freeze apply replan mistakes private staging for frozen source"
+      "closed_at": "2026-08-08T18:34:32Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/409",
+      "number": 409,
+      "title": "ops: isolate W4B hashed-mode header across direct API and nginx proxy"
+    },
+    {
+      "closed_at": "2026-08-08T18:01:18Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/413",
+      "number": 413,
+      "title": "fix: make W4B header diagnostic published-port guard engine-safe"
+    },
+    {
+      "closed_at": "2026-08-08T18:12:52Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/415",
+      "number": 415,
+      "title": "P1 Netto: re-register fixed object-card graph audit runtime"
+    },
+    {
+      "closed_at": "2026-08-08T18:19:49Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/423",
+      "number": 423,
+      "title": "fix: sequence W4B API before nginx during cutover"
+    },
+    {
+      "closed_at": "2026-08-08T18:33:49Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/425",
+      "number": 425,
+      "title": "test: remove stale W4B combined-apply compatibility marker"
+    },
+    {
+      "closed_at": "2026-08-08T19:00:06Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/427",
+      "number": 427,
+      "title": "P1 Netto: freeze object-graph component semantic signatures against 100-cell truth"
+    },
+    {
+      "closed_at": "2026-08-08T20:45:48Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/435",
+      "number": 435,
+      "title": "P1 Netto: evaluate frozen component semantic-class purity against 100-cell truth"
     }
   ],
-  "previous_day_percentage_points": 0,
+  "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
-  "schema_version": 1,
+  "schema_version": 2,
   "store_catalogues": [
     {
-      "completed_points": 5,
-      "completion_percent": 36,
+      "completed_units": 110,
+      "completion_percent_tenths": 786,
       "id": "netto",
       "label": "Netto",
-      "weight": 14
+      "weight_units": 140
     },
     {
-      "completed_points": 10,
-      "completion_percent": 71,
+      "completed_units": 120,
+      "completion_percent_tenths": 857,
       "id": "lidl",
       "label": "Lidl",
-      "weight": 14
+      "weight_units": 140
     },
     {
-      "completed_points": 6,
-      "completion_percent": 60,
+      "completed_units": 75,
+      "completion_percent_tenths": 750,
       "id": "aldi",
       "label": "ALDI Nord",
-      "weight": 10
+      "weight_units": 100
     },
     {
-      "completed_points": 5,
-      "completion_percent": 50,
+      "completed_units": 75,
+      "completion_percent_tenths": 750,
       "id": "edeka",
       "label": "EDEKA Patzer",
-      "weight": 10
+      "weight_units": 100
     }
   ],
-  "timezone": "Europe/Berlin"
+  "timezone": "Europe/Berlin",
+  "total_units": 1000,
+  "units_per_percentage_point": 10,
+  "weighted_gate_count": 67
 }
