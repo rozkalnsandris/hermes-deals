@@ -13,7 +13,7 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_w4b_runtime_mode_is_explicit_default_inline_and_fail_closed() -> None:
+def test_w4_runtime_mode_is_explicit_default_inline_and_fail_closed() -> None:
     runtime = read(RUNTIME)
     compose = read(COMPOSE)
 
@@ -28,12 +28,16 @@ def test_w4b_runtime_mode_is_explicit_default_inline_and_fail_closed() -> None:
     assert 'path.startswith("/ui/assets/")' in runtime
     assert '"application/javascript"' in runtime
     assert '"text/css"' in runtime
-    assert '"Cache-Control": "no-store"' in runtime
+    assert 'HTML_CACHE_CONTROL = "no-cache"' in runtime
+    assert 'HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"' in runtime
+    assert '"Cache-Control": cache_control' in runtime
+    assert 'cache_control=HASHED_ASSET_CACHE_CONTROL' in runtime
+    assert 'cache_control=HTML_CACHE_CONTROL' in runtime
     assert '"X-Hermes-UI-Asset-Mode": self.mode' in runtime
     assert "HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:-inline-w3}" in compose
 
 
-def test_w4b_keeps_main_w3_routes_and_review_ui_unchanged() -> None:
+def test_w4_keeps_main_w3_routes_and_review_ui_unchanged() -> None:
     runtime = read(RUNTIME)
     main = read(MAIN)
 
@@ -47,7 +51,7 @@ def test_w4b_keeps_main_w3_routes_and_review_ui_unchanged() -> None:
     assert '"/ui/review"' in main
 
 
-def test_w4b_release_and_nginx_use_guarded_runtime_without_cache_cutover() -> None:
+def test_w4c_release_keeps_nginx_as_transparent_asset_proxy() -> None:
     dockerfile = read(DOCKERFILE)
     nginx = read(NGINX)
 
@@ -59,5 +63,7 @@ def test_w4b_release_and_nginx_use_guarded_runtime_without_cache_cutover() -> No
 
     asset_block = nginx.split("location ^~ /ui/assets/", 1)[1].split("}", 1)[0]
     assert "proxy_pass http://api:8000;" in asset_block
+    assert "add_header" not in asset_block
+    assert "expires" not in asset_block
     assert "immutable" not in asset_block.casefold()
     assert "max-age" not in asset_block.casefold()
