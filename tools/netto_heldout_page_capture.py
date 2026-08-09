@@ -23,6 +23,7 @@ from netto_heldout_ownership_protocol import (  # noqa: E402
     prepare_freeze,
     source_campaign_key,
 )
+from netto_heldout_source_selector import STRATEGY as SOURCE_SELECTOR_STRATEGY  # noqa: E402
 from netto_shadow_promotion import (  # noqa: E402
     EvidenceBinding,
     EvidenceStatus,
@@ -325,6 +326,24 @@ def _load_binding(path: Path) -> dict[str, Any]:
         raise HeldoutCaptureError("binding input must be valid UTF-8 JSON") from exc
     if not isinstance(payload, dict):
         raise HeldoutCaptureError("binding input must contain a JSON object")
+
+    if payload.get("strategy") == SOURCE_SELECTOR_STRATEGY:
+        selected = payload.get("binding")
+        if not isinstance(selected, dict):
+            raise HeldoutCaptureError("selector payload is missing the binding object")
+        try:
+            parsed = EvidenceBinding.from_mapping(selected)
+            parsed.validate()
+            selected_identity = parsed.identity_sha256()
+            campaign_key = source_campaign_key(parsed)
+        except (OSError, ValueError) as exc:
+            raise HeldoutCaptureError(f"selector binding is invalid: {exc}") from exc
+        if payload.get("evidence_identity_sha256") != selected_identity:
+            raise HeldoutCaptureError("selector evidence identity does not match the selected binding")
+        if payload.get("campaign_key") != campaign_key:
+            raise HeldoutCaptureError("selector campaign identity does not match the selected source manifest")
+        return dict(selected)
+
     return payload
 
 
