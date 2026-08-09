@@ -246,12 +246,24 @@ def render_progress_bar(percent_tenths: int, width: int = 20) -> str:
 def render_readme_block(snapshot: Mapping[str, Any]) -> str:
     previous_day = datetime.fromisoformat(str(snapshot["previous_day"])).strftime("%d.%m.%Y")
     generated_local = datetime.fromisoformat(str(snapshot["generated_at_local"]))
-    links = ", ".join(f"[#{item['number']}]({item['html_url']})" for item in snapshot["previous_day_completed_issues"]) or "none"
+    issue_links = [f"[#{item['number']}]({item['html_url']})" for item in snapshot["previous_day_completed_issues"]]
     delta = int(snapshot["previous_day_progress_units"])
     overall = int(snapshot["overall_percent_tenths"])
     _require(0 <= delta <= overall, "previous-day units must fit overall progress")
     previous = overall - delta
     stores = [f"- **{store['label']}:** **{format_percent_tenths(int(store['completion_percent_tenths']))}%** `{render_progress_bar(int(store['completion_percent_tenths']), width=10)}`" for store in snapshot["store_catalogues"]]
+    activity_details: list[str] = []
+    if issue_links:
+        link_rows = [" · ".join(issue_links[index:index + 8]) for index in range(0, len(issue_links), 8)]
+        activity_details = [
+            "<details>",
+            f"<summary>Show {len(issue_links)} issues fixed on {previous_day}</summary>",
+            "",
+            *link_rows,
+            "",
+            "</details>",
+            "",
+        ]
     return "\n".join([
         START_MARKER,
         "## Project progress",
@@ -265,8 +277,9 @@ def render_readme_block(snapshot: Mapping[str, Any]) -> str:
         "",
         f"**Weighted roadmap gates:** **{snapshot['completed_weighted_gate_count']}/{snapshot['weighted_gate_count']} complete** · **{snapshot['previous_day_completed_gate_count']} during the previous day**",
         "",
-        f"**Development activity:** **Issues fixed:** **{snapshot['completed_issue_count']} total** · **{snapshot['previous_day_completed_issue_count']} during the previous day** — {links}",
+        f"**Development activity:** **Issues fixed:** **{snapshot['completed_issue_count']} total** · **{snapshot['previous_day_completed_issue_count']} during the previous day**",
         "",
+        *activity_details,
         "_Issue activity is informative; only completed weighted roadmap gates move project completion._",
         "",
         f"_Last updated automatically: {generated_local.strftime('%d.%m.%Y %H:%M')} {snapshot['timezone']}. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._",

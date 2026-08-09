@@ -25,7 +25,11 @@ def test_readme_separates_weighted_progress_from_issue_activity() -> None:
             {
                 "number": 300,
                 "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/300",
-            }
+            },
+            {
+                "number": 307,
+                "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/307",
+            },
         ],
         "previous_day_progress_units": 0,
         "overall_percent_tenths": 720,
@@ -39,7 +43,7 @@ def test_readme_separates_weighted_progress_from_issue_activity() -> None:
         "weighted_gate_count": 67,
         "previous_day_completed_gate_count": 0,
         "completed_issue_count": 122,
-        "previous_day_completed_issue_count": 34,
+        "previous_day_completed_issue_count": 2,
         "timezone": "Europe/Berlin",
     }
 
@@ -48,5 +52,7 @@ def test_readme_separates_weighted_progress_from_issue_activity() -> None:
     assert "**Overall:** **72.0%**" in block
     assert "weighted project completion" in block
     assert "**Weighted roadmap progress during 08.08.2026:** **+0.0 percentage points** **(72.0% → 72.0%)**" in block
-    assert "**Development activity:** **Issues fixed:** **122 total** · **34 during the previous day**" in block
+    assert "**Development activity:** **Issues fixed:** **122 total** · **2 during the previous day**" in block
+    assert "<summary>Show 2 issues fixed on 08.08.2026</summary>" in block
     assert "[#300](https://github.com/rozkalnsandris/hermes-deals/issues/300)" in block
+    assert "[#307](https://github.com/rozkalnsandris/hermes-deals/issues/307)" in block
