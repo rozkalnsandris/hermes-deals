@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OPERATOR = ROOT / "tools" / "runner" / "w4c" / "hermes_deals_w4c_operator.py"
 DISPATCHER = ROOT / "tools" / "runner" / "w4c" / "hermes-deals-w4c-dispatch"
 FINALIZER = ROOT / "tools" / "runner" / "w4c" / "run-hermes-deals-w4c-owner-finalizer.sh"
-OVERRIDE = ROOT / "tools" / "runner" / "w4c" / "docker-compose.w4c.yml"
+OVERRIDE = ROOT / "tools" / "runner"" / "w4c" / "docker-compose.w4c.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "w4c-production-cache-rollout.yml"
 
 TARGET = "42238d93045e60430a42cd13b85b598e78c7d528"
@@ -129,6 +129,18 @@ def test_w4c_runner_cannot_invoke_root_only_rollback() -> None:
     assert '"/hermes-477 cutover": "cutover"' in workflow
     assert '"/hermes-477 verify": "verify"' in workflow
     assert "/hermes-477 rollback" not in workflow
+
+
+def test_w4c_dispatcher_proves_exact_w4b_image_is_still_available() -> None:
+    dispatcher = read(DISPATCHER)
+
+    assert "W4B_IMAGE='hermes-deals-api:w4b-128325461f24'" in dispatcher
+    assert f"W4B_REVISION='{W4B}'" in dispatcher
+    assert 'if [[ "$MODE" == \'preflight\' || "$MODE" == \'cutover\' ]]; then' in dispatcher
+    assert '["docker", "image", "inspect", expected_ref]' in dispatcher
+    assert 'container.get("Image") != image.get("Id")' in dispatcher
+    assert 'image_labels.get("org.opencontainers.image.revision") != expected_revision' in dispatcher
+    assert "w4b_image_unavailable_or_mismatched" in dispatcher
 
 
 def test_w4c_owner_finalizer_pins_isolated_runtime_delta_and_read_only_preflight() -> None:
