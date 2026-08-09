@@ -137,7 +137,8 @@ def test_owner_wrapper_is_non_root_exact_main_and_read_only() -> None:
     assert "primary repository must be clean" in text
     assert "netto_heldout_source_selector.py" in text
     assert "netto_heldout_page_capture.py" in text
-    assert "/home/andris/hermes-deals/data/raw" in text
+    assert "REPO='/home/andris/hermes-deals'" in text
+    assert 'RAW_ROOT="$REPO/data/raw"' in text
     assert "/home/andris/hermes-deals-audits" in text
     assert "PyMuPDF 1.28.0 required" in text
     assert "find . -type f ! -path './SHA256SUMS' -print0" in text
