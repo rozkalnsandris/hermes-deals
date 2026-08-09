@@ -1,0 +1,275 @@
+name: Netto hz33 local-span candidate training replay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/netto-local-span-hz33-training.yml
+      - tools/netto_local_span_auto_single_candidate.py
+      - tools/netto_local_span_auto_single_training_audit.py
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-local-span-hz33-training
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Ensure owner-gated label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          label={"name":"audit:netto-local-span-training-v1","color":"0052cc","description":"Replay frozen local-span auto-single candidate on exposed hz33 truth"}
+          repo=os.environ["REPOSITORY"]
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","Content-Type":"application/json","User-Agent":"hermes-deals-netto-local-span-label","X-GitHub-Api-Version":"2022-11-28"}
+          encoded=urllib.parse.quote(label["name"],safe="")
+          data=json.dumps(label).encode()
+          try:
+              urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/labels/{encoded}",data=data,method="PATCH",headers=headers),timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404: raise
+              urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/labels",data=data,method="POST",headers=headers),timeout=20).close()
+          PY
+
+  authorize:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-local-span-training-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate owner merged-main trigger
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender=event.get("sender") or {}
+          if sender.get("login") != "rozkalnsandris" or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]): raise SystemExit("actor is not repository owner")
+          number=int((event.get("pull_request") or {}).get("number") or 0)
+          repo=os.environ["REPOSITORY"]
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","User-Agent":"hermes-deals-netto-local-span-authorizer","X-GitHub-Api-Version":"2022-11-28"}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as response: return json.load(response)
+          pr=get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo: raise SystemExit("trigger PR is not merged into repository main")
+          sha=str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40: raise SystemExit("merge SHA invalid")
+          comparison=get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead","identical"}: raise SystemExit("merge is not reachable from main")
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a",encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr_number={number}\nactor={sender['login']}\n")
+          PY
+
+  replay:
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      audit_sha: ${{ steps.run.outputs.audit_sha }}
+      candidate_sha: ${{ steps.run.outputs.candidate_sha }}
+      candidate_count: ${{ steps.run.outputs.candidate_count }}
+      precision: ${{ steps.run.outputs.precision }}
+      artifact_name: ${{ steps.run.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    env:
+      UPSTREAM_RUN_ID: "31324156565"
+      UPSTREAM_ARTIFACT: netto-heldout-github-c0701d76bfa6412cbf89b4bf9816a68ccb3c2ab8-run-31324156565
+      UPSTREAM_ARTIFACT_DIGEST: sha256:cc289165aaac8796b33391917edb03df1085a841b82d17fc08aa93efa1d66ec4
+      UPSTREAM_ARTIFACT_BYTES: "37892979"
+      EXPECTED_SOURCE_SHA: 49e22d29b16eacf0d316f20105de2c25e3d9b3c2ae231d0bd24d0d18036f5fd4
+      EXPECTED_PREDICTIONS_SHA: 70c3c8abace632f6be298abb5d02b398b3e8b91e8d53565b21eface536ed7b94
+      EXPECTED_CAPTURE_SUMS_SHA: 9711f54387a02c1e3d18fa979acca599166b860c3d823fa1b66c318e580c1f9d
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download, inspect and verify exact pre-truth inputs
+        id: safe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          safe_root="${RUNNER_TEMP}/netto-local-span-safe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "root=$safe_root" >> "$GITHUB_OUTPUT"
+          SAFE_ROOT="$safe_root" python3 - <<'PY'
+          import hashlib,json,os,pathlib,shutil,stat,urllib.error,urllib.parse,urllib.request,zipfile
+          repo=os.environ["REPOSITORY"]; run_id=os.environ["UPSTREAM_RUN_ID"]; name=os.environ["UPSTREAM_ARTIFACT"]
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","User-Agent":"hermes-deals-netto-local-span-upstream","X-GitHub-Api-Version":"2022-11-28"}
+          encoded=urllib.parse.quote(name,safe="")
+          with urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?name={encoded}",headers=headers),timeout=20) as response: artifacts=(json.load(response).get("artifacts") or [])
+          if len(artifacts)!=1: raise SystemExit("expected exactly one upstream artifact")
+          artifact=artifacts[0]
+          if artifact.get("name")!=name or artifact.get("expired") is not False: raise SystemExit("artifact identity/expiry mismatch")
+          if artifact.get("digest")!=os.environ["UPSTREAM_ARTIFACT_DIGEST"] or int(artifact.get("size_in_bytes") or 0)!=int(os.environ["UPSTREAM_ARTIFACT_BYTES"]): raise SystemExit("artifact digest/size mismatch")
+          if str((artifact.get("workflow_run") or {}).get("id"))!=run_id: raise SystemExit("artifact workflow-run mismatch")
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,req,fp,code,msg,hdrs,newurl): return None
+          request=urllib.request.Request(f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact['id']}/zip",headers=headers)
+          try:
+              urllib.request.build_opener(NoRedirect).open(request,timeout=20); raise SystemExit("archive endpoint did not redirect")
+          except urllib.error.HTTPError as error:
+              if error.code not in {301,302,303,307,308}: raise
+              location=error.headers.get("Location")
+          if not location: raise SystemExit("artifact redirect missing")
+          zip_path=pathlib.Path(os.environ["RUNNER_TEMP"])/f"netto-local-span-{os.environ['GITHUB_RUN_ID']}.zip"
+          digest=hashlib.sha256(); size=0
+          with urllib.request.urlopen(location,timeout=120) as response, zip_path.open("xb") as output:
+              while True:
+                  chunk=response.read(1024*1024)
+                  if not chunk: break
+                  output.write(chunk); digest.update(chunk); size+=len(chunk)
+          if f"sha256:{digest.hexdigest()}"!=os.environ["UPSTREAM_ARTIFACT_DIGEST"] or size!=int(os.environ["UPSTREAM_ARTIFACT_BYTES"]): raise SystemExit("downloaded ZIP digest/size mismatch")
+          destination=pathlib.Path(os.environ["SAFE_ROOT"]); destination.mkdir(mode=0o700)
+          allowed={"SHA256SUMS","capture/SHA256SUMS","capture/source-evidence.json","capture/predictions.json","capture/freeze-manifest.json","capture/freeze-receipt.json"}
+          with zipfile.ZipFile(zip_path) as archive:
+              infos=archive.infolist()
+              if len(infos)!=15 or len({info.filename for info in infos})!=15: raise SystemExit("unexpected/duplicate archive members")
+              if not allowed.issubset({info.filename for info in infos}): raise SystemExit("required replay members missing")
+              for info in infos:
+                  pure=pathlib.PurePosixPath(info.filename); mode=(info.external_attr>>16)&0xFFFF
+                  if info.is_dir() or info.filename.startswith("/") or "\\" in info.filename or any(part in {"",".",".."} for part in pure.parts) or stat.S_ISLNK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode): raise SystemExit(f"unsafe archive member: {info.filename}")
+              for member in sorted(allowed):
+                  target=destination.joinpath(*pathlib.PurePosixPath(member).parts); target.parent.mkdir(parents=True,exist_ok=True)
+                  with archive.open(member) as src,target.open("xb") as dst: shutil.copyfileobj(src,dst)
+          zip_path.unlink()
+          def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+          if sha(destination/"capture/source-evidence.json")!=os.environ["EXPECTED_SOURCE_SHA"]: raise SystemExit("source evidence SHA mismatch")
+          if sha(destination/"capture/predictions.json")!=os.environ["EXPECTED_PREDICTIONS_SHA"]: raise SystemExit("predictions SHA mismatch")
+          if sha(destination/"capture/SHA256SUMS")!=os.environ["EXPECTED_CAPTURE_SUMS_SHA"]: raise SystemExit("capture checksum manifest SHA mismatch")
+          root_sums={}
+          for line in (destination/"SHA256SUMS").read_text().splitlines():
+              value,member=line.split(None,1); root_sums[member.removeprefix("./")]=value
+          for member,expected in {"capture/source-evidence.json":os.environ["EXPECTED_SOURCE_SHA"],"capture/predictions.json":os.environ["EXPECTED_PREDICTIONS_SHA"],"capture/SHA256SUMS":os.environ["EXPECTED_CAPTURE_SUMS_SHA"]}.items():
+              if root_sums.get(member)!=expected: raise SystemExit(f"root checksum mismatch: {member}")
+          nested={}
+          for line in (destination/"capture/SHA256SUMS").read_text().splitlines():
+              value,member=line.split(None,1); nested[member]=value
+          if nested.get("source-evidence.json")!=os.environ["EXPECTED_SOURCE_SHA"] or nested.get("predictions.json")!=os.environ["EXPECTED_PREDICTIONS_SHA"]: raise SystemExit("nested checksum mismatch")
+          manifest=json.loads((destination/"capture/freeze-manifest.json").read_text())
+          if manifest.get("truth_sha256") is not None or manifest.get("adjudication_sha256") is not None: raise SystemExit("original freeze was not pre-truth")
+          PY
+
+      - name: Run truth-after-freeze hz33 training replay
+        id: run
+        env:
+          SAFE_ROOT: ${{ steps.safe.outputs.root }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/netto-local-span-training-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -m 700 "$output"
+          result="$(python3 tools/netto_local_span_auto_single_training_audit.py \
+            --source-evidence "${SAFE_ROOT}/capture/source-evidence.json" \
+            --predictions "${SAFE_ROOT}/capture/predictions.json" \
+            --truth evidence/netto/heldout/hz33/completed-independent-source-truth-ledger.json.gz.b64 \
+            --output "$output/training-audit.json")"
+          printf '%s\n' "$result"
+          digest="$(sha256sum "$output/training-audit.json" | cut -d' ' -f1)"
+          printf '%s  training-audit.json\n' "$digest" > "$output/SHA256SUMS"
+          echo "artifact_name=netto-hz33-local-span-training-run-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "output=$output" >> "$GITHUB_OUTPUT"
+          RESULT_JSON="$result" python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json,os,pathlib,sys
+          row=json.loads(os.environ["RESULT_JSON"])
+          if row.get("candidate_auto_single_count")!=25 or row.get("candidate_auto_single_precision")!=1.0 or row.get("candidate_mixed_source_count")!=0 or row.get("candidate_excluded_control_count")!=0 or row.get("candidate_unresolved_count")!=0 or row.get("promotion_ready") is not False: raise SystemExit("hz33 local-span training contract drift")
+          with pathlib.Path(sys.argv[1]).open("a",encoding="utf-8") as handle:
+              handle.write(f"audit_sha={row['training_audit_sha256']}\n")
+              handle.write(f"candidate_sha={row['candidate_provenance_sha256']}\n")
+              handle.write(f"candidate_count={row['candidate_auto_single_count']}\n")
+              handle.write(f"precision={row['candidate_auto_single_precision']}\n")
+          PY
+
+      - name: Upload training replay artifact
+        id: upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.run.outputs.artifact_name }}
+          path: ${{ steps.run.outputs.output }}
+          if-no-files-found: error
+          retention-days: 14
+
+  report:
+    needs: [authorize, replay]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Report and clear trigger label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          SHA: ${{ needs.authorize.outputs.sha }}
+          RESULT: ${{ needs.replay.result }}
+          AUDIT_SHA: ${{ needs.replay.outputs.audit_sha }}
+          CANDIDATE_SHA: ${{ needs.replay.outputs.candidate_sha }}
+          COUNT: ${{ needs.replay.outputs.candidate_count }}
+          PRECISION: ${{ needs.replay.outputs.precision }}
+          ARTIFACT_NAME: ${{ needs.replay.outputs.artifact_name }}
+          ARTIFACT_ID: ${{ needs.replay.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.replay.outputs.artifact_digest }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,urllib.error,urllib.parse,urllib.request
+          body=("## Netto hz33 local-span candidate training replay\n\n"
+                f"- Trigger actor: `{os.environ['ACTOR']}`\n- Replay job: **{os.environ['RESULT']}**\n- Implementation commit: `{os.environ['SHA']}`\n- Workflow run ID: `{os.environ['RUN_ID']}`\n"
+                f"- Candidate provenance SHA256: `{os.environ['CANDIDATE_SHA'] or 'unavailable'}`\n- Training audit SHA256: `{os.environ['AUDIT_SHA'] or 'unavailable'}`\n"
+                f"- Candidate auto-single groups: `{os.environ['COUNT'] or 'unknown'}`\n- Training precision: `{os.environ['PRECISION'] or 'unknown'}`\n"
+                f"- Artifact: `{os.environ['ARTIFACT_NAME'] or 'not-created'}` (ID `{os.environ['ARTIFACT_ID'] or 'unavailable'}`)\n- Artifact digest: `{os.environ['ARTIFACT_DIGEST'] or 'unavailable'}`\n"
+                "- Training only: **true**\n- Promotion ready: **false**\n- Production deployment: **not authorized**\n- Database/Review writes: **not authorized**\n")
+          repo=os.environ["REPOSITORY"]; number=int(os.environ["PR_NUMBER"]); label="audit:netto-local-span-training-v1"
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","Content-Type":"application/json","User-Agent":"hermes-deals-netto-local-span-reporter","X-GitHub-Api-Version":"2022-11-28"}
+          urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{number}/comments",data=json.dumps({"body":body}).encode(),method="POST",headers=headers),timeout=20).close()
+          try: urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label,safe='')}",method="DELETE",headers=headers),timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code!=404: raise
+          PY
