@@ -45,6 +45,7 @@ def fixture_capture(tmp_path: Path, *, nonblank: bool = False) -> dict[str, obje
     source_sha = "a" * 64
     valid_from = "2026-08-10"
     valid_until = "2026-08-15"
+    logical_freeze_sha = "f" * 64
 
     freeze = {
         "schema_version": 1,
@@ -63,7 +64,8 @@ def fixture_capture(tmp_path: Path, *, nonblank: bool = False) -> dict[str, obje
     }
     freeze_path = root / "capture" / "freeze-manifest.json"
     write_json(freeze_path, freeze)
-    freeze_sha = sha256(freeze_path.read_bytes()).hexdigest()
+    freeze_file_sha = sha256(freeze_path.read_bytes()).hexdigest()
+    assert freeze_file_sha != logical_freeze_sha
 
     write_json(
         root / "github-capture-result.json",
@@ -93,7 +95,7 @@ def fixture_capture(tmp_path: Path, *, nonblank: bool = False) -> dict[str, obje
         root / "capture" / "freeze-receipt.json",
         {
             "source_sha256": source_sha,
-            "freeze_manifest_sha256": freeze_sha,
+            "freeze_manifest_sha256": logical_freeze_sha,
             "truth_available_at_freeze": False,
             "review_only": True,
             "promotion_ready": False,
@@ -104,7 +106,7 @@ def fixture_capture(tmp_path: Path, *, nonblank: bool = False) -> dict[str, obje
         {
             "campaign_key": campaign,
             "source_sha256": source_sha,
-            "freeze_manifest_sha256": freeze_sha,
+            "freeze_manifest_sha256": logical_freeze_sha,
             "page_count": 2,
             "parser_predictions_included": False,
             "expected_truth_included": False,
@@ -125,7 +127,8 @@ def fixture_capture(tmp_path: Path, *, nonblank: bool = False) -> dict[str, obje
         "valid_until": valid_until,
         "source_sha": source_sha,
         "pdf_sha": pdf_sha,
-        "freeze_sha": freeze_sha,
+        "freeze_sha": logical_freeze_sha,
+        "freeze_file_sha": freeze_file_sha,
     }
 
 
@@ -148,8 +151,10 @@ def generate(tmp_path: Path, fixture: dict[str, object]):
 
 def test_two_page_pack_is_source_only_and_blank(tmp_path: Path) -> None:
     fixture = fixture_capture(tmp_path)
+    assert fixture["freeze_sha"] != fixture["freeze_file_sha"]
     output, payload = generate(tmp_path, fixture)
 
+    assert payload["freeze_manifest_sha256"] == fixture["freeze_sha"]
     assert payload["page_count"] == 2
     assert payload["blind_review_contract"]["parser_predictions_included"] is False
     assert payload["blind_review_contract"]["expected_truth_included"] is False
