@@ -181,6 +181,9 @@ def test_w4c_public_bridge_authorizes_before_self_hosted_and_has_no_checkout() -
     assert 'owner = "rozkalnsandris"' in workflow
     assert 'if os.environ["ISSUE_NUMBER"] != "477":' in workflow
     assert "w4c-production-cache-rollout.yml@refs/heads/main" in workflow
+    assert "RUN_ATTEMPT: ${{ github.run_attempt }}" in workflow
+    assert 'if os.environ["RUN_ATTEMPT"] != "1":' in workflow
+    assert "cannot be replayed by rerunning a workflow" in workflow
     assert "group: hermes-deals-production-release" in workflow
     assert "permissions: {}" in workflow
     assert "actions/checkout" not in workflow
