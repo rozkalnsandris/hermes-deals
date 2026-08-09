@@ -1,0 +1,251 @@
+name: Netto held-out GitHub capture
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/netto-heldout-github-capture.yml
+      - tools/netto_heldout_live_source.py
+      - tools/run-netto-heldout-github-capture-v01.sh
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-heldout-github-capture
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    name: Ensure held-out capture label
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or reconcile owner-gated label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          label = {
+              "name": "audit:netto-heldout-github-v1",
+              "color": "0e8a16",
+              "description": "Run truth-blind Netto 5659 held-out capture on GitHub-hosted runner",
+          }
+          repo, token = os.environ["REPOSITORY"], os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-heldout-label",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          payload = json.dumps(label).encode()
+          try:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels/{encoded}",
+                  data=payload, method="PATCH", headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels",
+                  data=payload, method="POST", headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          PY
+
+  authorize:
+    name: Authorize merged-PR held-out capture
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-heldout-github-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate owner, merge and main ancestry
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals" or os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("unexpected repository/workflow ref")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("held-out capture actor is not the repository owner")
+          if (event.get("label") or {}).get("name") != "audit:netto-heldout-github-v1":
+              raise SystemExit("unexpected held-out capture label")
+          number = int((event.get("pull_request") or {}).get("number") or 0)
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-heldout-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("capture accepts only merged pull requests")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("merged pull request SHA is invalid")
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged capture SHA is not reachable from current main")
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr_number={number}\nactor={sender['login']}\n")
+          PY
+
+  capture:
+    name: Fetch and freeze held-out Netto source
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact reviewed merge
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install exact backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip check
+
+      - name: Run truth-blind GitHub capture
+        id: run
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          as_of="$(python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          print(datetime.now(ZoneInfo('Europe/Berlin')).date().isoformat())
+          PY
+          )"
+          root="${RUNNER_TEMP}/netto-heldout-github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact_root=$root" >> "$GITHUB_OUTPUT"
+          bash tools/run-netto-heldout-github-capture-v01.sh "$REGISTERED_SHA" "$as_of" "$root"
+
+      - name: Upload held-out source and freeze evidence
+        if: always() && steps.run.outputs.artifact_root != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: netto-heldout-github-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.run.outputs.artifact_root }}
+          if-no-files-found: warn
+          retention-days: 14
+
+  report:
+    name: Report held-out capture result
+    needs:
+      - authorize
+      - capture
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment result and clear trigger label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          CAPTURE_RESULT: ${{ needs.capture.result }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          repo, number = os.environ["REPOSITORY"], int(os.environ["PR_NUMBER"])
+          label = "audit:netto-heldout-github-v1"
+          artifact = f"netto-heldout-github-{os.environ['REGISTERED_SHA']}-run-{os.environ['RUN_ID']}"
+          body = (
+              "## Netto held-out GitHub capture result\n\n"
+              f"- Trigger actor: `{os.environ['ACTOR']}`\n"
+              f"- Capture job: **{os.environ['CAPTURE_RESULT']}**\n"
+              f"- Registered commit: `{os.environ['REGISTERED_SHA']}`\n"
+              f"- Workflow run ID: `{os.environ['RUN_ID']}`\n"
+              f"- Artifact: `{artifact}`\n"
+              "- Production deployment: **not authorized**\n"
+              "- Database/Review writes: **not authorized**\n"
+              "- Promotion ready: **false**\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-heldout-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/comments",
+              data=json.dumps({"body": body}).encode(), method="POST", headers=headers,
+          )
+          urllib.request.urlopen(request, timeout=20).close()
+          remove = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}",
+              method="DELETE", headers=headers,
+          )
+          try:
+              urllib.request.urlopen(remove, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          PY
