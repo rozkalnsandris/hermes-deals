@@ -1,0 +1,275 @@
+name: Netto normal-price historical replay evidence audit
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: netto-normal-price-historical-replay-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  TRIGGER_LABEL: audit:netto-normal-price-historical-v1
+  HISTORICAL_RUN_ID: "31216060947"
+  HISTORICAL_REPLAY_SHA256: 075ec36fa6c3a2e71029da5e573f783a40e001c501c520815793b2da982b4888
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      implementation_sha: ${{ steps.auth.outputs.implementation_sha }}
+    steps:
+      - name: Authorize exact owner merged PR
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json, os
+          event = json.load(open(os.environ["EVENT_PATH"], encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "merged": pr.get("merged") is True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("missing exact merged implementation SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"implementation_sha={sha}\n")
+          PY
+
+  audit:
+    needs: authorize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merged implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.implementation_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable main ancestry
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$IMPLEMENTATION_SHA" origin/main
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install exact backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip check
+
+      - name: Resolve exact historical replay artifact and evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, pathlib, urllib.request, zipfile
+
+          repo = os.environ["REPOSITORY"]
+          run_id = int(os.environ["HISTORICAL_RUN_ID"])
+          replay_sha = os.environ["HISTORICAL_REPLAY_SHA256"]
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"
+          with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+              artifacts = json.load(response).get("artifacts", [])
+          candidates = []
+          cases = [
+              {"label": "Lederkäse 250g", "needle": "Lederkäse", "expected_normal_price_eur": "1.69", "price_tokens": ["1.69", "1,69"]},
+              {"label": "Grill-/Pfannenkäse 200g", "needle": "Grill-/Pfannenkäse", "expected_normal_price_eur": "1.99", "price_tokens": ["1.99", "1,99"]},
+              {"label": "Hähnchen-Geschnetzeltes 400g", "needle": "Hähnchen-Geschnetzeltes", "expected_normal_price_eur": "3.79", "price_tokens": ["3.79", "3,79"]},
+              {"label": "Melone Galia Stück", "needle": "Melone Galia", "expected_normal_price_eur": "1.99", "price_tokens": ["1.99", "1,99"]},
+          ]
+          for artifact in artifacts:
+              if artifact.get("expired"):
+                  continue
+              artifact_id = int(artifact["id"])
+              meta_digest = str(artifact.get("digest") or "")
+              if not meta_digest.startswith("sha256:"):
+                  raise SystemExit(f"artifact {artifact_id} has no SHA256 API digest")
+              download = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+              with urllib.request.urlopen(urllib.request.Request(download, headers=headers), timeout=60) as response:
+                  archive = response.read()
+              zip_sha = hashlib.sha256(archive).hexdigest()
+              if meta_digest != f"sha256:{zip_sha}":
+                  raise SystemExit(f"artifact {artifact_id} ZIP/API digest mismatch")
+              replay_members = []
+              case_hits = {case["label"]: [] for case in cases}
+              with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+                  for name in zf.namelist():
+                      if name.endswith("/"):
+                          continue
+                      info = zf.getinfo(name)
+                      if name.startswith("/") or ".." in pathlib.PurePosixPath(name).parts:
+                          raise SystemExit(f"unsafe archive member: {name}")
+                      data = zf.read(info)
+                      if hashlib.sha256(data).hexdigest() == replay_sha:
+                          replay_members.append(name)
+                      if len(data) <= 50_000_000:
+                          text = data.decode("utf-8", errors="ignore")
+                          lower = text.lower()
+                          for case in cases:
+                              if case["needle"].lower() in lower and any(token in text for token in case["price_tokens"]):
+                                  case_hits[case["label"]].append(name)
+              if replay_members and all(case_hits[case["label"]] for case in cases):
+                  candidates.append(
+                      {
+                          "artifact_id": artifact_id,
+                          "artifact_name": artifact["name"],
+                          "artifact_digest_sha256": zip_sha,
+                          "replay_members": sorted(replay_members),
+                          "case_hits": {key: sorted(value) for key, value in case_hits.items()},
+                      }
+                  )
+          if len(candidates) != 1:
+              raise SystemExit(f"historical replay artifact must be unique; found {len(candidates)}")
+          candidate = candidates[0]
+          if len(candidate["replay_members"]) != 1:
+              raise SystemExit("historical replay member SHA must be unique inside artifact")
+
+          root = pathlib.Path(".netto-normal-price-historical")
+          root.mkdir(mode=0o700)
+          finalizer_path = pathlib.Path("tools/netto_normal_price_finalizer.py")
+          test_path = pathlib.Path("backend/tests/test_netto_normal_price_finalizer.py")
+          evidence = {
+              "schema_version": 1,
+              "strategy": "netto_normal_price_historical_replay_binding_v1",
+              "historical_run_id": run_id,
+              "historical_replay_sha256": replay_sha,
+              **candidate,
+              "cases": [
+                  {"label": case["label"], "expected_normal_price_eur": case["expected_normal_price_eur"], "evidence_members": candidate["case_hits"][case["label"]]}
+                  for case in cases
+              ],
+              "current_finalizer_sha256": hashlib.sha256(finalizer_path.read_bytes()).hexdigest(),
+              "current_focused_test_sha256": hashlib.sha256(test_path.read_bytes()).hexdigest(),
+              "repository_write": False,
+              "database_write": False,
+              "review_write": False,
+              "publication": False,
+              "deployment": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          (root / "historical-binding.json").write_text(
+              json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run current four-case finalizer regression against bound implementation
+        run: |
+          python -m pytest -q backend/tests/test_netto_normal_price_finalizer.py \
+            --junitxml=.netto-normal-price-historical/junit.xml
+
+      - name: Freeze audit receipt
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(".netto-normal-price-historical")
+          binding = json.loads((root / "historical-binding.json").read_text(encoding="utf-8"))
+          junit = root / "junit.xml"
+          receipt = {
+              "schema_version": 1,
+              "strategy": "netto_normal_price_historical_replay_audit_receipt_v1",
+              "implementation_sha": os.environ["IMPLEMENTATION_SHA"],
+              "historical_run_id": binding["historical_run_id"],
+              "historical_artifact_id": binding["artifact_id"],
+              "historical_artifact_name": binding["artifact_name"],
+              "historical_artifact_digest_sha256": binding["artifact_digest_sha256"],
+              "historical_replay_member": binding["replay_members"][0],
+              "historical_replay_sha256": binding["historical_replay_sha256"],
+              "current_finalizer_sha256": binding["current_finalizer_sha256"],
+              "current_focused_test_sha256": binding["current_focused_test_sha256"],
+              "junit_sha256": hashlib.sha256(junit.read_bytes()).hexdigest(),
+              "cases": binding["cases"],
+              "historical_binding_pass": True,
+              "focused_regression_pass": True,
+              "repository_write": False,
+              "database_write": False,
+              "review_write": False,
+              "publication": False,
+              "deployment": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          (root / "receipt.json").write_text(
+              json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload historical binding evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: netto-normal-price-historical-replay-audit-run-${{ github.run_id }}
+          path: .netto-normal-price-historical/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report historical evidence binding
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const r = JSON.parse(fs.readFileSync('.netto-normal-price-historical/receipt.json', 'utf8'));
+            const cases = r.cases.map(c => `  - ${c.label}: €${c.expected_normal_price_eur}`);
+            const body = [
+              '## Netto normal-price historical replay evidence audit',
+              '',
+              `- Workflow run: \`${context.runId}\``,
+              `- Historical source run: \`${r.historical_run_id}\``,
+              `- Historical artifact: \`${r.historical_artifact_id}\` / \`${r.historical_artifact_name}\``,
+              `- Historical artifact digest SHA256: \`${r.historical_artifact_digest_sha256}\``,
+              `- Historical replay member: \`${r.historical_replay_member}\``,
+              `- Historical replay SHA256: \`${r.historical_replay_sha256}\``,
+              `- Current finalizer SHA256: \`${r.current_finalizer_sha256}\``,
+              `- Current focused-test SHA256: \`${r.current_focused_test_sha256}\``,
+              `- JUnit SHA256: \`${r.junit_sha256}\``,
+              '- Four bound historical cases:',
+              ...cases,
+              '- Historical binding: **PASS**',
+              '- Current focused regression: **PASS**',
+              '- Repository / DB / Review / publication / deploy writes: **false**',
+              '- Review-only / promotion-ready: **true / false**',
+            ].join('\n');
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
