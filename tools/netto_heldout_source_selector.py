@@ -62,26 +62,23 @@ def _source_candidate(
         return None
     dates = date_pair(payload)
     campaign_key = campaign_from_payload(payload)
-    html_ref = first(payload, HTML_PATH_KEYS)
-    html_sha = first(payload, HTML_SHA_KEYS)
-    pdf_ref = first(payload, PDF_PATH_KEYS)
-    pdf_sha = first(payload, PDF_SHA_KEYS)
     if not dates or not campaign_key:
         return None
-    if not isinstance(html_ref, str) or not isinstance(html_sha, str):
-        return None
-    if not isinstance(pdf_ref, str) or not isinstance(pdf_sha, str):
-        return None
+
+    # Keep the newest manifested campaign in the candidate set even when its
+    # HTML/PDF evidence is incomplete. Verification happens only after the
+    # newest validity window is selected, so a not-yet-published or corrupt
+    # newest campaign can never silently fall back to an older verified week.
     return {
         "manifest": manifest,
         "payload": payload,
         "campaign_key": campaign_key,
         "valid_from": dates[0],
         "valid_until": dates[1],
-        "html_ref": html_ref,
-        "html_sha256": html_sha,
-        "pdf_ref": pdf_ref,
-        "pdf_sha256": pdf_sha,
+        "html_ref": first(payload, HTML_PATH_KEYS),
+        "html_sha256": first(payload, HTML_SHA_KEYS),
+        "pdf_ref": first(payload, PDF_PATH_KEYS),
+        "pdf_sha256": first(payload, PDF_SHA_KEYS),
         "raw_root": raw_root,
     }
 
@@ -91,18 +88,28 @@ def _binding_for_candidate(candidate: Mapping[str, Any]) -> tuple[dict[str, Any]
     payload = candidate["payload"]
     raw_root = Path(candidate["raw_root"])
     assert isinstance(payload, Mapping)
-    html = reference(manifest, raw_root, candidate["html_ref"])
-    pdf = reference(manifest, raw_root, candidate["pdf_ref"])
+
+    html_ref = candidate.get("html_ref")
+    html_sha = candidate.get("html_sha256")
+    pdf_ref = candidate.get("pdf_ref")
+    pdf_sha = candidate.get("pdf_sha256")
+    if not isinstance(html_ref, str) or not html_ref.strip() or not isinstance(html_sha, str) or not html_sha.strip():
+        raise HeldoutSourceSelectionError("latest held-out manifest is missing an HTML binding")
+    if not isinstance(pdf_ref, str) or not pdf_ref.strip() or not isinstance(pdf_sha, str) or not pdf_sha.strip():
+        raise HeldoutSourceSelectionError("latest held-out manifest is missing a PDF binding")
+
+    html = reference(manifest, raw_root, html_ref)
+    pdf = reference(manifest, raw_root, pdf_ref)
     if html is None or pdf is None:
         raise HeldoutSourceSelectionError("latest held-out manifest has unresolved HTML/PDF paths")
     binding = {
         "manifest_path": str(manifest),
         "manifest_sha256": sha_file(manifest),
         "html_path": str(html),
-        "html_sha256": str(candidate["html_sha256"]),
+        "html_sha256": html_sha,
         "evidence_status": EvidenceStatus.PDF_BOUND.value,
         "pdf_path": str(pdf),
-        "pdf_sha256": str(candidate["pdf_sha256"]),
+        "pdf_sha256": pdf_sha,
         "parser_identity": str(first(payload, ("parser_identity", "parser_version", "strategy")) or ""),
         "store_external_id": "5659",
         "scope": "family_primary_netto",
@@ -146,7 +153,7 @@ def select_verified_source(raw_root: Path, as_of: date) -> dict[str, Any]:
 
     if not candidates:
         raise HeldoutSourceSelectionError(
-            "no non-expired held-out store-5659 manifest with explicit HTML/PDF bindings was found"
+            "no non-expired held-out store-5659 manifest with a campaign identity was found"
         )
 
     latest_window = max(
