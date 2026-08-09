@@ -51,7 +51,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **54/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **124 total** · **34 during the previous day**
+**Development activity:** **Issues fixed:** **124 total** · **34 during the previous day** (08.08.2026)
 
 <details>
 <summary>Show 34 issues fixed on 08.08.2026</summary>
@@ -66,7 +66,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 09.08.2026 15:36 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 09.08.2026 15:47 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
