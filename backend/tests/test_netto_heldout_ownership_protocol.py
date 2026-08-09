@@ -60,11 +60,20 @@ def manifest() -> dict[str, object]:
     }
 
 
-def verified_binding(tmp_path: Path, *, store: str = "5659") -> dict[str, object]:
+def verified_binding(
+    tmp_path: Path,
+    *,
+    store: str = "5659",
+    campaign: str | None = "heldout_hz33",
+) -> dict[str, object]:
     source_manifest = tmp_path / "source-manifest.json"
     html = tmp_path / "source.html"
     pdf = tmp_path / "source.pdf"
-    source_manifest.write_text('{"source":"netto"}\n', encoding="utf-8")
+    source_payload = {"source": "netto"}
+    if campaign is not None:
+        source_payload["prospect_slug"] = campaign
+    import json
+    source_manifest.write_text(json.dumps(source_payload, sort_keys=True) + "\n", encoding="utf-8")
     html.write_text("<html>verified store source</html>\n", encoding="utf-8")
     pdf.write_bytes(b"%PDF-1.7\nheld-out-source\n")
     return {
@@ -156,20 +165,14 @@ def test_store_and_review_only_boundaries_fail_closed() -> None:
         freeze_receipt(payload)
 
 
-def test_prepare_freeze_separates_verified_source_and_prediction_parser_identity(tmp_path: Path) -> None:
-    binding = verified_binding(tmp_path)
+def test_prepare_freeze_derives_campaign_from_source_and_separates_parser_identities(tmp_path: Path) -> None:
+    binding = verified_binding(tmp_path, campaign="heldout_hz33")
     evidence = tmp_path / "object-evidence.json"
     predictions = tmp_path / "predictions.json"
     evidence.write_text('{"object_graph":[]}\n', encoding="utf-8")
     predictions.write_text('{"predictions":[]}\n', encoding="utf-8")
 
-    frozen, receipt = prepare_freeze(
-        binding,
-        "heldout_hz33",
-        PREDICTION_PARSER,
-        evidence,
-        predictions,
-    )
+    frozen, receipt = prepare_freeze(binding, PREDICTION_PARSER, evidence, predictions)
     expected_source_identity = MODULE.EvidenceBinding.from_mapping(binding).identity_sha256()
 
     assert binding["parser_identity"] == SOURCE_PARSER
@@ -196,7 +199,18 @@ def test_prepare_freeze_requires_prediction_parser_identity(tmp_path: Path) -> N
     predictions.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="prediction parser identity is required"):
-        prepare_freeze(binding, "heldout_hz33", "  ", evidence, predictions)
+        prepare_freeze(binding, "  ", evidence, predictions)
+
+
+def test_prepare_freeze_requires_campaign_identity_in_source_manifest(tmp_path: Path) -> None:
+    binding = verified_binding(tmp_path, campaign=None)
+    evidence = tmp_path / "evidence.json"
+    predictions = tmp_path / "predictions.json"
+    evidence.write_text("{}\n", encoding="utf-8")
+    predictions.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not contain a campaign identity"):
+        prepare_freeze(binding, PREDICTION_PARSER, evidence, predictions)
 
 
 def test_prepare_freeze_rejects_wrong_store_before_freeze(tmp_path: Path) -> None:
@@ -207,7 +221,7 @@ def test_prepare_freeze_rejects_wrong_store_before_freeze(tmp_path: Path) -> Non
     predictions.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="must be 5659"):
-        prepare_freeze(binding, "heldout_hz33", PREDICTION_PARSER, evidence, predictions)
+        prepare_freeze(binding, PREDICTION_PARSER, evidence, predictions)
 
 
 def test_prepare_freeze_requires_verified_pdf_source(tmp_path: Path) -> None:
@@ -222,7 +236,7 @@ def test_prepare_freeze_requires_verified_pdf_source(tmp_path: Path) -> None:
     predictions.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="requires pdf_bound evidence"):
-        prepare_freeze(binding, "heldout_hz33", PREDICTION_PARSER, evidence, predictions)
+        prepare_freeze(binding, PREDICTION_PARSER, evidence, predictions)
 
 
 def test_prepare_freeze_rejects_tampered_bound_source(tmp_path: Path) -> None:
@@ -234,7 +248,7 @@ def test_prepare_freeze_rejects_tampered_bound_source(tmp_path: Path) -> None:
     predictions.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="not verified"):
-        prepare_freeze(binding, "heldout_hz33", PREDICTION_PARSER, evidence, predictions)
+        prepare_freeze(binding, PREDICTION_PARSER, evidence, predictions)
 
 
 def test_prepare_freeze_rejects_reused_evidence_prediction_file(tmp_path: Path) -> None:
@@ -243,15 +257,15 @@ def test_prepare_freeze_rejects_reused_evidence_prediction_file(tmp_path: Path) 
     same.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="separate frozen files"):
-        prepare_freeze(binding, "heldout_hz33", PREDICTION_PARSER, same, same)
+        prepare_freeze(binding, PREDICTION_PARSER, same, same)
 
 
-def test_prepare_freeze_still_rejects_existing_evaluation_campaign(tmp_path: Path) -> None:
-    binding = verified_binding(tmp_path)
+def test_prepare_freeze_rejects_existing_evaluation_campaign_from_source(tmp_path: Path) -> None:
+    binding = verified_binding(tmp_path, campaign="hz32_hasb")
     evidence = tmp_path / "evidence.json"
     predictions = tmp_path / "predictions.json"
     evidence.write_text("{}\n", encoding="utf-8")
     predictions.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="overlaps the existing evaluation corpus"):
-        prepare_freeze(binding, "hz32_hasb", PREDICTION_PARSER, evidence, predictions)
+        prepare_freeze(binding, PREDICTION_PARSER, evidence, predictions)
