@@ -560,10 +560,10 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 122,
+  "completed_issue_count": 123,
   "completed_weighted_gate_count": 54,
-  "generated_at": "2026-08-09T12:59:34.766760Z",
-  "generated_at_local": "2026-08-09T14:59:34.766760+02:00",
+  "generated_at": "2026-08-09T13:21:13.291265Z",
+  "generated_at_local": "2026-08-09T15:21:13.291265+02:00",
   "overall_completed_units": 720,
   "overall_percent_tenths": 720,
   "previous_day": "2026-08-08",
