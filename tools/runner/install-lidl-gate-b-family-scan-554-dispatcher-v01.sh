@@ -63,10 +63,20 @@ chmod 0755 "$TMP/dispatcher"
 
 TAG_A='NOPASS'
 TAG_B='WD'
-printf 'Cmnd_Alias HERMES_DEALS_LIDL_GATE_B_SCAN_554 = %s [1-9][0-9]* [1-9][0-9]*\ngithub-runner ALL=(root) %s%s: HERMES_DEALS_LIDL_GATE_B_SCAN_554\n' \
+printf 'Cmnd_Alias HERMES_DEALS_LIDL_GATE_B_SCAN_554 = %s ^[1-9][0-9]* [1-9][0-9]*$\ngithub-runner ALL=(root) %s%s: HERMES_DEALS_LIDL_GATE_B_SCAN_554\n' \
   "$DISPATCHER" "$TAG_A" "$TAG_B" > "$TMP/sudoers"
 chmod 0440 "$TMP/sudoers"
-visudo -cf "$TMP/sudoers" >/dev/null
+visudo -cf "$TMP/sudoers" >/dev/null \
+  || fail 'host sudoers parser lacks required regex support or generated policy is invalid'
+
+# Accept exactly one known predecessor state produced by the immediately prior
+# installer. This permits a safe one-time narrowing from shell wildcards to the
+# exact positive-integer regex. Any unrelated or edited sudoers state still
+# fails closed.
+printf 'Cmnd_Alias HERMES_DEALS_LIDL_GATE_B_SCAN_554 = %s [1-9][0-9]* [1-9][0-9]*\ngithub-runner ALL=(root) %s%s: HERMES_DEALS_LIDL_GATE_B_SCAN_554\n' \
+  "$DISPATCHER" "$TAG_A" "$TAG_B" > "$TMP/sudoers.predecessor"
+chmod 0440 "$TMP/sudoers.predecessor"
+visudo -cf "$TMP/sudoers.predecessor" >/dev/null
 
 DISPATCHER_IDENTICAL=false
 if [[ -e "$DISPATCHER" || -L "$DISPATCHER" ]]; then
@@ -77,12 +87,18 @@ if [[ -e "$DISPATCHER" || -L "$DISPATCHER" ]]; then
 fi
 
 SUDOERS_IDENTICAL=false
+SUDOERS_PREDECESSOR=false
 if [[ -e "$SUDOERS" || -L "$SUDOERS" ]]; then
   [[ -f "$SUDOERS" && ! -L "$SUDOERS" ]] || fail 'existing sudoers entry is not a regular non-symlink file'
   [[ "$(stat -c '%U:%G %a' "$SUDOERS")" == 'root:root 440' ]] || fail 'existing sudoers metadata mismatch'
   visudo -cf "$SUDOERS" >/dev/null
-  cmp -s "$TMP/sudoers" "$SUDOERS" || fail 'existing sudoers content differs from registered command boundary'
-  SUDOERS_IDENTICAL=true
+  if cmp -s "$TMP/sudoers" "$SUDOERS"; then
+    SUDOERS_IDENTICAL=true
+  elif cmp -s "$TMP/sudoers.predecessor" "$SUDOERS"; then
+    SUDOERS_PREDECESSOR=true
+  else
+    fail 'existing sudoers content differs from registered command boundary and known predecessor'
+  fi
 fi
 
 if [[ "$DISPATCHER_IDENTICAL" == true && "$SUDOERS_IDENTICAL" == true ]]; then
@@ -105,12 +121,24 @@ fi
 visudo -cf "$SUDOERS" >/dev/null
 cmp -s "$TMP/sudoers" "$SUDOERS" || fail 'installed sudoers content drift'
 
-runuser -u github-runner -- sudo -n -l "$DISPATCHER" 1 1 >/dev/null 2>&1 || fail 'github-runner fixed dispatcher sudo permission is unavailable'
+# Query sudo's policy engine for the exact intended invocation. This follows the
+# repository's established command-targeted authorization proof and does not
+# execute the dispatcher.
+sudo -n -l -U github-runner -- "$DISPATCHER" 1 1 >/dev/null 2>&1 \
+  || fail 'github-runner fixed dispatcher sudo permission is unavailable'
+for denied_args in '0 1' '1 0' 'x 1' '1 x' '1' '1 1 extra'; do
+  # shellcheck disable=SC2086
+  if sudo -n -l -U github-runner -- "$DISPATCHER" $denied_args >/dev/null 2>&1; then
+    fail "github-runner sudo policy unexpectedly accepts malformed dispatcher args: $denied_args"
+  fi
+done
 
 printf 'REGISTERED_COMMIT=%s\n' "$EXPECTED_SHA"
 printf 'DISPATCHER_BLOB=%s\n' "$EXPECTED_DISPATCHER_BLOB"
 printf 'DISPATCHER_PATH=%s\n' "$DISPATCHER"
 printf 'SUDOERS_PATH=%s\n' "$SUDOERS"
+printf 'SUDOERS_REGEX_BOUND=true\n'
+printf 'SUDOERS_UPGRADED_FROM_PREDECESSOR=%s\n' "$SUDOERS_PREDECESSOR"
 printf 'RUNNER_DOCKER_GROUP=false\n'
 printf 'LIVE_SCAN_PERFORMED=false\n'
 printf 'CORPUS_WRITE=false\n'
