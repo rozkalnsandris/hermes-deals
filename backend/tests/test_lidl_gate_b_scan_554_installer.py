@@ -24,9 +24,21 @@ def test_installer_materializes_only_exact_git_object() -> None:
     assert "EXPECTED_DISPATCHER_BLOB='720983e83f45391a35629cb49ffc8d12ac71cb03'" in text
     assert "git_source rev-parse \"$EXPECTED_SHA:$DISPATCHER_REL\"" in text
     assert "git_source show \"$EXPECTED_SHA:$DISPATCHER_REL\" > \"$TMP/dispatcher\"" in text
-    assert "git_source hash-object \"$TMP/dispatcher\"" in text
+    assert "git_source hash-object --stdin < \"$TMP/dispatcher\"" in text
+    assert "git_source hash-object \"$TMP/dispatcher\"" not in text
     assert "install -o root -g root -m 0755 \"$TMP/dispatcher\" \"$DISPATCHER\"" in text
     assert '"$SOURCE_REPO/$DISPATCHER_REL"' not in text
+
+
+def test_root_only_temp_path_is_not_passed_to_dropped_privilege_git() -> None:
+    text = _text()
+    assert "TMP=\"$(mktemp -d /tmp/hermes-deals-lidl-gate-b-scan-554-installer.XXXXXX)\"" in text
+    assert "git_source hash-object --stdin < \"$TMP/dispatcher\"" in text
+    assert "git_source hash-object \"$TMP/dispatcher\"" not in text
+    assert "chmod 0755 \"$TMP/dispatcher\"" in text
+    assert "chmod 0755 \"$TMP\"" not in text
+    assert "chmod 0711 \"$TMP\"" not in text
+    assert "chmod 0755 \"$TMP\"" not in text
 
 
 def test_installer_grants_only_fixed_dispatcher_sudo_boundary() -> None:
