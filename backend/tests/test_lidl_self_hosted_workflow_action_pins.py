@@ -49,11 +49,14 @@ def test_lidl_semantic_v6_artifact_action_is_full_sha_pinned() -> None:
 
 def test_public_v4_action_sha_gitleaks_allowlist_is_exact_and_path_scoped() -> None:
     config = tomllib.loads((ROOT / ".gitleaks.toml").read_text(encoding="utf-8"))
+    description = (
+        "Exact public actions/upload-artifact v4.6.2 commit used only in pinned "
+        "Lidl/Gate-B workflow and focused-test history"
+    )
     entries = [
         entry
         for entry in config.get("allowlists", [])
-        if entry.get("description")
-        == "Exact public actions/upload-artifact v4.6.2 commit used only in three pinned Lidl/Gate-B workflows"
+        if entry.get("description") == description
     ]
     assert len(entries) == 1
     entry = entries[0]
@@ -61,5 +64,5 @@ def test_public_v4_action_sha_gitleaks_allowlist_is_exact_and_path_scoped() -> N
     assert entry["regexTarget"] == "match"
     assert entry["regexes"] == [UPLOAD_V4_SHA]
     assert entry["paths"] == [
-        r"^\.github/workflows/(hermes-gate-b-plan-bridge|hermes-lidl-source-refresh-audit|lidl-gate-b-plan-rpi5)\.yml$"
+        r"^(\.github/workflows/(hermes-gate-b-plan-bridge|hermes-lidl-source-refresh-audit|lidl-gate-b-plan-rpi5)\.yml|backend/tests/test_lidl_self_hosted_workflow_action_pins\.py)$"
     ]
