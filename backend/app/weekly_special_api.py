@@ -13,7 +13,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,7 @@ from app.netto_daily_special_api import (
     _snapshot_manifest_window,
     _to_output,
 )
+from app.weekly_retailer_state import build_weekly_retailer_states
 
 
 router = APIRouter()
@@ -102,12 +103,28 @@ class WeeklyDayOut(BaseModel):
     deals: list[WeeklyDealOut]
 
 
+class WeeklyRetailerStateOut(BaseModel):
+    retailer_key: str
+    display_name: str
+    source_chain: str
+    state: str
+    reason: str
+    deal_count: int
+    active_dates: list[date]
+    last_verified_at: datetime | None = None
+    last_verified_campaign: str | None = None
+    last_verified_evidence_sha256: str | None = None
+    last_verified_valid_from: date | None = None
+    last_verified_valid_until: date | None = None
+
+
 class WeeklySpecialsOut(BaseModel):
     week_start: date
     week_end: date
     timezone: str
     count: int
     source_contract: str
+    retailers: list[WeeklyRetailerStateOut] = Field(default_factory=list)
     days: list[WeeklyDayOut]
 
 
@@ -151,6 +168,7 @@ class WeeklyUiSpecialsOut(BaseModel):
     count: int
     source_contract: str
     ui_contract: str
+    retailers: list[WeeklyRetailerStateOut] = Field(default_factory=list)
     deals: list[WeeklyUiDealOut]
     days: list[WeeklyUiDayOut]
 
@@ -521,12 +539,22 @@ def _build_payload(
     ordinary = _ordinary_days(rows, week_start)
     explicit = _explicit_daily_specials(db, week_start, week_end)
     days = _merge_days(ordinary, explicit, week_start)
+    retailers = [
+        WeeklyRetailerStateOut.model_validate(row)
+        for row in build_weekly_retailer_states(
+            db,
+            days,
+            week_start,
+            week_end,
+        )
+    ]
     return WeeklySpecialsOut(
         week_start=week_start,
         week_end=week_end,
         timezone=_TIMEZONE,
         count=sum(len(day.deals) for day in days),
         source_contract=_SOURCE_CONTRACT,
+        retailers=retailers,
         days=days,
     )
 
@@ -558,6 +586,7 @@ def _normalize_ui_payload(payload: WeeklySpecialsOut) -> WeeklyUiSpecialsOut:
         count=payload.count,
         source_contract=payload.source_contract,
         ui_contract=_UI_CONTRACT,
+        retailers=payload.retailers,
         deals=list(unique.values()),
         days=days,
     )
