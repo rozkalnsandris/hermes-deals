@@ -47,6 +47,23 @@ def test_lidl_semantic_v6_artifact_action_is_full_sha_pinned() -> None:
         assert "uses: actions/upload-artifact@v6" not in text
 
 
+def test_gitleaks_allowlists_use_current_array_format() -> None:
+    text = (ROOT / ".gitleaks.toml").read_text(encoding="utf-8")
+    assert "\n[allowlist]\n" not in text
+    config = tomllib.loads(text)
+    placeholder_entries = [
+        entry
+        for entry in config.get("allowlists", [])
+        if entry.get("description", "").startswith("Only explicit non-secret placeholders")
+    ]
+    assert len(placeholder_entries) == 1
+    assert placeholder_entries[0]["regexes"] == [
+        "CHANGE_ME",
+        "replace-with-a-random-secret",
+        "ci-placeholder-not-a-secret",
+    ]
+
+
 def test_public_v4_action_sha_gitleaks_allowlist_is_exact_and_path_scoped() -> None:
     config = tomllib.loads((ROOT / ".gitleaks.toml").read_text(encoding="utf-8"))
     description = (
