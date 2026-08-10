@@ -1,0 +1,472 @@
+name: Netto hz33 adjudication evidence freeze v2
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: netto-hz33-adjudication-evidence-freeze-v2-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  EXPECTED_HEAD: feat/netto-hz33-adjudication-evidence-v2
+  TRIGGER_LABEL: audit:netto-hz33-adjudication-freeze-v2
+  SEED_PATH: audit/netto/hz33/heldout-adjudication-import-request-v2.json
+  EVIDENCE_JSON: audit/netto/hz33/heldout-adjudication.json
+  EVIDENCE_RECEIPT: audit/netto/hz33/heldout-adjudication-receipt.json
+  ADJUDICATION_RUN_ID: "31329528400"
+  ADJUDICATION_ARTIFACT_ID: "9042509363"
+  ADJUDICATION_ARTIFACT_NAME: netto-heldout-hz33-adjudication-run-31329528400
+  ADJUDICATION_ARTIFACT_DIGEST_SHA256: 10f778b802d6a36d831e05e996052f91a098e11c9a53d2e062df3ce6e4e12867
+  ADJUDICATION_ARTIFACT_SIZE_BYTES: "25285"
+  ADJUDICATION_JSON_SHA256: 1d1975c4845fe1bdbd2dd97670fac2df28cc68894003322485c10d53826a818f
+  ADJUDICATION_SUMS_SHA256: 83a6efd4ee00442e660b637efadf655158963de6837335232e37b79e34846adc
+  COMPLETED_TRUTH_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+  PREDICTIONS_SHA256: 70c3c8abace632f6be298abb5d02b398b3e8b91e8d53565b21eface536ed7b94
+  ADJUDICATION_IMPLEMENTATION_SHA: 824c7fb01f5dd6a0190fbad304442fd8b48e77de
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      base_sha: ${{ steps.auth.outputs.base_sha }}
+      head_sha: ${{ steps.auth.outputs.head_sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+    steps:
+      - name: Authorize exact owner evidence PR
+        id: auth
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["EVENT_PATH"]).read_text(encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "head": (pr.get("head") or {}).get("ref") == os.environ["EXPECTED_HEAD"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "open": pr.get("state") == "open",
+              "not_merged": pr.get("merged") is not True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+
+          base_sha = str((pr.get("base") or {}).get("sha") or "")
+          head_sha = str((pr.get("head") or {}).get("sha") or "")
+          pr_number = int(pr.get("number") or 0)
+          if len(base_sha) != 40 or len(head_sha) != 40 or pr_number <= 0:
+              raise SystemExit("missing exact PR base/head/number")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"base_sha={base_sha}\n")
+              handle.write(f"head_sha={head_sha}\n")
+              handle.write(f"pr_number={pr_number}\n")
+          PY
+
+  freeze:
+    needs: authorize
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Prove current main and exact one-commit seed branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          base_sha = os.environ["BASE_SHA"]
+          head_sha = os.environ["HEAD_SHA"]
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-hz33-adjudication-freeze-v2",
+          }
+
+          def get(path: str):
+              with urllib.request.urlopen(
+                  urllib.request.Request(f"https://api.github.com/repos/{repo}/{path}", headers=headers),
+                  timeout=30,
+              ) as response:
+                  return json.load(response)
+
+          main_ref = get("git/ref/heads/main")
+          if (main_ref.get("object") or {}).get("sha") != base_sha:
+              raise SystemExit("evidence PR base is not current main")
+
+          comparison = get(f"compare/{base_sha}...{head_sha}")
+          if comparison.get("status") != "ahead":
+              raise SystemExit("evidence branch is not a strict descendant of current main")
+          if int(comparison.get("ahead_by") or 0) != 1 or int(comparison.get("behind_by") or 0) != 0:
+              raise SystemExit("evidence branch must be exactly one commit ahead and zero behind")
+          if int(comparison.get("total_commits") or 0) != 1:
+              raise SystemExit("evidence branch commit-count mismatch")
+          files = comparison.get("files") or []
+          if len(files) != 1 or files[0].get("filename") != os.environ["SEED_PATH"] or files[0].get("status") != "added":
+              raise SystemExit("evidence branch must differ only by the v2 seed file")
+
+          encoded_seed = urllib.parse.quote(os.environ["SEED_PATH"], safe="/")
+          seed = get(f"contents/{encoded_seed}?ref={head_sha}")
+          if seed.get("type") != "file" or seed.get("encoding") != "base64":
+              raise SystemExit("seed must be a regular base64-addressable file")
+          raw_seed = base64.b64decode(str(seed.get("content") or "").replace("\n", ""), validate=True)
+          payload = json.loads(raw_seed.decode("utf-8"))
+          expected = {
+              "schema_version": 2,
+              "strategy": "netto_hz33_adjudication_evidence_import_request_v2",
+              "adjudication_workflow_run_id": int(os.environ["ADJUDICATION_RUN_ID"]),
+              "adjudication_artifact_id": int(os.environ["ADJUDICATION_ARTIFACT_ID"]),
+              "adjudication_artifact_name": os.environ["ADJUDICATION_ARTIFACT_NAME"],
+              "adjudication_artifact_digest_sha256": os.environ["ADJUDICATION_ARTIFACT_DIGEST_SHA256"],
+              "adjudication_artifact_size_bytes": int(os.environ["ADJUDICATION_ARTIFACT_SIZE_BYTES"]),
+              "adjudication_json_sha256": os.environ["ADJUDICATION_JSON_SHA256"],
+              "completed_source_truth_sha256": os.environ["COMPLETED_TRUTH_SHA256"],
+              "predictions_sha256": os.environ["PREDICTIONS_SHA256"],
+              "recompute_adjudication": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          if payload != expected:
+              raise SystemExit("v2 seed request binding mismatch")
+          PY
+
+      - name: Download and validate exact authoritative adjudication artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import io
+          import json
+          import os
+          import pathlib
+          import stat
+          import urllib.request
+          import zipfile
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          artifact_id = int(os.environ["ADJUDICATION_ARTIFACT_ID"])
+          expected_run = int(os.environ["ADJUDICATION_RUN_ID"])
+          expected_name = os.environ["ADJUDICATION_ARTIFACT_NAME"]
+          expected_digest = os.environ["ADJUDICATION_ARTIFACT_DIGEST_SHA256"]
+          expected_size = int(os.environ["ADJUDICATION_ARTIFACT_SIZE_BYTES"])
+          expected_json_sha = os.environ["ADJUDICATION_JSON_SHA256"]
+          expected_sums_sha = os.environ["ADJUDICATION_SUMS_SHA256"]
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-hz33-adjudication-freeze-v2",
+          }
+          base = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}"
+          with urllib.request.urlopen(urllib.request.Request(base, headers=headers), timeout=30) as response:
+              meta = json.load(response)
+          checks = {
+              "id": int(meta.get("id") or 0) == artifact_id,
+              "name": meta.get("name") == expected_name,
+              "expired": meta.get("expired") is False,
+              "digest": meta.get("digest") == f"sha256:{expected_digest}",
+              "size": int(meta.get("size_in_bytes") or 0) == expected_size,
+              "run": int((meta.get("workflow_run") or {}).get("id") or 0) == expected_run,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("adjudication artifact metadata mismatch: " + ",".join(failed))
+
+          with urllib.request.urlopen(urllib.request.Request(base + "/zip", headers=headers), timeout=60) as response:
+              archive = response.read()
+          if len(archive) != expected_size or hashlib.sha256(archive).hexdigest() != expected_digest:
+              raise SystemExit("adjudication artifact ZIP byte identity mismatch")
+
+          with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+              infos = zf.infolist()
+              if len(infos) != 2 or len({info.filename for info in infos}) != 2:
+                  raise SystemExit("unexpected/duplicate adjudication artifact members")
+              names = {info.filename for info in infos}
+              if names != {"SHA256SUMS", "adjudication.json"}:
+                  raise SystemExit("adjudication artifact member set mismatch")
+              for info in infos:
+                  path = pathlib.PurePosixPath(info.filename)
+                  mode = (info.external_attr >> 16) & 0o170000
+                  if info.is_dir() or path.is_absolute() or ".." in path.parts or mode == stat.S_IFLNK:
+                      raise SystemExit(f"unsafe adjudication artifact member: {info.filename}")
+              sums = zf.read("SHA256SUMS")
+              adjudication_raw = zf.read("adjudication.json")
+
+          expected_line = f"{expected_json_sha}  adjudication.json\n".encode("ascii")
+          if sums != expected_line:
+              raise SystemExit("SHA256SUMS must contain the exact two-space checksum line")
+          if hashlib.sha256(sums).hexdigest() != expected_sums_sha:
+              raise SystemExit("SHA256SUMS SHA256 mismatch")
+          if hashlib.sha256(adjudication_raw).hexdigest() != expected_json_sha:
+              raise SystemExit("adjudication.json SHA256 mismatch")
+
+          payload = json.loads(adjudication_raw)
+          expected_values = {
+              "schema_version": 1,
+              "strategy": "netto_heldout_prediction_group_adjudication_v1",
+              "protocol": "netto-heldout-ownership-v1",
+              "campaign_key": "hz33_hasb",
+              "store_external_id": "5659",
+              "scope": "family_primary_netto",
+              "campaign_window": {"start": "2026-08-10", "end": "2026-08-15"},
+              "coordinate_space": "unrotated_page_points",
+              "prediction_parser_identity": "netto-visual-geometry-shadow-v3-unrotated-page-space",
+              "prediction_unit": "frozen_geometry_group",
+              "predictions_sha256": os.environ["PREDICTIONS_SHA256"],
+              "completed_source_truth_sha256": os.environ["COMPLETED_TRUTH_SHA256"],
+              "page_count": 77,
+              "prediction_group_count": 612,
+              "resolved_prediction_group_count": 563,
+              "required_metric_not_evaluable_count": 2,
+              "acceptance_all_pass": False,
+              "review_only": True,
+              "promotion_ready": False,
+              "parser_behavior_changed": False,
+              "database_write_performed": False,
+              "review_write_performed": False,
+              "deployment_performed": False,
+              "outcome_counts": {
+                  "excluded_control": 82,
+                  "mixed_source": 90,
+                  "single_source": 391,
+                  "unresolved_cross_scope": 1,
+                  "unresolved_unmapped_atoms": 48,
+              },
+          }
+          for key, expected in expected_values.items():
+              if payload.get(key) != expected:
+                  raise SystemExit(f"adjudication contract mismatch: {key}")
+
+          statuses = {name: metric.get("status") for name, metric in (payload.get("metrics") or {}).items()}
+          if statuses != {
+              "maximum_cross_cell_group_reuse": "NOT_EVALUABLE",
+              "maximum_excluded_control_auto_eligible": "PASS",
+              "maximum_mixed_source_auto_single": "PASS",
+              "minimum_auto_single_precision": "NOT_EVALUABLE",
+              "minimum_mixed_source_cells": "PASS",
+              "minimum_reviewed_cells": "PASS",
+          }:
+              raise SystemExit("adjudication metric status contract mismatch")
+
+          receipt = {
+              "schema_version": 2,
+              "strategy": "netto_hz33_heldout_adjudication_evidence_receipt_v2",
+              "adjudication_implementation_sha": os.environ["ADJUDICATION_IMPLEMENTATION_SHA"],
+              "adjudication_workflow_run_id": expected_run,
+              "adjudication_artifact_id": artifact_id,
+              "adjudication_artifact_name": expected_name,
+              "adjudication_artifact_digest_sha256": expected_digest,
+              "adjudication_artifact_size_bytes": expected_size,
+              "adjudication_json_sha256": expected_json_sha,
+              "sha256sums_sha256": expected_sums_sha,
+              "completed_source_truth_sha256": os.environ["COMPLETED_TRUTH_SHA256"],
+              "predictions_sha256": os.environ["PREDICTIONS_SHA256"],
+              "prediction_group_count": 612,
+              "resolved_prediction_group_count": 563,
+              "outcome_counts": expected_values["outcome_counts"],
+              "required_metric_not_evaluable_count": 2,
+              "acceptance_all_pass": False,
+              "recomputed_during_freeze": False,
+              "review_only": True,
+              "promotion_ready": False,
+              "parser_behavior_changed": False,
+              "database_write_performed": False,
+              "review_write_performed": False,
+              "deployment_performed": False,
+          }
+
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "hz33-adjudication-freeze-v2"
+          if root.exists() or root.is_symlink():
+              raise SystemExit("temporary evidence directory already exists")
+          root.mkdir(mode=0o700)
+          (root / "heldout-adjudication.json").write_bytes(adjudication_raw)
+          receipt_raw = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+          (root / "heldout-adjudication-receipt.json").write_bytes(receipt_raw)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"receipt_sha256={hashlib.sha256(receipt_raw).hexdigest()}\n")
+          PY
+
+      - name: Commit only immutable adjudication evidence through Git data API
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          expected_head = os.environ["HEAD_SHA"]
+          head_ref = os.environ["EXPECTED_HEAD"]
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "hz33-adjudication-freeze-v2"
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-hz33-adjudication-freeze-v2",
+          }
+
+          def request(method: str, path: str, payload=None, allow_404=False):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/{path}",
+                  data=data,
+                  method=method,
+                  headers=headers,
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as exc:
+                  if allow_404 and exc.code == 404:
+                      return None
+                  raise
+
+          current = request("GET", f"git/ref/heads/{urllib.parse.quote(head_ref, safe='/')}")
+          if (current.get("object") or {}).get("sha") != expected_head:
+              raise SystemExit("evidence branch moved before freeze commit")
+
+          for path in (os.environ["EVIDENCE_JSON"], os.environ["EVIDENCE_RECEIPT"]):
+              encoded = urllib.parse.quote(path, safe="/")
+              if request("GET", f"contents/{encoded}?ref={expected_head}", allow_404=True) is not None:
+                  raise SystemExit(f"evidence output already exists: {path}")
+
+          parent = request("GET", f"git/commits/{expected_head}")
+          parent_tree = (parent.get("tree") or {}).get("sha")
+          if not parent_tree:
+              raise SystemExit("missing evidence parent tree")
+
+          entries = []
+          for path, local in (
+              (os.environ["EVIDENCE_JSON"], root / "heldout-adjudication.json"),
+              (os.environ["EVIDENCE_RECEIPT"], root / "heldout-adjudication-receipt.json"),
+          ):
+              raw = local.read_bytes()
+              blob = request("POST", "git/blobs", {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"})
+              entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+
+          tree = request("POST", "git/trees", {"base_tree": parent_tree, "tree": entries})
+          commit = request(
+              "POST",
+              "git/commits",
+              {
+                  "message": "netto: freeze authoritative hz33 adjudication evidence",
+                  "tree": tree["sha"],
+                  "parents": [expected_head],
+              },
+          )
+          new_sha = commit.get("sha")
+          if not isinstance(new_sha, str) or len(new_sha) != 40:
+              raise SystemExit("invalid evidence commit SHA")
+
+          current = request("GET", f"git/ref/heads/{urllib.parse.quote(head_ref, safe='/')}")
+          if (current.get("object") or {}).get("sha") != expected_head:
+              raise SystemExit("evidence branch moved during freeze commit")
+          request(
+              "PATCH",
+              f"git/refs/heads/{urllib.parse.quote(head_ref, safe='/')}",
+              {"sha": new_sha, "force": False},
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"evidence_commit_sha={new_sha}\n")
+          PY
+
+      - name: Report immutable evidence commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          EVIDENCE_COMMIT_SHA: ${{ steps.commit.outputs.evidence_commit_sha }}
+          RECEIPT_SHA256: ${{ steps.artifact.outputs.receipt_sha256 }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          body = "\n".join([
+              "## hz33 held-out adjudication evidence frozen (v2)",
+              "",
+              f"- Evidence commit: `{os.environ['EVIDENCE_COMMIT_SHA']}`",
+              f"- Authoritative adjudication run: `{os.environ['ADJUDICATION_RUN_ID']}`",
+              f"- Artifact ID: `{os.environ['ADJUDICATION_ARTIFACT_ID']}`",
+              f"- Artifact ZIP SHA256: `{os.environ['ADJUDICATION_ARTIFACT_DIGEST_SHA256']}`",
+              f"- Adjudication SHA256: `{os.environ['ADJUDICATION_JSON_SHA256']}`",
+              f"- Receipt SHA256: `{os.environ['RECEIPT_SHA256']}`",
+              "- Adjudication recomputed during freeze: **false**",
+              "- Required metrics NOT_EVALUABLE: **2**",
+              "- Promotion ready: **false**",
+              "- Production / DB / Review writes / deploy: **false**",
+          ])
+          data = json.dumps({"body": body}).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['PR_NUMBER']}/comments",
+              data=data,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "hermes-deals-hz33-adjudication-freeze-v2",
+              },
+          )
+          urllib.request.urlopen(request, timeout=30).close()
+          PY
