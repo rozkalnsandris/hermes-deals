@@ -79,6 +79,17 @@ def test_v2_freezer_writes_only_two_create_only_evidence_paths() -> None:
     assert "evidence branch moved during freeze commit" in text
 
 
+def test_v21_freezer_rechecks_current_main_before_evidence_ref_update() -> None:
+    text = _text()
+    assert "BASE_SHA: ${{ needs.authorize.outputs.base_sha }}" in text
+    assert 'expected_base = os.environ["BASE_SHA"]' in text
+    assert 'request("GET", "git/ref/heads/main")' in text
+    assert "main moved before freeze commit" in text
+    assert "main moved during freeze commit" in text
+    assert text.index("main moved before freeze commit") < text.index('request(\n              "PATCH"')
+    assert text.index("main moved during freeze commit") < text.index('request(\n              "PATCH"')
+
+
 def test_v2_freezer_has_no_mutable_external_action_refs() -> None:
     text = _text()
     uses_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("uses:")]
