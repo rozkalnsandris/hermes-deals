@@ -75,5 +75,19 @@
     "line": 167,
     "commit": "150a95a72a423201195df567184a98acec4d52be",
     "reason": "Same sudoers NOPASSWD command-alias syntax in squash-merge commit #438; not a password assignment or credential."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_gate_b_review_pack_588.py",
+    "line": 96,
+    "commit": "c1c25f3d9e52984b8c80b74d72a50aad8ba53749",
+    "reason": "Deterministic public Lidl FLYER_KEY asserted by the Gate-B review-pack regression test; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-review-pack-588.yml",
+    "line": 163,
+    "commit": "8d0a734253247d3d61aa47f4836b454bc845ad35",
+    "reason": "Deterministic public Lidl FLYER_KEY binding the Gate-B review-pack workflow to the known flyer; not authentication material."
   }
 ]
