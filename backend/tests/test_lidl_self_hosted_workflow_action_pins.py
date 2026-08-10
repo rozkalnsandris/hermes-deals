@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,3 +45,21 @@ def test_lidl_semantic_v6_artifact_action_is_full_sha_pinned() -> None:
         assert re.fullmatch(r"[0-9a-f]{40}", sha)
         text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
         assert "uses: actions/upload-artifact@v6" not in text
+
+
+def test_public_v4_action_sha_gitleaks_allowlist_is_exact_and_path_scoped() -> None:
+    config = tomllib.loads((ROOT / ".gitleaks.toml").read_text(encoding="utf-8"))
+    entries = [
+        entry
+        for entry in config.get("allowlists", [])
+        if entry.get("description")
+        == "Exact public actions/upload-artifact v4.6.2 commit used only in three pinned Lidl/Gate-B workflows"
+    ]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["condition"] == "AND"
+    assert entry["regexTarget"] == "match"
+    assert entry["regexes"] == [UPLOAD_V4_SHA]
+    assert entry["paths"] == [
+        r"^\.github/workflows/(hermes-gate-b-plan-bridge|hermes-lidl-source-refresh-audit|lidl-gate-b-plan-rpi5)\.yml$"
+    ]
