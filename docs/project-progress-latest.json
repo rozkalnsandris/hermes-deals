@@ -560,220 +560,160 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 124,
+  "completed_issue_count": 152,
   "completed_weighted_gate_count": 54,
-  "generated_at": "2026-08-09T13:47:59.074989Z",
-  "generated_at_local": "2026-08-09T15:47:59.074989+02:00",
+  "generated_at": "2026-08-10T05:42:58.381202Z",
+  "generated_at_local": "2026-08-10T07:42:58.381202+02:00",
   "overall_completed_units": 720,
   "overall_percent_tenths": 720,
-  "previous_day": "2026-08-08",
+  "previous_day": "2026-08-09",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 34,
+  "previous_day_completed_issue_count": 24,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-08T03:10:37Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/300",
-      "number": 300,
-      "title": "P3 Netto: restore automatic replay report/label metadata writes"
+      "closed_at": "2026-08-08T22:34:18Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/439",
+      "number": 439,
+      "title": "P1 Netto: add one-shot owner finalizer for missing-normal-price audit bootstrap"
     },
     {
-      "closed_at": "2026-08-08T13:35:02Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/307",
-      "number": 307,
-      "title": "Bind Deals web origin 9128 to loopback and coordinate Cloudflare cutover"
+      "closed_at": "2026-08-08T22:26:58Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/443",
+      "number": 443,
+      "title": "P0 CI: make Netto prospect PDF capture test independent of wall clock"
     },
     {
-      "closed_at": "2026-08-07T22:01:56Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/310",
-      "number": 310,
-      "title": "P1 Netto: classify Netto-plus prices as member-price evidence"
+      "closed_at": "2026-08-09T12:59:27Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/448",
+      "number": 448,
+      "title": "fix: keep Project Progress manifest issue references issue-only"
     },
     {
-      "closed_at": "2026-08-08T09:35:27Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/335",
-      "number": 335,
-      "title": "P2 Docs: replace coarse project-progress counter with weighted gate-based V2"
+      "closed_at": "2026-08-09T13:20:57Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/451",
+      "number": 451,
+      "title": "docs: distinguish weighted progress from development activity"
     },
     {
-      "closed_at": "2026-08-08T09:37:01Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/336",
-      "number": 336,
-      "title": "perf: batch canonical catalog and overview current-offer comparison work"
+      "closed_at": "2026-08-09T13:47:50Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/454",
+      "number": 454,
+      "title": "docs: compact Project Progress activity issue links"
     },
     {
-      "closed_at": "2026-08-08T09:25:59Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/337",
-      "number": 337,
-      "title": "Add one-shot owner finalizer for #307 Phase C trust bootstrap"
+      "closed_at": "2026-08-09T14:27:21Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/459",
+      "number": 459,
+      "title": "P1 Netto: predeclare held-out ownership validation protocol for #305"
     },
     {
-      "closed_at": "2026-08-08T12:10:08Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/340",
-      "number": 340,
-      "title": "P1 Netto #305: add one-shot owner finalizer for ownership audit trust bootstrap"
+      "closed_at": "2026-08-09T14:56:57Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/462",
+      "number": 462,
+      "title": "fix(w4b): parse live HTTP headers per RFC semantics"
     },
     {
-      "closed_at": "2026-08-08T09:48:17Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/341",
-      "number": 341,
-      "title": "P3 Netto ownership audit: allow reporter to update PR metadata"
+      "closed_at": "2026-08-09T16:15:49Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/469",
+      "number": 469,
+      "title": "ui: W4C apply RFC-safe cache policy to hashed UI assets"
     },
     {
-      "closed_at": "2026-08-08T12:11:36Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/348",
-      "number": 348,
-      "title": "refactor(ui): split main app.js into behavior-preserving ES modules"
+      "closed_at": "2026-08-09T16:14:59Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/470",
+      "number": 470,
+      "title": "P1 Netto: make registered shadow audit branch-independent for GitHub RPi5 runs"
     },
     {
-      "closed_at": "2026-08-08T09:50:44Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/349",
-      "number": 349,
-      "title": "Fix #307 owner finalizer fresh audit clone bootstrap"
+      "closed_at": "2026-08-09T16:27:58Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/473",
+      "number": 473,
+      "title": "P1 Lidl Gate A: allow Sunday gap when exactly one next flyer is available"
     },
     {
-      "closed_at": "2026-08-08T14:43:15Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/359",
-      "number": 359,
-      "title": "P1 infra: diagnose queued Netto ownership audit after public visibility switch"
+      "closed_at": "2026-08-09T16:25:00Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/474",
+      "number": 474,
+      "title": "P0 Netto: execute the first held-out ownership freeze entirely in GitHub"
     },
     {
-      "closed_at": "2026-08-08T13:18:32Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/365",
-      "number": 365,
-      "title": "Finalize #307 from verified dual-bind to loopback-only"
+      "closed_at": "2026-08-09T20:48:17Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/477",
+      "number": 477,
+      "title": "ops: W4C roll out RFC-safe cache policy on RPi5 with W4B rollback"
     },
     {
-      "closed_at": "2026-08-08T13:49:02Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/368",
-      "number": 368,
-      "title": "perf: verify W2 batched canonical engine on RPi5 production"
+      "closed_at": "2026-08-09T16:34:34Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/478",
+      "number": 478,
+      "title": "P0 Netto: route held-out live fetch through non-root GitHub RPi5 runner"
     },
     {
-      "closed_at": "2026-08-08T13:58:44Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/370",
-      "number": 370,
-      "title": "ui: W4A package content-hashed frontend shadow build in immutable release image"
+      "closed_at": "2026-08-09T17:14:10Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/480",
+      "number": 480,
+      "title": "P0 Netto: generate blind 77-page source-card review pack for hz33 held-out freeze"
     },
     {
-      "closed_at": "2026-08-08T14:09:56Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/372",
-      "number": 372,
-      "title": "ui: W4B add opt-in hashed-asset serving mode with W3 rollback"
+      "closed_at": "2026-08-09T16:53:39Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/483",
+      "number": 483,
+      "title": "P1 Netto: distinguish logical freeze identity from JSON byte hash in blind review pack"
     },
     {
-      "closed_at": "2026-08-08T15:01:29Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/376",
-      "number": 376,
-      "title": "fix(w4b): accept managed main release tags and safely refresh installed control plane"
+      "closed_at": "2026-08-09T17:26:07Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/486",
+      "number": 486,
+      "title": "P0 Netto: separate true source-card schema from prediction ownership outcomes"
     },
     {
-      "closed_at": "2026-08-08T15:24:41Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/380",
-      "number": 380,
-      "title": "W4B preflight: read production Git state as repository owner"
+      "closed_at": "2026-08-09T18:17:10Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/491",
+      "number": 491,
+      "title": "P0 Netto: freeze completed hz33 independent source truth before adjudication"
     },
     {
-      "closed_at": "2026-08-08T15:44:41Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/387",
-      "number": 387,
-      "title": "P1 Netto: one-shot owner finalizer for card-region topology audit bootstrap"
+      "closed_at": "2026-08-09T18:31:56Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/493",
+      "number": 493,
+      "title": "P0 Netto: adjudicate frozen hz33 prediction groups against completed source truth"
     },
     {
-      "closed_at": "2026-08-08T15:42:51Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/388",
-      "number": 388,
-      "title": "W4B preflight: preserve Compose JSON stdin for validator"
+      "closed_at": "2026-08-09T18:37:51Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/495",
+      "number": 495,
+      "title": "P1 Netto: fix malformed inner SHA256SUMS in hz33 adjudication artifact"
     },
     {
-      "closed_at": "2026-08-08T15:54:33Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/391",
-      "number": 391,
-      "title": "W4B preflight: cleanup RETURN trap leaks local temp variables"
+      "closed_at": "2026-08-09T18:58:57Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/497",
+      "number": 497,
+      "title": "P1 Netto: audit full-page source parent-unit candidates on exposed hz33"
     },
     {
-      "closed_at": "2026-08-08T16:29:42Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/393",
-      "number": 393,
-      "title": "P1 Netto: object-level card graph against frozen 100-cell ownership review"
+      "closed_at": "2026-08-09T19:03:50Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/499",
+      "number": 499,
+      "title": "P1 Netto: run authoritative GitHub hz33 full-page parent-unit baseline"
     },
     {
-      "closed_at": "2026-08-08T16:07:42Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/394",
-      "number": 394,
-      "title": "W4B preflight: accept reviewed inline-w3 mode in clean production Compose"
+      "closed_at": "2026-08-09T19:13:04Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/501",
+      "number": 501,
+      "title": "P1 Netto: ignore zero-area vector rectangle artifacts in full-page parent-unit audit"
     },
     {
-      "closed_at": "2026-08-08T16:35:23Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/399",
-      "number": 399,
-      "title": "docs: modernize repository landing page"
+      "closed_at": "2026-08-09T19:28:14Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/503",
+      "number": 503,
+      "title": "P0 Netto: freeze conservative local-span parent/auto-single candidate before hz34"
     },
     {
-      "closed_at": "2026-08-08T16:46:55Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/401",
-      "number": 401,
-      "title": "P1 Netto: owner-gated RPi5 object-card graph audit control plane"
-    },
-    {
-      "closed_at": "2026-08-08T17:12:08Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/402",
-      "number": 402,
-      "title": "W4B: report exact sanitized post-cutover validation failure"
-    },
-    {
-      "closed_at": "2026-08-08T17:28:06Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/405",
-      "number": 405,
-      "title": "P1 Netto: one-shot object-card graph RPi5 audit owner finalizer"
-    },
-    {
-      "closed_at": "2026-08-08T17:54:51Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/408",
-      "number": 408,
-      "title": "P1 Netto: tolerate zero-area PyMuPDF image bbox in object-card graph audit"
-    },
-    {
-      "closed_at": "2026-08-08T18:34:32Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/409",
-      "number": 409,
-      "title": "ops: isolate W4B hashed-mode header across direct API and nginx proxy"
-    },
-    {
-      "closed_at": "2026-08-08T18:01:18Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/413",
-      "number": 413,
-      "title": "fix: make W4B header diagnostic published-port guard engine-safe"
-    },
-    {
-      "closed_at": "2026-08-08T18:12:52Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/415",
-      "number": 415,
-      "title": "P1 Netto: re-register fixed object-card graph audit runtime"
-    },
-    {
-      "closed_at": "2026-08-08T18:19:49Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/423",
-      "number": 423,
-      "title": "fix: sequence W4B API before nginx during cutover"
-    },
-    {
-      "closed_at": "2026-08-08T18:33:49Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/425",
-      "number": 425,
-      "title": "test: remove stale W4B combined-apply compatibility marker"
-    },
-    {
-      "closed_at": "2026-08-08T19:00:06Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/427",
-      "number": 427,
-      "title": "P1 Netto: freeze object-graph component semantic signatures against 100-cell truth"
-    },
-    {
-      "closed_at": "2026-08-08T20:45:48Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/435",
-      "number": 435,
-      "title": "P1 Netto: evaluate frozen component semantic-class purity against 100-cell truth"
+      "closed_at": "2026-08-09T21:13:27Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/507",
+      "number": 507,
+      "title": "ui: W5A freeze CSS archaeology inventory before destructive cleanup"
     }
   ],
   "previous_day_progress_units": 0,
