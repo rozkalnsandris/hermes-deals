@@ -126,12 +126,18 @@ cmp -s "$TMP/sudoers" "$SUDOERS" || fail 'installed sudoers content drift'
 # execute the dispatcher.
 sudo -n -l -U github-runner -- "$DISPATCHER" 1 1 >/dev/null 2>&1 \
   || fail 'github-runner fixed dispatcher sudo permission is unavailable'
-for denied_args in '0 1' '1 0' 'x 1' '1 x' '1' '1 1 extra'; do
-  # shellcheck disable=SC2086
-  if sudo -n -l -U github-runner -- "$DISPATCHER" $denied_args >/dev/null 2>&1; then
-    fail "github-runner sudo policy unexpectedly accepts malformed dispatcher args: $denied_args"
+
+sudo_policy_must_deny() {
+  if sudo -n -l -U github-runner -- "$DISPATCHER" "$@" >/dev/null 2>&1; then
+    fail 'github-runner sudo policy unexpectedly accepts malformed dispatcher arguments'
   fi
-done
+}
+sudo_policy_must_deny 0 1
+sudo_policy_must_deny 1 0
+sudo_policy_must_deny x 1
+sudo_policy_must_deny 1 x
+sudo_policy_must_deny 1
+sudo_policy_must_deny 1 1 extra
 
 printf 'REGISTERED_COMMIT=%s\n' "$EXPECTED_SHA"
 printf 'DISPATCHER_BLOB=%s\n' "$EXPECTED_DISPATCHER_BLOB"
