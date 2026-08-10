@@ -21,7 +21,8 @@ def test_installer_is_root_only_and_commit_bound() -> None:
 def test_installer_materializes_only_exact_git_object() -> None:
     text = _text()
     assert "DISPATCHER_REL='tools/runner/lidl-gate-b-family-scan-554-dispatcher-v01.sh'" in text
-    assert "EXPECTED_DISPATCHER_BLOB='720983e83f45391a35629cb49ffc8d12ac71cb03'" in text
+    assert "EXPECTED_DISPATCHER_BLOB='c09a1fc40c6ff4953b0b63c6a2f58170747a7160'" in text
+    assert "PREDECESSOR_DISPATCHER_BLOB='720983e83f45391a35629cb49ffc8d12ac71cb03'" in text
     assert 'git_source rev-parse "$EXPECTED_SHA:$DISPATCHER_REL"' in text
     assert 'git_source show "$EXPECTED_SHA:$DISPATCHER_REL" > "$TMP/dispatcher"' in text
     assert 'git_source hash-object --stdin < "$TMP/dispatcher"' in text
@@ -38,6 +39,15 @@ def test_root_only_temp_path_is_not_passed_to_dropped_privilege_git() -> None:
     assert 'chmod 0755 "$TMP/dispatcher"' in text
     assert 'chmod 0755 "$TMP"' not in text
     assert 'chmod 0711 "$TMP"' not in text
+
+
+def test_installer_requires_sudo_regex_support_before_policy_upgrade() -> None:
+    text = _text()
+    assert 'SUDO_VERSION_OUTPUT="$(sudo -V)"' in text
+    assert "^Sudo\\ version\\ ([0-9]+)\\.([0-9]+)\\.([0-9]+)" in text
+    assert "host Sudo is older than 1.9.10; regex command arguments are unavailable" in text
+    assert text.index('SUDO_VERSION_OUTPUT="$(sudo -V)"') < text.index("TMP=\"$(mktemp -d")
+    assert text.index("host Sudo is older than 1.9.10") < text.index("install -o root -g root -m 0440")
 
 
 def test_installer_grants_only_regex_bound_fixed_dispatcher_sudo_boundary() -> None:
@@ -72,13 +82,19 @@ def test_sudo_policy_probes_allow_exact_shape_and_deny_malformed_arguments() -> 
     assert "unexpectedly accepts malformed dispatcher arguments" in text
 
 
-def test_known_wildcard_predecessor_is_the_only_upgrade_exception() -> None:
+def test_known_predecessor_pair_is_the_only_upgrade_exception() -> None:
     text = _text()
     assert "sudoers.predecessor" in text
     assert "Cmnd_Alias HERMES_DEALS_LIDL_GATE_B_SCAN_554 = %s [1-9][0-9]* [1-9][0-9]*" in text
     assert 'elif cmp -s "$TMP/sudoers.predecessor" "$SUDOERS"; then' in text
     assert "SUDOERS_PREDECESSOR=true" in text
     assert "existing sudoers content differs from registered command boundary and known predecessor" in text
+
+    assert 'EXISTING_DISPATCHER_BLOB="$(git_source hash-object "$DISPATCHER")"' in text
+    assert 'elif [[ "$EXISTING_DISPATCHER_BLOB" == "$PREDECESSOR_DISPATCHER_BLOB" ]]; then' in text
+    assert "DISPATCHER_PREDECESSOR=true" in text
+    assert "existing dispatcher content differs from registered blob and known predecessor" in text
+    assert 'printf \'DISPATCHER_UPGRADED_FROM_PREDECESSOR=%s\\n\' "$DISPATCHER_PREDECESSOR"' in text
     assert 'printf \'SUDOERS_UPGRADED_FROM_PREDECESSOR=%s\\n\' "$SUDOERS_PREDECESSOR"' in text
 
 
@@ -98,7 +114,6 @@ def test_installer_is_registration_only() -> None:
 
 def test_existing_registration_must_be_identical_predecessor_or_fail_closed() -> None:
     text = _text()
-    assert "existing dispatcher content differs from registered blob" in text
     assert "INSTALL_RESULT=NO_OP_IDENTICAL" in text
     assert "installed dispatcher content drift" in text
     assert "installed sudoers content drift" in text
