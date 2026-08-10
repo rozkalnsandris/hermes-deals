@@ -1,0 +1,43 @@
+name: Owner direct current-main deploy command
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-direct-main-deploy-command
+  cancel-in-progress: false
+
+jobs:
+  authorize-and-dispatch:
+    name: Authorize owner and dispatch existing deploy workflow
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 553 &&
+      startsWith(github.event.comment.body, '/hermes-deploy ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout exact default-branch command code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Authorize exact current-main command and dispatch deploy-main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 tools/github_direct_main_deploy.py
