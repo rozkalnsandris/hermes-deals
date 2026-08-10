@@ -42,6 +42,11 @@ _APP_PREIS_RE = re.compile(
     r"App-Preis\s+von\s+(?P<price>\d{1,4}(?:[.,]\d{1,2})?)\s*€",
     re.IGNORECASE,
 )
+_PAYBACK_POINTS_ONLY_RE = re.compile(
+    r"\b\d{1,4}\s*Extra°Punkte\b.*?\bMit\s+PAYBACK\b.*?"
+    r"\bExtra\s+Punkte\s+sammeln\b",
+    re.IGNORECASE,
+)
 _TITLE_PREFIX_RE = re.compile(r"^\s*Angebot:\s*", re.IGNORECASE)
 _LOCAL_TZ = ZoneInfo("Europe/Berlin")
 _MAX_CAMPAIGN_LENGTH_DAYS = 7
@@ -174,7 +179,7 @@ def _offer_id_from_href(href: str, source_url: str) -> str | None:
 
 def _price_fields(
     article: Tag,
-) -> tuple[Decimal, Decimal | None, bool, list[str]]:
+) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
     labels = [
         _norm(node.get_text(" ", strip=True))
         for node in article.select(".sr-only")
@@ -211,8 +216,32 @@ def _price_fields(
     if app_preis is not None:
         return app_preis, app_preis, True, labels
 
+    article_text = _norm(article.get_text(" ", strip=True))
+    if _PAYBACK_POINTS_ONLY_RE.search(article_text):
+        # PAYBACK points-only cards are promotions without an offer price.
+        # Never infer a "Normalpreis" from their description as price_eur.
+        return None
+
+    fragments: list[str] = []
+    seen_fragments: set[str] = set()
+    for value in article.stripped_strings:
+        fragment = _norm(str(value))
+        folded = fragment.casefold()
+        if not fragment or not any(
+            token in folded for token in ("preis", "€", "payback", "punkte")
+        ):
+            continue
+        fragment = fragment[:160]
+        if fragment in seen_fragments:
+            continue
+        seen_fragments.add(fragment)
+        fragments.append(fragment)
+        if len(fragments) >= 8:
+            break
+
     raise ValueError(
-        "EDEKA offer card has no Festpreis, Rabattierter Preis or App-Preis"
+        "EDEKA offer card has no Festpreis, Rabattierter Preis or App-Preis; "
+        f"price_semantics={fragments!r}"
     )
 
 
@@ -317,9 +346,11 @@ def parse_edeka_html(
                 f"EDEKA offer has blank product name: {source_offer_id}"
             )
 
-        price_eur, app_price_eur, requires_app, price_labels = (
-            _price_fields(article)
-        )
+        price_fields = _price_fields(article)
+        if price_fields is None:
+            seen_offer_ids.add(source_offer_id)
+            continue
+        price_eur, app_price_eur, requires_app, price_labels = price_fields
         description = _description(article)
         image_url = _product_image(article, context.source_url)
 
