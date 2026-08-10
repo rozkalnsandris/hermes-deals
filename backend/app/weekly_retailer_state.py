@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import json
-from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -125,7 +124,7 @@ def _netto_evidence(
     if relevant:
         snapshot, valid_from, valid_until = max(relevant, key=lambda row: row[0].collected_at)
         try:
-            _cached_snapshot_offers(
+            offers = _cached_snapshot_offers(
                 str(snapshot.id),
                 snapshot.snapshot_path or "",
                 snapshot.sha256 or "",
@@ -143,9 +142,29 @@ def _netto_evidence(
                 last_verified_valid_from=valid_from,
                 last_verified_valid_until=valid_until,
             )
+        relevant_offer_count = sum(
+            1
+            for offer in offers
+            if offer.valid_from is not None
+            and offer.valid_until is not None
+            and offer.valid_from <= week_end
+            and offer.valid_until >= week_start
+            and offer.raw_payload.get("is_daily_special") is True
+            and offer.raw_payload.get("special_confidence") == "high"
+        )
+        if relevant_offer_count:
+            return RetailerEvidence(
+                state="source_unavailable",
+                reason="netto_verified_offers_missing_from_merged_weekly_days",
+                last_verified_at=snapshot.collected_at,
+                last_verified_campaign=_netto_campaign(snapshot),
+                last_verified_evidence_sha256=snapshot.sha256,
+                last_verified_valid_from=valid_from,
+                last_verified_valid_until=valid_until,
+            )
         return RetailerEvidence(
             state="no_offers",
-            reason="netto_relevant_snapshot_verified_empty_after_week_filter",
+            reason="netto_relevant_snapshot_verified_empty",
             last_verified_at=snapshot.collected_at,
             last_verified_campaign=_netto_campaign(snapshot),
             last_verified_evidence_sha256=snapshot.sha256,
@@ -205,6 +224,16 @@ def _aldi_evidence(
             last_verified_evidence_sha256=latest.sha256,
         )
 
+    relevant_offers = [
+        offer
+        for offer in offers
+        if offer.valid_from is not None
+        and offer.valid_until is not None
+        and offer.valid_from <= week_end
+        and offer.valid_until >= week_start
+        and offer.raw_payload.get("is_daily_special") is True
+        and offer.raw_payload.get("special_confidence") == "high"
+    ]
     dates = sorted(
         {
             offer.valid_from
@@ -214,9 +243,8 @@ def _aldi_evidence(
     )
     valid_from = dates[0] if dates else None
     valid_until = dates[-1] if dates else None
-    relevant = any(week_start <= day <= week_end for day in dates)
-    if relevant:
-        state, reason = "no_offers", "aldi_relevant_snapshot_verified_empty_after_week_filter"
+    if relevant_offers:
+        state, reason = "source_unavailable", "aldi_verified_offers_missing_from_merged_weekly_days"
     elif week_start > today:
         state, reason = "not_published_yet", "aldi_requested_week_not_yet_in_verified_evidence"
     elif valid_until is not None and valid_until < week_start:
