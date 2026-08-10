@@ -12,6 +12,7 @@ DISPATCHER = ROOT / "tools/runner/edeka-shadow-cycle-dispatcher.sh"
 INSTALLER = ROOT / "tools/runner/install-edeka-shadow-cycle-dispatcher.sh"
 WORKFLOW = ROOT / ".github/workflows/edeka-shadow-cycle-rpi5.yml"
 RUNBOOK = ROOT / "docs/edeka-shadow-cycle-runbook.md"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 class EdekaShadowRunnerContractTest(unittest.TestCase):
@@ -107,11 +108,12 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "audit accepts only merged pull requests",
             "hermes-deals-audit",
             "sudo --non-interactive /usr/local/sbin/hermes-deals-edeka-shadow-cycle-dispatch",
-            "actions/upload-artifact@v6",
+            f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0",
             "retention-days: 30",
             "Production database write: **false**",
         ):
             self.assertIn(required, raw)
+        self.assertNotIn("actions/upload-artifact@v6", raw)
         self.assertNotIn("schedule:", raw)
         self.assertNotIn("pull_request:", raw)
 
