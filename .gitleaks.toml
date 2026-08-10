@@ -35,12 +35,12 @@ regexes = [
 ]
 
 [[allowlists]]
-description = "Exact public actions/upload-artifact v4.6.2 commit used only in three pinned Lidl/Gate-B workflows"
+description = "Exact public actions/upload-artifact v4.6.2 commit used only in pinned Lidl/Gate-B workflow and focused-test history"
 condition = "AND"
 regexTarget = "match"
 regexes = [
   '''ea165f8d65b6e75b540449e92b4886f43607fa02'''
 ]
 paths = [
-  '''^\.github/workflows/(hermes-gate-b-plan-bridge|hermes-lidl-source-refresh-audit|lidl-gate-b-plan-rpi5)\.yml$'''
+  '''^(\.github/workflows/(hermes-gate-b-plan-bridge|hermes-lidl-source-refresh-audit|lidl-gate-b-plan-rpi5)\.yml|backend/tests/test_lidl_self_hosted_workflow_action_pins\.py)$'''
 ]
