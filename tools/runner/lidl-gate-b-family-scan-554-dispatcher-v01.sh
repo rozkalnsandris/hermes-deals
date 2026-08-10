@@ -140,11 +140,11 @@ run_scan() {
     --env PYTHONDONTWRITEBYTECODE=1 \
     --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
     --mount "type=bind,src=$AUDIT_REPO,dst=/repo,readonly" \
-    --mount "type=bind,src=$CORPUS_ROOT,dst=/corpus,readonly" \
+    --mount "type=bind,src=$FAMILY,dst=/frozen-family/$FLYER,readonly" \
     --mount "type=bind,src=$stage,dst=/out" \
     "$EXPECTED_IMAGE" \
     python /repo/tools/lidl_gate_b_family_scan.py \
-      --frozen-family "/corpus/flyers/$FLYER" \
+      --frozen-family "/frozen-family/$FLYER" \
       --output-root /out \
       --route-region "$ROUTE_REGION" \
       --target next > "$result_file"
