@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +18,36 @@ def test_schedule_is_timezone_aware_non_top_of_hour_and_main_only_runtime() -> N
     assert "grep -Fxq docker" in text
     assert "ref: ${{ github.sha }}" in text
     assert "persist-credentials: false" in text
+
+
+def test_scheduler_external_actions_are_immutable_and_version_annotated() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    expected = {
+        "actions/checkout": (
+            "08c6903cd8c0fde910a37f88322edcfb5dd907a8",
+            "v5.0.0",
+        ),
+        "actions/upload-artifact": (
+            "b7c566a772e6b6bfb58ed0dc250532a479d7789f",
+            "v6.0.0",
+        ),
+    }
+    uses_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("uses: ")
+    ]
+    assert len(uses_lines) == len(expected)
+    for line in uses_lines:
+        action_ref = line.removeprefix("uses: ").split(maxsplit=1)[0]
+        action, sha = action_ref.rsplit("@", 1)
+        assert action in expected
+        expected_sha, expected_version = expected[action]
+        assert sha == expected_sha
+        assert re.fullmatch(r"[0-9a-f]{40}", sha)
+        assert line.endswith(f"# {expected_version}")
+    assert "actions/checkout@v5" not in text
+    assert "actions/upload-artifact@v6" not in text
 
 
 def test_only_successful_scheduled_artifact_can_restore_unattended_state() -> None:
@@ -55,7 +86,7 @@ def test_live_source_uses_existing_verified_selector_with_bounded_retries() -> N
 
 def test_transition_artifact_is_exact_and_daily_noop_does_not_spam_issue() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/upload-artifact@v6" in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0" in text
     for member in (
         "SHA256SUMS",
         "live-source.json",
