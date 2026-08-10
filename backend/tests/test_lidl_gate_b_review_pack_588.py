@@ -110,6 +110,21 @@ def test_exact_source_identity_and_page_count_are_fail_closed_before_render() ->
     assert digest_gate < page_gate < render_call
 
 
+def test_digest_literals_use_neutral_identifiers() -> None:
+    text = _text()
+    for forbidden in (
+        "EXPECTED_PDF_SHA256",
+        "PDF_SHA256_A",
+        "PDF_SHA256_B",
+        "STAGING_TREE_SHA256:",
+    ):
+        assert forbidden not in text
+    assert "PDF_ID_A:" in text
+    assert "PDF_ID_B:" in text
+    assert "TREE_ID_A:" in text
+    assert "TREE_ID_B:" in text
+
+
 def test_visual_pack_is_bounded_and_excludes_raw_source() -> None:
     text = _text()
     for marker in (
