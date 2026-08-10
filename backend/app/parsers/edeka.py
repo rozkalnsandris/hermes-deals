@@ -227,21 +227,71 @@ def _price_fields(
     for value in article.stripped_strings:
         fragment = _norm(str(value))
         folded = fragment.casefold()
-        if not fragment or not any(
-            token in folded for token in ("preis", "€", "payback", "punkte")
+        if not fragment or not (
+            any(character.isdigit() for character in fragment)
+            or any(
+                token in folded
+                for token in ("preis", "€", "pfand", "payback", "punkte", "rabatt")
+            )
         ):
             continue
-        fragment = fragment[:160]
+        fragment = fragment[:120]
         if fragment in seen_fragments:
             continue
         seen_fragments.add(fragment)
         fragments.append(fragment)
-        if len(fragments) >= 8:
+        if len(fragments) >= 10:
+            break
+
+    attributes: list[str] = []
+    seen_attributes: set[str] = set()
+    structural_classes: list[str] = []
+    seen_classes: set[str] = set()
+    for node in article.find_all(True):
+        for key, raw_value in node.attrs.items():
+            key_folded = key.casefold()
+            if key not in {"aria-label", "title", "data-testid"} and not any(
+                token in key_folded for token in ("price", "preis", "amount", "value")
+            ):
+                continue
+            if isinstance(raw_value, list):
+                value = _norm(" ".join(str(item) for item in raw_value))
+            else:
+                value = _norm(str(raw_value))
+            if not value:
+                continue
+            entry = f"{node.name}.{key}={value[:100]}"
+            if entry in seen_attributes:
+                continue
+            seen_attributes.add(entry)
+            attributes.append(entry)
+            if len(attributes) >= 6:
+                break
+        if len(attributes) >= 6:
+            pass
+
+        classes = [str(value) for value in (node.get("class") or [])]
+        relevant_classes = sorted(
+            value
+            for value in classes
+            if any(
+                token in value.casefold()
+                for token in ("price", "preis", "discount", "rabatt", "offer", "badge")
+            )
+        )
+        if relevant_classes:
+            entry = f"{node.name}.class={' '.join(relevant_classes)[:100]}"
+            if entry not in seen_classes:
+                seen_classes.add(entry)
+                structural_classes.append(entry)
+        if len(structural_classes) >= 8 and len(attributes) >= 6:
             break
 
     raise ValueError(
         "EDEKA offer card has no Festpreis, Rabattierter Preis or App-Preis; "
-        f"price_semantics={fragments!r}"
+        f"price_semantics={fragments!r}; "
+        f"price_attributes={attributes!r}; "
+        f"price_classes={structural_classes!r}"
     )
 
 
@@ -346,7 +396,15 @@ def parse_edeka_html(
                 f"EDEKA offer has blank product name: {source_offer_id}"
             )
 
-        price_fields = _price_fields(article)
+        try:
+            price_fields = _price_fields(article)
+        except ValueError as exc:
+            raise ValueError(
+                "EDEKA unsupported offer price semantics; "
+                f"source_offer_id={source_offer_id}; "
+                f"product_name={product_name[:160]!r}; "
+                f"detail={str(exc)[:1400]}"
+            ) from exc
         if price_fields is None:
             seen_offer_ids.add(source_offer_id)
             continue

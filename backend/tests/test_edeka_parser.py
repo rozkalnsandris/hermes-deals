@@ -217,6 +217,49 @@ class EdekaParserTest(unittest.TestCase):
         ):
             parse_edeka_html(html, self.context)
 
+    def test_pfand_only_euro_diagnostic_keeps_offer_context(self) -> None:
+        html = """
+        <!doctype html>
+        <html lang="de">
+          <head><title>Angebote EDEKA Patzer</title></head>
+          <body>
+            <article>
+              <h3>
+                <a href="#angebot-dddddddd-4444-4444-8444-dddddddddddd">
+                  Angebot: Mineralwasser Test
+                </a>
+              </h3>
+              <div
+                class="offer-price-badge"
+                data-price="1.29"
+                aria-label="Preisstruktur 1,29"
+              >
+                <span>1</span><span>29</span>
+              </div>
+              <p>versch. Sorten, je 1 l Flasche zzgl. € 0.25 Pfand</p>
+            </article>
+            <dialog id="dialog-angebot-dddddddd-4444-4444-8444-dddddddddddd">
+              <strong>Gültig ab 20.07.2026</strong>
+              <p>Alle Angebote gültig bis Samstag, den 25.07.2026, KW 30.</p>
+            </dialog>
+          </body>
+        </html>
+        """
+
+        with self.assertRaises(ValueError) as caught:
+            parse_edeka_html(html, self.context)
+
+        message = str(caught.exception)
+        self.assertIn(
+            "source_offer_id=dddddddd-4444-4444-8444-dddddddddddd",
+            message,
+        )
+        self.assertIn("Mineralwasser Test", message)
+        self.assertIn("€ 0.25 Pfand", message)
+        self.assertIn("div.data-price=1.29", message)
+        self.assertIn("offer-price-badge", message)
+        self.assertNotIn("<article", message)
+
 
 if __name__ == "__main__":
     unittest.main()
