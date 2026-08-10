@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  authorize-and-dispatch:
-    name: Authorize owner and dispatch existing deploy workflow
+  authorize:
+    name: Authorize exact owner current-main command
     if: >-
       github.event.issue.pull_request == null &&
       github.event.issue.number == 553 &&
@@ -22,9 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      actions: write
+      actions: read
       contents: read
-      issues: write
+    outputs:
+      sha: ${{ steps.authorize.outputs.sha }}
+      ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
 
     steps:
       - name: Checkout exact default-branch command code
@@ -34,10 +37,350 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Authorize exact current-main command and dispatch deploy-main
+      - name: Authorize exact owner command
+        id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 tools/github_direct_main_deploy.py
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from tools.github_direct_main_deploy import authorize_event
+
+          event = json.loads(
+              Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")
+          )
+          authorized = authorize_event(
+              event,
+              repository=os.environ["GITHUB_REPOSITORY"],
+              workflow_ref=os.environ["GITHUB_WORKFLOW_REF"],
+              token=os.environ["GH_TOKEN"],
+          )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={authorized.sha}\n")
+              handle.write(f"ci_run_id={authorized.ci_run_id}\n")
+              handle.write(f"comment_id={authorized.comment_id}\n")
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+              "## Owner command authorized\n\n"
+              f"- target SHA: `{authorized.sha}`\n"
+              f"- successful main CI: `{authorized.ci_run_id}`\n"
+              f"- owner comment ID: `{authorized.comment_id}`\n"
+              "- database writes/migrations: **not authorized**\n",
+              encoding="utf-8",
+          )
+          PY
+
+  deploy:
+    name: Deploy exact authorized SHA on RPi5
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-release
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Deploy through installed root-owned release helper
+        id: deploy
+        env:
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          evidence_dir="${RUNNER_TEMP}/hermes-deals-main-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$evidence_dir"
+          echo "evidence_dir=$evidence_dir" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-deploy-main \
+            "$TARGET_SHA" \
+            "$evidence_dir"
+
+      - name: Verify weekly retailer trust-state contract locally
+        if: success()
+        env:
+          EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$EVIDENCE_DIR" <<'PY'
+          from __future__ import annotations
+
+          from datetime import datetime, timedelta
+          import ipaddress
+          import json
+          from pathlib import Path
+          import sys
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import ProxyHandler, Request, build_opener
+          from zoneinfo import ZoneInfo
+
+          evidence_dir = Path(sys.argv[1])
+          deploy_log = evidence_dir / "deploy.log"
+          if not evidence_dir.is_dir() or evidence_dir.is_symlink():
+              raise SystemExit("deploy evidence directory is unsafe")
+          if not deploy_log.is_file() or deploy_log.is_symlink():
+              raise SystemExit("deploy log is missing or unsafe")
+
+          health_urls = [
+              line.removeprefix("LOCAL_HEALTH_URL=").strip()
+              for line in deploy_log.read_text(encoding="utf-8").splitlines()
+              if line.startswith("LOCAL_HEALTH_URL=")
+          ]
+          if not health_urls:
+              raise SystemExit("release helper did not report LOCAL_HEALTH_URL")
+          parsed = urlsplit(health_urls[-1])
+          if parsed.scheme != "http" or parsed.path != "/api/health" or not parsed.hostname:
+              raise SystemExit("LOCAL_HEALTH_URL is invalid")
+          address = ipaddress.ip_address(parsed.hostname)
+          port = parsed.port
+          if port is None or not 1 <= port <= 65535:
+              raise SystemExit("LOCAL_HEALTH_URL port is invalid")
+          if not (address.is_loopback or address.is_private or address.is_link_local):
+              raise SystemExit("LOCAL_HEALTH_URL is not local")
+          host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+          origin = f"http://{host}:{port}"
+
+          today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+          week_start = today - timedelta(days=today.weekday())
+          path = "/api/v1/deals/weekly-specials?" + urlencode(
+              {"week_start": week_start.isoformat()}
+          )
+          opener = build_opener(ProxyHandler({}))
+          with opener.open(
+              Request(
+                  origin + path,
+                  headers={
+                      "Accept": "application/json",
+                      "Cache-Control": "no-cache",
+                      "User-Agent": "hermes-deals-owner-command-weekly-smoke/1",
+                  },
+              ),
+              timeout=15,
+          ) as response:
+              raw = response.read()
+              if response.status != 200:
+                  raise SystemExit(f"weekly endpoint returned HTTP {response.status}")
+          payload = json.loads(raw)
+          if payload.get("week_start") != week_start.isoformat():
+              raise SystemExit("weekly endpoint returned wrong week_start")
+          if payload.get("timezone") != "Europe/Berlin":
+              raise SystemExit("weekly endpoint returned wrong timezone")
+          if payload.get("source_contract") != "single_week_query_short_periods_plus_explicit_immutable_daily_evidence":
+              raise SystemExit("weekly source contract mismatch")
+
+          rows = payload.get("retailers")
+          if not isinstance(rows, list) or len(rows) != 4:
+              raise SystemExit("weekly retailer trust-state list must contain four rows")
+          expected = {"lidl", "aldi_nord", "netto", "edeka"}
+          allowed_states = {
+              "offers",
+              "no_offers",
+              "not_published_yet",
+              "source_unavailable",
+              "stale_data",
+              "not_supported",
+          }
+          normalized = []
+          keys = set()
+          for row in rows:
+              if not isinstance(row, dict):
+                  raise SystemExit("weekly retailer state row is invalid")
+              key = str(row.get("retailer_key") or "")
+              state = str(row.get("state") or "")
+              count = row.get("deal_count")
+              dates = row.get("active_dates")
+              if key not in expected or key in keys:
+                  raise SystemExit("weekly retailer key is invalid or duplicated")
+              if state not in allowed_states:
+                  raise SystemExit("weekly retailer state is invalid")
+              if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                  raise SystemExit("weekly retailer deal_count is invalid")
+              if not isinstance(dates, list):
+                  raise SystemExit("weekly retailer active_dates is invalid")
+              keys.add(key)
+              normalized.append(
+                  {
+                      "retailer_key": key,
+                      "state": state,
+                      "deal_count": count,
+                      "active_date_count": len(dates),
+                  }
+              )
+          if keys != expected:
+              raise SystemExit("weekly retailer trust-state coverage is incomplete")
+
+          (evidence_dir / "weekly-retailer-trust-smoke.json").write_text(
+              json.dumps(
+                  {
+                      "result": "PASS",
+                      "week_start": week_start.isoformat(),
+                      "retailers": sorted(normalized, key=lambda row: row["retailer_key"]),
+                      "database_write": False,
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          print("WEEKLY_RETAILER_TRUST_SMOKE=PASS")
+          PY
+
+      - name: Verify public health and UI through Cloudflare Access
+        if: success()
+        env:
+          EVIDENCE_DIR: ${{ steps.deploy.outputs.evidence_dir }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$EVIDENCE_DIR" "$TARGET_SHA" <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          evidence_dir = Path(sys.argv[1])
+          target_sha = sys.argv[2]
+          client_id = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+          client_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+          if not evidence_dir.is_dir() or evidence_dir.is_symlink():
+              raise SystemExit("public smoke evidence directory is unsafe")
+          if not client_id or not client_secret:
+              raise SystemExit("Cloudflare Access service credentials are missing")
+          if any(ch in client_id + client_secret for ch in "\r\n"):
+              raise SystemExit("Cloudflare Access service credentials are invalid")
+
+          headers = {
+              "Accept": "*/*",
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache",
+              "User-Agent": "hermes-deals-owner-command-public-smoke/1",
+              "CF-Access-Client-Id": client_id,
+              "CF-Access-Client-Secret": client_secret,
+          }
+          last_error = "public smoke did not run"
+          for attempt in range(1, 7):
+              query = urlencode({"deploy_sha": target_sha, "attempt": attempt})
+              try:
+                  with urlopen(
+                      Request(f"https://deals.rozkalns.net/api/health?{query}", headers=headers),
+                      timeout=20,
+                  ) as response:
+                      health_raw = response.read()
+                      if response.status != 200:
+                          raise RuntimeError(f"public health returned HTTP {response.status}")
+                  health = json.loads(health_raw)
+                  if health.get("status") != "ok" or health.get("service") != "hermes-deals-api":
+                      raise RuntimeError("public health payload is invalid")
+                  with urlopen(
+                      Request(f"https://deals.rozkalns.net/ui?{query}", headers=headers),
+                      timeout=20,
+                  ) as response:
+                      ui = response.read()
+                      content_type = str(response.headers.get("Content-Type") or "").casefold()
+                      if response.status != 200 or "text/html" not in content_type:
+                          raise RuntimeError("public UI response is invalid")
+                  if len(ui) < 50_000:
+                      raise RuntimeError("public UI body is unexpectedly small")
+                  report = {
+                      "result": "PASS",
+                      "attempt": attempt,
+                      "target_sha": target_sha,
+                      "health_status": health.get("status"),
+                      "health_service": health.get("service"),
+                      "ui_bytes": len(ui),
+                      "database_write": False,
+                  }
+                  (evidence_dir / "public-owner-command-smoke.json").write_text(
+                      json.dumps(report, indent=2, sort_keys=True) + "\n",
+                      encoding="utf-8",
+                  )
+                  print("PUBLIC_OWNER_COMMAND_SMOKE=PASS")
+                  raise SystemExit(0)
+              except (HTTPError, URLError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                  last_error = str(exc)
+                  if attempt < 6:
+                      time.sleep(5)
+          raise SystemExit(f"public smoke failed after six attempts: {last_error}")
+          PY
+
+      - name: Upload deploy evidence
+        if: always() && steps.deploy.outputs.evidence_dir != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: owner-command-production-deploy-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.deploy.outputs.evidence_dir }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    name: Report sanitized owner-command deploy result
+    needs:
+      - authorize
+      - deploy
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment sanitized result on control issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+          CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+          OWNER_COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ["DEPLOY_RESULT"]
+          label = "PASS" if result == "success" else "FAIL"
+          body = (
+              f"## Direct owner-command production deploy {label}\n\n"
+              f"- target SHA: `{os.environ['TARGET_SHA']}`\n"
+              f"- successful main CI: `{os.environ['CI_RUN_ID']}`\n"
+              f"- owner command comment: `{os.environ['OWNER_COMMENT_ID']}`\n"
+              f"- workflow run: `{os.environ['RUN_ID']}`\n"
+              f"- deploy job result: **{result}**\n"
+              "- database writes/migrations authorized: **false**\n"
+              "- root-owned release helper remains responsible for guarded switch/rollback.\n"
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/553/comments",
+              data=json.dumps({"body": body}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-owner-command-deploy-report",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected issue comment status: {response.status}")
+          PY
