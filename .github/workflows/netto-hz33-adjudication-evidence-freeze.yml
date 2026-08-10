@@ -335,6 +335,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
           HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
         shell: bash
         run: |
@@ -350,6 +351,7 @@ jobs:
 
           repo = os.environ["REPOSITORY"]
           token = os.environ["GH_TOKEN"]
+          expected_base = os.environ["BASE_SHA"]
           expected_head = os.environ["HEAD_SHA"]
           head_ref = os.environ["EXPECTED_HEAD"]
           root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "hz33-adjudication-freeze-v2"
@@ -376,6 +378,10 @@ jobs:
                   if allow_404 and exc.code == 404:
                       return None
                   raise
+
+          main_ref = request("GET", "git/ref/heads/main")
+          if (main_ref.get("object") or {}).get("sha") != expected_base:
+              raise SystemExit("main moved before freeze commit")
 
           current = request("GET", f"git/ref/heads/{urllib.parse.quote(head_ref, safe='/')}")
           if (current.get("object") or {}).get("sha") != expected_head:
@@ -417,6 +423,9 @@ jobs:
           current = request("GET", f"git/ref/heads/{urllib.parse.quote(head_ref, safe='/')}")
           if (current.get("object") or {}).get("sha") != expected_head:
               raise SystemExit("evidence branch moved during freeze commit")
+          main_ref = request("GET", "git/ref/heads/main")
+          if (main_ref.get("object") or {}).get("sha") != expected_base:
+              raise SystemExit("main moved during freeze commit")
           request(
               "PATCH",
               f"git/refs/heads/{urllib.parse.quote(head_ref, safe='/')}",
