@@ -58,6 +58,23 @@ def test_start_signal_is_bound_to_recorded_authorization_evidence() -> None:
     assert "status comment marker mismatch" in text
 
 
+def test_self_hosted_job_receives_ids_not_raw_authorization_or_trigger_body() -> None:
+    text = _workflow_text()
+    parsed = yaml.load(text, Loader=yaml.BaseLoader)
+    authorize_outputs = parsed["jobs"]["authorize"]["outputs"]
+    assert set(authorize_outputs) == {
+        "trigger_comment_id",
+        "authorization_comment_id",
+        "status_comment_id",
+    }
+    scan_text = text.split("\n  scan:\n", 1)[1].split("\n  report:\n", 1)[0]
+    assert "github.event.comment.body" not in scan_text
+    assert "authorization.get('body')" not in scan_text
+    assert "AUTHORIZATION_COMMENT_ID" not in scan_text
+    assert "STATUS_COMMENT_ID" not in scan_text
+    assert "TRIGGER_COMMENT_ID" not in scan_text
+
+
 def test_workflow_token_permissions_are_job_minimal() -> None:
     text = _workflow_text()
     parsed = yaml.load(text, Loader=yaml.BaseLoader)
