@@ -177,14 +177,18 @@ def _offer_id_from_href(href: str, source_url: str) -> str | None:
     return match.group("offer_id").lower()
 
 
-def _price_fields(
-    article: Tag,
-) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
-    labels = [
+def _price_labels(container: Tag) -> list[str]:
+    return [
         _norm(node.get_text(" ", strip=True))
-        for node in article.select(".sr-only")
+        for node in container.select(".sr-only")
         if _norm(node.get_text(" ", strip=True))
     ]
+
+
+def _labelled_price_fields(
+    container: Tag,
+) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
+    labels = _price_labels(container)
 
     festpreis: Decimal | None = None
     rabattierter_preis: Decimal | None = None
@@ -208,13 +212,22 @@ def _price_fields(
     # - Festpreis is the non-app weekly offer price when present.
     # - "Rabattierter Preis" is also an explicitly labelled non-app sale price.
     # - App-Preis is stored separately when present.
-    # - No discount-percent or regular-price inference is made.
-    # - Only a card with no labelled non-app price is requires_app=True.
+    # - No discount-percent, regular-price or Pfand inference is made.
+    # - Only a source node with no labelled non-app price is requires_app=True.
     non_app_price = festpreis or rabattierter_preis
     if non_app_price is not None:
         return non_app_price, app_preis, False, labels
     if app_preis is not None:
         return app_preis, app_preis, True, labels
+    return None
+
+
+def _price_fields(
+    article: Tag,
+) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
+    labelled = _labelled_price_fields(article)
+    if labelled is not None:
+        return labelled
 
     article_text = _norm(article.get_text(" ", strip=True))
     if _PAYBACK_POINTS_ONLY_RE.search(article_text):
@@ -383,7 +396,8 @@ def parse_edeka_html(
             )
 
         dialog_id = f"dialog-angebot-{source_offer_id}"
-        if soup.find("dialog", id=dialog_id) is None:
+        dialog = soup.find("dialog", id=dialog_id)
+        if not isinstance(dialog, Tag):
             raise ValueError(
                 f"EDEKA offer fragment has no matching dialog: "
                 f"{source_offer_id}"
@@ -396,15 +410,33 @@ def parse_edeka_html(
                 f"EDEKA offer has blank product name: {source_offer_id}"
             )
 
+        article_price_labels = _price_labels(article)
         try:
             price_fields = _price_fields(article)
-        except ValueError as exc:
-            raise ValueError(
-                "EDEKA unsupported offer price semantics; "
-                f"source_offer_id={source_offer_id}; "
-                f"product_name={product_name[:160]!r}; "
-                f"detail={str(exc)[:1400]}"
-            ) from exc
+        except ValueError as article_exc:
+            # Only fall back when the card carries no sr-only price semantic at all.
+            # An unknown labelled article price must remain fail-closed rather than
+            # being silently overridden by a dialog value.
+            if article_price_labels:
+                raise ValueError(
+                    "EDEKA unsupported offer price semantics; "
+                    f"source_offer_id={source_offer_id}; "
+                    f"product_name={product_name[:160]!r}; "
+                    f"detail={str(article_exc)[:1400]}"
+                ) from article_exc
+
+            dialog_price_fields = _labelled_price_fields(dialog)
+            if dialog_price_fields is None:
+                dialog_labels = _price_labels(dialog)
+                raise ValueError(
+                    "EDEKA unsupported offer price semantics; "
+                    f"source_offer_id={source_offer_id}; "
+                    f"product_name={product_name[:160]!r}; "
+                    f"article_detail={str(article_exc)[:1000]}; "
+                    f"dialog_price_labels={dialog_labels[:12]!r}"
+                ) from article_exc
+            price_fields = dialog_price_fields
+
         if price_fields is None:
             seen_offer_ids.add(source_offer_id)
             continue
