@@ -109,7 +109,6 @@ class EdekaParserTest(unittest.TestCase):
         ):
             parse_edeka_html(self.html, wrong)
 
-
     def test_rabattierter_preis_live_examples_are_non_app_sale_prices(self) -> None:
         live_examples = "\n".join(
             [
@@ -145,6 +144,78 @@ class EdekaParserTest(unittest.TestCase):
             self.assertFalse(offer.requires_app)
             self.assertIsNone(offer.discount_percent)
             self.assertIsNone(offer.regular_price_eur)
+
+    def test_payback_points_only_card_is_not_inferred_as_price_offer(self) -> None:
+        html = """
+        <!doctype html>
+        <html lang="de">
+          <head><title>Angebote EDEKA Patzer</title></head>
+          <body>
+            <article>
+              <h3>
+                <a href="#angebot-aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa">
+                  Angebot: PAYBACK Produkt
+                </a>
+              </h3>
+              <span>20 Extra°Punkte Mit PAYBACK 20 Extra Punkte sammeln.</span>
+              <p>versch. Sorten, Normalpreis: € 0,99</p>
+            </article>
+            <dialog id="dialog-angebot-aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa">
+              <strong>Gültig ab 20.07.2026</strong>
+              <p>Alle Angebote gültig bis Samstag, den 25.07.2026, KW 30.</p>
+            </dialog>
+            <article>
+              <h3>
+                <a href="#angebot-bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb">
+                  Angebot: Preis Produkt
+                </a>
+              </h3>
+              <div class="sr-only">Festpreis von 1.49 €</div>
+            </article>
+            <dialog id="dialog-angebot-bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb">
+              <strong>Gültig ab 20.07.2026</strong>
+              <p>Alle Angebote gültig bis Samstag, den 25.07.2026, KW 30.</p>
+            </dialog>
+          </body>
+        </html>
+        """
+
+        offers = parse_edeka_html(html, self.context)
+
+        self.assertEqual(len(offers), 1)
+        self.assertEqual(
+            offers[0].source_offer_id,
+            "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+        )
+        self.assertEqual(str(offers[0].price_eur), "1.49")
+
+    def test_unknown_price_semantic_still_fails_closed_with_diagnostic(self) -> None:
+        html = """
+        <!doctype html>
+        <html lang="de">
+          <head><title>Angebote EDEKA Patzer</title></head>
+          <body>
+            <article>
+              <h3>
+                <a href="#angebot-cccccccc-3333-4333-8333-cccccccccccc">
+                  Angebot: Unbekannter Preis
+                </a>
+              </h3>
+              <div class="sr-only">Sonderpreis von 2.49 €</div>
+            </article>
+            <dialog id="dialog-angebot-cccccccc-3333-4333-8333-cccccccccccc">
+              <strong>Gültig ab 20.07.2026</strong>
+              <p>Alle Angebote gültig bis Samstag, den 25.07.2026, KW 30.</p>
+            </dialog>
+          </body>
+        </html>
+        """
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Sonderpreis von 2\.49 €",
+        ):
+            parse_edeka_html(html, self.context)
 
 
 if __name__ == "__main__":
