@@ -33,3 +33,14 @@ regexes = [
   '''replace-with-a-random-secret''',
   '''ci-placeholder-not-a-secret'''
 ]
+
+[[allowlists]]
+description = "Exact public actions/upload-artifact v4.6.2 commit used only in three pinned Lidl/Gate-B workflows"
+condition = "AND"
+regexTarget = "match"
+regexes = [
+  '''ea165f8d65b6e75b540449e92b4886f43607fa02'''
+]
+paths = [
+  '''^\.github/workflows/(hermes-gate-b-plan-bridge|hermes-lidl-source-refresh-audit|lidl-gate-b-plan-rpi5)\.yml$'''
+]
