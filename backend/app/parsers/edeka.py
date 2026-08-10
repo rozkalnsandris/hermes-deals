@@ -185,6 +185,15 @@ def _price_labels(container: Tag) -> list[str]:
     ]
 
 
+def _price_semantic_labels(labels: list[str]) -> list[str]:
+    tokens = ("preis", "€", "eur", "rabatt", "pfand")
+    return [
+        label
+        for label in labels
+        if any(token in label.casefold() for token in tokens)
+    ]
+
+
 def _labelled_price_fields(
     container: Tag,
 ) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
@@ -411,13 +420,14 @@ def parse_edeka_html(
             )
 
         article_price_labels = _price_labels(article)
+        article_price_semantic_labels = _price_semantic_labels(article_price_labels)
         try:
             price_fields = _price_fields(article)
         except ValueError as article_exc:
-            # Only fall back when the card carries no sr-only price semantic at all.
-            # An unknown labelled article price must remain fail-closed rather than
-            # being silently overridden by a dialog value.
-            if article_price_labels:
+            # Only price-like sr-only semantics block the exact-dialog fallback.
+            # Accessibility labels unrelated to price must not masquerade as an
+            # unknown price semantic. Unknown price-like labels stay fail-closed.
+            if article_price_semantic_labels:
                 raise ValueError(
                     "EDEKA unsupported offer price semantics; "
                     f"source_offer_id={source_offer_id}; "
