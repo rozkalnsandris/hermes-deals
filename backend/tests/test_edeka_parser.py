@@ -189,6 +189,44 @@ class EdekaParserTest(unittest.TestCase):
         )
         self.assertEqual(str(offers[0].price_eur), "1.49")
 
+    def test_dialog_explicit_price_fallback_ignores_article_pfand(self) -> None:
+        html = """
+        <!doctype html>
+        <html lang="de">
+          <head><title>Angebote EDEKA Patzer</title></head>
+          <body>
+            <article>
+              <h3>
+                <a href="#angebot-68aa5875-e4e1-4a5b-8d6c-221a2319dc2b">
+                  Angebot: granini Die Limo
+                </a>
+              </h3>
+              <p>versch. Sorten, je 1 l Flasche zzgl. € 0.25 Pfand</p>
+            </article>
+            <dialog id="dialog-angebot-68aa5875-e4e1-4a5b-8d6c-221a2319dc2b">
+              <div class="sr-only">Festpreis von 1.49 €</div>
+              <strong>Gültig ab 20.07.2026</strong>
+              <p>Alle Angebote gültig bis Samstag, den 25.07.2026, KW 30.</p>
+            </dialog>
+          </body>
+        </html>
+        """
+
+        offers = parse_edeka_html(html, self.context)
+
+        self.assertEqual(len(offers), 1)
+        offer = offers[0]
+        self.assertEqual(
+            offer.source_offer_id,
+            "68aa5875-e4e1-4a5b-8d6c-221a2319dc2b",
+        )
+        self.assertEqual(offer.product_name_raw, "granini Die Limo")
+        self.assertEqual(str(offer.price_eur), "1.49")
+        self.assertIsNone(offer.app_price_eur)
+        self.assertFalse(offer.requires_app)
+        self.assertIsNone(offer.regular_price_eur)
+        self.assertEqual(offer.raw_payload["price_labels"], ["Festpreis von 1.49 €"])
+
     def test_unknown_price_semantic_still_fails_closed_with_diagnostic(self) -> None:
         html = """
         <!doctype html>
@@ -204,6 +242,7 @@ class EdekaParserTest(unittest.TestCase):
               <div class="sr-only">Sonderpreis von 2.49 €</div>
             </article>
             <dialog id="dialog-angebot-cccccccc-3333-4333-8333-cccccccccccc">
+              <div class="sr-only">Festpreis von 2.29 €</div>
               <strong>Gültig ab 20.07.2026</strong>
               <p>Alle Angebote gültig bis Samstag, den 25.07.2026, KW 30.</p>
             </dialog>
@@ -258,6 +297,7 @@ class EdekaParserTest(unittest.TestCase):
         self.assertIn("€ 0.25 Pfand", message)
         self.assertIn("div.data-price=1.29", message)
         self.assertIn("offer-price-badge", message)
+        self.assertIn("dialog_price_labels=[]", message)
         self.assertNotIn("<article", message)
 
 
