@@ -39,13 +39,13 @@ jobs:
 
     steps:
       - name: Checkout default-branch inspector code
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0 (previously actions/checkout@v5)
         with:
           ref: main
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0 (previously actions/setup-python@v6)
         with:
           python-version: '3.11'
 
@@ -118,7 +118,7 @@ jobs:
           PY
 
       - name: Upload sanitized source identity evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2 (previously actions/upload-artifact@v4)
         with:
           name: hermes-lidl-source-inspect-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lidl-source-inspect-summary.json
