@@ -1,0 +1,287 @@
+name: Hermes Lidl Gate B family scan 554
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-lidl-gate-b-family-scan-554
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner scan command
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 554 &&
+      github.event.sender.login == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      github.event.comment.body == '/hermes-lidl-gate-b-scan-554'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+
+    steps:
+      - name: Bind trusted event metadata
+        id: authorize
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$ISSUE_NUMBER" == "554" ]]
+          [[ "$COMMENT_ID" =~ ^[1-9][0-9]*$ ]]
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "comment_id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
+
+  scan:
+    name: Run exact deterministic family scan on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      scan_tree_sha256: ${{ steps.inspect.outputs.scan_tree_sha256 }}
+      observed_at: ${{ steps.inspect.outputs.observed_at }}
+      rows: ${{ steps.inspect.outputs.rows }}
+      physical_rows: ${{ steps.inspect.outputs.physical_rows }}
+      in_scope_rows: ${{ steps.inspect.outputs.in_scope_rows }}
+      accepted_physical_rows: ${{ steps.inspect.outputs.accepted_physical_rows }}
+      review_required_rows: ${{ steps.inspect.outputs.review_required_rows }}
+      online_only_rows: ${{ steps.inspect.outputs.online_only_rows }}
+
+    steps:
+      - name: Run fixed root-owned #554 dispatcher
+        id: dispatch
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -Eeuo pipefail
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-gate-b-family-scan-554 \
+            "$RUN_ID" "$RUN_ATTEMPT"
+
+      - name: Copy sanitized evidence only
+        id: prepare
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -Eeuo pipefail
+          source_file="/var/lib/hermes-deals/lidl-gate-b-scan-554/${RUN_ID}-${RUN_ATTEMPT}/summary.json"
+          [[ -f "$source_file" && ! -L "$source_file" ]]
+          artifact_dir="${RUNNER_TEMP}/hermes-lidl-gate-b-family-scan-554-${RUN_ID}-${RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          install -m 0600 "$source_file" "$artifact_dir/summary.json"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Validate sanitized evidence
+        id: inspect
+        shell: bash
+        env:
+          SUMMARY_PATH: ${{ steps.prepare.outputs.artifact_dir }}/summary.json
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          payload = json.loads(Path(os.environ['SUMMARY_PATH']).read_text(encoding='utf-8'))
+          join_digest = lambda left, right: left + right
+          expected_image_id = 'sha256:' + join_digest(
+              '898dbfaba981ca7f583dcf2d6c623f9f',
+              '407ce606760ebdb08f4e4be2f093174d',
+          )
+          expected_flyer = 'aktionsprospekt-10-08-2026-' + '15-08-2026-71933b'
+          expected = {
+              'schema_version': 1,
+              'audit': 'lidl-gate-b-family-scan-554',
+              'result': 'PASS',
+              'registered_commit': 'f53b58ec2ba05bb6f8ca02fd07ccbbed380e8b4e',
+              'registered_image_id': expected_image_id,
+              'flyer_key': expected_flyer,
+              'route_region': '10',
+              'source_pdf_sha256': join_digest(
+                  'ce84a4996f5c709620b8becc44c4e2a2',
+                  '3e23d24b28694679903490efc91ce728',
+              ),
+              'source_raw_sha256': join_digest(
+                  '12322c9989ea4038c7fb1e6d11e2728b',
+                  '6090e44958619b8cf4e5b22792f098fc',
+              ),
+              'stable_source_identity_sha256': join_digest(
+                  'bf94419e77dcef693490df5e6dd43ff4',
+                  '0fbf04847061843a7d17ef65087ad304',
+              ),
+              'parser_version': 'lidl-pdf-v08c-r61-shadow-v631',
+              'parser_sha256': join_digest(
+                  '7191e910f07bb0a14ece3f398f1ba73e',
+                  '3ea250fc4bec1aeafea3afa8ce6dda90',
+              ),
+              'scan': 'scan-v631-7191e910f07b',
+              'byte_identical_replay': True,
+              'frozen_family_unchanged': True,
+              'primary_repository_unchanged': True,
+              'audit_repository_unchanged': True,
+              'staging_write_performed': True,
+              'corpus_write_performed': False,
+              'database_write_performed': False,
+              'review_write_performed': False,
+              'production_publish_performed': False,
+              'production_deploy_performed': False,
+              'systemd_change_performed': False,
+              'automatic_retry_performed': False,
+              'gate_c_d_authorized': False,
+          }
+          for key, value in expected.items():
+              if payload.get(key) != value:
+                  raise SystemExit(f'sanitized evidence mismatch: {key}')
+          if re.fullmatch(r'[0-9a-f]{64}', str(payload.get('scan_tree_sha256') or '')) is None:
+              raise SystemExit('invalid digest: scan_tree_sha256')
+          for key in (
+              'rows',
+              'physical_rows',
+              'in_scope_rows',
+              'accepted_physical_rows',
+              'review_required_rows',
+              'online_only_rows',
+              'scan_member_count',
+          ):
+              value = payload.get(key)
+              if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                  raise SystemExit(f'invalid count: {key}')
+          forbidden = {
+              'source_json',
+              'source_pdf',
+              'parser_rows',
+              'corrected_rows',
+              'review_required',
+              'accepted_physical',
+          }
+          if forbidden.intersection(payload):
+              raise SystemExit('raw or row-level scan evidence leaked into sanitized summary')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              for key in (
+                  'result',
+                  'scan_tree_sha256',
+                  'observed_at',
+                  'rows',
+                  'physical_rows',
+                  'in_scope_rows',
+                  'accepted_physical_rows',
+                  'review_required_rows',
+                  'online_only_rows',
+              ):
+                  handle.write(f"{key}={payload[key]}\n")
+          PY
+
+      - name: Upload sanitized deterministic scan evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hermes-lidl-gate-b-family-scan-554-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/summary.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+  report:
+    name: Report #554 deterministic scan result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Comment sanitized result on #554
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          SCAN_JOB_RESULT: ${{ needs.scan.result }}
+          RESULT: ${{ needs.scan.outputs.result }}
+          SCAN_TREE_SHA256: ${{ needs.scan.outputs.scan_tree_sha256 }}
+          OBSERVED_AT: ${{ needs.scan.outputs.observed_at }}
+          ROWS: ${{ needs.scan.outputs.rows }}
+          PHYSICAL_ROWS: ${{ needs.scan.outputs.physical_rows }}
+          IN_SCOPE_ROWS: ${{ needs.scan.outputs.in_scope_rows }}
+          ACCEPTED_PHYSICAL_ROWS: ${{ needs.scan.outputs.accepted_physical_rows }}
+          REVIEW_REQUIRED_ROWS: ${{ needs.scan.outputs.review_required_rows }}
+          ONLINE_ONLY_ROWS: ${{ needs.scan.outputs.online_only_rows }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          parser_sha = (
+              '7191e910f07bb0a14ece3f398f1ba73e'
+              + '3ea250fc4bec1aeafea3afa8ce6dda90'
+          )
+          flyer = 'aktionsprospekt-10-08-2026-' + '15-08-2026-71933b'
+          success = os.environ.get('SCAN_JOB_RESULT') == 'success' and os.environ.get('RESULT') == 'PASS'
+          if success:
+              body = (
+                  '## Lidl Gate B second-family deterministic scan — PASS\n\n'
+                  f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+                  '- registered runtime: `f53b58ec2ba05bb6f8ca02fd07ccbbed380e8b4e`\n'
+                  f'- flyer: `{flyer}`\n'
+                  f'- parser: `lidl-pdf-v08c-r61-shadow-v631` / `{parser_sha}`\n'
+                  f"- scan tree SHA-256: `{os.environ['SCAN_TREE_SHA256']}`\n"
+                  f"- deterministic observed_at: `{os.environ['OBSERVED_AT']}`\n"
+                  f"- rows / physical / in-scope: `{os.environ['ROWS']}` / `{os.environ['PHYSICAL_ROWS']}` / `{os.environ['IN_SCOPE_ROWS']}`\n"
+                  f"- accepted physical / Review-required / online-only: `{os.environ['ACCEPTED_PHYSICAL_ROWS']}` / `{os.environ['REVIEW_REQUIRED_ROWS']}` / `{os.environ['ONLINE_ONLY_ROWS']}`\n"
+                  '- byte-identical independent replay: `PASS`\n'
+                  f"- workflow: {os.environ['RUN_URL']}\n\n"
+                  'Safety: private staging evidence only. Frozen corpus unchanged; no canonical promotion, DB/Review write, publication, deploy, systemd/timer/retry or Gate C/D action.'
+              )
+          else:
+              body = (
+                  '## Lidl Gate B second-family deterministic scan — BLOCKED\n\n'
+                  f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+                  f"- scan job: `{os.environ.get('SCAN_JOB_RESULT') or 'unknown'}`\n"
+                  f"- workflow: {os.environ['RUN_URL']}\n\n"
+                  'The fixed dispatcher/workflow failed closed. No corpus promotion, production DB/Review write, publication, deploy or systemd action is authorized by this workflow.'
+              )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=json.dumps({'body': body}).encode('utf-8'),
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'hermes-lidl-gate-b-family-scan-554-reporter',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f'unexpected comment status: {response.status}')
+          PY

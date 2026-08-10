@@ -1,0 +1,241 @@
+name: Netto held-out GitHub capture v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/netto-heldout-github-capture-v2.yml
+      - tools/netto_heldout_live_source.py
+      - tools/netto_heldout_source_selector.py
+      - tools/netto_heldout_page_capture.py
+      - tools/netto_heldout_page_capture_v2.py
+      - tools/netto_heldout_ownership_protocol_v2.py
+      - tools/netto_local_span_auto_single_candidate.py
+      - tools/run-netto-heldout-github-capture-v02.sh
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-netto-heldout-github-capture-v2
+  cancel-in-progress: false
+
+env:
+  TRIGGER_LABEL: audit:netto-heldout-github-v2
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+
+jobs:
+  ensure-label:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Ensure owner-gated v2 label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          label={"name":os.environ["TRIGGER_LABEL"],"color":"5319e7","description":"Freeze truth-blind Netto held-out v2 candidate provenance"}
+          repo=os.environ["REPOSITORY"]
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","Content-Type":"application/json","User-Agent":"hermes-deals-netto-heldout-v2-label","X-GitHub-Api-Version":"2022-11-28"}
+          encoded=urllib.parse.quote(label["name"],safe=""); data=json.dumps(label).encode()
+          try:
+              urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/labels/{encoded}",data=data,method="PATCH",headers=headers),timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404: raise
+              urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/labels",data=data,method="POST",headers=headers),timeout=20).close()
+          PY
+
+  authorize:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-heldout-github-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate owner merged-main trigger
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          repo=os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals" or os.environ["WORKFLOW_REF"] != "refs/heads/main": raise SystemExit("unexpected repository/workflow ref")
+          event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender=event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]): raise SystemExit("actor is not repository owner")
+          if (event.get("label") or {}).get("name") != os.environ["TRIGGER_LABEL"]: raise SystemExit("unexpected v2 trigger label")
+          number=int((event.get("pull_request") or {}).get("number") or 0)
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","User-Agent":"hermes-deals-netto-heldout-v2-authorizer","X-GitHub-Api-Version":"2022-11-28"}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as response: return json.load(response)
+          pr=get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo: raise SystemExit("trigger PR is not merged into repository main")
+          sha=str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40: raise SystemExit("merge SHA invalid")
+          comparison=get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead","identical"}: raise SystemExit("merge is not reachable from main")
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a",encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr_number={number}\nactor={sender['login']}\n")
+          PY
+
+  capture:
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    outputs:
+      artifact_root: ${{ steps.run.outputs.artifact_root }}
+      artifact_name: ${{ steps.run.outputs.artifact_name }}
+    steps:
+      - name: Verify non-root runner boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(id -un)" == "github-runner" ]]
+          [[ "$(id -u)" -ne 0 ]]
+          ! id -nG | tr ' ' '\n' | grep -Fxq docker
+          [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]]
+
+      - name: Checkout exact reviewed merge
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Create isolated Python environment
+        id: python
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import sys
+          if sys.version_info < (3,11): raise SystemExit(f"Python >=3.11 required, found {sys.version}")
+          PY
+          venv="${RUNNER_TEMP}/netto-heldout-v2-venv-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ ! -e "$venv" && ! -L "$venv" ]]
+          python3 -m venv "$venv"
+          echo "venv=$venv" >> "$GITHUB_OUTPUT"
+          echo "bin=$venv/bin" >> "$GITHUB_OUTPUT"
+
+      - name: Install exact backend dependencies
+        env:
+          VENV: ${{ steps.python.outputs.venv }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$VENV/bin/python" -m pip install -r backend/requirements.txt
+          "$VENV/bin/python" -m pip check
+
+      - name: Run truth-blind v2 capture
+        id: run
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          VENV_BIN: ${{ steps.python.outputs.bin }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PATH="$VENV_BIN:/usr/local/bin:/usr/bin:/bin"
+          as_of="$(python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          print(datetime.now(ZoneInfo('Europe/Berlin')).date().isoformat())
+          PY
+          )"
+          root="${RUNNER_TEMP}/netto-heldout-v2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          artifact="netto-heldout-v2-${REGISTERED_SHA}-run-${GITHUB_RUN_ID}"
+          echo "artifact_root=$root" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact" >> "$GITHUB_OUTPUT"
+          bash tools/run-netto-heldout-github-capture-v02.sh "$REGISTERED_SHA" "$as_of" "$root"
+
+      - name: Upload held-out v2 evidence
+        if: always() && steps.run.outputs.artifact_root != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.run.outputs.artifact_name }}
+          path: ${{ steps.run.outputs.artifact_root }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean isolated runner state
+        if: always()
+        env:
+          VENV: ${{ steps.python.outputs.venv }}
+          ARTIFACT_ROOT: ${{ steps.run.outputs.artifact_root }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "${VENV:-}" && "$VENV" == "$RUNNER_TEMP"/netto-heldout-v2-venv-* ]]; then rm -rf -- "$VENV"; fi
+          if [[ -n "${ARTIFACT_ROOT:-}" && "$ARTIFACT_ROOT" == "$RUNNER_TEMP"/netto-heldout-v2-* ]]; then rm -rf -- "$ARTIFACT_ROOT"; fi
+
+  report:
+    needs: [authorize, capture]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment result and clear trigger label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          ACTOR: ${{ needs.authorize.outputs.actor }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          CAPTURE_RESULT: ${{ needs.capture.result }}
+          RUN_ID: ${{ github.run_id }}
+          ARTIFACT_NAME: ${{ needs.capture.outputs.artifact_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          repo,number=os.environ["REPOSITORY"],int(os.environ["PR_NUMBER"]); label=os.environ["TRIGGER_LABEL"]
+          body=("## Netto held-out GitHub capture v2 result\n\n"
+                f"- Trigger actor: `{os.environ['ACTOR']}`\n"
+                f"- Capture job: **{os.environ['CAPTURE_RESULT']}**\n"
+                f"- Registered commit: `{os.environ['REGISTERED_SHA']}`\n"
+                f"- Workflow run ID: `{os.environ['RUN_ID']}`\n"
+                f"- Artifact: `{os.environ.get('ARTIFACT_NAME') or 'none'}`\n"
+                "- Candidate decisions frozen before truth: **true when capture succeeds**\n"
+                "- Production deployment: **not authorized**\n"
+                "- Database/Review writes: **not authorized**\n"
+                "- Promotion ready: **false**\n")
+          headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {os.environ['GH_TOKEN']}","Content-Type":"application/json","User-Agent":"hermes-deals-netto-heldout-v2-reporter","X-GitHub-Api-Version":"2022-11-28"}
+          urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{number}/comments",data=json.dumps({"body":body}).encode(),method="POST",headers=headers),timeout=20).close()
+          try:
+              urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label,safe='')}",method="DELETE",headers=headers),timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404: raise
+          PY

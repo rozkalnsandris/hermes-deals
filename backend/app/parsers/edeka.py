@@ -42,6 +42,11 @@ _APP_PREIS_RE = re.compile(
     r"App-Preis\s+von\s+(?P<price>\d{1,4}(?:[.,]\d{1,2})?)\s*€",
     re.IGNORECASE,
 )
+_PAYBACK_POINTS_ONLY_RE = re.compile(
+    r"\b\d{1,4}\s*Extra°Punkte\b.*?\bMit\s+PAYBACK\b.*?"
+    r"\bExtra\s+Punkte\s+sammeln\b",
+    re.IGNORECASE,
+)
 _TITLE_PREFIX_RE = re.compile(r"^\s*Angebot:\s*", re.IGNORECASE)
 _LOCAL_TZ = ZoneInfo("Europe/Berlin")
 _MAX_CAMPAIGN_LENGTH_DAYS = 7
@@ -172,14 +177,27 @@ def _offer_id_from_href(href: str, source_url: str) -> str | None:
     return match.group("offer_id").lower()
 
 
-def _price_fields(
-    article: Tag,
-) -> tuple[Decimal, Decimal | None, bool, list[str]]:
-    labels = [
+def _price_labels(container: Tag) -> list[str]:
+    return [
         _norm(node.get_text(" ", strip=True))
-        for node in article.select(".sr-only")
+        for node in container.select(".sr-only")
         if _norm(node.get_text(" ", strip=True))
     ]
+
+
+def _price_semantic_labels(labels: list[str]) -> list[str]:
+    tokens = ("preis", "€", "eur", "rabatt", "pfand")
+    return [
+        label
+        for label in labels
+        if any(token in label.casefold() for token in tokens)
+    ]
+
+
+def _labelled_price_fields(
+    container: Tag,
+) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
+    labels = _price_labels(container)
 
     festpreis: Decimal | None = None
     rabattierter_preis: Decimal | None = None
@@ -199,20 +217,212 @@ def _price_fields(
             if match:
                 app_preis = _decimal(match.group("price"))
 
+    # Some live EDEKA cards keep the exact price phrase in visible text instead
+    # of an sr-only label. Accept only the same explicit v1 semantics; bare
+    # numbers, Pfand, Normalpreis and unknown price wording remain unsupported.
+    if festpreis is None and rabattierter_preis is None and app_preis is None:
+        text = _norm(container.get_text(" ", strip=True))
+        explicit_labels: list[str] = []
+
+        match = _FESTPREIS_RE.search(text)
+        if match:
+            festpreis = _decimal(match.group("price"))
+            explicit_labels.append(_norm(match.group(0)))
+
+        match = _RABATTIERTER_PREIS_RE.search(text)
+        if match:
+            rabattierter_preis = _decimal(match.group("price"))
+            explicit_labels.append(_norm(match.group(0)))
+
+        match = _APP_PREIS_RE.search(text)
+        if match:
+            app_preis = _decimal(match.group("price"))
+            explicit_labels.append(_norm(match.group(0)))
+
+        if explicit_labels:
+            labels = explicit_labels
+
     # Conservative v1 contract:
     # - Festpreis is the non-app weekly offer price when present.
     # - "Rabattierter Preis" is also an explicitly labelled non-app sale price.
     # - App-Preis is stored separately when present.
-    # - No discount-percent or regular-price inference is made.
-    # - Only a card with no labelled non-app price is requires_app=True.
+    # - No discount-percent, regular-price or Pfand inference is made.
+    # - Only a source node with no labelled non-app price is requires_app=True.
     non_app_price = festpreis or rabattierter_preis
     if non_app_price is not None:
         return non_app_price, app_preis, False, labels
     if app_preis is not None:
         return app_preis, app_preis, True, labels
+    return None
+
+
+def _bounded_dialog_price_structure(
+    dialog: Tag,
+) -> tuple[list[str], list[str], list[str]]:
+    fragments: list[str] = []
+    seen_fragments: set[str] = set()
+    for value in dialog.stripped_strings:
+        fragment = _norm(str(value))
+        folded = fragment.casefold()
+        if not fragment or not (
+            any(character.isdigit() for character in fragment)
+            or any(token in folded for token in ("preis", "€", "eur", "pfand", "rabatt"))
+        ):
+            continue
+        bounded = fragment[:60]
+        if bounded in seen_fragments:
+            continue
+        seen_fragments.add(bounded)
+        fragments.append(bounded)
+        if len(fragments) >= 4:
+            break
+
+    attributes: list[str] = []
+    seen_attributes: set[str] = set()
+    numeric_nodes: list[str] = []
+    seen_numeric_nodes: set[str] = set()
+    for node in dialog.find_all(True):
+        if len(attributes) < 3:
+            for key, raw_value in node.attrs.items():
+                key_folded = key.casefold()
+                if key not in {"aria-label", "title", "data-testid"} and not any(
+                    token in key_folded for token in ("price", "preis", "amount", "value")
+                ):
+                    continue
+                if isinstance(raw_value, list):
+                    value = _norm(" ".join(str(item) for item in raw_value))
+                else:
+                    value = _norm(str(raw_value))
+                if not value:
+                    continue
+                entry = f"{node.name}.{key}={value[:60]}"[:90]
+                if entry in seen_attributes:
+                    continue
+                seen_attributes.add(entry)
+                attributes.append(entry)
+                if len(attributes) >= 3:
+                    break
+
+        if len(numeric_nodes) < 6:
+            direct_text = _norm(
+                " ".join(
+                    str(value)
+                    for value in node.find_all(string=True, recursive=False)
+                )
+            )
+            if direct_text and any(
+                character.isdigit() for character in direct_text
+            ):
+                node_classes = " ".join(
+                    str(value) for value in (node.get("class") or [])
+                )
+                parent = node.parent if isinstance(node.parent, Tag) else None
+                parent_name = parent.name if parent is not None else "none"
+                parent_classes = (
+                    " ".join(
+                        str(value) for value in (parent.get("class") or [])
+                    )
+                    if parent is not None
+                    else ""
+                )
+                entry = (
+                    f"{node.name}.class={node_classes[:30]} "
+                    f"text={direct_text[:24]!r} "
+                    f"parent={parent_name}.class={parent_classes[:30]}"
+                )[:110]
+                if entry not in seen_numeric_nodes:
+                    seen_numeric_nodes.add(entry)
+                    numeric_nodes.append(entry)
+
+        if len(numeric_nodes) >= 6 and len(attributes) >= 3:
+            break
+
+    return fragments, attributes, numeric_nodes
+
+
+def _price_fields(
+    article: Tag,
+) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
+    labelled = _labelled_price_fields(article)
+    if labelled is not None:
+        return labelled
+
+    article_text = _norm(article.get_text(" ", strip=True))
+    if _PAYBACK_POINTS_ONLY_RE.search(article_text):
+        # PAYBACK points-only cards are promotions without an offer price.
+        # Never infer a "Normalpreis" from their description as price_eur.
+        return None
+
+    fragments: list[str] = []
+    seen_fragments: set[str] = set()
+    for value in article.stripped_strings:
+        fragment = _norm(str(value))
+        folded = fragment.casefold()
+        if not fragment or not (
+            any(character.isdigit() for character in fragment)
+            or any(
+                token in folded
+                for token in ("preis", "€", "pfand", "payback", "punkte", "rabatt")
+            )
+        ):
+            continue
+        fragment = fragment[:120]
+        if fragment in seen_fragments:
+            continue
+        seen_fragments.add(fragment)
+        fragments.append(fragment)
+        if len(fragments) >= 10:
+            break
+
+    attributes: list[str] = []
+    seen_attributes: set[str] = set()
+    structural_classes: list[str] = []
+    seen_classes: set[str] = set()
+    for node in article.find_all(True):
+        for key, raw_value in node.attrs.items():
+            key_folded = key.casefold()
+            if key not in {"aria-label", "title", "data-testid"} and not any(
+                token in key_folded for token in ("price", "preis", "amount", "value")
+            ):
+                continue
+            if isinstance(raw_value, list):
+                value = _norm(" ".join(str(item) for item in raw_value))
+            else:
+                value = _norm(str(raw_value))
+            if not value:
+                continue
+            entry = f"{node.name}.{key}={value[:100]}"
+            if entry in seen_attributes:
+                continue
+            seen_attributes.add(entry)
+            attributes.append(entry)
+            if len(attributes) >= 6:
+                break
+        if len(attributes) >= 6:
+            pass
+
+        classes = [str(value) for value in (node.get("class") or [])]
+        relevant_classes = sorted(
+            value
+            for value in classes
+            if any(
+                token in value.casefold()
+                for token in ("price", "preis", "discount", "rabatt", "offer", "badge")
+            )
+        )
+        if relevant_classes:
+            entry = f"{node.name}.class={' '.join(relevant_classes)[:100]}"
+            if entry not in seen_classes:
+                seen_classes.add(entry)
+                structural_classes.append(entry)
+        if len(structural_classes) >= 8 and len(attributes) >= 6:
+            break
 
     raise ValueError(
-        "EDEKA offer card has no Festpreis, Rabattierter Preis or App-Preis"
+        "EDEKA offer card has no Festpreis, Rabattierter Preis or App-Preis; "
+        f"price_semantics={fragments!r}; "
+        f"price_attributes={attributes!r}; "
+        f"price_classes={structural_classes!r}"
     )
 
 
@@ -304,7 +514,8 @@ def parse_edeka_html(
             )
 
         dialog_id = f"dialog-angebot-{source_offer_id}"
-        if soup.find("dialog", id=dialog_id) is None:
+        dialog = soup.find("dialog", id=dialog_id)
+        if not isinstance(dialog, Tag):
             raise ValueError(
                 f"EDEKA offer fragment has no matching dialog: "
                 f"{source_offer_id}"
@@ -317,9 +528,44 @@ def parse_edeka_html(
                 f"EDEKA offer has blank product name: {source_offer_id}"
             )
 
-        price_eur, app_price_eur, requires_app, price_labels = (
-            _price_fields(article)
-        )
+        article_price_labels = _price_labels(article)
+        article_price_semantic_labels = _price_semantic_labels(article_price_labels)
+        try:
+            price_fields = _price_fields(article)
+        except ValueError as article_exc:
+            # Only price-like sr-only semantics block the exact-dialog fallback.
+            # Accessibility labels unrelated to price must not masquerade as an
+            # unknown price semantic. Unknown price-like labels stay fail-closed.
+            if article_price_semantic_labels:
+                raise ValueError(
+                    "EDEKA unsupported offer price semantics; "
+                    f"source_offer_id={source_offer_id}; "
+                    f"product_name={product_name[:160]!r}; "
+                    f"detail={str(article_exc)[:1400]}"
+                ) from article_exc
+
+            dialog_price_fields = _labelled_price_fields(dialog)
+            if dialog_price_fields is None:
+                dialog_labels = _price_labels(dialog)
+                dialog_fragments, dialog_attributes, dialog_numeric_nodes = (
+                    _bounded_dialog_price_structure(dialog)
+                )
+                raise ValueError(
+                    "EDEKA unsupported offer price semantics; "
+                    f"source_offer_id={source_offer_id}; "
+                    f"product_name={product_name[:160]!r}; "
+                    f"article_detail={str(article_exc)[:400]}; "
+                    f"dialog_price_labels={dialog_labels[:6]!r}; "
+                    f"dialog_numeric_nodes={dialog_numeric_nodes!r}; "
+                    f"dialog_price_attributes={dialog_attributes!r}; "
+                    f"dialog_fragments={dialog_fragments!r}"
+                ) from article_exc
+            price_fields = dialog_price_fields
+
+        if price_fields is None:
+            seen_offer_ids.add(source_offer_id)
+            continue
+        price_eur, app_price_eur, requires_app, price_labels = price_fields
         description = _description(article)
         image_url = _product_image(article, context.source_url)
 

@@ -62,6 +62,7 @@ jobs:
       should_run: ${{ steps.gate.outputs.should_run }}
       sha: ${{ steps.gate.outputs.sha }}
       pr_number: ${{ steps.gate.outputs.pr_number }}
+      ci_mode: ${{ steps.gate.outputs.ci_mode }}
     steps:
       - name: Validate owner, merged main PR and exact successful CI
         id: gate
@@ -75,7 +76,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
-          import json, os, pathlib, urllib.parse, urllib.request
+          import json, os, pathlib, re, urllib.parse, urllib.request
           repo = os.environ['REPOSITORY']
           if repo != 'rozkalnsandris/hermes-deals': raise SystemExit('unexpected repository')
           if os.environ['WORKFLOW_REF'] != 'refs/heads/main': raise SystemExit('workflow must execute from main')
@@ -89,15 +90,47 @@ jobs:
               with urllib.request.urlopen(req, timeout=20) as response: return json.load(response)
           pr = get(f'https://api.github.com/repos/{repo}/pulls/{pr_number}')
           if not pr.get('merged') or pr['base']['ref'] != 'main' or pr['base']['repo']['full_name'] != repo: raise SystemExit('audit requires merged PR into repository main')
+          if (pr.get('head', {}).get('repo') or {}).get('full_name') != repo: raise SystemExit('audit requires same-repository PR head')
           sha = str(pr.get('merge_commit_sha') or '')
-          if len(sha) != 40 or any(c not in '0123456789abcdef' for c in sha): raise SystemExit('invalid merge SHA')
+          head_sha = str((pr.get('head') or {}).get('sha') or '')
+          if not re.fullmatch(r'[0-9a-f]{40}', sha): raise SystemExit('invalid merge SHA')
+          if not re.fullmatch(r'[0-9a-f]{40}', head_sha): raise SystemExit('invalid PR head SHA')
           comparison = get(f'https://api.github.com/repos/{repo}/compare/{sha}...main')
           if comparison.get('status') not in {'ahead','identical'}: raise SystemExit('merged SHA is not reachable from current main')
-          query = urllib.parse.urlencode({'head_sha':sha,'event':'push','status':'completed','per_page':20})
-          runs = get(f'https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}').get('workflow_runs') or []
-          if not any(r.get('head_sha') == sha and r.get('head_branch') == 'main' and r.get('conclusion') == 'success' and r.get('name') == 'Hermes Deals CI checks' for r in runs): raise SystemExit('exact merged SHA has no successful main-push CI')
+
+          merge_query = urllib.parse.urlencode({'head_sha':sha,'event':'push','status':'completed','per_page':20})
+          merge_runs = get(f'https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{merge_query}').get('workflow_runs') or []
+          merge_ci_ok = any(
+              r.get('head_sha') == sha and
+              r.get('head_branch') == 'main' and
+              r.get('event') == 'push' and
+              r.get('conclusion') == 'success' and
+              r.get('name') == 'Hermes Deals CI checks'
+              for r in merge_runs
+          )
+          ci_mode = 'merge_push_ci'
+          if not merge_ci_ok:
+              head_query = urllib.parse.urlencode({'head_sha':head_sha,'event':'pull_request','status':'completed','per_page':20})
+              head_runs = get(f'https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{head_query}').get('workflow_runs') or []
+              head_ci_ok = any(
+                  r.get('head_sha') == head_sha and
+                  r.get('event') == 'pull_request' and
+                  r.get('conclusion') == 'success' and
+                  r.get('name') == 'Hermes Deals CI checks'
+                  for r in head_runs
+              )
+              if not head_ci_ok: raise SystemExit('neither merge SHA nor exact PR head has successful CI')
+              merge_commit = get(f'https://api.github.com/repos/{repo}/git/commits/{sha}')
+              head_commit = get(f'https://api.github.com/repos/{repo}/git/commits/{head_sha}')
+              merge_tree = str((merge_commit.get('tree') or {}).get('sha') or '')
+              head_tree = str((head_commit.get('tree') or {}).get('sha') or '')
+              if not re.fullmatch(r'[0-9a-f]{40}', merge_tree) or merge_tree != head_tree:
+                  raise SystemExit('tested PR head tree differs from squash merge tree')
+              ci_mode = 'tree_equivalent_pr_head_ci'
+
           with pathlib.Path(os.environ['GITHUB_OUTPUT']).open('a') as out:
-              out.write(f'should_run=true\nsha={sha}\npr_number={pr_number}\n')
+              out.write(f'should_run=true\nsha={sha}\npr_number={pr_number}\nci_mode={ci_mode}\n')
+          print(f'AUTHORIZATION_RESULT=PASS CI_MODE={ci_mode} APPROVED_SHA={sha}')
           PY
 
   rpi5-audit:
@@ -154,15 +187,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          AUTH_RESULT: ${{ needs.authorize.result }}
           APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+          CI_MODE: ${{ needs.authorize.outputs.ci_mode }}
           AUDIT_RESULT: ${{ needs.rpi5-audit.result }}
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || exit 0
-          outcome=FAIL
-          [[ "$AUDIT_RESULT" == success ]] && outcome=PASS
-          body="Netto missing-normal-price RPi5 audit ${outcome}. Exact registered SHA: \`${APPROVED_SHA}\`. Read-only diagnostic only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
+          if [[ "$AUTH_RESULT" != success ]]; then
+            body="Netto missing-normal-price audit **AUTHORIZATION_FAIL**. Workflow run: \`${RUN_ID}\`. No RPi5 audit ran. Read-only control-plane only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
+          else
+            outcome=FAIL
+            [[ "$AUDIT_RESULT" == success ]] && outcome=PASS
+            body="Netto missing-normal-price RPi5 audit ${outcome}. Workflow run: \`${RUN_ID}\`. Exact registered SHA: \`${APPROVED_SHA}\`. CI evidence: \`${CI_MODE}\`. Read-only diagnostic only; no parser behavior change, DB/Review write, approval/publication or production deploy authorized."
+          fi
           gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$body"
           gh api --method DELETE "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/$(python3 -c 'import urllib.parse; print(urllib.parse.quote("audit:netto-missing-normal-price-v1", safe=""))')" || true

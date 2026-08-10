@@ -1,0 +1,246 @@
+name: Netto weekly transition state
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+      timezone: 'Europe/Berlin'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hermes-deals-netto-weekly-transition-state
+  cancel-in-progress: false
+
+env:
+  STATE_PREFIX: netto-weekly-transition-state-scheduled-
+  CANARY_PREFIX: netto-weekly-transition-canary-
+
+jobs:
+  transition:
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_name: ${{ steps.state.outputs.artifact_name }}
+      transition_recorded: ${{ steps.state.outputs.transition_recorded }}
+      ready: ${{ steps.state.outputs.ready }}
+      current_action: ${{ steps.state.outputs.current_action }}
+      campaign: ${{ steps.state.outputs.campaign }}
+      count: ${{ steps.state.outputs.count }}
+    steps:
+      - name: Verify non-root runner boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(id -un)" == github-runner ]]
+          [[ "$(id -u)" -ne 0 ]]
+          ! id -nG | tr ' ' '\n' | grep -Fxq docker
+          [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]]
+
+      - name: Checkout current default-branch commit
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Create isolated Python environment
+        id: python
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          venv="${RUNNER_TEMP}/netto-weekly-state-venv-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ ! -e "$venv" && ! -L "$venv" ]]
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install -r backend/requirements.txt
+          "$venv/bin/python" -m pip check
+          echo "bin=$venv/bin" >> "$GITHUB_OUTPUT"
+          echo "venv=$venv" >> "$GITHUB_OUTPUT"
+
+      - name: Restore latest verified scheduled state artifact
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          root="${RUNNER_TEMP}/netto-weekly-state-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$root/current" "$root/previous"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "previous_state=" >> "$GITHUB_OUTPUT"
+          [[ "$EVENT_NAME" == schedule ]] || exit 0
+          python3 - "$root/previous" <<'PY'
+          import hashlib, io, json, os, pathlib, urllib.request, zipfile
+          repo=os.environ['REPOSITORY']; token=os.environ['GH_TOKEN']; destination=pathlib.Path(__import__('sys').argv[1])
+          headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {token}','User-Agent':'hermes-deals-netto-weekly-state','X-GitHub-Api-Version':'2026-03-10'}
+          def get_json(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=30) as response: return json.load(response)
+          listing=get_json(f'https://api.github.com/repos/{repo}/actions/artifacts?per_page=100')
+          candidates=[]
+          for artifact in listing.get('artifacts') or []:
+              if artifact.get('expired') or not str(artifact.get('name') or '').startswith(os.environ['STATE_PREFIX']): continue
+              run=artifact.get('workflow_run') or {}
+              if run.get('head_branch') != 'main': continue
+              candidates.append(artifact)
+          candidates.sort(key=lambda row:str(row.get('created_at') or ''),reverse=True)
+          selected=None
+          for artifact in candidates:
+              run_id=int((artifact.get('workflow_run') or {}).get('id') or 0)
+              run=get_json(f'https://api.github.com/repos/{repo}/actions/runs/{run_id}')
+              if run.get('name') == 'Netto weekly transition state' and run.get('event') == 'schedule' and run.get('conclusion') == 'success':
+                  selected=artifact; break
+          if selected is None:
+              print('PREVIOUS_SCHEDULED_STATE=NONE'); raise SystemExit(0)
+          req=urllib.request.Request(selected['archive_download_url'],headers=headers)
+          with urllib.request.urlopen(req,timeout=60) as response: archive=response.read()
+          digest=str(selected.get('digest') or '')
+          if digest != 'sha256:'+hashlib.sha256(archive).hexdigest(): raise SystemExit('previous artifact GitHub digest mismatch')
+          zf=zipfile.ZipFile(io.BytesIO(archive))
+          names=sorted(info.filename for info in zf.infolist() if not info.is_dir())
+          allowed=['SHA256SUMS','live-source.json','receipt.json','selector.json','state.json']
+          if names != allowed: raise SystemExit(f'previous artifact members mismatch: {names}')
+          for info in zf.infolist():
+              if info.is_dir(): continue
+              mode=(info.external_attr >> 16) & 0o170000
+              if mode == 0o120000: raise SystemExit('previous artifact contains symlink')
+              (destination/info.filename).write_bytes(zf.read(info.filename))
+          sums={}
+          for line in (destination/'SHA256SUMS').read_text(encoding='utf-8').splitlines():
+              digest_value,name=line.split('  ',1); sums[name]=digest_value
+          for name in ('live-source.json','receipt.json','selector.json','state.json'):
+              got=hashlib.sha256((destination/name).read_bytes()).hexdigest()
+              if sums.get(name) != got: raise SystemExit(f'previous artifact internal SHA mismatch: {name}')
+          receipt=json.loads((destination/'receipt.json').read_text(encoding='utf-8'))
+          state_sha=hashlib.sha256((destination/'state.json').read_bytes()).hexdigest()
+          if receipt.get('state_sha256') != state_sha: raise SystemExit('previous state receipt SHA mismatch')
+          print(f"PREVIOUS_SCHEDULED_STATE=PASS ARTIFACT_ID={selected['id']} STATE_SHA={state_sha}")
+          PY
+          if [[ -f "$root/previous/state.json" ]]; then echo "previous_state=$root/previous/state.json" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Fetch current store-5659 source with bounded retries
+        env:
+          ROOT: ${{ steps.restore.outputs.root }}
+          VENV_BIN: ${{ steps.python.outputs.bin }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PATH="$VENV_BIN:/usr/local/bin:/usr/bin:/bin"
+          raw="$ROOT/current/source"; live="$ROOT/current/live-source.json"
+          as_of="$(python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          print(datetime.now(ZoneInfo('Europe/Berlin')).date().isoformat())
+          PY
+          )"
+          success=0
+          for attempt in 0 1 2; do
+            rm -rf -- "$raw" "$live"
+            if DATABASE_URL='sqlite+pysqlite:///:memory:' python3 tools/netto_heldout_live_source.py --repo "$GITHUB_WORKSPACE" --raw-root "$raw" --as-of "$as_of" --output "$live"; then success=1; break; fi
+            [[ "$attempt" == 2 ]] || sleep $((60 * (attempt + 1)))
+          done
+          [[ "$success" == 1 ]] || { echo 'bounded live-source retries exhausted' >&2; exit 1; }
+          python3 tools/netto_heldout_source_selector.py --raw-root "$raw" --as-of "$as_of" --output "$ROOT/current/selector.json"
+          echo "as_of=$as_of" >> "$GITHUB_OUTPUT"
+
+      - name: Build immutable transition state
+        id: state
+        env:
+          ROOT: ${{ steps.restore.outputs.root }}
+          PREVIOUS_STATE: ${{ steps.restore.outputs.previous_state }}
+          EVENT_NAME: ${{ github.event_name }}
+          VENV_BIN: ${{ steps.python.outputs.bin }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PATH="$VENV_BIN:/usr/local/bin:/usr/bin:/bin"
+          today="$(python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          print(datetime.now(ZoneInfo('Europe/Berlin')).date().isoformat())
+          PY
+          )"
+          observed="$(python3 - <<'PY'
+          from datetime import datetime, timezone
+          print(datetime.now(timezone.utc).isoformat())
+          PY
+          )"
+          args=(--selector "$ROOT/current/selector.json" --today "$today" --observed-at "$observed" --trigger-event "$EVENT_NAME" --state-output "$ROOT/current/state.json" --receipt-output "$ROOT/current/receipt.json")
+          [[ -z "$PREVIOUS_STATE" ]] || args+=(--previous-state "$PREVIOUS_STATE")
+          python3 tools/netto_weekly_transition_state.py "${args[@]}"
+          (
+            cd "$ROOT/current"
+            sha256sum live-source.json receipt.json selector.json state.json > SHA256SUMS
+          )
+          python3 - "$ROOT/current/receipt.json" <<'PY'
+          import json, os, pathlib, sys
+          receipt=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          prefix=os.environ['STATE_PREFIX'] if os.environ['EVENT_NAME']=='schedule' else os.environ['CANARY_PREFIX']
+          artifact=f"{prefix}{os.environ['GITHUB_RUN_ID']}"
+          with pathlib.Path(os.environ['GITHUB_OUTPUT']).open('a') as out:
+              out.write(f"artifact_name={artifact}\n")
+              out.write(f"transition_recorded={'true' if receipt['transition_recorded'] else 'false'}\n")
+              out.write(f"ready={'true' if receipt['issue_28_two_real_transitions_ready'] else 'false'}\n")
+              out.write(f"current_action={receipt['current_action']}\n")
+              out.write(f"campaign={receipt['current_campaign_key']}\n")
+              out.write(f"count={receipt['consecutive_unattended_transition_count']}\n")
+          PY
+
+      - name: Upload immutable transition artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ steps.state.outputs.artifact_name }}
+          path: |
+            ${{ steps.restore.outputs.root }}/current/SHA256SUMS
+            ${{ steps.restore.outputs.root }}/current/live-source.json
+            ${{ steps.restore.outputs.root }}/current/receipt.json
+            ${{ steps.restore.outputs.root }}/current/selector.json
+            ${{ steps.restore.outputs.root }}/current/state.json
+          if-no-files-found: error
+          retention-days: 35
+
+      - name: Clean isolated runner state
+        if: always()
+        env:
+          ROOT: ${{ steps.restore.outputs.root }}
+          VENV: ${{ steps.python.outputs.venv }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -z "${ROOT:-}" || "$ROOT" != "$RUNNER_TEMP"/netto-weekly-state-* ]] || rm -rf -- "$ROOT"
+          [[ -z "${VENV:-}" || "$VENV" != "$RUNNER_TEMP"/netto-weekly-state-venv-* ]] || rm -rf -- "$VENV"
+
+  report:
+    needs: transition
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report only transitions, readiness, manual canaries or failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          JOB_RESULT: ${{ needs.transition.result }}
+          ARTIFACT: ${{ needs.transition.outputs.artifact_name }}
+          RECORDED: ${{ needs.transition.outputs.transition_recorded }}
+          READY: ${{ needs.transition.outputs.ready }}
+          ACTION: ${{ needs.transition.outputs.current_action }}
+          CAMPAIGN: ${{ needs.transition.outputs.campaign }}
+          COUNT: ${{ needs.transition.outputs.count }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "$JOB_RESULT" == success && "$RECORDED" != true && "$READY" != true && "$EVENT_NAME" != workflow_dispatch ]]; then exit 0; fi
+          body="## Netto #28 unattended transition scheduler\n\n- run: \`${RUN_ID}\`\n- event: \`${EVENT_NAME}\`\n- job: **${JOB_RESULT}**\n- campaign: \`${CAMPAIGN:-unknown}\`\n- action: \`${ACTION:-unknown}\`\n- transition recorded: **${RECORDED:-false}**\n- consecutive unattended transitions: \`${COUNT:-0}\`\n- #28 two-transition gate ready: **${READY:-false}**\n- artifact: \`${ARTIFACT:-none}\`\n- production/DB/Review write: **false**"
+          gh api --method POST "repos/${REPOSITORY}/issues/28/comments" -f body="$body"
