@@ -61,6 +61,7 @@ class EdekaDialogStructureDiagnosticTest(unittest.TestCase):
         self.assertIn("text='49'", message)
         self.assertIn("parent=div.class=price-shell", message)
         self.assertIn("dialog_fragments=", message)
+        self.assertLess(len(message), 1900)
         self.assertNotIn("<dialog", message)
         self.assertNotIn("<article", message)
 
