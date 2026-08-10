@@ -217,6 +217,31 @@ def _labelled_price_fields(
             if match:
                 app_preis = _decimal(match.group("price"))
 
+    # Some live EDEKA cards keep the exact price phrase in visible text instead
+    # of an sr-only label. Accept only the same explicit v1 semantics; bare
+    # numbers, Pfand, Normalpreis and unknown price wording remain unsupported.
+    if festpreis is None and rabattierter_preis is None and app_preis is None:
+        text = _norm(container.get_text(" ", strip=True))
+        explicit_labels: list[str] = []
+
+        match = _FESTPREIS_RE.search(text)
+        if match:
+            festpreis = _decimal(match.group("price"))
+            explicit_labels.append(_norm(match.group(0)))
+
+        match = _RABATTIERTER_PREIS_RE.search(text)
+        if match:
+            rabattierter_preis = _decimal(match.group("price"))
+            explicit_labels.append(_norm(match.group(0)))
+
+        match = _APP_PREIS_RE.search(text)
+        if match:
+            app_preis = _decimal(match.group("price"))
+            explicit_labels.append(_norm(match.group(0)))
+
+        if explicit_labels:
+            labels = explicit_labels
+
     # Conservative v1 contract:
     # - Festpreis is the non-app weekly offer price when present.
     # - "Rabattierter Preis" is also an explicitly labelled non-app sale price.
