@@ -44,8 +44,6 @@ jobs:
     steps:
       - name: Authorize exact owner evidence PR
         id: auth
-        env:
-          EVENT_PATH: ${{ github.event_path }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -54,7 +52,10 @@ jobs:
           import os
           from pathlib import Path
 
-          event = json.loads(Path(os.environ["EVENT_PATH"]).read_text(encoding="utf-8"))
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          if not event_path.is_file():
+              raise SystemExit("missing GitHub event payload")
+          event = json.loads(event_path.read_text(encoding="utf-8"))
           pr = event.get("pull_request") or {}
           sender = event.get("sender") or {}
           repo = event.get("repository") or {}
