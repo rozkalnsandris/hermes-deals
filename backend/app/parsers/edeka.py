@@ -269,12 +269,12 @@ def _bounded_dialog_price_structure(
             or any(token in folded for token in ("preis", "€", "eur", "pfand", "rabatt"))
         ):
             continue
-        bounded = fragment[:80]
+        bounded = fragment[:60]
         if bounded in seen_fragments:
             continue
         seen_fragments.add(bounded)
         fragments.append(bounded)
-        if len(fragments) >= 6:
+        if len(fragments) >= 4:
             break
 
     attributes: list[str] = []
@@ -282,47 +282,60 @@ def _bounded_dialog_price_structure(
     numeric_nodes: list[str] = []
     seen_numeric_nodes: set[str] = set()
     for node in dialog.find_all(True):
-        for key, raw_value in node.attrs.items():
-            key_folded = key.casefold()
-            if key not in {"aria-label", "title", "data-testid"} and not any(
-                token in key_folded for token in ("price", "preis", "amount", "value")
-            ):
-                continue
-            if isinstance(raw_value, list):
-                value = _norm(" ".join(str(item) for item in raw_value))
-            else:
-                value = _norm(str(raw_value))
-            if not value:
-                continue
-            entry = f"{node.name}.{key}={value[:80]}"
-            if entry in seen_attributes:
-                continue
-            seen_attributes.add(entry)
-            attributes.append(entry)
-            if len(attributes) >= 4:
-                break
+        if len(attributes) < 3:
+            for key, raw_value in node.attrs.items():
+                key_folded = key.casefold()
+                if key not in {"aria-label", "title", "data-testid"} and not any(
+                    token in key_folded for token in ("price", "preis", "amount", "value")
+                ):
+                    continue
+                if isinstance(raw_value, list):
+                    value = _norm(" ".join(str(item) for item in raw_value))
+                else:
+                    value = _norm(str(raw_value))
+                if not value:
+                    continue
+                entry = f"{node.name}.{key}={value[:60]}"[:90]
+                if entry in seen_attributes:
+                    continue
+                seen_attributes.add(entry)
+                attributes.append(entry)
+                if len(attributes) >= 3:
+                    break
 
-        direct_text = _norm(
-            " ".join(str(value) for value in node.find_all(string=True, recursive=False))
-        )
-        if direct_text and any(character.isdigit() for character in direct_text):
-            node_classes = " ".join(str(value) for value in (node.get("class") or []))
-            parent = node.parent if isinstance(node.parent, Tag) else None
-            parent_name = parent.name if parent is not None else "none"
-            parent_classes = (
-                " ".join(str(value) for value in (parent.get("class") or []))
-                if parent is not None
-                else ""
+        if len(numeric_nodes) < 6:
+            direct_text = _norm(
+                " ".join(
+                    str(value)
+                    for value in node.find_all(string=True, recursive=False)
+                )
             )
-            entry = (
-                f"{node.name}.class={node_classes[:45]} text={direct_text[:30]!r} "
-                f"parent={parent_name}.class={parent_classes[:45]}"
-            )[:140]
-            if entry not in seen_numeric_nodes:
-                seen_numeric_nodes.add(entry)
-                numeric_nodes.append(entry)
-            if len(numeric_nodes) >= 6 and len(attributes) >= 4:
-                break
+            if direct_text and any(
+                character.isdigit() for character in direct_text
+            ):
+                node_classes = " ".join(
+                    str(value) for value in (node.get("class") or [])
+                )
+                parent = node.parent if isinstance(node.parent, Tag) else None
+                parent_name = parent.name if parent is not None else "none"
+                parent_classes = (
+                    " ".join(
+                        str(value) for value in (parent.get("class") or [])
+                    )
+                    if parent is not None
+                    else ""
+                )
+                entry = (
+                    f"{node.name}.class={node_classes[:30]} "
+                    f"text={direct_text[:24]!r} "
+                    f"parent={parent_name}.class={parent_classes[:30]}"
+                )[:110]
+                if entry not in seen_numeric_nodes:
+                    seen_numeric_nodes.add(entry)
+                    numeric_nodes.append(entry)
+
+        if len(numeric_nodes) >= 6 and len(attributes) >= 3:
+            break
 
     return fragments, attributes, numeric_nodes
 
@@ -541,11 +554,11 @@ def parse_edeka_html(
                     "EDEKA unsupported offer price semantics; "
                     f"source_offer_id={source_offer_id}; "
                     f"product_name={product_name[:160]!r}; "
-                    f"article_detail={str(article_exc)[:700]}; "
-                    f"dialog_price_labels={dialog_labels[:8]!r}; "
-                    f"dialog_fragments={dialog_fragments!r}; "
+                    f"article_detail={str(article_exc)[:400]}; "
+                    f"dialog_price_labels={dialog_labels[:6]!r}; "
+                    f"dialog_numeric_nodes={dialog_numeric_nodes!r}; "
                     f"dialog_price_attributes={dialog_attributes!r}; "
-                    f"dialog_numeric_nodes={dialog_numeric_nodes!r}"
+                    f"dialog_fragments={dialog_fragments!r}"
                 ) from article_exc
             price_fields = dialog_price_fields
 
