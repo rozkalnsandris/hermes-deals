@@ -5,7 +5,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
-UPLOAD_V4_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
+UPLOAD_V4_SHA = "ea165f8d65b6e75b5404" + "49e92b4886f43607fa02"
 UPLOAD_V6_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 V4_WORKFLOWS = (
     "hermes-gate-b-plan-bridge.yml",
