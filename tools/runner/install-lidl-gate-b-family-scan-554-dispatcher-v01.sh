@@ -57,7 +57,7 @@ cleanup() {
 trap cleanup EXIT
 
 git_source show "$EXPECTED_SHA:$DISPATCHER_REL" > "$TMP/dispatcher"
-[[ "$(git_source hash-object "$TMP/dispatcher")" == "$EXPECTED_DISPATCHER_BLOB" ]] || fail 'materialized dispatcher byte identity mismatch'
+[[ "$(git_source hash-object --stdin < "$TMP/dispatcher")" == "$EXPECTED_DISPATCHER_BLOB" ]] || fail 'materialized dispatcher byte identity mismatch'
 /usr/bin/bash -n "$TMP/dispatcher"
 chmod 0755 "$TMP/dispatcher"
 
