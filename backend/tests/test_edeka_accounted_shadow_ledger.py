@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
+
 import pytest
 
 from app.edeka_accounted_shadow_ledger import augment_two_cycle_ledger
@@ -8,6 +11,16 @@ from app.edeka_accounted_shadow_ledger import augment_two_cycle_ledger
 FIRST_PARSED = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
 SECOND_PARSED = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"
 EXCLUDED = "68aa5875-e4e1-4a5b-8d6c-221a2319dc2b"
+
+
+def _sha(value: object) -> str:
+    data = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256(data).hexdigest()
 
 
 def _legacy_ledger() -> dict[str, object]:
@@ -37,8 +50,13 @@ def _legacy_record(source_offer_id: str) -> dict[str, object]:
     }
 
 
-def _accounting(*, include_excluded: bool) -> dict[str, object]:
+def _accounting(
+    parsed_id: str,
+    *,
+    include_excluded: bool,
+) -> dict[str, object]:
     excluded = []
+    excluded_ids: list[str] = []
     if include_excluded:
         excluded = [
             {
@@ -48,6 +66,7 @@ def _accounting(*, include_excluded: bool) -> dict[str, object]:
                 "exclusion_reason": "source_card_missing_offer_price_pfand_only",
             }
         ]
+        excluded_ids = [EXCLUDED]
     return {
         "report_sha256": "c" * 64,
         "summary": {
@@ -56,8 +75,8 @@ def _accounting(*, include_excluded: bool) -> dict[str, object]:
             "excluded_count": len(excluded),
             "accounting_complete": True,
             "unexplained_source_card_loss": False,
-            "parsed_offer_ids_sha256": "d" * 64,
-            "excluded_source_offer_ids_sha256": "e" * 64,
+            "parsed_offer_ids_sha256": _sha([parsed_id]),
+            "excluded_source_offer_ids_sha256": _sha(excluded_ids),
         },
         "excluded_cards": excluded,
     }
@@ -68,8 +87,8 @@ def test_accounted_ledger_enumerates_source_card_transition() -> None:
         _legacy_ledger(),
         _legacy_record(FIRST_PARSED),
         _legacy_record(SECOND_PARSED),
-        _accounting(include_excluded=False),
-        _accounting(include_excluded=True),
+        _accounting(FIRST_PARSED, include_excluded=False),
+        _accounting(SECOND_PARSED, include_excluded=True),
     )
 
     assert ledger["gates"]["source_card_accounting_complete"] is True
@@ -96,7 +115,7 @@ def test_accounted_ledger_enumerates_source_card_transition() -> None:
 
 
 def test_accounted_ledger_rejects_unexplained_loss_marker() -> None:
-    accounting = _accounting(include_excluded=True)
+    accounting = _accounting(SECOND_PARSED, include_excluded=True)
     accounting["summary"]["unexplained_source_card_loss"] = True
 
     with pytest.raises(ValueError, match="unexplained source-card loss"):
@@ -104,13 +123,13 @@ def test_accounted_ledger_rejects_unexplained_loss_marker() -> None:
             _legacy_ledger(),
             _legacy_record(FIRST_PARSED),
             _legacy_record(SECOND_PARSED),
-            _accounting(include_excluded=False),
+            _accounting(FIRST_PARSED, include_excluded=False),
             accounting,
         )
 
 
 def test_accounted_ledger_rejects_count_mismatch() -> None:
-    accounting = _accounting(include_excluded=True)
+    accounting = _accounting(SECOND_PARSED, include_excluded=True)
     accounting["summary"]["source_card_count"] = 3
 
     with pytest.raises(ValueError, match="count invariant failed"):
@@ -118,6 +137,20 @@ def test_accounted_ledger_rejects_count_mismatch() -> None:
             _legacy_ledger(),
             _legacy_record(FIRST_PARSED),
             _legacy_record(SECOND_PARSED),
-            _accounting(include_excluded=False),
+            _accounting(FIRST_PARSED, include_excluded=False),
+            accounting,
+        )
+
+
+def test_accounted_ledger_rejects_malformed_accounting_hash() -> None:
+    accounting = _accounting(SECOND_PARSED, include_excluded=True)
+    accounting["report_sha256"] = "not-a-sha"
+
+    with pytest.raises(ValueError, match="must be lowercase SHA-256"):
+        augment_two_cycle_ledger(
+            _legacy_ledger(),
+            _legacy_record(FIRST_PARSED),
+            _legacy_record(SECOND_PARSED),
+            _accounting(FIRST_PARSED, include_excluded=False),
             accounting,
         )
