@@ -90,6 +90,13 @@ def test_v21_freezer_rechecks_current_main_before_evidence_ref_update() -> None:
     assert text.index("main moved during freeze commit") < text.index('request(\n              "PATCH"')
 
 
+def test_v22_freezer_uses_runner_event_payload_path() -> None:
+    text = _text()
+    assert 'EVENT_PATH: ${{ github.event_path }}' not in text
+    assert 'event_path = Path(os.environ["GITHUB_EVENT_PATH"])' in text
+    assert "missing GitHub event payload" in text
+
+
 def test_v2_freezer_has_no_mutable_external_action_refs() -> None:
     text = _text()
     uses_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("uses:")]
