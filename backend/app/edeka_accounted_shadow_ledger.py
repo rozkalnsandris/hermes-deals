@@ -4,6 +4,7 @@ import argparse
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any, Mapping
 
@@ -15,6 +16,7 @@ from app.edeka_source_card_accounting import audit_edeka_source_card_manifest
 
 
 ACCOUNTED_LEDGER_SCHEMA_VERSION = 1
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _stable_json_bytes(value: object) -> bytes:
@@ -28,6 +30,12 @@ def _stable_json_bytes(value: object) -> bytes:
 
 def _sha256(value: object) -> str:
     return sha256(_stable_json_bytes(value)).hexdigest()
+
+
+def _required_sha256(value: object, label: str) -> str:
+    if not isinstance(value, str) or _SHA256_RE.fullmatch(value) is None:
+        raise ValueError(f"EDEKA accounted ledger {label} must be lowercase SHA-256")
+    return value
 
 
 def _accounted_cycle(
@@ -44,7 +52,7 @@ def _accounted_cycle(
     source_card_count = summary.get("source_card_count")
     parsed_offer_count = summary.get("parsed_offer_count")
     excluded_count = summary.get("excluded_count")
-    if not all(isinstance(value, int) for value in (
+    if not all(isinstance(value, int) and not isinstance(value, bool) for value in (
         source_card_count,
         parsed_offer_count,
         excluded_count,
@@ -57,6 +65,19 @@ def _accounted_cycle(
     if source_card_count != parsed_offer_count + excluded_count:
         raise ValueError("EDEKA accounted ledger count invariant failed")
 
+    parsed_ids_sha = _required_sha256(
+        summary.get("parsed_offer_ids_sha256"),
+        "parsed_offer_ids_sha256",
+    )
+    excluded_ids_sha = _required_sha256(
+        summary.get("excluded_source_offer_ids_sha256"),
+        "excluded_source_offer_ids_sha256",
+    )
+    accounting_sha = _required_sha256(
+        accounting.get("report_sha256"),
+        "source_card_accounting_sha256",
+    )
+
     legacy_offer_count = legacy_record.get("offer_count")
     parsed_ids_raw = legacy_record.get("source_offer_ids")
     if legacy_offer_count != parsed_offer_count:
@@ -66,6 +87,8 @@ def _accounted_cycle(
     parsed_ids = {str(value) for value in parsed_ids_raw}
     if len(parsed_ids) != parsed_offer_count:
         raise ValueError("EDEKA accounted ledger parsed offer IDs are not unique")
+    if _sha256(sorted(parsed_ids)) != parsed_ids_sha:
+        raise ValueError("EDEKA accounted ledger parsed offer ID hash mismatch")
 
     excluded_rows: list[dict[str, str]] = []
     excluded_ids: set[str] = set()
@@ -94,6 +117,8 @@ def _accounted_cycle(
 
     if len(excluded_ids) != excluded_count:
         raise ValueError("EDEKA accounted ledger excluded count mismatch")
+    if _sha256(sorted(excluded_ids)) != excluded_ids_sha:
+        raise ValueError("EDEKA accounted ledger excluded offer ID hash mismatch")
     source_ids = parsed_ids | excluded_ids
     if len(source_ids) != source_card_count:
         raise ValueError("EDEKA accounted ledger source-card total mismatch")
@@ -103,11 +128,9 @@ def _accounted_cycle(
         "parsed_offer_count": parsed_offer_count,
         "excluded_count": excluded_count,
         "source_card_ids_sha256": _sha256(sorted(source_ids)),
-        "parsed_offer_ids_sha256": summary.get("parsed_offer_ids_sha256"),
-        "excluded_source_offer_ids_sha256": summary.get(
-            "excluded_source_offer_ids_sha256"
-        ),
-        "source_card_accounting_sha256": accounting.get("report_sha256"),
+        "parsed_offer_ids_sha256": parsed_ids_sha,
+        "excluded_source_offer_ids_sha256": excluded_ids_sha,
+        "source_card_accounting_sha256": accounting_sha,
         "accounting_complete": True,
         "unexplained_source_card_loss": False,
         "excluded_cards": sorted(
