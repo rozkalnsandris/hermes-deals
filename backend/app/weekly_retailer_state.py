@@ -315,10 +315,18 @@ def build_weekly_retailer_states(
                 last_verified_valid_from=valid_from,
                 last_verified_valid_until=valid_until,
             )
-        elif retailer_key == "netto":
-            evidence = _netto_evidence(db, week_start, week_end, effective_today)
-        elif retailer_key == "aldi_nord":
-            evidence = _aldi_evidence(db, week_start, week_end, effective_today)
+        elif retailer_key in {"netto", "aldi_nord"}:
+            try:
+                evidence = (
+                    _netto_evidence(db, week_start, week_end, effective_today)
+                    if retailer_key == "netto"
+                    else _aldi_evidence(db, week_start, week_end, effective_today)
+                )
+            except Exception:
+                evidence = RetailerEvidence(
+                    state="source_unavailable",
+                    reason=f"{retailer_key}_retailer_state_probe_failed",
+                )
         else:
             evidence = RetailerEvidence(
                 state="not_supported",
