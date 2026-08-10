@@ -23,6 +23,7 @@ def test_accounted_workflow_is_owner_only_manual_and_sanitized() -> None:
         'os.environ["ACTOR_ID"] != "277435981"',
         'run.get("name") != "EDEKA shadow cycle RPi5 audit"',
         'run.get("conclusion") != "success"',
+        "persist-credentials: false",
         "tools/edeka_accounted_live_provenance_derivation.py",
         "source-card-accounting.json",
         "excluded_count",
