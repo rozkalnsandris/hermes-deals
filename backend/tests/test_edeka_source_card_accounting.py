@@ -137,6 +137,15 @@ def test_unexplained_split_price_shape_remains_fail_closed() -> None:
         )
 
 
+def test_hidden_aria_price_attribute_remains_fail_closed() -> None:
+    with pytest.raises(ValueError, match="unexplained parser losses"):
+        build_edeka_source_card_accounting(
+            _page(granini_extra='<span aria-label="1.79 €"></span>'),
+            _context(),
+            parsed_offer_ids={"bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"},
+        )
+
+
 def _write_manifest(tmp_path: Path) -> tuple[Path, str]:
     raw = _page().encode("utf-8")
     raw_path = tmp_path / "071897-offers.html"
