@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 import json
 from pathlib import Path
-from typing import Any
+import re
 from uuid import UUID
-from datetime import datetime
 
 from bs4 import BeautifulSoup, Tag
 
@@ -31,6 +31,9 @@ EXPECTED_PUBLIC_MARKET_ID = "071897"
 EXPECTED_INTERNAL_MARKET_ID = "587881"
 EXPECTED_STORE_NAME = "EDEKA Patzer"
 EXPECTED_SCOPE = "family_primary_edeka"
+_PRICE_STRUCTURE_TOKENS = ("price", "preis", "amount", "value")
+_FULL_DATE_RE = re.compile(r"\b\d{2}\.\d{2}\.\d{4}\b")
+_DECIMAL_LIKE_RE = re.compile(r"\b\d{1,4}[.,]\d{1,2}\b")
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,50 @@ def _source_cards(
     return cards
 
 
+def _attribute_value(raw_attr: object) -> str:
+    if isinstance(raw_attr, list):
+        return _norm(" ".join(str(item) for item in raw_attr))
+    return _norm(str(raw_attr))
+
+
+def _has_hidden_price_evidence(article: Tag, dialog: Tag) -> bool:
+    """Reject exclusion if any attribute exposes non-Pfand price evidence."""
+
+    for container in (article, dialog):
+        for node in container.find_all(True):
+            for key, raw_attr in node.attrs.items():
+                value = _attribute_value(raw_attr)
+                if not value:
+                    continue
+                key_folded = key.casefold()
+                value_folded = value.casefold()
+
+                if any(token in key_folded for token in _PRICE_STRUCTURE_TOKENS):
+                    return True
+                if "preis" in value_folded or "rabatt" in value_folded:
+                    return True
+                if (
+                    ("€" in value or "eur" in value_folded)
+                    and "pfand" not in value_folded
+                ):
+                    return True
+                without_dates = _FULL_DATE_RE.sub("", value)
+                if (
+                    "pfand" not in value_folded
+                    and _DECIMAL_LIKE_RE.search(without_dates)
+                ):
+                    return True
+
+    return False
+
+
+def _is_accountable_pfand_only_no_price(article: Tag, dialog: Tag) -> bool:
+    return (
+        _is_pfand_only_unpriced_card(article, dialog)
+        and not _has_hidden_price_evidence(article, dialog)
+    )
+
+
 def build_edeka_source_card_accounting(
     raw_html: bytes | str,
     context: EdekaParserContext,
@@ -158,7 +205,7 @@ def build_edeka_source_card_accounting(
         article_text = _norm(article.get_text(" ", strip=True))
         if _PAYBACK_POINTS_ONLY_RE.search(article_text):
             reason = "payback_points_only_no_offer_price"
-        elif _is_pfand_only_unpriced_card(article, dialog):
+        elif _is_accountable_pfand_only_no_price(article, dialog):
             reason = "source_card_missing_offer_price_pfand_only"
         else:
             unexplained.append(source_offer_id)
