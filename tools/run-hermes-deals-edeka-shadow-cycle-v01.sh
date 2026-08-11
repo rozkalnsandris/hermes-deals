@@ -13,6 +13,7 @@ EXPECTED_ORIGIN_HTTPS="https://github.com/rozkalnsandris/hermes-deals"
 EXPECTED_ORIGIN_SSH="git@github.com:rozkalnsandris/hermes-deals.git"
 RUNTIME_LOCK_REL="backend/locks/runtime-py311.txt"
 RUNTIME_LOCK_MANIFEST_REL="backend/locks/manifest.json"
+RUNTIME_ENV_VERIFIER_REL="scripts/verify-python-lock-environment.py"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -84,6 +85,7 @@ for path in \
   backend/app/edeka_shadow_ledger.py \
   "$RUNTIME_LOCK_REL" \
   "$RUNTIME_LOCK_MANIFEST_REL" \
+  "$RUNTIME_ENV_VERIFIER_REL" \
   config/sources.json; do
   git_read_audit cat-file -e "$EXPECTED_SHA:$path" || fail "registered file is missing: $path"
 done
@@ -136,11 +138,21 @@ if [[ ! -x "$venv/bin/python" ]]; then
     --only-binary=:all: \
     -r "$AUDIT_REPO/$RUNTIME_LOCK_REL"
   "$temporary_venv/bin/python" -m pip check
+  "$temporary_venv/bin/python" \
+    "$AUDIT_REPO/$RUNTIME_ENV_VERIFIER_REL" \
+    "$AUDIT_REPO/$RUNTIME_LOCK_REL" >/dev/null
   mv -- "$temporary_venv" "$venv"
   temporary_venv=""
   trap - EXIT
 fi
 "$venv/bin/python" -m pip check >/dev/null
+runtime_environment_report="$(
+  "$venv/bin/python" \
+    "$AUDIT_REPO/$RUNTIME_ENV_VERIFIER_REL" \
+    "$AUDIT_REPO/$RUNTIME_LOCK_REL"
+)" || fail "cached runtime environment does not match reviewed lock"
+runtime_inventory_sha="$(printf '%s\n' "$runtime_environment_report" | awk -F= '$1 == "LOCKED_INVENTORY_SHA256" { print $2 }')"
+[[ "$runtime_inventory_sha" =~ ^[0-9a-f]{64}$ ]] || fail "runtime inventory SHA is invalid"
 runtime_pip_version="$("$venv/bin/python" -m pip --version | awk '{print $2}')"
 flock -u 9
 
@@ -162,6 +174,7 @@ runtime_python_implementation=$python_implementation
 runtime_python_version=$python_version
 runtime_pip_version=$runtime_pip_version
 runtime_cache_identity=$cache_identity
+runtime_inventory_sha256=$runtime_inventory_sha
 started_utc=$stamp
 production_database_write=false
 production_deployment=false
@@ -231,6 +244,7 @@ printf 'RUNNER_VERSION=%s\n' "$RUNNER_VERSION"
 printf 'RUNTIME_BOUNDARY_VERSION=%s\n' "$RUNTIME_BOUNDARY_VERSION"
 printf 'REGISTERED_COMMIT=%s\n' "$EXPECTED_SHA"
 printf 'RUNTIME_LOCK_SHA256=%s\n' "$runtime_lock_sha"
+printf 'RUNTIME_INVENTORY_SHA256=%s\n' "$runtime_inventory_sha"
 printf 'RUNTIME_PYTHON_VERSION=%s\n' "$python_version"
 printf 'RUNTIME_PIP_VERSION=%s\n' "$runtime_pip_version"
 printf 'EVIDENCE_DIR=%s\n' "$run_dir"
