@@ -1,0 +1,77 @@
+name: Python dependency hash locks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - backend/requirements.in
+      - backend/requirements-ci.in
+      - backend/locks/**
+      - scripts/compile-python-locks.sh
+      - .github/workflows/python-dependency-locks.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-python-locks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-locks:
+    name: Verify Python ${{ matrix.python }} locks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - "3.11"
+          - "3.13"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up exact Python line
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.in
+            backend/requirements-ci.in
+
+      - name: Regenerate wheel-only hash locks
+        shell: bash
+        run: |
+          bash scripts/compile-python-locks.sh "${{ matrix.python }}"
+
+      - name: Require committed locks to be reproducible
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          case "${{ matrix.python }}" in
+            3.11)
+              git diff --exit-code -- \
+                backend/locks/runtime-py311.txt \
+                backend/locks/ci-py311.txt
+              ;;
+            3.13)
+              git diff --exit-code -- backend/locks/runtime-py313.txt
+              ;;
+            *)
+              echo 'unexpected Python matrix value' >&2
+              exit 64
+              ;;
+          esac
+
+      - name: Upload regenerated lock evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: verified-python-locks-py${{ matrix.python }}-${{ github.sha }}
+          path: backend/locks/*.txt
+          if-no-files-found: error
+          retention-days: 7

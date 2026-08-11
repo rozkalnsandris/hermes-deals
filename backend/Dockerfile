@@ -26,8 +26,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY locks/runtime-py313.txt ./locks/runtime-py313.txt
+RUN python -m pip install \
+        --no-cache-dir \
+        --require-hashes \
+        --only-binary=:all: \
+        -r locks/runtime-py313.txt \
+    && python -m pip check
 
 COPY alembic.ini ./
 COPY alembic ./alembic
