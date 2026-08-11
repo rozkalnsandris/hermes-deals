@@ -1,0 +1,404 @@
+name: Hermes Lidl Gate B #588 visual review pack
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions: {}
+
+concurrency:
+  group: hermes-lidl-gate-b-review-pack-588
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Verify #588 start signal and recorded authorization
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 588 &&
+      github.event.sender.login == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      github.event.comment.body == '/hermes-lidl-gate-b-review-pack-588'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: read
+    outputs:
+      trigger_comment_id: ${{ steps.authorize.outputs.trigger_comment_id }}
+      authorization_comment_id: ${{ steps.authorize.outputs.authorization_comment_id }}
+      status_comment_id: ${{ steps.authorize.outputs.status_comment_id }}
+
+    steps:
+      - name: Verify immutable review-pack authorization lineage
+        id: authorize
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TRIGGER_COMMENT_ID: ${{ github.event.comment.id }}
+          AUTHORIZATION_COMMENT_ID: '5246346607'
+          STATUS_COMMENT_ID: '5246347776'
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import urllib.request
+
+          repo = os.environ['REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          trigger_comment_id = os.environ['TRIGGER_COMMENT_ID']
+          authorization_comment_id = os.environ['AUTHORIZATION_COMMENT_ID']
+          status_comment_id = os.environ['STATUS_COMMENT_ID']
+          issue_url = f'https://api.github.com/repos/{repo}/issues/588'
+          pdf_digest = ''.join((
+              'ce84a4996f5c709620b8becc44c4e2a2',
+              '3e23d24b28694679903490efc91ce728',
+          ))
+          staging_digest = ''.join((
+              'dd4ef887a72d6942bbade1adf8f2e2e2',
+              '9c229675c8c28bb1f0b41c1082d4f4c1',
+          ))
+
+          if not trigger_comment_id.isdigit() or int(trigger_comment_id) <= 0:
+              raise SystemExit('invalid trigger comment id')
+          if authorization_comment_id != '5246346607':
+              raise SystemExit('authorization comment id drift')
+          if status_comment_id != '5246347776':
+              raise SystemExit('status comment id drift')
+
+          def fetch_comment(comment_id: str) -> dict:
+              request = urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/issues/comments/{comment_id}',
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'User-Agent': 'hermes-lidl-gate-b-review-pack-588-authorizer',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  if response.status != 200:
+                      raise SystemExit(f'unexpected comment status: {response.status}')
+                  return json.load(response)
+
+          authorization = fetch_comment(authorization_comment_id)
+          if authorization.get('id') != int(authorization_comment_id):
+              raise SystemExit('authorization comment identity mismatch')
+          if authorization.get('issue_url') != issue_url:
+              raise SystemExit('authorization comment issue mismatch')
+          user = authorization.get('user') or {}
+          if user.get('login') != 'rozkalnsandris' or user.get('id') != 277435981:
+              raise SystemExit('authorization comment owner mismatch')
+          body = str(authorization.get('body') or '')
+          required = (
+              'Owner authorization — exact #588 visual review-pack generation',
+              'aktionsprospekt-10-08-2026-15-08-2026-71933b',
+              '019fc781-2e25-7b38-8816-a824a4f3f769',
+              'route region: `10`',
+              pdf_digest,
+              'expected pages: `73`',
+              staging_digest,
+              'Not authorized: RPi5/self-hosted execution',
+              '`CORPUS_PROMOTION_AUTHORIZED=false`',
+          )
+          for marker in required:
+              if marker not in body:
+                  raise SystemExit(f'authorization evidence mismatch: {marker[:48]}')
+
+          status = fetch_comment(status_comment_id)
+          if status.get('id') != int(status_comment_id):
+              raise SystemExit('status comment identity mismatch')
+          if status.get('issue_url') != issue_url:
+              raise SystemExit('status comment issue mismatch')
+          status_user = status.get('user') or {}
+          if status_user.get('login') != 'rozkalnsandris' or status_user.get('id') != 277435981:
+              raise SystemExit('status comment owner mismatch')
+          if '<!-- hermes-lidl-gate-b-review-pack-588-status -->' not in str(status.get('body') or ''):
+              raise SystemExit('status comment marker mismatch')
+
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              handle.write(f'trigger_comment_id={trigger_comment_id}\n')
+              handle.write(f'authorization_comment_id={authorization_comment_id}\n')
+              handle.write(f'status_comment_id={status_comment_id}\n')
+          PY
+
+  render:
+    name: Render exact 73-page visual review pack
+    needs:
+      - authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions: {}
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      manifest_sha256: ${{ steps.render.outputs.manifest_sha256 }}
+      page_count: ${{ steps.render.outputs.page_count }}
+      renderer_version: ${{ steps.render.outputs.renderer_version }}
+
+    steps:
+      - name: Install bounded PDF renderer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends poppler-utils
+          command -v pdfinfo >/dev/null
+          command -v pdftoppm >/dev/null
+
+      - name: Download, verify and render exact official PDF
+        id: render
+        shell: bash
+        env:
+          SOURCE_URL: https://object.storage.eu01.onstackit.cloud/leaflets/pdfs/019fc781-2e25-7b38-8816-a824a4f3f769/Aktionsprospekt-10-08-2026-15-08-2026-01.pdf
+          PDF_ID_A: ce84a4996f5c709620b8becc44c4e2a2
+          PDF_ID_B: 3e23d24b28694679903490efc91ce728
+          TREE_ID_A: dd4ef887a72d6942bbade1adf8f2e2e2
+          TREE_ID_B: 9c229675c8c28bb1f0b41c1082d4f4c1
+          EXPECTED_PAGE_COUNT: '73'
+          FLYER_KEY: aktionsprospekt-10-08-2026-15-08-2026-71933b
+          OFFICIAL_FLYER_ID: 019fc781-2e25-7b38-8816-a824a4f3f769
+          ROUTE_REGION: '10'
+          AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          TRIGGER_COMMENT_ID: ${{ needs.authorize.outputs.trigger_comment_id }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          work="$(mktemp -d)"
+          trap 'rm -rf -- "$work"' EXIT
+          mkdir -p review-pack/pages
+          expected_pdf_digest="${PDF_ID_A}${PDF_ID_B}"
+          staging_tree_digest="${TREE_ID_A}${TREE_ID_B}"
+
+          curl \
+            --fail \
+            --location \
+            --silent \
+            --show-error \
+            --proto '=https' \
+            --tlsv1.2 \
+            --connect-timeout 20 \
+            --max-time 180 \
+            "$SOURCE_URL" \
+            --output "$work/source.pdf"
+
+          actual_digest="$(sha256sum "$work/source.pdf" | awk '{print $1}')"
+          [[ "$actual_digest" == "$expected_pdf_digest" ]] \
+            || { echo 'ERROR: official PDF SHA-256 mismatch' >&2; exit 1; }
+          [[ "$(head -c 5 "$work/source.pdf")" == '%PDF-' ]] \
+            || { echo 'ERROR: downloaded source is not a PDF' >&2; exit 1; }
+
+          page_count="$(pdfinfo "$work/source.pdf" | awk -F: '/^Pages:/ {gsub(/[[:space:]]/, "", $2); print $2; exit}')"
+          [[ "$page_count" == "$EXPECTED_PAGE_COUNT" ]] \
+            || { echo 'ERROR: official PDF page count mismatch' >&2; exit 1; }
+
+          renderer_version="$(pdftoppm -v 2>&1 | head -n 1 | tr -d '\r')"
+          pdftoppm \
+            -f 1 \
+            -l "$EXPECTED_PAGE_COUNT" \
+            -r 110 \
+            -jpeg \
+            -jpegopt quality=88,optimize=y \
+            "$work/source.pdf" \
+            "$work/page"
+
+          python3 - "$work" "$page_count" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          work = Path(sys.argv[1])
+          expected = int(sys.argv[2])
+          rendered = []
+          for path in work.glob('page-*.jpg'):
+              match = re.search(r'-(\d+)\.jpg$', path.name)
+              if match:
+                  rendered.append((int(match.group(1)), path))
+          rendered.sort()
+          if [page for page, _ in rendered] != list(range(1, expected + 1)):
+              raise SystemExit('rendered page sequence mismatch')
+          output = Path('review-pack/pages')
+          for page, path in rendered:
+              path.replace(output / f'page-{page:03d}.jpg')
+          PY
+
+          [[ "$(find review-pack/pages -maxdepth 1 -type f -name 'page-*.jpg' | wc -l)" == "$EXPECTED_PAGE_COUNT" ]] \
+            || { echo 'ERROR: rendered review image count mismatch' >&2; exit 1; }
+
+          export ACTUAL_PDF_DIGEST="$actual_digest"
+          export STAGING_TREE_DIGEST="$staging_tree_digest"
+          export ACTUAL_PAGE_COUNT="$page_count"
+          export RENDERER_VERSION="$renderer_version"
+          python3 - <<'PY'
+          from hashlib import sha256
+          import json
+          import os
+          from pathlib import Path
+
+          pages = []
+          for path in sorted(Path('review-pack/pages').glob('page-*.jpg')):
+              page = int(path.stem.split('-')[-1])
+              data = path.read_bytes()
+              pages.append({
+                  'page': page,
+                  'file': path.as_posix(),
+                  'bytes': len(data),
+                  'sha256': sha256(data).hexdigest(),
+              })
+          if [row['page'] for row in pages] != list(range(1, 74)):
+              raise SystemExit('manifest page sequence mismatch')
+
+          payload = {
+              'schema_version': 1,
+              'result': 'PASS',
+              'review_gate': 'lidl-gate-b-page-role-review-588',
+              'flyer_key': os.environ['FLYER_KEY'],
+              'official_flyer_id': os.environ['OFFICIAL_FLYER_ID'],
+              'route_region': os.environ['ROUTE_REGION'],
+              'source_url': os.environ['SOURCE_URL'],
+              'source_pdf_sha256': os.environ['ACTUAL_PDF_DIGEST'],
+              'page_count': int(os.environ['ACTUAL_PAGE_COUNT']),
+              'staging_tree_sha256': os.environ['STAGING_TREE_DIGEST'],
+              'authorization_comment_id': int(os.environ['AUTHORIZATION_COMMENT_ID']),
+              'trigger_comment_id': int(os.environ['TRIGGER_COMMENT_ID']),
+              'renderer': {
+                  'command': 'pdftoppm',
+                  'version': os.environ['RENDERER_VERSION'],
+                  'dpi': 110,
+                  'format': 'jpeg',
+                  'quality': 88,
+              },
+              'pages': pages,
+              'raw_pdf_uploaded': False,
+              'raw_source_json_uploaded': False,
+              'rpi5_execution': False,
+              'self_hosted_execution': False,
+              'corpus_write_performed': False,
+              'database_write_performed': False,
+              'review_write_performed': False,
+              'production_publish_performed': False,
+              'production_deploy_performed': False,
+              'systemd_change_performed': False,
+              'gate_c_d_authorized': False,
+          }
+          Path('review-pack/manifest.json').write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          (
+            cd review-pack
+            find pages -maxdepth 1 -type f -name 'page-*.jpg' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > review-pack/PAGE_SHA256SUMS
+          manifest_digest="$(sha256sum review-pack/manifest.json | awk '{print $1}')"
+
+          {
+            echo "manifest_sha256=$manifest_digest"
+            echo "page_count=$page_count"
+            echo "renderer_version=$renderer_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload bounded visual review pack
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hermes-lidl-gate-b-review-pack-588-${{ github.run_id }}-${{ github.run_attempt }}
+          path: review-pack
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 7
+
+  report:
+    name: Update #588 fixed visual review-pack status
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+
+    steps:
+      - name: Update fixed sanitized status marker
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          STATUS_COMMENT_ID: ${{ needs.authorize.outputs.status_comment_id }}
+          AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          TRIGGER_COMMENT_ID: ${{ needs.authorize.outputs.trigger_comment_id }}
+          RENDER_JOB_RESULT: ${{ needs.render.result }}
+          ARTIFACT_ID: ${{ needs.render.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.render.outputs.artifact_digest }}
+          MANIFEST_SHA256: ${{ needs.render.outputs.manifest_sha256 }}
+          PAGE_COUNT: ${{ needs.render.outputs.page_count }}
+          RENDERER_VERSION: ${{ needs.render.outputs.renderer_version }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          pdf_digest = ''.join((
+              'ce84a4996f5c709620b8becc44c4e2a2',
+              '3e23d24b28694679903490efc91ce728',
+          ))
+          success = (
+              os.environ.get('RENDER_JOB_RESULT') == 'success'
+              and os.environ.get('PAGE_COUNT') == '73'
+              and bool(os.environ.get('ARTIFACT_ID'))
+              and bool(os.environ.get('ARTIFACT_DIGEST'))
+              and bool(os.environ.get('MANIFEST_SHA256'))
+          )
+          marker = '<!-- hermes-lidl-gate-b-review-pack-588-status -->\n'
+          if success:
+              body = marker + (
+                  '## Lidl Gate B #588 visual review pack — PASS\n\n'
+                  f"- authorization evidence comment: `{os.environ['AUTHORIZATION_COMMENT_ID']}`\n"
+                  f"- start-signal comment: `{os.environ['TRIGGER_COMMENT_ID']}`\n"
+                  f'- source PDF SHA-256: `{pdf_digest}`\n'
+                  '- pages: `73/73`\n'
+                  f"- renderer: `{os.environ['RENDERER_VERSION']}`\n"
+                  f"- manifest SHA-256: `{os.environ['MANIFEST_SHA256']}`\n"
+                  f"- artifact ID: `{os.environ['ARTIFACT_ID']}`\n"
+                  f"- artifact digest: `{os.environ['ARTIFACT_DIGEST']}`\n"
+                  f"- workflow: {os.environ['RUN_URL']}\n\n"
+                  'Artifact contains rendered page-review JPEGs, `manifest.json` and `PAGE_SHA256SUMS` only; raw PDF/source JSON are excluded. '
+                  'RPi5/self-hosted, corpus, DB, Review, publication, deploy, systemd and Gate C/D actions remain false.'
+              )
+          else:
+              body = marker + (
+                  '## Lidl Gate B #588 visual review pack — BLOCKED\n\n'
+                  f"- authorization evidence comment: `{os.environ['AUTHORIZATION_COMMENT_ID']}`\n"
+                  f"- start-signal comment: `{os.environ['TRIGGER_COMMENT_ID']}`\n"
+                  f"- render job: `{os.environ.get('RENDER_JOB_RESULT') or 'unknown'}`\n"
+                  f"- workflow: {os.environ['RUN_URL']}\n\n"
+                  'The GitHub-hosted review-pack workflow failed closed. No RPi5/self-hosted, corpus, DB, Review, publication, deploy, systemd or Gate C/D action was authorized.'
+              )
+
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/comments/{os.environ['STATUS_COMMENT_ID']}",
+              data=json.dumps({'body': body}).encode('utf-8'),
+              method='PATCH',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'hermes-lidl-gate-b-review-pack-588-reporter',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 200:
+                  raise SystemExit(f'unexpected status update response: {response.status}')
+          PY
