@@ -114,8 +114,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          git status --short
-          unexpected="$(git status --porcelain | awk '{print $2}' | grep -Ev '^backend/locks/(runtime-py311|ci-py311|runtime-py313)\.txt$' || true)"
+          git status --short --untracked-files=all
+          unexpected="$(git status --porcelain --untracked-files=all | awk '{print $2}' | grep -Ev '^backend/locks/(runtime-py311|ci-py311|runtime-py313)\.txt$' || true)"
           test -z "$unexpected"
           git add backend/locks/runtime-py311.txt backend/locks/ci-py311.txt backend/locks/runtime-py313.txt
           if git diff --cached --quiet; then
