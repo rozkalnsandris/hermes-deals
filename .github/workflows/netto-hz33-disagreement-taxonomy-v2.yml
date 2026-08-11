@@ -1,0 +1,190 @@
+name: Netto hz33 held-out disagreement taxonomy v2
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netto-hz33-disagreement-taxonomy-v2-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  EXPECTED_BASE: main
+  EXPECTED_HEAD: feat/520-netto-hz33-disagreement-taxonomy-v2
+  TRIGGER_LABEL: audit:netto-hz33-disagreement-v2
+  EXPECTED_ADJUDICATION_SHA256: 1d1975c4845fe1bdbd2dd97670fac2df28cc68894003322485c10d53826a818f
+  EXPECTED_TRUTH_SHA256: ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6
+  EXPECTED_PREDICTIONS_SHA256: 70c3c8abace632f6be298abb5d02b398b3e8b91e8d53565b21eface536ed7b94
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      implementation_sha: ${{ steps.auth.outputs.implementation_sha }}
+    steps:
+      - name: Authorize exact owner merged implementation PR
+        id: auth
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          if not event_path.is_file():
+              raise SystemExit("missing GitHub event payload")
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          pr = event.get("pull_request") or {}
+          sender = event.get("sender") or {}
+          repo = event.get("repository") or {}
+          checks = {
+              "label": (event.get("label") or {}).get("name") == os.environ["TRIGGER_LABEL"],
+              "actor_login": sender.get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "actor_id": str(sender.get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "author_login": (pr.get("user") or {}).get("login") == os.environ["EXPECTED_OWNER_LOGIN"],
+              "author_id": str((pr.get("user") or {}).get("id")) == os.environ["EXPECTED_OWNER_ID"],
+              "base": (pr.get("base") or {}).get("ref") == os.environ["EXPECTED_BASE"],
+              "head": (pr.get("head") or {}).get("ref") == os.environ["EXPECTED_HEAD"],
+              "same_repo": ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo.get("full_name"),
+              "merged": pr.get("merged") is True,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("authorization failed: " + ",".join(failed))
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("missing exact merged implementation SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"implementation_sha={sha}\n")
+          PY
+
+  diagnose:
+    needs: authorize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merged implementation
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.authorize.outputs.implementation_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact merged implementation is immutable main ancestry
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$IMPLEMENTATION_SHA" origin/main
+          test -z "$(git status --porcelain)"
+
+      - name: Generate deterministic disagreement taxonomy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -e .hz33-diagnostic
+          mkdir .hz33-diagnostic
+          python tools/netto_hz33_disagreement_taxonomy.py \
+            --truth evidence/netto/heldout/hz33/completed-independent-source-truth-ledger.json.gz.b64 \
+            --truth-receipt evidence/netto/heldout/hz33/completed-source-truth-receipt.json \
+            --adjudication audit/netto/hz33/heldout-adjudication.json \
+            --adjudication-receipt audit/netto/hz33/heldout-adjudication-receipt.json \
+            --output .hz33-diagnostic/report.json
+
+      - name: Freeze deterministic diagnostic receipt
+        env:
+          IMPLEMENTATION_SHA: ${{ needs.authorize.outputs.implementation_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path(".hz33-diagnostic/report.json")
+          receipt_path = Path(".hz33-diagnostic/report-receipt.json")
+          if receipt_path.exists() or receipt_path.is_symlink():
+              raise SystemExit("diagnostic receipt must be create-only")
+          raw = report_path.read_bytes()
+          report = json.loads(raw)
+          receipt = {
+              "schema_version": 2,
+              "strategy": "netto_hz33_heldout_disagreement_taxonomy_receipt_v2",
+              "implementation_sha": os.environ["IMPLEMENTATION_SHA"],
+              "report_sha256": hashlib.sha256(raw).hexdigest(),
+              "completed_source_truth_sha256": report["completed_source_truth_sha256"],
+              "adjudication_sha256": report["adjudication_sha256"],
+              "predictions_sha256": report["predictions_sha256"],
+              "row_count": report["row_count"],
+              "primary_counts": report["primary_counts"],
+              "unsafe_or_evidence_gap_count": report["unsafe_or_evidence_gap_count"],
+              "conservative_review_count": report["conservative_review_count"],
+              "mixed_held_review_count": report["mixed_held_review_count"],
+              "cross_cell_group_reuse_status": report["cross_cell_group_reuse"]["status"],
+              "source_review_reopened": False,
+              "threshold_tuning_performed": False,
+              "parser_behavior_changed": False,
+              "database_write_performed": False,
+              "review_write_performed": False,
+              "publication_performed": False,
+              "deployment_performed": False,
+              "scheduler_changed": False,
+              "review_only": True,
+              "promotion_ready": False,
+          }
+          if receipt["adjudication_sha256"] != os.environ["EXPECTED_ADJUDICATION_SHA256"]:
+              raise SystemExit("diagnostic adjudication SHA drift")
+          if receipt["completed_source_truth_sha256"] != os.environ["EXPECTED_TRUTH_SHA256"]:
+              raise SystemExit("diagnostic truth SHA drift")
+          if receipt["predictions_sha256"] != os.environ["EXPECTED_PREDICTIONS_SHA256"]:
+              raise SystemExit("diagnostic predictions SHA drift")
+          receipt_path.write_text(
+              json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish read-only diagnostic summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path(".hz33-diagnostic/report.json").read_text(encoding="utf-8"))
+          counts = report["primary_counts"]
+          print("## Netto hz33 disagreement taxonomy v2")
+          print()
+          print(f"- Rows: `{report['row_count']}`")
+          print(f"- Unsafe auto-single: `{counts['unsafe_auto_single']}`")
+          print(f"- Conservative Review: `{counts['conservative_review']}`")
+          print(f"- Missed excluded: `{counts['missed_excluded']}`")
+          print(f"- Over-excluded: `{counts['over_excluded']}`")
+          print(f"- Mixed held Review-only: `{counts['mixed_held_review']}`")
+          print(f"- Unmatched evidence gaps: `{counts['unmatched_evidence_gap']}`")
+          print(f"- Scope-overlap evidence gaps: `{counts['scope_overlap_evidence_gap']}`")
+          print(f"- Cross-cell reuse: `{report['cross_cell_group_reuse']['status']}`")
+          print("- Threshold tuning: `false`")
+          print("- Parser behavior changed: `false`")
+          print("- Review-only / promotion-ready: `true / false`")
+          PY
+
+      - name: Upload deterministic diagnostic artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: netto-hz33-disagreement-taxonomy-v2-run-${{ github.run_id }}
+          path: .hz33-diagnostic/
+          if-no-files-found: error
+          retention-days: 14
