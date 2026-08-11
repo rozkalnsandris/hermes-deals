@@ -9,7 +9,7 @@ import platform
 from pathlib import Path
 import re
 import sys
-from typing import Any
+from typing import Any, Iterable
 from uuid import UUID
 
 
@@ -335,20 +335,48 @@ def replay_parser_failure_offline(
     return result
 
 
+def _resolved_paths(values: Iterable[Path | str]) -> set[Path]:
+    return {Path(value).expanduser().resolve() for value in values}
+
+
 def cleanup_failure_evidence(
     raw_snapshot_dir: Path,
     *,
     max_manifests: int = PARSER_FAILURE_RETENTION_MAX_MANIFESTS,
+    source_snapshot_paths: Iterable[Path | str] | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
     if max_manifests < 1:
         raise ValueError("EDEKA failure evidence retention must keep at least one manifest")
+    if apply and source_snapshot_paths is None:
+        raise ValueError(
+            "EDEKA failure evidence cleanup apply requires a complete "
+            "SourceSnapshot path inventory"
+        )
+
     root = raw_snapshot_dir.expanduser().resolve() / "edeka"
     if not root.exists():
-        return {"kept": 0, "expired": [], "raw_candidates": [], "applied": apply}
+        return {
+            "kept": 0,
+            "expired": [],
+            "protected_snapshot_manifests": [],
+            "raw_candidates": [],
+            "applied": apply,
+            "source_snapshot_inventory_supplied": source_snapshot_paths is not None,
+        }
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("EDEKA failure evidence root is unsafe")
+
+    snapshot_paths = (
+        _resolved_paths(source_snapshot_paths)
+        if source_snapshot_paths is not None
+        else set()
+    )
     manifests = sorted(root.glob(_FAILURE_GLOB), key=lambda path: path.name, reverse=True)
     keep = manifests[:max_manifests]
-    expire = manifests[max_manifests:]
+    aged = manifests[max_manifests:]
+    protected = [path for path in aged if path.resolve() in snapshot_paths]
+    expire = [path for path in aged if path.resolve() not in snapshot_paths]
 
     referenced_raw: set[Path] = set()
     for path in root.glob("*.json"):
@@ -361,6 +389,7 @@ def cleanup_failure_evidence(
         raw_value = value.get("raw_html_path") if isinstance(value, dict) else None
         if isinstance(raw_value, str):
             referenced_raw.add(Path(raw_value).expanduser().resolve())
+    referenced_raw.update(path for path in snapshot_paths if path.parent == root)
 
     raw_candidates: set[Path] = set()
     for path in expire:
@@ -381,6 +410,8 @@ def cleanup_failure_evidence(
     return {
         "kept": len(keep),
         "expired": [str(path) for path in expire],
+        "protected_snapshot_manifests": [str(path) for path in protected],
         "raw_candidates": [str(path) for path in sorted(raw_candidates)],
         "applied": apply,
+        "source_snapshot_inventory_supplied": source_snapshot_paths is not None,
     }

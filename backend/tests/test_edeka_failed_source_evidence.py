@@ -51,13 +51,14 @@ def _source() -> SourceConfig:
     )
 
 
-def _stale_fetched() -> EdekaFetchedPage:
+def _stale_fetched(*, raw_evidence=None) -> EdekaFetchedPage:
     return EdekaFetchedPage(
         final_url=SOURCE_URL,
         content=FIXTURE.read_bytes(),
         content_type="text/html; charset=utf-8",
         http_status=200,
         elapsed_ms=7,
+        raw_evidence=raw_evidence,
     )
 
 
@@ -133,6 +134,34 @@ class EdekaFailedSourceEvidenceTest(unittest.TestCase):
                 manifest["raw_html_sha256"],
                 sha256(FIXTURE.read_bytes()).hexdigest(),
             )
+
+    def test_failure_without_registered_identity_keeps_raw_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw = retain_raw_source(
+                root,
+                public_market_id="071897",
+                content=FIXTURE.read_bytes(),
+            )
+            db = _RecordingDb()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "app.edeka_store_offers._utc_now",
+                    return_value=COLLECTED_AT,
+                ),
+                patch(
+                    "app.edeka_store_offers.fetch_edeka_store_offers",
+                    return_value=_stale_fetched(raw_evidence=raw),
+                ),
+            ):
+                result = collect_edeka_store_offers(db, _source())
+
+            self.assertFalse(result.snapshot.success)
+            self.assertEqual(result.snapshot.snapshot_path, str(raw.path))
+            self.assertEqual(result.snapshot.sha256, raw.sha256)
+            self.assertIn("identity_unavailable", result.snapshot.strategy_hint)
+            self.assertEqual(result.snapshot.keyword_hits["parser_identity_bound"], 0)
 
     def test_failure_manifest_cannot_be_consumed_as_accepted_campaign(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -212,13 +241,20 @@ class EdekaFailedSourceEvidenceTest(unittest.TestCase):
             self.assertEqual(replay["derivation_registered_commit"], "2" * 40)
             self.assertEqual(replay["raw_html_sha256"], sha256(FIXTURE.read_bytes()).hexdigest())
 
-    def test_retention_cleanup_is_bounded_and_dry_run_by_default(self) -> None:
+    def test_cleanup_requires_snapshot_inventory_before_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(ValueError, "complete SourceSnapshot path inventory"):
+                cleanup_failure_evidence(root, max_manifests=2, apply=True)
+
+    def test_cleanup_is_bounded_and_preserves_snapshot_references(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             edeka = root / "edeka"
             edeka.mkdir()
             raw_paths = []
-            for index in range(3):
+            manifest_paths = []
+            for index in range(4):
                 raw = edeka / f"071897-offers-{'a' * 63}{index}.html"
                 raw.write_bytes(f"raw-{index}".encode())
                 raw_paths.append(raw)
@@ -228,18 +264,33 @@ class EdekaFailedSourceEvidenceTest(unittest.TestCase):
                     f"{index:012d}.json"
                 )
                 path.write_text(json.dumps(manifest), encoding="utf-8")
+                manifest_paths.append(path)
 
             plan = cleanup_failure_evidence(root, max_manifests=2)
             self.assertEqual(plan["kept"], 2)
-            self.assertEqual(len(plan["expired"]), 1)
+            self.assertEqual(len(plan["expired"]), 2)
             self.assertFalse(plan["applied"])
             self.assertTrue(all(path.exists() for path in raw_paths))
 
-            applied = cleanup_failure_evidence(root, max_manifests=2, apply=True)
+            applied = cleanup_failure_evidence(
+                root,
+                max_manifests=2,
+                source_snapshot_paths={manifest_paths[0]},
+                apply=True,
+            )
             self.assertTrue(applied["applied"])
-            self.assertFalse(raw_paths[0].exists())
-            self.assertTrue(raw_paths[1].exists())
+            self.assertEqual(
+                applied["protected_snapshot_manifests"],
+                [str(manifest_paths[0])],
+            )
+            self.assertTrue(manifest_paths[0].exists())
+            self.assertFalse(manifest_paths[1].exists())
+            self.assertTrue(manifest_paths[2].exists())
+            self.assertTrue(manifest_paths[3].exists())
+            self.assertTrue(raw_paths[0].exists())
+            self.assertFalse(raw_paths[1].exists())
             self.assertTrue(raw_paths[2].exists())
+            self.assertTrue(raw_paths[3].exists())
 
 
 if __name__ == "__main__":
