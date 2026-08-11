@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 from app.edeka_failed_source_evidence import (
@@ -23,6 +23,7 @@ from app.edeka_failed_source_evidence import (
 from app.edeka_store_offers import (
     EdekaFetchedPage,
     collect_edeka_store_offers,
+    fetch_edeka_store_offers,
     parse_edeka_store_offers_snapshot,
 )
 from app.parsers.edeka import EdekaParserContext
@@ -60,6 +61,18 @@ def _stale_fetched(*, raw_evidence=None) -> EdekaFetchedPage:
         elapsed_ms=7,
         raw_evidence=raw_evidence,
     )
+
+
+def _http_client_for(final_url: str) -> MagicMock:
+    response = MagicMock()
+    response.content = FIXTURE.read_bytes()
+    response.url = final_url
+    response.headers = {"content-type": "text/html; charset=utf-8"}
+    response.status_code = 200
+    response.raise_for_status.return_value = None
+    client = MagicMock()
+    client.__enter__.return_value.get.return_value = response
+    return client
 
 
 class _RecordingDb:
@@ -103,6 +116,56 @@ class EdekaFailedSourceEvidenceTest(unittest.TestCase):
         ):
             result = collect_edeka_store_offers(db, _source())
         return result, db
+
+    def test_exact_final_url_fetch_retains_raw_before_collection_parse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                http_user_agent="hermes-test",
+                raw_snapshot_dir=root,
+            )
+            client = _http_client_for(SOURCE_URL)
+            with (
+                patch(
+                    "app.edeka_store_offers.get_settings",
+                    return_value=settings,
+                ),
+                patch(
+                    "app.edeka_store_offers.httpx.Client",
+                    return_value=client,
+                ),
+            ):
+                fetched = fetch_edeka_store_offers(_source())
+
+            self.assertIsNotNone(fetched.raw_evidence)
+            self.assertEqual(fetched.raw_evidence.path.read_bytes(), FIXTURE.read_bytes())
+            self.assertEqual(
+                fetched.raw_evidence.sha256,
+                sha256(FIXTURE.read_bytes()).hexdigest(),
+            )
+
+    def test_final_url_drift_fails_before_raw_retention(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                http_user_agent="hermes-test",
+                raw_snapshot_dir=root,
+            )
+            client = _http_client_for(f"{SOURCE_URL}?unexpected=1")
+            with (
+                patch(
+                    "app.edeka_store_offers.get_settings",
+                    return_value=settings,
+                ),
+                patch(
+                    "app.edeka_store_offers.httpx.Client",
+                    return_value=client,
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "redirected away"):
+                    fetch_edeka_store_offers(_source())
+
+            self.assertFalse((root / "edeka").exists())
 
     def test_parser_failure_retains_raw_and_disjoint_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
