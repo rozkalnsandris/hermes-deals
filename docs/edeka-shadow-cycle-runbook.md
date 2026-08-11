@@ -32,6 +32,7 @@ The authoritative RPi5 shadow wrapper does not resolve dependencies from `backen
 ```text
 backend/locks/runtime-py311.txt
 backend/locks/manifest.json
+scripts/verify-python-lock-environment.py
 ```
 
 Before creating or reusing a cached venv, the wrapper:
@@ -41,9 +42,11 @@ Before creating or reusing a cached venv, the wrapper:
 - uses an exact cache identity composed of the CPython patch version plus the runtime-lock SHA-256;
 - installs a new venv only with `--require-hashes --only-binary=:all:` and the reviewed runtime lock;
 - runs `pip check` before use;
+- verifies the complete installed distribution inventory against the reviewed lock and rejects missing, mismatched or unexpected non-bootstrap packages;
+- permits only the venv bootstrap distributions `pip` and `setuptools` outside the reviewed lock;
 - never upgrades pip and never falls back to `-r backend/requirements.txt`.
 
-`run-request.txt` records the runtime lock file/SHA, CPython implementation/version, pip version and cache identity. This makes dependency/runtime drift visible in retained audit evidence without modifying production state.
+`run-request.txt` records the runtime lock file/SHA, CPython implementation/version, pip version, cache identity and locked-inventory SHA-256. This makes dependency/runtime drift visible in retained audit evidence without modifying production state.
 
 ## Prepare the isolated clone
 
@@ -111,7 +114,7 @@ bash "$AUDIT_REPO/tools/run-hermes-deals-edeka-shadow-cycle-v01.sh" \
   "$REGISTERED_SHA"
 ```
 
-A successful run reports `RESULT=PASS`, the runtime-lock/Python/pip identity, the archive path and SHA-256, `PRIMARY_WORKTREE_MODIFIED=false`, both Git index markers as `true`, and all production/scheduler markers as `false`.
+A successful run reports `RESULT=PASS`, the runtime-lock/Python/pip identity, the locked-inventory SHA-256, the archive path and SHA-256, `PRIMARY_WORKTREE_MODIFIED=false`, both Git index markers as `true`, and all production/scheduler markers as `false`.
 
 ## Required two-cycle sequence
 
