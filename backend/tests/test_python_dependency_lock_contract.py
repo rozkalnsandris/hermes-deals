@@ -142,7 +142,7 @@ def test_production_image_installs_only_from_python313_hash_lock() -> None:
     assert "-r requirements.txt" not in text
 
 
-def test_arm64_preflight_is_exact_commit_clean_and_production_safe() -> None:
+def test_arm64_preflight_is_exact_commit_clean_capacity_guarded_and_production_safe() -> None:
     text = ARM64_PREFLIGHT.read_text(encoding="utf-8")
     for marker in (
         'EXPECTED_SHA="${1:-}"',
@@ -151,9 +151,16 @@ def test_arm64_preflight_is_exact_commit_clean_and_production_safe() -> None:
         "aarch64|arm64",
         '[[ "$PYTHON_LINE" != "3.11" ]]',
         'LOCK_REL="backend/locks/runtime-py311.txt"',
+        'TMP_BASE="${HERMES_LOCK_TMPDIR:-/var/tmp}"',
+        "MIN_TMP_KIB=$((1024 * 1024))",
+        'LC_ALL=C df -Pk -- "$TMP_BASE"',
+        'AVAILABLE_TMP_KIB < MIN_TMP_KIB',
+        'mktemp -d -- "$TMP_BASE/hermes-python-lock-arm64.XXXXXX"',
         "--require-hashes",
         "--only-binary=:all:",
         '"$VENV_PYTHON" -m pip check',
+        "TEMP_BASE=$TMP_BASE",
+        "TEMP_AVAILABLE_KIB_BEFORE=$AVAILABLE_TMP_KIB",
         "PRODUCTION_DATABASE_WRITE=false",
         "PRODUCTION_DEPLOYMENT=false",
         "SCHEDULER_ACTIVATION=false",
@@ -161,6 +168,7 @@ def test_arm64_preflight_is_exact_commit_clean_and_production_safe() -> None:
         "DOCKER_MUTATION=false",
     ):
         assert marker in text
+    assert '${TMPDIR:-/tmp}/hermes-python-lock-arm64' not in text
     for forbidden in (
         "sudo ",
         "docker ",
