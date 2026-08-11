@@ -79,7 +79,8 @@ jobs:
           python3 - "$root/previous" <<'PY'
           import hashlib, io, json, os, pathlib, urllib.request, zipfile
           repo=os.environ['REPOSITORY']; token=os.environ['GH_TOKEN']; destination=pathlib.Path(__import__('sys').argv[1])
-          headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {token}','User-Agent':'hermes-deals-netto-weekly-state','X-GitHub-Api-Version':'2026-03-10'}
+          user_agent='hermes-deals-netto-weekly-state'
+          headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {token}','User-Agent':user_agent,'X-GitHub-Api-Version':'2026-03-10'}
           def get_json(url):
               with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=30) as response: return json.load(response)
           listing=get_json(f'https://api.github.com/repos/{repo}/actions/artifacts?per_page=100')
@@ -98,8 +99,16 @@ jobs:
                   selected=artifact; break
           if selected is None:
               print('PREVIOUS_SCHEDULED_STATE=NONE'); raise SystemExit(0)
-          req=urllib.request.Request(selected['archive_download_url'],headers=headers)
-          with urllib.request.urlopen(req,timeout=60) as response: archive=response.read()
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def http_error_302(self, req, fp, code, msg, response_headers):
+                  return fp
+          redirect_opener=urllib.request.build_opener(NoRedirect())
+          with redirect_opener.open(urllib.request.Request(selected['archive_download_url'],headers=headers),timeout=30) as response:
+              if response.status != 302: raise SystemExit('previous artifact download endpoint did not return a signed redirect')
+              location=response.headers.get('Location')
+          if not location or not location.startswith('https://'): raise SystemExit('previous artifact download endpoint did not return a signed redirect')
+          signed_request=urllib.request.Request(location,headers={'User-Agent':user_agent})
+          with urllib.request.urlopen(signed_request,timeout=60) as response: archive=response.read()
           digest=str(selected.get('digest') or '')
           if digest != 'sha256:'+hashlib.sha256(archive).hexdigest(): raise SystemExit('previous artifact GitHub digest mismatch')
           zf=zipfile.ZipFile(io.BytesIO(archive))
