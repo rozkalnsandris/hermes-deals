@@ -25,6 +25,26 @@ The capture uses the exact Patzer identity `071897` / `587881`, fetches only `ht
 
 It does not deploy, access Docker, write the production database, activate systemd timers, seed Review or publish offers.
 
+## Python runtime identity
+
+The authoritative RPi5 shadow wrapper does not resolve dependencies from `backend/requirements.txt`. It requires the registered commit to contain:
+
+```text
+backend/locks/runtime-py311.txt
+backend/locks/manifest.json
+```
+
+Before creating or reusing a cached venv, the wrapper:
+
+- verifies that the runtime lock SHA-256 exactly matches the manifest identity for `runtime-py311.txt`;
+- requires CPython 3.11;
+- uses an exact cache identity composed of the CPython patch version plus the runtime-lock SHA-256;
+- installs a new venv only with `--require-hashes --only-binary=:all:` and the reviewed runtime lock;
+- runs `pip check` before use;
+- never upgrades pip and never falls back to `-r backend/requirements.txt`.
+
+`run-request.txt` records the runtime lock file/SHA, CPython implementation/version, pip version and cache identity. This makes dependency/runtime drift visible in retained audit evidence without modifying production state.
+
 ## Prepare the isolated clone
 
 Run as `andris` after the relevant PR is squash-merged:
@@ -91,7 +111,7 @@ bash "$AUDIT_REPO/tools/run-hermes-deals-edeka-shadow-cycle-v01.sh" \
   "$REGISTERED_SHA"
 ```
 
-A successful run reports `RESULT=PASS`, the archive path and SHA-256, `PRIMARY_WORKTREE_MODIFIED=false`, both Git index markers as `true`, and all production/scheduler markers as `false`.
+A successful run reports `RESULT=PASS`, the runtime-lock/Python/pip identity, the archive path and SHA-256, `PRIMARY_WORKTREE_MODIFIED=false`, both Git index markers as `true`, and all production/scheduler markers as `false`.
 
 ## Required two-cycle sequence
 
