@@ -13,6 +13,14 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.edeka_failed_source_evidence import (
+    EdekaRawSourceEvidence,
+    PARSER_FAILURE_CONTENT_TYPE,
+    PARSER_FAILURE_STRATEGY,
+    parser_identity_from_environment,
+    retain_raw_source,
+    write_parser_failure_manifest,
+)
 from app.models import SourceSnapshot
 from app.parsers.edeka import EdekaParserContext, parse_edeka_html
 from app.schemas import OfferCandidate
@@ -381,9 +389,18 @@ def collect_edeka_store_offers(
         success=False,
     )
     fetched: EdekaFetchedPage | None = None
+    retained_raw: EdekaRawSourceEvidence | None = None
+    parser_failure = False
 
     try:
         fetched = fetch_edeka_store_offers(source)
+        parser_identity = parser_identity_from_environment()
+        if parser_identity is not None:
+            retained_raw = retain_raw_source(
+                get_settings().raw_snapshot_dir,
+                public_market_id=source.store_external_id or "",
+                content=fetched.content,
+            )
         context = EdekaParserContext(
             snapshot_id=snapshot.id,
             source_url=fetched.final_url,
@@ -392,9 +409,13 @@ def collect_edeka_store_offers(
             internal_market_id=source.store_internal_id or "",
             store_name=source.store_name or "",
         )
-        offers = parse_edeka_html(fetched.content, context)
-        valid_from, valid_until = _single_offer_window(offers)
-        offer_semantic_sha = _offer_semantic_sha256(offers)
+        try:
+            offers = parse_edeka_html(fetched.content, context)
+            valid_from, valid_until = _single_offer_window(offers)
+            offer_semantic_sha = _offer_semantic_sha256(offers)
+        except Exception:
+            parser_failure = True
+            raise
 
         previous = _matching_previous_snapshot(
             db,
@@ -440,6 +461,46 @@ def collect_edeka_store_offers(
             snapshot.content_bytes = len(fetched.content)
         snapshot.strategy_hint = f"{MANIFEST_STRATEGY}_error"
         snapshot.error = f"{type(exc).__name__}: {exc}"[:2000]
+
+        if parser_failure and fetched is not None and retained_raw is not None:
+            try:
+                identity = parser_identity_from_environment()
+                if identity is None:
+                    raise ValueError("EDEKA parser failure identity is unavailable")
+                failure_path, failure_sha = write_parser_failure_manifest(
+                    get_settings().raw_snapshot_dir,
+                    snapshot_id=snapshot.id,
+                    collected_at=collected_at,
+                    source_chain=source.chain,
+                    scope=source.scope,
+                    public_market_id=source.store_external_id or "",
+                    internal_market_id=source.store_internal_id or "",
+                    store_name=source.store_name or "",
+                    source_url=source.url,
+                    final_url=fetched.final_url,
+                    raw=retained_raw,
+                    raw_content_type=fetched.content_type,
+                    http_status=fetched.http_status,
+                    elapsed_ms=fetched.elapsed_ms,
+                    identity=identity,
+                    error=exc,
+                )
+                snapshot.content_type = PARSER_FAILURE_CONTENT_TYPE
+                snapshot.sha256 = failure_sha
+                snapshot.snapshot_path = str(failure_path)
+                snapshot.keyword_hits = {
+                    "exact_market_binding": 1,
+                    "parser_failure_evidence": 1,
+                }
+                snapshot.strategy_hint = PARSER_FAILURE_STRATEGY
+            except Exception as evidence_exc:
+                snapshot.strategy_hint = (
+                    f"{MANIFEST_STRATEGY}_parser_failure_evidence_error"
+                )
+                snapshot.error = (
+                    f"{type(exc).__name__}: {exc}; "
+                    f"evidence={type(evidence_exc).__name__}: {evidence_exc}"
+                )[:2000]
 
     db.add(snapshot)
     db.commit()

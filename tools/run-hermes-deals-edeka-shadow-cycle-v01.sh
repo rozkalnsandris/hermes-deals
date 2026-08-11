@@ -11,6 +11,7 @@ EVIDENCE_ROOT="/home/andris/hermes-deals-shadow-evidence/edeka"
 CACHE_ROOT="/home/andris/.cache/hermes-deals-edeka-shadow"
 EXPECTED_ORIGIN_HTTPS="https://github.com/rozkalnsandris/hermes-deals"
 EXPECTED_ORIGIN_SSH="git@github.com:rozkalnsandris/hermes-deals.git"
+PARSER_REL="backend/app/parsers/edeka.py"
 RUNTIME_LOCK_REL="backend/locks/runtime-py311.txt"
 RUNTIME_LOCK_MANIFEST_REL="backend/locks/manifest.json"
 RUNTIME_ENV_VERIFIER_REL="scripts/verify-python-lock-environment.py"
@@ -83,12 +84,16 @@ esac
 for path in \
   backend/app/edeka_shadow_capture.py \
   backend/app/edeka_shadow_ledger.py \
+  "$PARSER_REL" \
   "$RUNTIME_LOCK_REL" \
   "$RUNTIME_LOCK_MANIFEST_REL" \
   "$RUNTIME_ENV_VERIFIER_REL" \
   config/sources.json; do
   git_read_audit cat-file -e "$EXPECTED_SHA:$path" || fail "registered file is missing: $path"
 done
+
+source_parser_blob_sha="$(git_read_audit rev-parse "$EXPECTED_SHA:$PARSER_REL")" || fail "cannot resolve registered EDEKA parser blob"
+[[ "$source_parser_blob_sha" =~ ^[0-9a-f]{40}$ ]] || fail "registered EDEKA parser blob SHA is invalid"
 
 primary_branch_before="$(git_read_primary branch --show-current)" || fail "cannot read primary repository branch"
 primary_head_before="$(git_read_primary rev-parse HEAD)" || fail "cannot read primary repository HEAD"
@@ -166,6 +171,9 @@ cat > "$run_dir/run-request.txt" <<REQUEST
 runner_version=$RUNNER_VERSION
 runtime_boundary_version=$RUNTIME_BOUNDARY_VERSION
 registered_commit=$EXPECTED_SHA
+source_parser_contract_version=edeka-v1
+source_parser_path=$PARSER_REL
+source_parser_blob_sha=$source_parser_blob_sha
 audit_repository=$AUDIT_REPO
 primary_repository=$PRIMARY_REPO
 runtime_lock_file=$RUNTIME_LOCK_REL
@@ -182,6 +190,8 @@ scheduler_activation=false
 REQUEST
 
 set +e
+EDEKA_SOURCE_REGISTERED_COMMIT="$EXPECTED_SHA" \
+EDEKA_SOURCE_PARSER_BLOB_SHA="$source_parser_blob_sha" \
 PYTHONPATH="$AUDIT_REPO/backend" \
   "$venv/bin/python" -m app.edeka_shadow_capture \
   --output-dir "$cycle_dir" \
@@ -243,6 +253,7 @@ printf 'RESULT=PASS\n'
 printf 'RUNNER_VERSION=%s\n' "$RUNNER_VERSION"
 printf 'RUNTIME_BOUNDARY_VERSION=%s\n' "$RUNTIME_BOUNDARY_VERSION"
 printf 'REGISTERED_COMMIT=%s\n' "$EXPECTED_SHA"
+printf 'SOURCE_PARSER_BLOB_SHA=%s\n' "$source_parser_blob_sha"
 printf 'RUNTIME_LOCK_SHA256=%s\n' "$runtime_lock_sha"
 printf 'RUNTIME_INVENTORY_SHA256=%s\n' "$runtime_inventory_sha"
 printf 'RUNTIME_PYTHON_VERSION=%s\n' "$python_version"
