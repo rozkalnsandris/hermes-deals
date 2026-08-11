@@ -55,7 +55,23 @@ if [[ "$ACTUAL_LOCK_SHA" != "$EXPECTED_LOCK_SHA" ]]; then
   exit 69
 fi
 
-TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/hermes-python-lock-arm64.XXXXXX")"
+TMP_BASE="${HERMES_LOCK_TMPDIR:-/var/tmp}"
+if [[ ! -d "$TMP_BASE" || ! -w "$TMP_BASE" ]]; then
+  echo "ARM64 preflight temp base must exist and be writable: $TMP_BASE" >&2
+  exit 70
+fi
+MIN_TMP_KIB=$((1024 * 1024))
+AVAILABLE_TMP_KIB="$(LC_ALL=C df -Pk -- "$TMP_BASE" | awk 'NR == 2 {print $4}')"
+if [[ ! "$AVAILABLE_TMP_KIB" =~ ^[0-9]+$ ]]; then
+  echo "could not determine available space for temp base: $TMP_BASE" >&2
+  exit 71
+fi
+if (( AVAILABLE_TMP_KIB < MIN_TMP_KIB )); then
+  echo "ARM64 preflight requires at least ${MIN_TMP_KIB} KiB free in $TMP_BASE; available=${AVAILABLE_TMP_KIB} KiB" >&2
+  exit 72
+fi
+
+TMP_ROOT="$(mktemp -d -- "$TMP_BASE/hermes-python-lock-arm64.XXXXXX")"
 cleanup() {
   rm -rf "$TMP_ROOT"
 }
@@ -81,6 +97,8 @@ printf '%s\n' \
   "PIP_VERSION=$PIP_VERSION" \
   "LOCK_FILE=$LOCK_REL" \
   "LOCK_SHA256=$ACTUAL_LOCK_SHA" \
+  "TEMP_BASE=$TMP_BASE" \
+  "TEMP_AVAILABLE_KIB_BEFORE=$AVAILABLE_TMP_KIB" \
   "PRODUCTION_DATABASE_WRITE=false" \
   "PRODUCTION_DEPLOYMENT=false" \
   "SCHEDULER_ACTIVATION=false" \
