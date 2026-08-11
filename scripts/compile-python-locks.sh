@@ -27,7 +27,7 @@ fi
 python -m pip install --disable-pip-version-check --only-binary=:all: "pip==$PIP_VERSION"
 python -m pip install --disable-pip-version-check --only-binary=:all: "pip-tools==$PIP_TOOLS_VERSION"
 python -m pip --version
-python -m piptools --version
+python -m piptools compile --version
 
 mkdir -p backend/locks
 
