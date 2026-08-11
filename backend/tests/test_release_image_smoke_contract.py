@@ -8,6 +8,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 REGISTER = ROOT / "tools/runner/release/hermes-deals-release-register"
 DOCKERFILE = ROOT / "backend/Dockerfile"
 REQUIREMENTS = ROOT / "backend/requirements.txt"
+RUNTIME_LOCK = ROOT / "backend/locks/runtime-py313.txt"
+CI_LOCK = ROOT / "backend/locks/ci-py311.txt"
 CI = ROOT / ".github/workflows/ci.yml"
 
 
@@ -38,9 +40,13 @@ def test_release_register_uses_runtime_only_image_smoke() -> None:
 def test_production_image_excludes_tests_and_pytest() -> None:
     dockerfile = read(DOCKERFILE)
     requirements = read(REQUIREMENTS).lower()
+    runtime_lock = read(RUNTIME_LOCK).lower()
+    ci_lock = read(CI_LOCK).lower()
     ci = read(CI)
 
     assert "COPY tests ./tests" not in dockerfile
     assert "pytest" not in requirements
-    assert "python -m pip install pytest==8.4.1" in ci
+    assert "pytest==" not in runtime_lock
+    assert "pytest==8.4.1" in ci_lock
+    assert "-r locks/ci-py311.txt" in ci
     assert "python -m pytest -q" in ci
