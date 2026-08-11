@@ -4,13 +4,15 @@ IFS=$'\n\t'
 umask 077
 
 RUNNER_VERSION="edeka-shadow-cycle-v01"
-RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-index-safe-v01"
+RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-hash-lock-v02"
 AUDIT_REPO="/home/andris/hermes-deals-audit-source-edeka"
 PRIMARY_REPO="/home/andris/hermes-deals"
 EVIDENCE_ROOT="/home/andris/hermes-deals-shadow-evidence/edeka"
 CACHE_ROOT="/home/andris/.cache/hermes-deals-edeka-shadow"
 EXPECTED_ORIGIN_HTTPS="https://github.com/rozkalnsandris/hermes-deals"
 EXPECTED_ORIGIN_SSH="git@github.com:rozkalnsandris/hermes-deals.git"
+RUNTIME_LOCK_REL="backend/locks/runtime-py311.txt"
+RUNTIME_LOCK_MANIFEST_REL="backend/locks/manifest.json"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -80,7 +82,8 @@ esac
 for path in \
   backend/app/edeka_shadow_capture.py \
   backend/app/edeka_shadow_ledger.py \
-  backend/requirements.txt \
+  "$RUNTIME_LOCK_REL" \
+  "$RUNTIME_LOCK_MANIFEST_REL" \
   config/sources.json; do
   git_read_audit cat-file -e "$EXPECTED_SHA:$path" || fail "registered file is missing: $path"
 done
@@ -90,9 +93,30 @@ primary_head_before="$(git_read_primary rev-parse HEAD)" || fail "cannot read pr
 primary_status_before="$(git_read_primary status --porcelain=v1 -z | sha256sum | awk '{print $1}')" || fail "cannot read primary repository status"
 
 install -d -m 0700 "$EVIDENCE_ROOT" "$CACHE_ROOT"
-requirements_sha="$(sha256sum "$AUDIT_REPO/backend/requirements.txt" | awk '{print $1}')"
-[[ "$requirements_sha" =~ ^[0-9a-f]{64}$ ]] || fail "requirements SHA is invalid"
-venv="$CACHE_ROOT/venv-$requirements_sha"
+
+runtime_lock_sha="$(sha256sum "$AUDIT_REPO/$RUNTIME_LOCK_REL" | awk '{print $1}')"
+[[ "$runtime_lock_sha" =~ ^[0-9a-f]{64}$ ]] || fail "runtime lock SHA is invalid"
+manifest_lock_sha="$(python3 - "$AUDIT_REPO/$RUNTIME_LOCK_MANIFEST_REL" <<'PY'
+import json
+import pathlib
+import sys
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+identity = manifest["locks"]["runtime-py311.txt"]
+if identity["python"] != "3.11":
+    raise SystemExit("runtime lock manifest Python identity mismatch")
+print(identity["sha256"])
+PY
+)" || fail "cannot read runtime lock identity from manifest"
+[[ "$manifest_lock_sha" == "$runtime_lock_sha" ]] || fail "runtime lock SHA does not match manifest"
+
+python_implementation="$(python3 -c 'import platform; print(platform.python_implementation())')"
+python_version="$(python3 -c 'import platform; print(platform.python_version())')"
+python_line="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+[[ "$python_implementation" == "CPython" ]] || fail "runtime requires CPython"
+[[ "$python_line" == "3.11" ]] || fail "runtime-py311 lock requires Python 3.11, got $python_version"
+
+cache_identity="cpython-${python_version}-${runtime_lock_sha}"
+venv="$CACHE_ROOT/venv-$cache_identity"
 lock="$CACHE_ROOT/venv.lock"
 
 exec 9>"$lock"
@@ -106,14 +130,18 @@ if [[ ! -x "$venv/bin/python" ]]; then
   }
   trap cleanup_venv EXIT
   python3 -m venv "$temporary_venv"
-  "$temporary_venv/bin/python" -m pip install --disable-pip-version-check --upgrade pip
-  "$temporary_venv/bin/python" -m pip install --disable-pip-version-check -r "$AUDIT_REPO/backend/requirements.txt"
+  "$temporary_venv/bin/python" -m pip install \
+    --disable-pip-version-check \
+    --require-hashes \
+    --only-binary=:all: \
+    -r "$AUDIT_REPO/$RUNTIME_LOCK_REL"
   "$temporary_venv/bin/python" -m pip check
   mv -- "$temporary_venv" "$venv"
   temporary_venv=""
   trap - EXIT
 fi
 "$venv/bin/python" -m pip check >/dev/null
+runtime_pip_version="$("$venv/bin/python" -m pip --version | awk '{print $2}')"
 flock -u 9
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -128,7 +156,12 @@ runtime_boundary_version=$RUNTIME_BOUNDARY_VERSION
 registered_commit=$EXPECTED_SHA
 audit_repository=$AUDIT_REPO
 primary_repository=$PRIMARY_REPO
-requirements_sha256=$requirements_sha
+runtime_lock_file=$RUNTIME_LOCK_REL
+runtime_lock_sha256=$runtime_lock_sha
+runtime_python_implementation=$python_implementation
+runtime_python_version=$python_version
+runtime_pip_version=$runtime_pip_version
+runtime_cache_identity=$cache_identity
 started_utc=$stamp
 production_database_write=false
 production_deployment=false
@@ -197,6 +230,9 @@ printf 'RESULT=PASS\n'
 printf 'RUNNER_VERSION=%s\n' "$RUNNER_VERSION"
 printf 'RUNTIME_BOUNDARY_VERSION=%s\n' "$RUNTIME_BOUNDARY_VERSION"
 printf 'REGISTERED_COMMIT=%s\n' "$EXPECTED_SHA"
+printf 'RUNTIME_LOCK_SHA256=%s\n' "$runtime_lock_sha"
+printf 'RUNTIME_PYTHON_VERSION=%s\n' "$python_version"
+printf 'RUNTIME_PIP_VERSION=%s\n' "$runtime_pip_version"
 printf 'EVIDENCE_DIR=%s\n' "$run_dir"
 printf 'ARCHIVE=%s\n' "$archive"
 printf 'ARCHIVE_SHA256=%s\n' "$(sha256sum "$archive" | awk '{print $1}')"
