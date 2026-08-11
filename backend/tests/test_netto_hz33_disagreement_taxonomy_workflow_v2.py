@@ -46,6 +46,13 @@ def test_workflow_actions_are_immutable_and_permissions_are_read_only() -> None:
     assert "persist-credentials: false" in text
 
 
+def test_workflow_explicitly_includes_validated_hidden_diagnostic_files() -> None:
+    text = _text()
+    assert "path: .hz33-diagnostic/" in text
+    assert "include-hidden-files: true" in text
+    assert "if-no-files-found: error" in text
+
+
 def test_workflow_never_mutates_parser_or_production() -> None:
     text = _text().lower()
     for forbidden in (
