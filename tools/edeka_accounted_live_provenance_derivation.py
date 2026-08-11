@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 from hashlib import sha256
 import json
+import platform
 from pathlib import Path
+import re
 import sys
 from tempfile import TemporaryDirectory
 from typing import Any, Mapping
@@ -21,7 +23,10 @@ from edeka_candidate_provenance import validate_candidate_provenance
 from edeka_live_provenance_derivation import derive_live_provenance_from_artifact
 
 
-ACCOUNTED_DERIVATION_SCHEMA_VERSION = 1
+ACCOUNTED_DERIVATION_SCHEMA_VERSION = 2
+PARSER_CONTRACT_VERSION = "edeka-v1"
+PARSER_PATH = "backend/app/parsers/edeka.py"
+_GIT_OBJECT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _stable_json_bytes(value: object) -> bytes:
@@ -41,10 +46,30 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _full_commit(value: str) -> str:
-    if len(value) != 40 or any(char not in "0123456789abcdef" for char in value):
-        raise ValueError("EDEKA accounted derivation requires a full commit SHA")
+def _full_commit(value: object, label: str) -> str:
+    if not isinstance(value, str) or not _GIT_OBJECT_RE.fullmatch(value):
+        raise ValueError(
+            f"EDEKA accounted derivation {label} requires a full commit SHA"
+        )
     return value
+
+
+def _full_blob(value: object, label: str) -> str:
+    if not isinstance(value, str) or not _GIT_OBJECT_RE.fullmatch(value):
+        raise ValueError(
+            f"EDEKA accounted derivation {label} requires a full blob SHA"
+        )
+    return value
+
+
+def _runtime_python_identity() -> tuple[str, str]:
+    implementation = str(sys.implementation.name)
+    version = platform.python_version()
+    if not implementation or any(char.isspace() for char in implementation):
+        raise ValueError("EDEKA accounted derivation Python implementation is invalid")
+    if not version or any(char.isspace() for char in version):
+        raise ValueError("EDEKA accounted derivation Python version is invalid")
+    return implementation, version
 
 
 def _positive_int(value: object, label: str) -> int:
@@ -93,9 +118,24 @@ def derive_accounted_live_provenance_from_artifact(
     artifact_id: int,
     artifact_name: str,
     artifact_digest: str,
+    source_registered_commit: str,
+    source_parser_blob_sha: str,
     derivation_commit: str,
+    derivation_parser_blob_sha: str,
 ) -> dict[str, Any]:
-    derivation_commit = _full_commit(derivation_commit)
+    source_registered_commit = _full_commit(
+        source_registered_commit,
+        "source_registered_commit",
+    )
+    source_parser_blob_sha = _full_blob(
+        source_parser_blob_sha,
+        "source_parser_blob_sha",
+    )
+    derivation_commit = _full_commit(derivation_commit, "derivation_commit")
+    derivation_parser_blob_sha = _full_blob(
+        derivation_parser_blob_sha,
+        "derivation_parser_blob_sha",
+    )
     source_run_id = _positive_int(source_run_id, "source_run_id")
     source_run_attempt = _positive_int(source_run_attempt, "source_run_attempt")
     artifact_id = _positive_int(artifact_id, "artifact_id")
@@ -121,6 +161,14 @@ def derive_accounted_live_provenance_from_artifact(
         )
         if legacy.get("result") != "pass":
             raise ValueError("EDEKA legacy provenance derivation did not pass")
+        legacy_registered_commit = _full_commit(
+            legacy.get("registered_commit"),
+            "retained registered_commit",
+        )
+        if legacy_registered_commit != source_registered_commit:
+            raise ValueError(
+                "EDEKA accounted derivation source registered commit mismatch"
+            )
 
         cycle_dir = _only_extracted_cycle(legacy_output)
         accounted = build_accounted_live_candidate_provenance(cycle_dir)
@@ -171,6 +219,21 @@ def derive_accounted_live_provenance_from_artifact(
             "source_card_accounting_sha256"
         ):
             raise ValueError("EDEKA accounted derivation accounting hash mismatch")
+        if accounting.get("parser_version") != PARSER_CONTRACT_VERSION:
+            raise ValueError(
+                "EDEKA accounted derivation parser contract version mismatch"
+            )
+
+        python_implementation, python_version = _runtime_python_identity()
+        implementation_identity = {
+            "parser_contract_version": PARSER_CONTRACT_VERSION,
+            "source_registered_commit": source_registered_commit,
+            "source_parser_blob_sha": source_parser_blob_sha,
+            "derivation_commit": derivation_commit,
+            "derivation_parser_blob_sha": derivation_parser_blob_sha,
+            "python_implementation": python_implementation,
+            "python_version": python_version,
+        }
 
         provenance_path = target / "edeka-live-candidate-provenance.json"
         accounting_path = target / "source-card-accounting.json"
@@ -183,13 +246,14 @@ def derive_accounted_live_provenance_from_artifact(
             "schema_version": ACCOUNTED_DERIVATION_SCHEMA_VERSION,
             "audit_type": "edeka_accounted_live_gate_c_provenance_derivation",
             "result": "pass",
+            "implementation_identity": implementation_identity,
             "source": {
                 "workflow_run_id": source_run_id,
                 "workflow_run_attempt": source_run_attempt,
                 "artifact_id": artifact_id,
                 "artifact_name": artifact_name,
                 "artifact_metadata_digest": artifact_digest,
-                "registered_commit": legacy.get("registered_commit"),
+                "registered_commit": legacy_registered_commit,
                 "legacy_campaign_id": legacy.get("campaign_id"),
                 "legacy_candidate_count": legacy.get("candidate_count"),
                 "legacy_provenance_sha256": legacy.get("provenance_sha256"),
@@ -250,7 +314,7 @@ def derive_accounted_live_provenance_from_artifact(
         "result": "pass",
         "source_run_id": source_run_id,
         "artifact_id": artifact_id,
-        "registered_commit": attestation["source"]["registered_commit"],
+        "registered_commit": legacy_registered_commit,
         "campaign_id": attestation["derivation"]["campaign_id"],
         "source_card_count": source_card_count,
         "parsed_offer_count": parsed_offer_count,
@@ -258,6 +322,13 @@ def derive_accounted_live_provenance_from_artifact(
         "candidate_count": source_card_count,
         "automatic_candidate_count": automatic_count,
         "review_required_count": review_count,
+        "parser_contract_version": PARSER_CONTRACT_VERSION,
+        "source_registered_commit": source_registered_commit,
+        "source_parser_blob_sha": source_parser_blob_sha,
+        "derivation_commit": derivation_commit,
+        "derivation_parser_blob_sha": derivation_parser_blob_sha,
+        "python_implementation": python_implementation,
+        "python_version": python_version,
         "provenance_sha256": provenance_sha,
         "source_card_accounting_sha256": accounting_sha,
         "attestation_sha256": attestation["attestation_sha256"],
@@ -280,7 +351,10 @@ def main() -> int:
     parser.add_argument("--artifact-id", type=int, required=True)
     parser.add_argument("--artifact-name", required=True)
     parser.add_argument("--artifact-digest", required=True)
+    parser.add_argument("--source-registered-commit", required=True)
+    parser.add_argument("--source-parser-blob-sha", required=True)
     parser.add_argument("--derivation-commit", required=True)
+    parser.add_argument("--derivation-parser-blob-sha", required=True)
     args = parser.parse_args()
     try:
         result = derive_accounted_live_provenance_from_artifact(
@@ -291,7 +365,10 @@ def main() -> int:
             artifact_id=args.artifact_id,
             artifact_name=args.artifact_name,
             artifact_digest=args.artifact_digest,
+            source_registered_commit=args.source_registered_commit,
+            source_parser_blob_sha=args.source_parser_blob_sha,
             derivation_commit=args.derivation_commit,
+            derivation_parser_blob_sha=args.derivation_parser_blob_sha,
         )
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)

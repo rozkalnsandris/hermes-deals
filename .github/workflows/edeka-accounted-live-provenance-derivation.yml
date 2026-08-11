@@ -28,6 +28,7 @@ jobs:
       artifact_digest: ${{ steps.auth.outputs.artifact_digest }}
       source_run_attempt: ${{ steps.auth.outputs.source_run_attempt }}
       source_commit: ${{ steps.auth.outputs.source_commit }}
+      source_parser_blob_sha: ${{ steps.auth.outputs.source_parser_blob_sha }}
     steps:
       - name: Resolve owner-triggered successful source run
         id: auth
@@ -114,12 +115,27 @@ jobs:
           ):
               raise SystemExit("artifact digest is invalid")
 
+          source_commit = match.group(1)
+          parser_path = "backend/app/parsers/edeka.py"
+          parser_file = get(
+              f"https://api.github.com/repos/{repo}/contents/{parser_path}?ref={source_commit}"
+          )
+          if (
+              parser_file.get("type") != "file"
+              or parser_file.get("path") != parser_path
+          ):
+              raise SystemExit("source parser path binding mismatch")
+          source_parser_blob_sha = str(parser_file.get("sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", source_parser_blob_sha):
+              raise SystemExit("source parser blob SHA is invalid")
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"artifact_id={artifact_id}\n")
               handle.write(f"artifact_name={artifact['name']}\n")
               handle.write(f"artifact_digest={digest}\n")
               handle.write(f"source_run_attempt={attempt}\n")
-              handle.write(f"source_commit={match.group(1)}\n")
+              handle.write(f"source_commit={source_commit}\n")
+              handle.write(f"source_parser_blob_sha={source_parser_blob_sha}\n")
           PY
 
   derive:
@@ -133,6 +149,11 @@ jobs:
       excluded_count: ${{ steps.result.outputs.excluded_count }}
       automatic_candidate_count: ${{ steps.result.outputs.automatic_candidate_count }}
       review_required_count: ${{ steps.result.outputs.review_required_count }}
+      parser_contract_version: ${{ steps.result.outputs.parser_contract_version }}
+      source_parser_blob_sha: ${{ steps.result.outputs.source_parser_blob_sha }}
+      derivation_parser_blob_sha: ${{ steps.result.outputs.derivation_parser_blob_sha }}
+      python_implementation: ${{ steps.result.outputs.python_implementation }}
+      python_version: ${{ steps.result.outputs.python_version }}
       provenance_sha256: ${{ steps.result.outputs.provenance_sha256 }}
       accounting_sha256: ${{ steps.result.outputs.accounting_sha256 }}
       attestation_sha256: ${{ steps.result.outputs.attestation_sha256 }}
@@ -145,6 +166,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify accounted derivation implementation
+        id: implementation
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -153,6 +175,13 @@ jobs:
           test -f tools/edeka_accounted_live_provenance_bridge.py
           test -f tools/edeka_accounted_live_provenance_derivation.py
           test -f backend/app/edeka_source_card_accounting.py
+          test -f backend/app/parsers/edeka.py
+          parser_blob="$(git rev-parse "${GITHUB_SHA}:backend/app/parsers/edeka.py")"
+          [[ "$parser_blob" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "invalid derivation parser blob SHA" >&2
+            exit 1
+          }
+          echo "derivation_parser_blob_sha=$parser_blob" >> "$GITHUB_OUTPUT"
 
       - name: Download exact successful shadow artifact
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
@@ -171,6 +200,9 @@ jobs:
           ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
           ARTIFACT_NAME: ${{ needs.authorize.outputs.artifact_name }}
           ARTIFACT_DIGEST: ${{ needs.authorize.outputs.artifact_digest }}
+          SOURCE_COMMIT: ${{ needs.authorize.outputs.source_commit }}
+          SOURCE_PARSER_BLOB_SHA: ${{ needs.authorize.outputs.source_parser_blob_sha }}
+          DERIVATION_PARSER_BLOB_SHA: ${{ steps.implementation.outputs.derivation_parser_blob_sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -185,7 +217,10 @@ jobs:
             --artifact-id "$ARTIFACT_ID" \
             --artifact-name "$ARTIFACT_NAME" \
             --artifact-digest "$ARTIFACT_DIGEST" \
+            --source-registered-commit "$SOURCE_COMMIT" \
+            --source-parser-blob-sha "$SOURCE_PARSER_BLOB_SHA" \
             --derivation-commit "$GITHUB_SHA" \
+            --derivation-parser-blob-sha "$DERIVATION_PARSER_BLOB_SHA" \
             > "$result"
           echo "output_dir=$output" >> "$GITHUB_OUTPUT"
           echo "result_file=$result" >> "$GITHUB_OUTPUT"
@@ -194,6 +229,10 @@ jobs:
         id: result
         env:
           RESULT_FILE: ${{ steps.derive.outputs.result_file }}
+          EXPECTED_SOURCE_COMMIT: ${{ needs.authorize.outputs.source_commit }}
+          EXPECTED_SOURCE_PARSER_BLOB_SHA: ${{ needs.authorize.outputs.source_parser_blob_sha }}
+          EXPECTED_DERIVATION_COMMIT: ${{ github.sha }}
+          EXPECTED_DERIVATION_PARSER_BLOB_SHA: ${{ steps.implementation.outputs.derivation_parser_blob_sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -209,12 +248,34 @@ jobs:
               raise SystemExit("production database write safety mismatch")
           if result.get("production_deployment") is not False:
               raise SystemExit("production deployment safety mismatch")
+
+          expected_identity = {
+              "source_registered_commit": os.environ["EXPECTED_SOURCE_COMMIT"],
+              "source_parser_blob_sha": os.environ["EXPECTED_SOURCE_PARSER_BLOB_SHA"],
+              "derivation_commit": os.environ["EXPECTED_DERIVATION_COMMIT"],
+              "derivation_parser_blob_sha": os.environ[
+                  "EXPECTED_DERIVATION_PARSER_BLOB_SHA"
+              ],
+          }
+          for key, expected in expected_identity.items():
+              if result.get(key) != expected:
+                  raise SystemExit(f"accounted derivation identity mismatch: {key}")
+          if result.get("parser_contract_version") != "edeka-v1":
+              raise SystemExit("accounted derivation parser contract mismatch")
+          if not result.get("python_implementation") or not result.get("python_version"):
+              raise SystemExit("accounted derivation Python runtime identity is missing")
+
           keys = (
               "source_card_count",
               "parsed_offer_count",
               "excluded_count",
               "automatic_candidate_count",
               "review_required_count",
+              "parser_contract_version",
+              "source_parser_blob_sha",
+              "derivation_parser_blob_sha",
+              "python_implementation",
+              "python_version",
               "provenance_sha256",
               "source_card_accounting_sha256",
               "attestation_sha256",
@@ -254,6 +315,7 @@ jobs:
           RESULT: ${{ needs.derive.result }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_COMMIT: ${{ needs.authorize.outputs.source_commit }}
+          SOURCE_PARSER_BLOB_SHA: ${{ needs.derive.outputs.source_parser_blob_sha }}
           ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
           ARTIFACT_DIGEST: ${{ needs.authorize.outputs.artifact_digest }}
           SOURCE_CARD_COUNT: ${{ needs.derive.outputs.source_card_count }}
@@ -261,6 +323,10 @@ jobs:
           EXCLUDED_COUNT: ${{ needs.derive.outputs.excluded_count }}
           AUTO_COUNT: ${{ needs.derive.outputs.automatic_candidate_count }}
           REVIEW_COUNT: ${{ needs.derive.outputs.review_required_count }}
+          PARSER_CONTRACT_VERSION: ${{ needs.derive.outputs.parser_contract_version }}
+          DERIVATION_PARSER_BLOB_SHA: ${{ needs.derive.outputs.derivation_parser_blob_sha }}
+          PYTHON_IMPLEMENTATION: ${{ needs.derive.outputs.python_implementation }}
+          PYTHON_VERSION: ${{ needs.derive.outputs.python_version }}
           PROVENANCE_SHA: ${{ needs.derive.outputs.provenance_sha256 }}
           ACCOUNTING_SHA: ${{ needs.derive.outputs.accounting_sha256 }}
           ATTESTATION_SHA: ${{ needs.derive.outputs.attestation_sha256 }}
@@ -280,6 +346,10 @@ jobs:
                   f"- Source cards / parsed / excluded: `{os.environ['SOURCE_CARD_COUNT']}` / "
                   f"`{os.environ['PARSED_OFFER_COUNT']}` / `{os.environ['EXCLUDED_COUNT']}`\n"
                   f"- Automatic / Review: `{os.environ['AUTO_COUNT']}` / `{os.environ['REVIEW_COUNT']}`\n"
+                  f"- Parser contract: `{os.environ['PARSER_CONTRACT_VERSION']}`\n"
+                  f"- Source parser blob: `{os.environ['SOURCE_PARSER_BLOB_SHA']}`\n"
+                  f"- Derivation parser blob: `{os.environ['DERIVATION_PARSER_BLOB_SHA']}`\n"
+                  f"- Python runtime: `{os.environ['PYTHON_IMPLEMENTATION']} {os.environ['PYTHON_VERSION']}`\n"
                   f"- Provenance SHA256: `{os.environ['PROVENANCE_SHA']}`\n"
                   f"- Source-card accounting file SHA256: `{os.environ['ACCOUNTING_SHA']}`\n"
                   f"- Attestation SHA256: `{os.environ['ATTESTATION_SHA']}`\n"
