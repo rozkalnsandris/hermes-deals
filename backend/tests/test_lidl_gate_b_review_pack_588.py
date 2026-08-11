@@ -56,13 +56,11 @@ def test_permissions_are_job_minimal_and_execution_is_github_hosted_only() -> No
     parsed = yaml.load(text, Loader=yaml.BaseLoader)
     assert parsed.get("permissions") == {}
     jobs = parsed["jobs"]
+    assert set(jobs) == {"authorize", "render", "report"}
     assert jobs["authorize"]["permissions"] == {"issues": "read"}
     assert jobs["render"]["permissions"] == {}
     assert jobs["report"]["permissions"] == {"issues": "write"}
-    assert jobs["authorize"]["runs-on"] == "ubuntu-24.04"
-    assert jobs["render"]["runs-on"] == "ubuntu-24.04"
-    assert jobs["report"]["runs-on"] == "ubuntu-24.04"
-    assert "self-hosted" not in text
+    assert all(job["runs-on"] == "ubuntu-24.04" for job in jobs.values())
     assert "hermes-deals-audit" not in text
     assert "actions/checkout@" not in text
     assert "contents: read" not in text
