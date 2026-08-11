@@ -97,6 +97,16 @@ def test_v22_freezer_uses_runner_event_payload_path() -> None:
     assert "missing GitHub event payload" in text
 
 
+def test_v23_freezer_does_not_forward_github_auth_to_artifact_storage() -> None:
+    text = _text()
+    assert "class NoRedirect(urllib.request.HTTPRedirectHandler):" in text
+    assert 'location = response.headers.get("Location")' in text
+    assert 'raise SystemExit("artifact download endpoint did not return a signed redirect")' in text
+    assert 'signed_request = urllib.request.Request(location, headers={"User-Agent": user_agent})' in text
+    assert 'urllib.request.Request(base + "/zip", headers=headers)' in text
+    assert 'urllib.request.urlopen(signed_request, timeout=60)' in text
+
+
 def test_v2_freezer_has_no_mutable_external_action_refs() -> None:
     text = _text()
     uses_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("uses:")]
