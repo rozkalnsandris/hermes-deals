@@ -135,7 +135,7 @@ def test_arm64_preflight_is_exact_commit_clean_and_production_safe() -> None:
         'LOCK_REL="backend/locks/runtime-py311.txt"',
         "--require-hashes",
         "--only-binary=:all:",
-        "python -m pip check",
+        '"$VENV_PYTHON" -m pip check',
         "PRODUCTION_DATABASE_WRITE=false",
         "PRODUCTION_DEPLOYMENT=false",
         "SCHEDULER_ACTIVATION=false",
