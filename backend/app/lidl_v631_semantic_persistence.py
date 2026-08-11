@@ -16,7 +16,7 @@ from app.offer_store import insert_offer_candidate_rows_do_nothing
 from app.schemas import OfferCandidate, SourceChain
 
 CONTRACT_VERSION = "lidl-v631-reviewed-semantic-persistence-v1"
-PARSER_VERSION = "lidl-v631-semantic-v1"
+SOURCE_PARSER_ID = "lidl-pdf-v08c-r61-shadow-v631"
 SNAPSHOT_STRATEGY = "lidl_v631_frozen_semantic"
 _SNAPSHOT_NAMESPACE = UUID("b6437dcc-eb35-5c23-97fe-8d813e305a8d")
 _APPLY_DECISION = "approve_lidl_v631_one_row_canary_apply"
@@ -265,7 +265,7 @@ def _offer(source: Mapping[str, Any], row: Mapping[str, Any], receipt_sha: str, 
         "app_valid_from": None, "app_valid_until": None, "source_url": str(source["source_url"]),
         "source_image_url": str(row.get("source_image_url")) if row.get("source_image_url") else None,
         "snapshot_id": _snapshot_id(source), "collected_at": _datetime(source["source_collected_at"], "source_collected_at"),
-        "parser_version": PARSER_VERSION, "raw_payload": raw_payload,
+        "parser_version": SOURCE_PARSER_ID, "raw_payload": raw_payload,
     }
     try:
         return OfferCandidate.model_validate(payload)
