@@ -66,6 +66,18 @@ def test_only_successful_scheduled_artifact_can_restore_unattended_state() -> No
     assert "actions: read" in text
 
 
+def test_scheduled_restore_does_not_forward_github_auth_to_artifact_storage() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "class NoRedirect(urllib.request.HTTPRedirectHandler):" in text
+    assert "redirect_opener=urllib.request.build_opener(NoRedirect())" in text
+    assert "urllib.request.Request(selected['archive_download_url'],headers=headers)" in text
+    assert "location=response.headers.get('Location')" in text
+    assert "previous artifact download endpoint did not return a signed redirect" in text
+    assert "signed_request=urllib.request.Request(location,headers={'User-Agent':user_agent})" in text
+    assert "urllib.request.urlopen(signed_request,timeout=60)" in text
+    assert "urllib.request.Request(location,headers=headers)" not in text
+
+
 def test_manual_canary_namespace_never_enters_scheduled_chain() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "prefix=os.environ['STATE_PREFIX'] if os.environ['EVENT_NAME']=='schedule' else os.environ['CANARY_PREFIX']" in text
