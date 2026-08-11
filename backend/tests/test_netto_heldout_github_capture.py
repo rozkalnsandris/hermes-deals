@@ -107,7 +107,16 @@ def test_workflow_is_owner_gated_nonroot_rpi5_and_nonproduction() -> None:
     assert "persist-credentials: false" in text
     assert 'PYTHONDONTWRITEBYTECODE: "1"' in text
     assert "ref: ${{ needs.authorize.outputs.sha }}" in text
-    assert "actions/upload-artifact@v6" in text
+    assert (
+        "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0"
+        in text
+    )
+    assert (
+        "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0"
+        in text
+    )
+    assert "actions/checkout@v5" not in text
+    assert "actions/upload-artifact@v6" not in text
     assert "Production deployment: **not authorized**" in text
     assert "Database/Review writes: **not authorized**" in text
     assert "Promotion ready: **false**" in text
