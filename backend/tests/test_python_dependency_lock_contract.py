@@ -12,6 +12,7 @@ LOCKS = BACKEND / "locks"
 MANIFEST = LOCKS / "manifest.json"
 COMPILER = ROOT / "scripts" / "compile-python-locks.sh"
 LOCK_WORKFLOW = ROOT / ".github" / "workflows" / "python-dependency-locks.yml"
+ARM64_PREFLIGHT = ROOT / "tools" / "verify-python-runtime-lock-arm64.sh"
 DOCKERFILE = BACKEND / "Dockerfile"
 
 
@@ -121,3 +122,33 @@ def test_production_image_installs_only_from_python313_hash_lock() -> None:
     assert "python -m pip check" in text
     assert "COPY requirements.txt" not in text
     assert "-r requirements.txt" not in text
+
+
+def test_arm64_preflight_is_exact_commit_clean_and_production_safe() -> None:
+    text = ARM64_PREFLIGHT.read_text(encoding="utf-8")
+    for marker in (
+        'EXPECTED_SHA="${1:-}"',
+        'ACTUAL_SHA="$(git rev-parse HEAD)"',
+        "git status --porcelain --untracked-files=all",
+        "aarch64|arm64",
+        '[[ "$PYTHON_LINE" != "3.11" ]]',
+        'LOCK_REL="backend/locks/runtime-py311.txt"',
+        "--require-hashes",
+        "--only-binary=:all:",
+        "python -m pip check",
+        "PRODUCTION_DATABASE_WRITE=false",
+        "PRODUCTION_DEPLOYMENT=false",
+        "SCHEDULER_ACTIVATION=false",
+        "SYSTEMD_MUTATION=false",
+        "DOCKER_MUTATION=false",
+    ):
+        assert marker in text
+    for forbidden in (
+        "sudo ",
+        "docker ",
+        "systemctl ",
+        "psql ",
+        "alembic ",
+        "git push",
+    ):
+        assert forbidden not in text
