@@ -89,5 +89,19 @@
     "line": 163,
     "commit": "8d0a734253247d3d61aa47f4836b454bc845ad35",
     "reason": "Deterministic public Lidl FLYER_KEY binding the Gate-B review-pack workflow to the known flyer; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_gate_b_review_pack_588.py",
+    "line": 94,
+    "commit": "ec298d5dafd207b274e55995f94c18e19e3df8cb",
+    "reason": "Same deterministic public Lidl FLYER_KEY after the reviewed Gate-B review-pack content reached main; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-review-pack-588.yml",
+    "line": 163,
+    "commit": "ec298d5dafd207b274e55995f94c18e19e3df8cb",
+    "reason": "Same deterministic public Lidl FLYER_KEY in the main history identity; not authentication material."
   }
 ]
