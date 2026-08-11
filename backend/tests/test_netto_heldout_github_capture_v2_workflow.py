@@ -20,7 +20,16 @@ def test_v2_workflow_is_owner_gated_non_root_and_uses_v2_launcher() -> None:
     assert '! id -nG | tr \' \' \'\\n\' | grep -Fxq docker' in text
     assert "persist-credentials: false" in text
     assert "run-netto-heldout-github-capture-v02.sh" in text
-    assert "actions/upload-artifact@v6" in text
+    assert (
+        "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0"
+        in text
+    )
+    assert (
+        "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0"
+        in text
+    )
+    assert "actions/checkout@v5" not in text
+    assert "actions/upload-artifact@v6" not in text
     assert "Candidate decisions frozen before truth" in text
 
 
