@@ -12,6 +12,7 @@ LOCKS = BACKEND / "locks"
 MANIFEST = LOCKS / "manifest.json"
 COMPILER = ROOT / "scripts" / "compile-python-locks.sh"
 LOCK_WORKFLOW = ROOT / ".github" / "workflows" / "python-dependency-locks.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 ARM64_PREFLIGHT = ROOT / "tools" / "verify-python-runtime-lock-arm64.sh"
 DOCKERFILE = BACKEND / "Dockerfile"
 
@@ -111,6 +112,23 @@ def test_lock_verification_workflow_is_read_only() -> None:
     assert "git push" not in text
     assert "git diff --exit-code" in text
     assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f" in text
+
+
+def test_python_ci_jobs_install_only_from_hash_lock() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert text.count("cache-dependency-path: backend/locks/ci-py311.txt") == 2
+    assert text.count("- name: Install hash-locked dependencies") == 2
+    assert text.count("--require-hashes") == 2
+    assert text.count("--only-binary=:all:") == 2
+    assert text.count("-r locks/ci-py311.txt") == 2
+    assert text.count("python -m pip check") == 2
+    for forbidden in (
+        "cache-dependency-path: backend/requirements.txt",
+        "python -m pip install --upgrade pip",
+        "python -m pip install -r requirements.txt",
+        "python -m pip install pytest==8.4.1",
+    ):
+        assert forbidden not in text
 
 
 def test_production_image_installs_only_from_python313_hash_lock() -> None:
