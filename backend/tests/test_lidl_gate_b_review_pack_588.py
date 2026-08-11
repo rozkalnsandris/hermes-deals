@@ -111,6 +111,7 @@ def test_exact_source_identity_and_page_count_are_fail_closed_before_render() ->
 
 
 def test_digest_literals_use_neutral_identifiers() -> None:
+    # Historical FLYER_KEY scanner findings are reviewed in the exact-identity ledger on main.
     text = _text()
     for forbidden in (
         "EXPECTED_PDF_SHA256",
