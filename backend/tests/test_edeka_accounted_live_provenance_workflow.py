@@ -13,7 +13,7 @@ WORKFLOW = (
 )
 
 
-def test_accounted_workflow_is_owner_only_manual_and_sanitized() -> None:
+def test_accounted_workflow_is_owner_only_manual_sanitized_and_identity_bound() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     for required in (
         "workflow_dispatch:",
@@ -27,6 +27,17 @@ def test_accounted_workflow_is_owner_only_manual_and_sanitized() -> None:
         "tools/edeka_accounted_live_provenance_derivation.py",
         "source-card-accounting.json",
         "excluded_count",
+        'parser_path = "backend/app/parsers/edeka.py"',
+        "/contents/{parser_path}?ref={source_commit}",
+        'source_parser_blob_sha = str(parser_file.get("sha") or "")',
+        'git rev-parse "${GITHUB_SHA}:backend/app/parsers/edeka.py"',
+        "--source-registered-commit \"$SOURCE_COMMIT\"",
+        "--source-parser-blob-sha \"$SOURCE_PARSER_BLOB_SHA\"",
+        "--derivation-parser-blob-sha \"$DERIVATION_PARSER_BLOB_SHA\"",
+        'result.get("parser_contract_version") != "edeka-v1"',
+        "Source parser blob:",
+        "Derivation parser blob:",
+        "Python runtime:",
         "Source refetch: **false**",
         "Raw HTML / SQLite uploaded in derived artifact: **false**",
     ):
@@ -36,6 +47,9 @@ def test_accounted_workflow_is_owner_only_manual_and_sanitized() -> None:
     assert "self-hosted" not in text
     assert "/raw/" not in text
     assert "shadow.sqlite3" not in text
+    assert "source_parser_blob_sha:" not in text.split("inputs:", 1)[1].split(
+        "permissions:", 1
+    )[0]
 
 
 def test_accounted_workflow_external_actions_are_full_sha_pinned() -> None:
