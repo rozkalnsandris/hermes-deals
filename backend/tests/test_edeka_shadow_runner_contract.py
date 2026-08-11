@@ -19,17 +19,33 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         for path in (RUNNER, DISPATCHER, INSTALLER):
             subprocess.run(["bash", "-n", str(path)], check=True, capture_output=True, text=True)
 
-    def test_runner_is_exact_clone_and_git_index_safe(self) -> None:
+    def test_runner_is_exact_clone_git_index_safe_and_hash_locked(self) -> None:
         text = RUNNER.read_text(encoding="utf-8")
         for required in (
             'RUNNER_VERSION="edeka-shadow-cycle-v01"',
-            'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-index-safe-v01"',
+            'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-hash-lock-v02"',
             'AUDIT_REPO="/home/andris/hermes-deals-audit-source-edeka"',
             'PRIMARY_REPO="/home/andris/hermes-deals"',
+            'RUNTIME_LOCK_REL="backend/locks/runtime-py311.txt"',
+            'RUNTIME_LOCK_MANIFEST_REL="backend/locks/manifest.json"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$PRIMARY_REPO"',
             'AUDIT_INDEX="$AUDIT_REPO/.git/index"',
             'PRIMARY_INDEX="$PRIMARY_REPO/.git/index"',
+            '[[ "$manifest_lock_sha" == "$runtime_lock_sha" ]]',
+            '[[ "$python_implementation" == "CPython" ]]',
+            '[[ "$python_line" == "3.11" ]]',
+            'cache_identity="cpython-${python_version}-${runtime_lock_sha}"',
+            '--require-hashes',
+            '--only-binary=:all:',
+            'runtime_lock_sha256=$runtime_lock_sha',
+            'runtime_python_implementation=$python_implementation',
+            'runtime_python_version=$python_version',
+            'runtime_pip_version=$runtime_pip_version',
+            'runtime_cache_identity=$cache_identity',
+            'RUNTIME_LOCK_SHA256=%s',
+            'RUNTIME_PYTHON_VERSION=%s',
+            'RUNTIME_PIP_VERSION=%s',
             'AUDIT_GIT_INDEX_UNCHANGED=true',
             'PRIMARY_GIT_INDEX_UNCHANGED=true',
             'python" -m app.edeka_shadow_capture',
@@ -45,6 +61,10 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             'git -C "$PRIMARY_REPO" switch',
             'git -C "$PRIMARY_REPO" reset',
             'git -C "$PRIMARY_REPO" clean',
+            'backend/requirements.txt',
+            'requirements_sha256=',
+            'pip install --disable-pip-version-check --upgrade pip',
+            'pip install --disable-pip-version-check -r',
             "docker run",
             "docker compose",
             "systemctl ",
