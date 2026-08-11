@@ -81,10 +81,11 @@ class LidlSemanticCorpusAuditContractTest(unittest.TestCase):
             'if not pr.get("merged") or not pr.get("merged_at")',
             'pr["base"]["ref"] != "main"',
             "/usr/local/sbin/hermes-deals-lidl-semantic-corpus-audit-dispatch",
-            "actions/upload-artifact@v6",
+            "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0",
             "Production deployment: **not authorized**",
         ):
             self.assertIn(required, text)
+        self.assertNotIn("actions/upload-artifact@v6", text)
         self.assertNotIn("actions/checkout@", text)
         self.assertNotIn("docker", text.casefold())
         self.assertNotIn("pull_request_target", text)
