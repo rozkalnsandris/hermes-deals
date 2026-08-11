@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  generate-locks:
-    name: Generate Python ${{ matrix.python }} locks
+  verify-locks:
+    name: Verify Python ${{ matrix.python }} locks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -44,86 +44,34 @@ jobs:
             backend/requirements.in
             backend/requirements-ci.in
 
-      - name: Compile wheel-only hash locks
+      - name: Regenerate wheel-only hash locks
         shell: bash
         run: |
           bash scripts/compile-python-locks.sh "${{ matrix.python }}"
 
-      - name: Upload generated lock evidence
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: python-locks-py${{ matrix.python }}-${{ github.sha }}
-          path: backend/locks/*.txt
-          if-no-files-found: error
-          retention-days: 7
-
-  write-reviewed-locks:
-    name: One-shot owner-bound reviewed lock writeback
-    needs:
-      - generate-locks
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.number == 605 &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'infra/577-python-hash-locks' &&
-      github.actor == 'rozkalnsandris' &&
-      github.actor_id == 277435981
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout exact owner PR branch
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: infra/577-python-hash-locks
-          fetch-depth: 1
-          persist-credentials: true
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            backend/requirements.in
-            backend/requirements-ci.in
-
-      - name: Reproduce reviewed Python 3.11 locks
-        shell: bash
-        run: |
-          bash scripts/compile-python-locks.sh 3.11
-          echo 'c099bb83a7f1b6b36e32d33d8da4f09bf1ad5ad47f3dfd294517eabe7adeab7f  backend/locks/runtime-py311.txt' | sha256sum -c -
-          echo 'ce4a9eba76cd942977bc4389d2ed94b9978aefa5ff588a57cc964f85e067a2fb  backend/locks/ci-py311.txt' | sha256sum -c -
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/requirements.in
-
-      - name: Reproduce reviewed Python 3.13 lock
-        shell: bash
-        run: |
-          bash scripts/compile-python-locks.sh 3.13
-          echo '4883e62179069afc662e4846c5cc1a67d3954c56f0846aeb5a650a63267935d7  backend/locks/runtime-py313.txt' | sha256sum -c -
-
-      - name: Commit exact reviewed lock bytes once
+      - name: Require committed locks to be reproducible
         shell: bash
         run: |
           set -Eeuo pipefail
-          git status --short --untracked-files=all
-          unexpected="$(git status --porcelain --untracked-files=all | awk '{print $2}' | grep -Ev '^backend/locks/(runtime-py311|ci-py311|runtime-py313)\.txt$' || true)"
-          test -z "$unexpected"
-          git add backend/locks/runtime-py311.txt backend/locks/ci-py311.txt backend/locks/runtime-py313.txt
-          if git diff --cached --quiet; then
-            echo 'PYTHON_LOCK_WRITEBACK=NOOP'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'build: add reviewed Python hash locks'
-          git push origin HEAD:infra/577-python-hash-locks
-          echo 'PYTHON_LOCK_WRITEBACK=PASS'
+          case "${{ matrix.python }}" in
+            3.11)
+              git diff --exit-code -- \
+                backend/locks/runtime-py311.txt \
+                backend/locks/ci-py311.txt
+              ;;
+            3.13)
+              git diff --exit-code -- backend/locks/runtime-py313.txt
+              ;;
+            *)
+              echo 'unexpected Python matrix value' >&2
+              exit 64
+              ;;
+          esac
+
+      - name: Upload regenerated lock evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: verified-python-locks-py${{ matrix.python }}-${{ github.sha }}
+          path: backend/locks/*.txt
+          if-no-files-found: error
+          retention-days: 7
