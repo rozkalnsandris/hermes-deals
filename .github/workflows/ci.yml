@@ -188,13 +188,15 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/locks/ci-py311.txt
 
-      - name: Install dependencies
+      - name: Install hash-locked dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install pytest==8.4.1
+          python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            -r locks/ci-py311.txt
           python -m pip check
 
       - name: Compile Python sources
@@ -243,13 +245,15 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/locks/ci-py311.txt
 
-      - name: Install dependencies
+      - name: Install hash-locked dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install pytest==8.4.1
+          python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            -r locks/ci-py311.txt
           python -m pip check
 
       - name: Apply database migrations
@@ -261,4 +265,5 @@ jobs:
           python -m pytest -q -s \
             tests/test_current_deals_sql_postgresql_contract.py \
             tests/test_current_deals_sql_postgresql_runtime.py \
-            tests/test_current_deals_postgresql_materialization_benchmark.py
+            tests/test_current_deals_postgresql_materialization_benchmark.py \
+            tests/test_lidl_v631_c3_readonly_preflight.py

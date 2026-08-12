@@ -79,6 +79,34 @@ def test_v2_freezer_writes_only_two_create_only_evidence_paths() -> None:
     assert "evidence branch moved during freeze commit" in text
 
 
+def test_v21_freezer_rechecks_current_main_before_evidence_ref_update() -> None:
+    text = _text()
+    assert "BASE_SHA: ${{ needs.authorize.outputs.base_sha }}" in text
+    assert 'expected_base = os.environ["BASE_SHA"]' in text
+    assert 'request("GET", "git/ref/heads/main")' in text
+    assert "main moved before freeze commit" in text
+    assert "main moved during freeze commit" in text
+    assert text.index("main moved before freeze commit") < text.index('request(\n              "PATCH"')
+    assert text.index("main moved during freeze commit") < text.index('request(\n              "PATCH"')
+
+
+def test_v22_freezer_uses_runner_event_payload_path() -> None:
+    text = _text()
+    assert 'EVENT_PATH: ${{ github.event_path }}' not in text
+    assert 'event_path = Path(os.environ["GITHUB_EVENT_PATH"])' in text
+    assert "missing GitHub event payload" in text
+
+
+def test_v23_freezer_does_not_forward_github_auth_to_artifact_storage() -> None:
+    text = _text()
+    assert "class NoRedirect(urllib.request.HTTPRedirectHandler):" in text
+    assert 'location = response.headers.get("Location")' in text
+    assert 'raise SystemExit("artifact download endpoint did not return a signed redirect")' in text
+    assert 'signed_request = urllib.request.Request(location, headers={"User-Agent": user_agent})' in text
+    assert 'urllib.request.Request(base + "/zip", headers=headers)' in text
+    assert 'urllib.request.urlopen(signed_request, timeout=60)' in text
+
+
 def test_v2_freezer_has_no_mutable_external_action_refs() -> None:
     text = _text()
     uses_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("uses:")]

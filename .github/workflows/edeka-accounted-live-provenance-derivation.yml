@@ -1,0 +1,390 @@
+name: EDEKA accounted live Gate C provenance derivation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful EDEKA shadow-cycle workflow run to derive
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: hermes-deals-edeka-accounted-live-provenance
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact successful EDEKA shadow artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      artifact_id: ${{ steps.auth.outputs.artifact_id }}
+      artifact_name: ${{ steps.auth.outputs.artifact_name }}
+      artifact_digest: ${{ steps.auth.outputs.artifact_digest }}
+      source_run_attempt: ${{ steps.auth.outputs.source_run_attempt }}
+      source_commit: ${{ steps.auth.outputs.source_commit }}
+      source_parser_blob_sha: ${{ steps.auth.outputs.source_parser_blob_sha }}
+    steps:
+      - name: Resolve owner-triggered successful source run
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+          REF: ${{ github.ref }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit("unexpected repository")
+          if os.environ["ACTOR"] != "rozkalnsandris" or os.environ["ACTOR_ID"] != "277435981":
+              raise SystemExit("owner required")
+          if os.environ["REF"] != "refs/heads/main":
+              raise SystemExit("workflow must be dispatched from main")
+          run_id = os.environ["SOURCE_RUN_ID"].strip()
+          if not run_id.isdigit() or int(run_id) < 1:
+              raise SystemExit("numeric source_run_id required")
+
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-edeka-accounted-derivation-authorizer",
+          }
+
+          def get(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          run = get(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}")
+          if run.get("name") != "EDEKA shadow cycle RPi5 audit":
+              raise SystemExit("source run is not the EDEKA shadow-cycle workflow")
+          if run.get("event") != "workflow_dispatch" or run.get("conclusion") != "success":
+              raise SystemExit("source EDEKA shadow run must be a successful manual run")
+          if run.get("head_branch") != "main":
+              raise SystemExit("source EDEKA shadow run must target main")
+          if (run.get("head_repository") or {}).get("full_name") != repo:
+              raise SystemExit("source run repository mismatch")
+          actor = run.get("actor") or {}
+          if actor.get("login") != "rozkalnsandris" or str(actor.get("id")) != "277435981":
+              raise SystemExit("source run was not owner-triggered")
+          attempt = run.get("run_attempt")
+          if not isinstance(attempt, int) or attempt < 1:
+              raise SystemExit("source run attempt is invalid")
+
+          artifacts = get(
+              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"
+          ).get("artifacts") or []
+          pattern = re.compile(
+              rf"^edeka-shadow-cycle-([0-9a-f]{{40}})-run-{re.escape(run_id)}$"
+          )
+          matches = [
+              artifact
+              for artifact in artifacts
+              if not artifact.get("expired")
+              and pattern.fullmatch(str(artifact.get("name") or ""))
+          ]
+          if len(matches) != 1:
+              raise SystemExit(
+                  f"expected exactly one EDEKA shadow artifact, found={len(matches)}"
+              )
+          artifact = matches[0]
+          match = pattern.fullmatch(str(artifact["name"]))
+          assert match is not None
+          artifact_id = artifact.get("id")
+          if not isinstance(artifact_id, int) or artifact_id < 1:
+              raise SystemExit("artifact id is invalid")
+          digest = artifact.get("digest")
+          if not isinstance(digest, str) or not re.fullmatch(
+              r"sha256:[0-9a-f]{64}", digest
+          ):
+              raise SystemExit("artifact digest is invalid")
+
+          source_commit = match.group(1)
+          parser_path = "backend/app/parsers/edeka.py"
+          parser_file = get(
+              f"https://api.github.com/repos/{repo}/contents/{parser_path}?ref={source_commit}"
+          )
+          if (
+              parser_file.get("type") != "file"
+              or parser_file.get("path") != parser_path
+          ):
+              raise SystemExit("source parser path binding mismatch")
+          source_parser_blob_sha = str(parser_file.get("sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", source_parser_blob_sha):
+              raise SystemExit("source parser blob SHA is invalid")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"artifact_id={artifact_id}\n")
+              handle.write(f"artifact_name={artifact['name']}\n")
+              handle.write(f"artifact_digest={digest}\n")
+              handle.write(f"source_run_attempt={attempt}\n")
+              handle.write(f"source_commit={source_commit}\n")
+              handle.write(f"source_parser_blob_sha={source_parser_blob_sha}\n")
+          PY
+
+  derive:
+    name: Derive accounted Gate C evidence
+    needs: authorize
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      source_card_count: ${{ steps.result.outputs.source_card_count }}
+      parsed_offer_count: ${{ steps.result.outputs.parsed_offer_count }}
+      excluded_count: ${{ steps.result.outputs.excluded_count }}
+      automatic_candidate_count: ${{ steps.result.outputs.automatic_candidate_count }}
+      review_required_count: ${{ steps.result.outputs.review_required_count }}
+      parser_contract_version: ${{ steps.result.outputs.parser_contract_version }}
+      source_parser_blob_sha: ${{ steps.result.outputs.source_parser_blob_sha }}
+      derivation_parser_blob_sha: ${{ steps.result.outputs.derivation_parser_blob_sha }}
+      python_implementation: ${{ steps.result.outputs.python_implementation }}
+      python_version: ${{ steps.result.outputs.python_version }}
+      provenance_sha256: ${{ steps.result.outputs.provenance_sha256 }}
+      accounting_sha256: ${{ steps.result.outputs.accounting_sha256 }}
+      attestation_sha256: ${{ steps.result.outputs.attestation_sha256 }}
+    steps:
+      - name: Checkout exact derivation commit
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify accounted derivation implementation
+        id: implementation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f tools/edeka_live_provenance_derivation.py
+          test -f tools/edeka_accounted_live_provenance_bridge.py
+          test -f tools/edeka_accounted_live_provenance_derivation.py
+          test -f backend/app/edeka_source_card_accounting.py
+          test -f backend/app/parsers/edeka.py
+          parser_blob="$(git rev-parse "${GITHUB_SHA}:backend/app/parsers/edeka.py")"
+          [[ "$parser_blob" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "invalid derivation parser blob SHA" >&2
+            exit 1
+          }
+          echo "derivation_parser_blob_sha=$parser_blob" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact successful shadow artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: ${{ needs.authorize.outputs.artifact_name }}
+          path: ${{ runner.temp }}/edeka-source-artifact
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Derive accounted sanitized provenance
+        id: derive
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend:${{ github.workspace }}/tools
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ needs.authorize.outputs.source_run_attempt }}
+          ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.authorize.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.authorize.outputs.artifact_digest }}
+          SOURCE_COMMIT: ${{ needs.authorize.outputs.source_commit }}
+          SOURCE_PARSER_BLOB_SHA: ${{ needs.authorize.outputs.source_parser_blob_sha }}
+          DERIVATION_PARSER_BLOB_SHA: ${{ steps.implementation.outputs.derivation_parser_blob_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/edeka-accounted-live-provenance-output"
+          result="${RUNNER_TEMP}/edeka-accounted-live-provenance-result.json"
+          mkdir -p "$output"
+          python3 tools/edeka_accounted_live_provenance_derivation.py \
+            --artifact-dir "${RUNNER_TEMP}/edeka-source-artifact" \
+            --output-dir "$output" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-run-attempt "$SOURCE_RUN_ATTEMPT" \
+            --artifact-id "$ARTIFACT_ID" \
+            --artifact-name "$ARTIFACT_NAME" \
+            --artifact-digest "$ARTIFACT_DIGEST" \
+            --source-registered-commit "$SOURCE_COMMIT" \
+            --source-parser-blob-sha "$SOURCE_PARSER_BLOB_SHA" \
+            --derivation-commit "$GITHUB_SHA" \
+            --derivation-parser-blob-sha "$DERIVATION_PARSER_BLOB_SHA" \
+            > "$result"
+          echo "output_dir=$output" >> "$GITHUB_OUTPUT"
+          echo "result_file=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Read accounted result
+        id: result
+        env:
+          RESULT_FILE: ${{ steps.derive.outputs.result_file }}
+          EXPECTED_SOURCE_COMMIT: ${{ needs.authorize.outputs.source_commit }}
+          EXPECTED_SOURCE_PARSER_BLOB_SHA: ${{ needs.authorize.outputs.source_parser_blob_sha }}
+          EXPECTED_DERIVATION_COMMIT: ${{ github.sha }}
+          EXPECTED_DERIVATION_PARSER_BLOB_SHA: ${{ steps.implementation.outputs.derivation_parser_blob_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open(os.environ["RESULT_FILE"], encoding="utf-8") as handle:
+              result = json.load(handle)
+          if result.get("result") != "pass":
+              raise SystemExit("accounted derivation did not pass")
+          if result.get("production_database_write") is not False:
+              raise SystemExit("production database write safety mismatch")
+          if result.get("production_deployment") is not False:
+              raise SystemExit("production deployment safety mismatch")
+
+          expected_identity = {
+              "source_registered_commit": os.environ["EXPECTED_SOURCE_COMMIT"],
+              "source_parser_blob_sha": os.environ["EXPECTED_SOURCE_PARSER_BLOB_SHA"],
+              "derivation_commit": os.environ["EXPECTED_DERIVATION_COMMIT"],
+              "derivation_parser_blob_sha": os.environ[
+                  "EXPECTED_DERIVATION_PARSER_BLOB_SHA"
+              ],
+          }
+          for key, expected in expected_identity.items():
+              if result.get(key) != expected:
+                  raise SystemExit(f"accounted derivation identity mismatch: {key}")
+          if result.get("parser_contract_version") != "edeka-v1":
+              raise SystemExit("accounted derivation parser contract mismatch")
+          if not result.get("python_implementation") or not result.get("python_version"):
+              raise SystemExit("accounted derivation Python runtime identity is missing")
+
+          keys = (
+              "source_card_count",
+              "parsed_offer_count",
+              "excluded_count",
+              "automatic_candidate_count",
+              "review_required_count",
+              "parser_contract_version",
+              "source_parser_blob_sha",
+              "derivation_parser_blob_sha",
+              "python_implementation",
+              "python_version",
+              "provenance_sha256",
+              "source_card_accounting_sha256",
+              "attestation_sha256",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              for key in keys:
+                  output_key = "accounting_sha256" if key == "source_card_accounting_sha256" else key
+                  handle.write(f"{output_key}={result[key]}\n")
+          PY
+
+      - name: Upload accounted sanitized evidence only
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: edeka-accounted-gate-c-source-${{ inputs.source_run_id }}-derive-${{ github.run_id }}
+          path: |
+            ${{ steps.derive.outputs.output_dir }}/edeka-live-candidate-provenance.json
+            ${{ steps.derive.outputs.output_dir }}/source-card-accounting.json
+            ${{ steps.derive.outputs.output_dir }}/derivation-attestation.json
+            ${{ steps.derive.outputs.output_dir }}/SHA256SUMS
+            ${{ steps.derive.outputs.result_file }}
+          if-no-files-found: error
+          retention-days: 90
+
+  report:
+    name: Report accounted Gate C result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - derive
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment sanitized result on EDEKA trackers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RESULT: ${{ needs.derive.result }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_COMMIT: ${{ needs.authorize.outputs.source_commit }}
+          SOURCE_PARSER_BLOB_SHA: ${{ needs.derive.outputs.source_parser_blob_sha }}
+          ARTIFACT_ID: ${{ needs.authorize.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.authorize.outputs.artifact_digest }}
+          SOURCE_CARD_COUNT: ${{ needs.derive.outputs.source_card_count }}
+          PARSED_OFFER_COUNT: ${{ needs.derive.outputs.parsed_offer_count }}
+          EXCLUDED_COUNT: ${{ needs.derive.outputs.excluded_count }}
+          AUTO_COUNT: ${{ needs.derive.outputs.automatic_candidate_count }}
+          REVIEW_COUNT: ${{ needs.derive.outputs.review_required_count }}
+          PARSER_CONTRACT_VERSION: ${{ needs.derive.outputs.parser_contract_version }}
+          DERIVATION_PARSER_BLOB_SHA: ${{ needs.derive.outputs.derivation_parser_blob_sha }}
+          PYTHON_IMPLEMENTATION: ${{ needs.derive.outputs.python_implementation }}
+          PYTHON_VERSION: ${{ needs.derive.outputs.python_version }}
+          PROVENANCE_SHA: ${{ needs.derive.outputs.provenance_sha256 }}
+          ACCOUNTING_SHA: ${{ needs.derive.outputs.accounting_sha256 }}
+          ATTESTATION_SHA: ${{ needs.derive.outputs.attestation_sha256 }}
+          DERIVATION_COMMIT: ${{ github.sha }}
+          DERIVATION_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          success = os.environ["RESULT"] == "success"
+          if success:
+              detail = (
+                  f"- Source cards / parsed / excluded: `{os.environ['SOURCE_CARD_COUNT']}` / "
+                  f"`{os.environ['PARSED_OFFER_COUNT']}` / `{os.environ['EXCLUDED_COUNT']}`\n"
+                  f"- Automatic / Review: `{os.environ['AUTO_COUNT']}` / `{os.environ['REVIEW_COUNT']}`\n"
+                  f"- Parser contract: `{os.environ['PARSER_CONTRACT_VERSION']}`\n"
+                  f"- Source parser blob: `{os.environ['SOURCE_PARSER_BLOB_SHA']}`\n"
+                  f"- Derivation parser blob: `{os.environ['DERIVATION_PARSER_BLOB_SHA']}`\n"
+                  f"- Python runtime: `{os.environ['PYTHON_IMPLEMENTATION']} {os.environ['PYTHON_VERSION']}`\n"
+                  f"- Provenance SHA256: `{os.environ['PROVENANCE_SHA']}`\n"
+                  f"- Source-card accounting file SHA256: `{os.environ['ACCOUNTING_SHA']}`\n"
+                  f"- Attestation SHA256: `{os.environ['ATTESTATION_SHA']}`\n"
+              )
+          else:
+              detail = "- Accounted provenance: **not produced; derivation failed closed**\n"
+          body = (
+              "## EDEKA accounted Gate C provenance derivation\n\n"
+              f"- Result: **{os.environ['RESULT']}**\n"
+              f"- Source shadow run: `{os.environ['SOURCE_RUN_ID']}`\n"
+              f"- Source registered commit: `{os.environ['SOURCE_COMMIT']}`\n"
+              f"- Source artifact ID: `{os.environ['ARTIFACT_ID']}`\n"
+              f"- Source artifact digest: `{os.environ['ARTIFACT_DIGEST']}`\n"
+              f"- Derivation commit/run: `{os.environ['DERIVATION_COMMIT']}` / "
+              f"`{os.environ['DERIVATION_RUN_ID']}`\n"
+              + detail
+              + "- Source refetch: **false**\n"
+              + "- Raw HTML / SQLite uploaded in derived artifact: **false**\n"
+              + "- Production DB/Review/publication/deploy/scheduler/apply: **false / not authorized**\n"
+          )
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "hermes-deals-edeka-accounted-derivation-reporter",
+          }
+          for issue in (291, 26):
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{issue}/comments",
+                  data=json.dumps({"body": body}).encode("utf-8"),
+                  headers=headers,
+                  method="POST",
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  if response.status != 201:
+                      raise SystemExit(f"unexpected comment status: {response.status}")
+          PY

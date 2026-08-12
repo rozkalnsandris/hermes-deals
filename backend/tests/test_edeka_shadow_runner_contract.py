@@ -12,6 +12,7 @@ DISPATCHER = ROOT / "tools/runner/edeka-shadow-cycle-dispatcher.sh"
 INSTALLER = ROOT / "tools/runner/install-edeka-shadow-cycle-dispatcher.sh"
 WORKFLOW = ROOT / ".github/workflows/edeka-shadow-cycle-rpi5.yml"
 RUNBOOK = ROOT / "docs/edeka-shadow-cycle-runbook.md"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 class EdekaShadowRunnerContractTest(unittest.TestCase):
@@ -19,17 +20,39 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         for path in (RUNNER, DISPATCHER, INSTALLER):
             subprocess.run(["bash", "-n", str(path)], check=True, capture_output=True, text=True)
 
-    def test_runner_is_exact_clone_and_git_index_safe(self) -> None:
+    def test_runner_is_exact_clone_git_index_safe_and_hash_locked(self) -> None:
         text = RUNNER.read_text(encoding="utf-8")
         for required in (
             'RUNNER_VERSION="edeka-shadow-cycle-v01"',
-            'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-index-safe-v01"',
+            'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-hash-lock-v02"',
             'AUDIT_REPO="/home/andris/hermes-deals-audit-source-edeka"',
             'PRIMARY_REPO="/home/andris/hermes-deals"',
+            'RUNTIME_LOCK_REL="backend/locks/runtime-py311.txt"',
+            'RUNTIME_LOCK_MANIFEST_REL="backend/locks/manifest.json"',
+            'RUNTIME_ENV_VERIFIER_REL="scripts/verify-python-lock-environment.py"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$PRIMARY_REPO"',
             'AUDIT_INDEX="$AUDIT_REPO/.git/index"',
             'PRIMARY_INDEX="$PRIMARY_REPO/.git/index"',
+            '[[ "$manifest_lock_sha" == "$runtime_lock_sha" ]]',
+            '[[ "$python_implementation" == "CPython" ]]',
+            '[[ "$python_line" == "3.11" ]]',
+            'cache_identity="cpython-${python_version}-${runtime_lock_sha}"',
+            '--require-hashes',
+            '--only-binary=:all:',
+            '"$AUDIT_REPO/$RUNTIME_ENV_VERIFIER_REL"',
+            'runtime_environment_report=',
+            'LOCKED_INVENTORY_SHA256',
+            'runtime_lock_sha256=$runtime_lock_sha',
+            'runtime_python_implementation=$python_implementation',
+            'runtime_python_version=$python_version',
+            'runtime_pip_version=$runtime_pip_version',
+            'runtime_cache_identity=$cache_identity',
+            'runtime_inventory_sha256=$runtime_inventory_sha',
+            'RUNTIME_LOCK_SHA256=%s',
+            'RUNTIME_INVENTORY_SHA256=%s',
+            'RUNTIME_PYTHON_VERSION=%s',
+            'RUNTIME_PIP_VERSION=%s',
             'AUDIT_GIT_INDEX_UNCHANGED=true',
             'PRIMARY_GIT_INDEX_UNCHANGED=true',
             'python" -m app.edeka_shadow_capture',
@@ -45,6 +68,10 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             'git -C "$PRIMARY_REPO" switch',
             'git -C "$PRIMARY_REPO" reset',
             'git -C "$PRIMARY_REPO" clean',
+            'backend/requirements.txt',
+            'requirements_sha256=',
+            'pip install --disable-pip-version-check --upgrade pip',
+            'pip install --disable-pip-version-check -r',
             "docker run",
             "docker compose",
             "systemctl ",
@@ -107,11 +134,12 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "audit accepts only merged pull requests",
             "hermes-deals-audit",
             "sudo --non-interactive /usr/local/sbin/hermes-deals-edeka-shadow-cycle-dispatch",
-            "actions/upload-artifact@v6",
+            f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0",
             "retention-days: 30",
             "Production database write: **false**",
         ):
             self.assertIn(required, raw)
+        self.assertNotIn("actions/upload-artifact@v6", raw)
         self.assertNotIn("schedule:", raw)
         self.assertNotIn("pull_request:", raw)
 
@@ -121,6 +149,9 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "two real consecutive weekly campaigns",
             "/home/andris/hermes-deals-audit-source-edeka",
             "GIT_OPTIONAL_LOCKS=0",
+            "runtime-py311.txt",
+            "--require-hashes --only-binary=:all:",
+            "never upgrades pip",
             "install-edeka-shadow-cycle-dispatcher.sh",
             "workflow_dispatch",
             "Production canary preparation and apply remain separate",
