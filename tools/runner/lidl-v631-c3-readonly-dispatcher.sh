@@ -23,9 +23,17 @@ PRIMARY='/home/andris/hermes-deals'
 CORPUS_ROOT='/home/andris/hermes-deals-lidl-corpus'
 PRIVATE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly-private'
 EVIDENCE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly'
+RUNTIME_ROOT='/opt/hermes-deals-audits/lidl-v631-c3-readonly/runtime-py311'
+RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"
 C3_REL='tools/lidl_v631_c3_readonly_preflight.py'
 CORE_REL='backend/app/lidl_v631_c3_readonly_preflight.py'
 PLANNER_REL='backend/app/lidl_v631_semantic_persistence.py'
+LOCK_REL='backend/locks/runtime-py311.txt'
+MANIFEST_REL='backend/locks/manifest.json'
+VERIFIER_REL='scripts/verify-python-lock-environment.py'
+EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'
+EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'
+EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'
 
 [[ -f "$CONF" && ! -L "$CONF" ]] || fail 'C3 registration is missing'
 [[ "$(stat -c '%U:%G:%a' "$CONF")" == root:root:644 ]] || fail 'C3 registration metadata mismatch'
@@ -33,14 +41,15 @@ PLANNER_REL='backend/app/lidl_v631_semantic_persistence.py'
 source "$CONF"
 [[ "${audit_name:-}" == 'lidl-v631-c3-readonly' ]] || fail 'registration name mismatch'
 [[ "${registered_merge_sha:-}" =~ ^[0-9a-f]{40}$ ]] || fail 'registered merge SHA invalid'
-for name in c3_blob core_blob planner_blob dispatcher_sha256; do
+for name in c3_blob core_blob planner_blob dispatcher_blob dispatcher_sha256 runtime_lock_sha256 runtime_inventory_sha256; do
   value="${!name:-}"
-  if [[ "$name" == dispatcher_sha256 ]]; then
+  if [[ "$name" == dispatcher_sha256 || "$name" == runtime_lock_sha256 || "$name" == runtime_inventory_sha256 ]]; then
     [[ "$value" =~ ^[0-9a-f]{64}$ ]] || fail "$name invalid"
   else
     [[ "$value" =~ ^[0-9a-f]{40}$ ]] || fail "$name invalid"
   fi
 done
+[[ "${runtime_python:-}" == "$RUNTIME_PYTHON" ]] || fail 'registered runtime Python path mismatch'
 [[ "$(sha256sum /usr/local/sbin/hermes-deals-lidl-v631-c3-readonly | awk '{print $1}')" == "$dispatcher_sha256" ]] || fail 'installed dispatcher content drift'
 
 for root in "$AUDIT_REPO" "$PRIMARY" "$CORPUS_ROOT" "$CORPUS_ROOT/flyers"; do
@@ -56,6 +65,54 @@ done
 [[ -d "$AUDIT_REPO/.git" && ! -L "$AUDIT_REPO/.git" ]] || fail 'audit repository is missing or unsafe'
 [[ "$(stat -c '%U:%G' "$AUDIT_REPO")" == andris:andris ]] || fail 'audit repository ownership mismatch'
 [[ "$(stat -c '%U:%G' "$CORPUS_ROOT")" == andris:andris ]] || fail 'corpus ownership mismatch'
+
+RUN_KEY="${RUN_ID}-${RUN_ATTEMPT}"
+STAGING="$PRIVATE_ROOT/$RUN_KEY"
+DEST="$EVIDENCE_ROOT/$RUN_KEY"
+[[ ! -e "$STAGING" && ! -e "$DEST" ]] || fail 'C3 run key already exists'
+install -d -o root -g root -m 0700 "$STAGING"
+install -d -o root -g root -m 0755 "$DEST"
+cleanup() { rm -rf -- "$STAGING"; }
+trap cleanup EXIT
+
+write_blocked_summary() {
+  local summary="$DEST/summary.json"
+  [[ ! -e "$summary" ]] || return 0
+  python3 - "$summary" "$CURRENT_SHA" <<'PY'
+import json, sys
+from pathlib import Path
+out=Path(sys.argv[1]); sha=sys.argv[2]
+summary={
+  'schema_version':1,
+  'audit':'lidl-v631-c3-readonly',
+  'commit_sha':sha,
+  'result':'BLOCKED',
+  'reason':'preflight_blocked',
+  'safety':{
+    'production_database_write':False,
+    'review_write':False,
+    'production_publish':False,
+    'production_deploy':False,
+    'corpus_write':False,
+    'source_replacement':False,
+    'systemd_change':False,
+    'scheduler_change':False,
+    'docker_exec':False,
+    'container_create':False,
+    'package_install':False,
+  },
+}
+out.write_text(json.dumps(summary,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+PY
+  chown root:root "$summary"
+  chmod 0644 "$summary"
+}
+
+blocked() {
+  printf 'BLOCKED: %s\n' "$*" >&2
+  write_blocked_summary
+  exit 30
+}
 
 run_owner() { runuser -u andris -- env HOME=/home/andris PATH=/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 "$@"; }
 git_read() { runuser -u andris -- env HOME=/home/andris GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO" "$@"; }
@@ -73,21 +130,45 @@ INDEX="$(git_read rev-parse --path-format=absolute --git-path index)"
 INDEX_SHA_BEFORE="$(sha256sum "$INDEX" | awk '{print $1}')"
 INDEX_STAT_BEFORE="$(stat -c '%U:%G:%a:%s:%Y' "$INDEX")"
 
-for spec in "$C3_REL:$c3_blob" "$CORE_REL:$core_blob" "$PLANNER_REL:$planner_blob"; do
+for spec in \
+  "$C3_REL:$c3_blob" \
+  "$CORE_REL:$core_blob" \
+  "$PLANNER_REL:$planner_blob" \
+  "$LOCK_REL:$EXPECTED_LOCK_BLOB" \
+  "$MANIFEST_REL:$EXPECTED_MANIFEST_BLOB" \
+  "$VERIFIER_REL:$EXPECTED_VERIFIER_BLOB"; do
   path="${spec%%:*}"
   expected="${spec##*:}"
   actual="$(git_read rev-parse "$CURRENT_SHA:$path")"
   [[ "$actual" == "$expected" ]] || fail "current main C3 blob drift: $path"
 done
 
-RUN_KEY="${RUN_ID}-${RUN_ATTEMPT}"
-STAGING="$PRIVATE_ROOT/$RUN_KEY"
-DEST="$EVIDENCE_ROOT/$RUN_KEY"
-[[ ! -e "$STAGING" && ! -e "$DEST" ]] || fail 'C3 run key already exists'
-install -d -o root -g root -m 0700 "$STAGING"
-install -d -o root -g root -m 0755 "$DEST"
-cleanup() { rm -rf -- "$STAGING"; }
-trap cleanup EXIT
+[[ -d "$RUNTIME_ROOT" && ! -L "$RUNTIME_ROOT" ]] || blocked 'pinned C3 audit runtime missing or unsafe'
+[[ "$(readlink -f -- "$RUNTIME_ROOT")" == "$RUNTIME_ROOT" ]] || fail 'pinned C3 runtime path drift'
+[[ -x "$RUNTIME_PYTHON" ]] || blocked 'pinned C3 audit Python missing'
+if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
+  fail 'pinned C3 runtime ownership is unsafe'
+fi
+if find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
+  fail 'pinned C3 runtime write permissions are unsafe'
+fi
+[[ "$(sha256sum "$AUDIT_REPO/$LOCK_REL" | awk '{print $1}')" == "$runtime_lock_sha256" ]] || fail 'registered runtime lock SHA mismatch'
+MANIFEST_LOCK_SHA="$(python3 - "$AUDIT_REPO/$MANIFEST_REL" <<'PY'
+import json, sys
+obj=json.load(open(sys.argv[1],encoding='utf-8'))
+row=obj.get('locks',{}).get('runtime-py311.txt') or {}
+if row.get('python')!='3.11': raise SystemExit('runtime manifest Python mismatch')
+print(row.get('sha256') or '')
+PY
+)"
+[[ "$MANIFEST_LOCK_SHA" == "$runtime_lock_sha256" ]] || fail 'runtime manifest lock identity mismatch'
+ENVIRONMENT_REPORT="$(run_owner "$RUNTIME_PYTHON" "$AUDIT_REPO/$VERIFIER_REL" "$AUDIT_REPO/$LOCK_REL")" || blocked 'pinned C3 audit runtime verification failed'
+INVENTORY_SHA="$(printf '%s\n' "$ENVIRONMENT_REPORT" | awk -F= '$1 == "LOCKED_INVENTORY_SHA256" {print $2}')"
+[[ "$INVENTORY_SHA" == "$runtime_inventory_sha256" ]] || blocked 'pinned C3 audit runtime inventory drift'
+for module in sqlalchemy psycopg pydantic; do
+  run_owner "$RUNTIME_PYTHON" -c "import $module" >/dev/null 2>&1 || blocked "pinned C3 runtime dependency unavailable: $module"
+done
+command -v docker >/dev/null 2>&1 || blocked 'docker CLI unavailable'
 
 corpus_tree() {
   run_owner python3 - "$CORPUS_ROOT" <<'PY'
@@ -111,11 +192,6 @@ PY
 }
 CORPUS_BEFORE="$(corpus_tree)"
 [[ "$CORPUS_BEFORE" =~ ^[0-9a-f]{64}$ ]] || fail 'corpus baseline digest invalid'
-
-for module in sqlalchemy psycopg pydantic; do
-  run_owner python3 -c "import $module" >/dev/null 2>&1 || blocked "host Python dependency unavailable: $module"
-done
-command -v docker >/dev/null 2>&1 || blocked 'docker CLI unavailable'
 
 mapfile -t DB_IDS < <(docker ps --filter 'label=com.docker.compose.project=hermes-deals' --filter 'label=com.docker.compose.service=db' --format '{{.ID}}')
 [[ ${#DB_IDS[@]} -eq 1 ]] || blocked 'expected exactly one running hermes-deals production db container'
@@ -152,7 +228,7 @@ RUN_LOG="$STAGING/c3.log"
 [[ ! -e "$RUN_LOG" ]] || fail 'private C3 log path already exists'
 set +e
 runuser -u andris -- env HOME=/home/andris PATH=/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 DATABASE_URL="$DATABASE_URL" \
-  python3 "$AUDIT_REPO/$C3_REL" --expected-head "$CURRENT_SHA" --corpus-root "$CORPUS_ROOT" >"$RUN_LOG" 2>&1
+  "$RUNTIME_PYTHON" "$AUDIT_REPO/$C3_REL" --expected-head "$CURRENT_SHA" --corpus-root "$CORPUS_ROOT" >"$RUN_LOG" 2>&1
 RC=$?
 set -e
 unset DATABASE_URL
@@ -169,14 +245,14 @@ CORPUS_AFTER="$(corpus_tree)"
 
 SUMMARY="$DEST/summary.json"
 [[ ! -e "$SUMMARY" ]] || fail 'sanitized summary already exists'
-python3 - "$RUN_LOG" "$SUMMARY" "$CURRENT_SHA" "$RC" "$CORPUS_BEFORE" <<'PY'
+python3 - "$RUN_LOG" "$SUMMARY" "$CURRENT_SHA" "$RC" "$CORPUS_BEFORE" "$runtime_lock_sha256" "$runtime_inventory_sha256" <<'PY'
 import json, re, sys
 from pathlib import Path
-log, out, sha, rc, corpus = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5]
+log, out, sha, rc, corpus, lock_sha, inventory_sha = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], sys.argv[7]
 summary={
  'schema_version':1,'audit':'lidl-v631-c3-readonly','commit_sha':sha,
  'result':'BLOCKED' if rc==30 else 'PASS','reason':'runner_failed_closed' if rc==30 else 'validated_read_only_write_plan',
- 'corpus_tree_sha256':corpus,
+ 'corpus_tree_sha256':corpus,'runtime_lock_sha256':lock_sha,'runtime_inventory_sha256':inventory_sha,
  'safety':{'production_database_write':False,'review_write':False,'production_publish':False,'production_deploy':False,'corpus_write':False,'source_replacement':False,'systemd_change':False,'scheduler_change':False,'docker_exec':False,'container_create':False,'package_install':False}
 }
 if rc==0:
@@ -213,4 +289,5 @@ if [[ "$RC" -eq 30 ]]; then
   exit 30
 fi
 printf 'C3_DISPATCH_RESULT=PASS\n'
-printf 'PRODUCTION_DATABASE_WRITE=false\nCORPUS_WRITE=false\nREVIEW_WRITE=false\nPRODUCTION_PUBLISH=false\nPRODUCTION_DEPLOY=false\nSYSTEMD_CHANGE=false\nSCHEDULER_CHANGE=false\n'
+printf 'RUNTIME_LOCK_SHA256=%s\nRUNTIME_INVENTORY_SHA256=%s\n' "$runtime_lock_sha256" "$runtime_inventory_sha256"
+printf 'PRODUCTION_DATABASE_WRITE=false\nCORPUS_WRITE=false\nREVIEW_WRITE=false\nPRODUCTION_PUBLISH=false\nPRODUCTION_DEPLOY=false\nSYSTEMD_CHANGE=false\nSCHEDULER_CHANGE=false\nPACKAGE_INSTALL=false\n'
