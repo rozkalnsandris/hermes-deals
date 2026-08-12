@@ -1,0 +1,354 @@
+name: Hermes ALDI Gate D3 bridge
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-aldi-gate-d3-bridge
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner Gate D3 command
+    if: github.event.issue.pull_request == null && github.event.issue.number == 290 && startsWith(github.event.comment.body, '/hermes-aldi ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+    steps:
+      - name: Checkout reviewed default-branch bridge code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate exact issue, owner, command and runtime identity
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_aldi_gate_d3_bridge.py
+
+  audit:
+    name: Run read-only ALDI Gate D3 inventory on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.operation == 'aldi-gate-d3'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 15
+    permissions: {}
+    outputs:
+      decision: ${{ steps.inspect.outputs.decision }}
+      fingerprint: ${{ steps.inspect.outputs.fingerprint }}
+      directories: ${{ steps.inspect.outputs.directories }}
+      archives: ${{ steps.inspect.outputs.archives }}
+      complete: ${{ steps.inspect.outputs.complete }}
+      identities: ${{ steps.inspect.outputs.identities }}
+      failure_type: ${{ steps.inspect.outputs.failure_type }}
+      failure_stage: ${{ steps.inspect.outputs.failure_stage }}
+      reason_code: ${{ steps.inspect.outputs.reason_code }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+    steps:
+      - name: Create private Gate D3 artifact directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-aldi-gate-d3-recovery-inventory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run fixed root-owned Gate D3 dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-gate-d3-recovery-inventory \
+            "$REGISTERED_SHA" "$ARTIFACT_DIR" >/dev/null 2>/dev/null
+          runner_rc=$?
+          set -e
+          echo "runner_rc=$runner_rc" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect only sanitized Gate D3 evidence
+        id: inspect
+        if: always() && steps.prepare.outputs.artifact_dir != ''
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          root = Path(os.environ["ARTIFACT_DIR"])
+          runner_rc = int(os.environ.get("RUNNER_RC") or "255")
+          expected_sha = os.environ["EXPECTED_SHA"]
+          allowed_names = {
+              "diagnostic-exit-code.txt",
+              "diagnostic-result.json",
+              "diagnostic-failure.json",
+              "dispatcher-evidence-manifest.json",
+          }
+          for entry in root.iterdir():
+              if entry.name not in allowed_names or not entry.is_file() or entry.is_symlink():
+                  raise SystemExit(f"unexpected Gate D3 artifact member: {entry.name}")
+              if entry.stat().st_size > 2 * 1024 * 1024:
+                  raise SystemExit(f"oversized Gate D3 artifact member: {entry.name}")
+
+          result_path = root / "diagnostic-result.json"
+          failure_path = root / "diagnostic-failure.json"
+          decision = "DISPATCH_UNAVAILABLE"
+          fingerprint = ""
+          directories = 0
+          archives = 0
+          complete = 0
+          identities = 0
+          failure_type = "BridgeDispatchUnavailable"
+          failure_stage = "bridge_dispatch"
+          reason_code = f"dispatcher_exit_{runner_rc}"
+
+          if result_path.is_file():
+              if runner_rc != 0:
+                  raise SystemExit("Gate D3 result exists with nonzero dispatcher exit")
+              result = json.loads(result_path.read_text(encoding="utf-8"))
+              if result.get("schema_version") != 1 or result.get("mode") != "ALDI_GATE_D3_RECOVERY_INVENTORY_V01":
+                  raise SystemExit("Gate D3 result schema/mode mismatch")
+              decision = str(result.get("decision") or "")
+              if decision not in {
+                  "RECOVERY_CANDIDATE_FOUND",
+                  "NO_RECOVERY_CANDIDATE",
+                  "AMBIGUOUS_RECOVERY_CANDIDATES",
+              }:
+                  raise SystemExit("unsupported Gate D3 decision")
+              fingerprint = str(result.get("diagnostic_fingerprint") or "")
+              if re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+                  raise SystemExit("Gate D3 fingerprint mismatch")
+              if result.get("raw_evidence_exported") is not False:
+                  raise SystemExit("raw evidence export flag drift")
+              if result.get("raw_exception_exported") is not False:
+                  raise SystemExit("raw exception export flag drift")
+              if result.get("production_eligible") is not False:
+                  raise SystemExit("production eligibility drift")
+              if result.get("review_pack_execution_authorized") is not False:
+                  raise SystemExit("review-pack authority drift")
+              safety = result.get("safety")
+              if not isinstance(safety, dict) or safety.get("inventory_only") is not True:
+                  raise SystemExit("inventory-only safety flag missing")
+              if safety.get("strict_49_plus_41_frozen_contract_unchanged") is not True:
+                  raise SystemExit("strict 49+41 safety flag drift")
+              for key, value in safety.items():
+                  if key not in {"inventory_only", "strict_49_plus_41_frozen_contract_unchanged"} and value is not False:
+                      raise SystemExit(f"unsafe Gate D3 authority flag: {key}")
+
+              manifest_path = root / "dispatcher-evidence-manifest.json"
+              if not manifest_path.is_file():
+                  raise SystemExit("Gate D3 dispatcher manifest missing")
+              manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+              expected_manifest = {
+                  "audit": "aldi-gate-d3-recovery-inventory",
+                  "commit_sha": expected_sha,
+                  "decision": decision,
+                  "diagnostic_fingerprint": fingerprint,
+                  "sanitization_passed": True,
+                  "raw_evidence_exported": False,
+                  "raw_exception_exported": False,
+                  "archive_extraction_authorized": False,
+                  "review_pack_execution_authorized": False,
+                  "production_apply_authorized": False,
+              }
+              for key, value in expected_manifest.items():
+                  if manifest.get(key) != value:
+                      raise SystemExit(f"Gate D3 manifest mismatch: {key}")
+
+              directories = int(result.get("directory_candidate_count", 0))
+              archives = int(result.get("archive_count", 0))
+              complete = int(result.get("complete_recovery_source_count", 0))
+              identities = int(result.get("distinct_complete_identity_count", 0))
+              failure_type = ""
+              failure_stage = ""
+              reason_code = ""
+          elif failure_path.is_file():
+              if runner_rc == 0:
+                  raise SystemExit("Gate D3 failure exists with zero dispatcher exit")
+              failure = json.loads(failure_path.read_text(encoding="utf-8"))
+              if failure.get("schema_version") != 1 or failure.get("audit") != "aldi-gate-d3-recovery-inventory":
+                  raise SystemExit("Gate D3 failure schema/audit mismatch")
+              if failure.get("raw_exception_exported") is not False:
+                  raise SystemExit("failure raw exception flag drift")
+              if failure.get("raw_stderr_exported") is not False:
+                  raise SystemExit("failure raw stderr flag drift")
+              decision = "INVENTORY_EXECUTION_BLOCKED"
+              fingerprint = ""
+              failure_type = str(failure.get("error_type") or "DispatchError")[:80]
+              failure_stage = str(failure.get("failure_stage") or "unknown")[:80]
+              reason_code = str(failure.get("reason_code") or "dispatch_error")[:120]
+
+          bridge = {
+              "schema_version": 1,
+              "audit": "aldi-gate-d3-recovery-inventory",
+              "registered_commit": expected_sha,
+              "decision": decision,
+              "diagnostic_fingerprint": fingerprint,
+              "directory_candidate_count": directories,
+              "archive_count": archives,
+              "complete_recovery_source_count": complete,
+              "distinct_complete_identity_count": identities,
+              "failure_type": failure_type,
+              "failure_stage": failure_stage,
+              "reason_code": reason_code,
+              "runner_rc": runner_rc,
+              "raw_evidence_exported": False,
+              "raw_stderr_exported": False,
+              "archive_extraction_authorized": False,
+              "corpus_mutation_authorized": False,
+              "review_write_authorized": False,
+              "production_database_write_authorized": False,
+              "production_deploy_authorized": False,
+              "scheduler_change_authorized": False,
+          }
+          bridge_path = root / "bridge-result.json"
+          bridge_path.write_text(json.dumps(bridge, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"decision={decision}\n")
+              handle.write(f"fingerprint={fingerprint}\n")
+              handle.write(f"directories={directories}\n")
+              handle.write(f"archives={archives}\n")
+              handle.write(f"complete={complete}\n")
+              handle.write(f"identities={identities}\n")
+              handle.write(f"failure_type={failure_type}\n")
+              handle.write(f"failure_stage={failure_stage}\n")
+              handle.write(f"reason_code={reason_code}\n")
+          PY
+
+      - name: Upload sanitized Gate D3 evidence
+        if: always() && steps.prepare.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: hermes-aldi-gate-d3-bridge-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Enforce fail-closed Gate D3 result
+        if: always()
+        env:
+          DECISION: ${{ steps.inspect.outputs.decision }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          case "$DECISION" in
+            RECOVERY_CANDIDATE_FOUND|NO_RECOVERY_CANDIDATE|AMBIGUOUS_RECOVERY_CANDIDATES)
+              [[ "$RUNNER_RC" == "0" ]]
+              ;;
+            *)
+              echo "Gate D3 bridge failed closed: ${DECISION:-UNAVAILABLE}" >&2
+              exit 1
+              ;;
+          esac
+
+  report:
+    name: Report sanitized ALDI Gate D3 bridge result
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Comment sanitized result on #290
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          COMMENT_ID: ${{ needs.authorize.outputs.comment_id }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          AUDIT_JOB_RESULT: ${{ needs.audit.result }}
+          DECISION: ${{ needs.audit.outputs.decision }}
+          FINGERPRINT: ${{ needs.audit.outputs.fingerprint }}
+          DIRECTORIES: ${{ needs.audit.outputs.directories }}
+          ARCHIVES: ${{ needs.audit.outputs.archives }}
+          COMPLETE: ${{ needs.audit.outputs.complete }}
+          IDENTITIES: ${{ needs.audit.outputs.identities }}
+          FAILURE_TYPE: ${{ needs.audit.outputs.failure_type }}
+          FAILURE_STAGE: ${{ needs.audit.outputs.failure_stage }}
+          REASON_CODE: ${{ needs.audit.outputs.reason_code }}
+          RUNNER_RC: ${{ needs.audit.outputs.runner_rc }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          body = (
+              "## Hermes ALDI Gate D3 bridge result\n\n"
+              f"- command comment: `{os.environ['COMMENT_ID']}`\n"
+              f"- workflow job: `{os.environ['AUDIT_JOB_RESULT']}`\n"
+              f"- inventory decision: `{os.environ.get('DECISION') or 'UNAVAILABLE'}`\n"
+              f"- runtime PR / SHA: `#{os.environ['PR_NUMBER']}` / `{os.environ['REGISTERED_SHA']}`\n"
+              f"- diagnostic fingerprint: `{os.environ.get('FINGERPRINT') or 'none'}`\n"
+              f"- directory candidates: `{os.environ.get('DIRECTORIES') or '0'}`\n"
+              f"- retained archives inspected: `{os.environ.get('ARCHIVES') or '0'}`\n"
+              f"- complete 49+41 recovery sources: `{os.environ.get('COMPLETE') or '0'}`\n"
+              f"- distinct complete identities: `{os.environ.get('IDENTITIES') or '0'}`\n"
+              f"- sanitized failure type: `{os.environ.get('FAILURE_TYPE') or 'none'}`\n"
+              f"- sanitized failure stage: `{os.environ.get('FAILURE_STAGE') or 'none'}`\n"
+              f"- sanitized reason code: `{os.environ.get('REASON_CODE') or 'none'}`\n"
+              f"- dispatcher exit code: `{os.environ.get('RUNNER_RC') or 'unknown'}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n\n"
+              "Safety: read-only inventory only. Raw evidence/stderr, archive extraction, corpus mutation, "
+              "Review/DB writes, production deploy and scheduler changes are not authorized."
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=json.dumps({"body": body}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "hermes-deals-aldi-gate-d3-bridge-reporter",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment status: {response.status}")
+          PY
