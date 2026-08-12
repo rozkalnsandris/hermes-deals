@@ -15,6 +15,7 @@ DISPATCHER = ROOT / "tools/runner/aldi-a30-source-discovery-dispatcher.sh"
 INSTALLER = ROOT / "tools/runner/install-aldi-a30-source-discovery-dispatcher.sh"
 WORKFLOW = ROOT / ".github/workflows/aldi-a30-source-discovery-rpi5.yml"
 RUNBOOK = ROOT / "docs/aldi-a30-source-discovery-runbook.md"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 def load_module():
@@ -155,11 +156,12 @@ class AldiA30SourceDiscoveryGithubContractTest(unittest.TestCase):
             'os.environ["ACTOR"] != "rozkalnsandris"',
             'os.environ["ACTOR_ID"] != "277435981"',
             "audit accepts only merged pull requests",
-            "actions/upload-artifact@v6",
+            f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0",
             "Production database write: **false**",
             "Production deployment: **not authorized**",
         ):
             self.assertIn(required, text)
+        self.assertNotIn("uses: actions/upload-artifact@v6", text)
         self.assertNotIn("actions/checkout", text)
         self.assertNotIn("pull_request:", text)
 
