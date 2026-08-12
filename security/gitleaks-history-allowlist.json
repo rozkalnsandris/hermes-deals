@@ -117,5 +117,19 @@
     "line": 178,
     "commit": "5c1d8dd9692b9a95d7a0140e183b3e836ad30531",
     "reason": "Same deterministic public Lidl flyer identifier after the reviewed frozen review-pack workflow reached main via squash merge #604; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_615_reviewed_canary_landliebe.json",
+    "line": 1,
+    "commit": "9e99957de41e44f33dd44fc48824024cfbc37395",
+    "reason": "Immutable SHA-256 evidence in the reviewed Lidl canary receipt; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_v631_semantic_persistence.py",
+    "line": 30,
+    "commit": "9e99957de41e44f33dd44fc48824024cfbc37395",
+    "reason": "Immutable Lidl source/semantic SHA-256 fixture constant used by persistence planner tests; not authentication material."
   }
 ]
