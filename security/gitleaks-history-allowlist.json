@@ -74,7 +74,7 @@
     "file": "tools/runner/install-netto-missing-normal-price-rpi5-audit.sh",
     "line": 167,
     "commit": "150a95a72a423201195df567184a98acec4d52be",
-    "reason": "Same sudoers NOPASSWD command-alias syntax in squash-merge commit #438; not a password assignment or credential."
+    "reason": "Same sudoers NOPASSWD syntax in squash-merge commit #438; not a password assignment or credential."
   },
   {
     "rule_id": "generic-api-key",
@@ -131,5 +131,19 @@
     "line": 30,
     "commit": "9e99957de41e44f33dd44fc48824024cfbc37395",
     "reason": "Immutable Lidl source/semantic SHA-256 fixture constant used by persistence planner tests; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_615_reviewed_canary_landliebe.json",
+    "line": 1,
+    "commit": "bb6ddc738fdab6009cf0792dfccedb726f4d6cbd",
+    "reason": "Same immutable SHA-256 evidence after reviewed Lidl persistence planner reached main via squash merge #618; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_v631_semantic_persistence.py",
+    "line": 30,
+    "commit": "bb6ddc738fdab6009cf0792dfccedb726f4d6cbd",
+    "reason": "Same immutable Lidl source/semantic SHA-256 fixture after squash merge #618; not authentication material."
   }
 ]
