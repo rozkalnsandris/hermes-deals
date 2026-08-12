@@ -36,8 +36,8 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
         "c31df993e94707ffa35b82c4976f4b79e1154add",
         "65273e99a855e3ea26c65329745c5101d4d2d742",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
-        "526ad7127885b3481d3703cfa28d26f0a525d29d",
-        "af2b0bf81d7f8d538bd1a42d4a66ccc94007f3fc",
+        "6e43d68a51ed1e6efaad3b55632c17de173ec99c",
+        "eac776d7b8d6ac2001d0e7c26f59f3d597d9c0b2",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -50,10 +50,18 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
 
 def test_dispatcher_uses_root_owned_pinned_runtime_and_stays_read_only() -> None:
     source = _text(DISPATCHER)
-    assert "RUNTIME_ROOT='/opt/hermes-deals-audits/lidl-v631-c3-readonly/runtime-py311'" in source
+    assert "RUNTIME_PARENT='/opt/hermes-deals-audits/lidl-v631-c3-readonly'" in source
+    assert 'RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311-${registered_merge_sha:0:12}-${runtime_lock_sha256:0:16}"' in source
     assert 'RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"' in source
+    assert "runtime_python_sha256" in source
+    assert "runtime_python_version" in source
+    assert '[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]]' in source
+    assert 'sys.prefix != expected' in source
+    assert 'sys.base_prefix == sys.prefix' in source
     assert "runtime_lock_sha256" in source
     assert "runtime_inventory_sha256" in source
+    assert "runtime_python_sha256" in source
+    assert "runtime_python_version" in source
     assert "verify-python-lock-environment.py" in source
     assert 'run_owner "$RUNTIME_PYTHON" -c "import $module"' in source
     assert "docker ps" in source
@@ -151,6 +159,9 @@ def test_workflow_reads_only_fixed_sanitized_evidence_path() -> None:
     assert "exact_key_counts" in source
     assert "runtime_lock_sha256" in source
     assert "runtime_inventory_sha256" in source
+    assert "runtime_python_sha256" in source
+    assert "runtime_python_version" in source
+    assert "runtime Python version mismatch" in source
 
 
 def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() -> None:
@@ -162,21 +173,31 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert "EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'" in source
     assert "EXPECTED_CORE_BLOB='65273e99a855e3ea26c65329745c5101d4d2d742'" in source
     assert "EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'" in source
-    assert "EXPECTED_DISPATCHER_BLOB='526ad7127885b3481d3703cfa28d26f0a525d29d'" in source
+    assert "EXPECTED_DISPATCHER_BLOB='6e43d68a51ed1e6efaad3b55632c17de173ec99c'" in source
     assert "EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'" in source
     assert "EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'" in source
     assert "EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'" in source
     assert "RUNTIME_PARENT='/opt/hermes-deals-audits/lidl-v631-c3-readonly'" in source
-    assert "python3 -m venv" in source
+    assert 'RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311-${EXPECTED_SHA:0:12}-${LOCK_SHA:0:16}"' in source
+    assert 'run_owner python3 -m venv --copies "$RUNTIME_ROOT"' in source
     assert "--require-hashes --only-binary=:all:" in source
     assert "PIP_CONFIG_FILE=/dev/null" in source
     assert "verify-python-lock-environment.py" in source
-    assert "chown -hR root:root \"$BUILD_VENV\"" in source
+    assert '[[ ! -e "$RUNTIME_ROOT" ]]' in source
+    assert 'chown -hR root:root "$RUNTIME_ROOT"' in source
     assert 'BUILD_UMASK="$(umask)"' in source
     assert "umask 022" in source
     assert 'umask "$BUILD_UMASK"' in source
-    assert 'find "$BUILD_VENV" -xdev \\( ! -user root -o ! -group root \\)' in source
-    assert 'find "$BUILD_VENV" -xdev \\( -type f -o -type d \\) -perm /022' in source
+    assert r'find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \)' in source
+    assert r'find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022' in source
+    assert '[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]]' in source
+    assert "RUNTIME_PYTHON_SHA" in source
+    assert "sys.prefix != expected" in source
+    assert "sys.base_prefix == sys.prefix" in source
+    assert "RUNTIME_COMMITTED=false" in source
+    assert "RUNTIME_COMMITTED=true" in source
+    assert "RUNTIME_NEXT" not in source
+    assert "BUILD_VENV" not in source
     assert "AUDIT_RUNTIME_PACKAGE_INSTALL=true" in source
     assert "SYSTEM_PACKAGE_INSTALL=false" in source
     assert "/usr/local/sbin/hermes-deals-lidl-v631-c3-readonly" in source

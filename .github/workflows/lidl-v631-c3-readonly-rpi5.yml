@@ -36,8 +36,8 @@ jobs:
           EXPECTED_C3_BLOB: c31df993e94707ffa35b82c4976f4b79e1154add
           EXPECTED_CORE_BLOB: 65273e99a855e3ea26c65329745c5101d4d2d742
           EXPECTED_PLANNER_BLOB: 5c183c4459275c99c7d0f9d66a7a5c425384a5be
-          EXPECTED_DISPATCHER_BLOB: 526ad7127885b3481d3703cfa28d26f0a525d29d
-          EXPECTED_INSTALLER_BLOB: af2b0bf81d7f8d538bd1a42d4a66ccc94007f3fc
+          EXPECTED_DISPATCHER_BLOB: 6e43d68a51ed1e6efaad3b55632c17de173ec99c
+          EXPECTED_INSTALLER_BLOB: eac776d7b8d6ac2001d0e7c26f59f3d597d9c0b2
           EXPECTED_LOCK_BLOB: d6a64564901ce38dd4a790d44ead89be917f1b21
           EXPECTED_MANIFEST_BLOB: bb0e40363afeb89a176b95bc3b9314dbef075a5d
           EXPECTED_VERIFIER_BLOB: 5c7c8d5e32ef84308b688213224b2528d99378e0
@@ -154,8 +154,9 @@ jobs:
               if s.get('expected_first_apply_delta')!={'source_snapshots':1,'offer_candidates':1}: raise SystemExit('expected first-apply delta mismatch')
               if not re.fullmatch(r'[0-9a-f]{64}',pf) or not re.fullmatch(r'[0-9a-f]{64}',payload): raise SystemExit('fingerprint invalid')
               if s.get('transaction_rolled_back') is not True: raise SystemExit('rollback proof missing')
-              for key in ('runtime_lock_sha256','runtime_inventory_sha256'):
+              for key in ('runtime_lock_sha256','runtime_inventory_sha256','runtime_python_sha256'):
                   if not re.fullmatch(r'[0-9a-f]{64}',str(s.get(key) or '')): raise SystemExit(f'invalid {key}')
+              if s.get('runtime_python_version')!='3.11': raise SystemExit('runtime Python version mismatch')
           else:
               if pf or payload: raise SystemExit('BLOCKED result must not expose plan fingerprints')
           out=Path(os.environ['GITHUB_OUTPUT'])

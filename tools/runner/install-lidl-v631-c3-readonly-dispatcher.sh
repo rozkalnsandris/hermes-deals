@@ -25,13 +25,11 @@ SUDOERS='/etc/sudoers.d/hermes-deals-lidl-v631-c3-readonly'
 PRIVATE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly-private'
 EVIDENCE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly'
 RUNTIME_PARENT='/opt/hermes-deals-audits/lidl-v631-c3-readonly'
-RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311"
-RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"
 RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
 EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'
 EXPECTED_CORE_BLOB='65273e99a855e3ea26c65329745c5101d4d2d742'
 EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'
-EXPECTED_DISPATCHER_BLOB='526ad7127885b3481d3703cfa28d26f0a525d29d'
+EXPECTED_DISPATCHER_BLOB='6e43d68a51ed1e6efaad3b55632c17de173ec99c'
 EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'
 EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'
 EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'
@@ -91,9 +89,21 @@ PY
 [[ "$LOCK_SHA" =~ ^[0-9a-f]{64}$ && "$LOCK_SHA" == "$MANIFEST_LOCK_SHA" ]] || fail 'runtime lock manifest mismatch'
 PYTHON_LINE="$(run_owner python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 [[ "$PYTHON_LINE" == 3.11 ]] || fail "pinned C3 runtime requires Python 3.11, got $PYTHON_LINE"
+RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311-${EXPECTED_SHA:0:12}-${LOCK_SHA:0:16}"
+RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"
+[[ ! -e "$RUNTIME_ROOT" ]] || fail 'versioned C3 audit runtime path already exists'
+install -d -o root -g root -m 0755 /etc/hermes-deals-audits.d /var/lib/hermes-deals /opt/hermes-deals-audits "$RUNTIME_PARENT"
+install -d -o root -g root -m 0700 "$PRIVATE_ROOT"
+install -d -o root -g root -m 0755 "$EVIDENCE_ROOT"
 
 TMP="$(mktemp -d /var/tmp/hermes-deals-lidl-v631-c3-install.XXXXXX)"
-cleanup() { rm -rf -- "$TMP"; }
+RUNTIME_COMMITTED=false
+cleanup() {
+  rm -rf -- "$TMP"
+  if [[ "$RUNTIME_COMMITTED" != true && -d "$RUNTIME_ROOT" ]]; then
+    rm -rf -- "$RUNTIME_ROOT"
+  fi
+}
 trap cleanup EXIT
 chmod 0755 "$TMP"
 git_read show "$EXPECTED_SHA:$DISPATCHER_REL" > "$TMP/dispatcher.sh"
@@ -108,51 +118,47 @@ SUDOERS
 chmod 0440 "$TMP/sudoers"
 visudo -cf "$TMP/sudoers" >/dev/null
 
-install -d -o andris -g andris -m 0700 "$TMP/runtime-build"
-BUILD_VENV="$TMP/runtime-build/venv"
+install -d -o andris -g andris -m 0700 "$RUNTIME_ROOT"
 BUILD_UMASK="$(umask)"
 umask 022
-run_owner python3 -m venv "$BUILD_VENV" || fail 'could not create pinned C3 audit venv'
-BUILD_PYTHON="$BUILD_VENV/bin/python"
-[[ -x "$BUILD_PYTHON" ]] || fail 'pinned C3 audit venv Python missing'
+run_owner python3 -m venv --copies "$RUNTIME_ROOT" || fail 'could not create pinned C3 audit venv at final path'
+umask "$BUILD_UMASK"
+[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]] || fail 'pinned C3 audit venv Python missing or unsafe'
 runuser -u andris -- env -i \
   HOME=/home/andris USER=andris LOGNAME=andris PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
   PIP_CONFIG_FILE=/dev/null PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 \
-  "$BUILD_PYTHON" -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r "$AUDIT_REPO/$LOCK_REL"
-run_owner "$BUILD_PYTHON" -m pip check
-ENVIRONMENT_REPORT="$(run_owner "$BUILD_PYTHON" "$AUDIT_REPO/$VERIFIER_REL" "$AUDIT_REPO/$LOCK_REL")"
+  "$RUNTIME_PYTHON" -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r "$AUDIT_REPO/$LOCK_REL"
+run_owner "$RUNTIME_PYTHON" -m pip check
+ENVIRONMENT_REPORT="$(run_owner "$RUNTIME_PYTHON" "$AUDIT_REPO/$VERIFIER_REL" "$AUDIT_REPO/$LOCK_REL")"
 INVENTORY_SHA="$(printf '%s\n' "$ENVIRONMENT_REPORT" | awk -F= '$1 == "LOCKED_INVENTORY_SHA256" {print $2}')"
 [[ "$INVENTORY_SHA" =~ ^[0-9a-f]{64}$ ]] || fail 'pinned C3 runtime inventory SHA invalid'
 for module in sqlalchemy psycopg pydantic; do
-  run_owner "$BUILD_PYTHON" -c "import $module" >/dev/null 2>&1 || fail "pinned C3 runtime import failed: $module"
+  run_owner "$RUNTIME_PYTHON" -c "import $module" >/dev/null 2>&1 || fail "pinned C3 runtime import failed: $module"
 done
-umask "$BUILD_UMASK"
 
-chown -hR root:root "$BUILD_VENV"
-find "$BUILD_VENV" -type d -exec chmod go-w {} +
-find "$BUILD_VENV" -type f -exec chmod go-w {} +
-if find "$BUILD_VENV" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
-  fail 'prepared C3 runtime ownership is unsafe'
-fi
-if find "$BUILD_VENV" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
-  fail 'prepared C3 runtime write permissions are unsafe'
-fi
-
-install -d -o root -g root -m 0755 /etc/hermes-deals-audits.d /var/lib/hermes-deals /opt/hermes-deals-audits "$RUNTIME_PARENT"
-install -d -o root -g root -m 0700 "$PRIVATE_ROOT"
-install -d -o root -g root -m 0755 "$EVIDENCE_ROOT"
-RUNTIME_NEXT="$RUNTIME_PARENT/.runtime-py311.next.$$"
-rm -rf -- "$RUNTIME_NEXT"
-mv -- "$BUILD_VENV" "$RUNTIME_NEXT"
-rm -rf -- "$RUNTIME_ROOT"
-mv -- "$RUNTIME_NEXT" "$RUNTIME_ROOT"
-[[ -x "$RUNTIME_PYTHON" ]] || fail 'installed C3 runtime Python missing'
+chown -hR root:root "$RUNTIME_ROOT"
+find "$RUNTIME_ROOT" -type d -exec chmod go-w {} +
+find "$RUNTIME_ROOT" -type f -exec chmod go-w {} +
 if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
   fail 'installed C3 runtime ownership is unsafe'
 fi
 if find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
   fail 'installed C3 runtime write permissions are unsafe'
 fi
+[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]] || fail 'installed C3 runtime Python missing or unsafe'
+RUNTIME_PYTHON_SHA="$(sha256sum "$RUNTIME_PYTHON" | awk '{print $1}')"
+[[ "$RUNTIME_PYTHON_SHA" =~ ^[0-9a-f]{64}$ ]] || fail 'installed C3 runtime Python SHA invalid'
+RUNTIME_PYTHON_VERSION="$(run_owner "$RUNTIME_PYTHON" - "$RUNTIME_ROOT" <<'PY'
+import sys
+expected=sys.argv[1]
+version=f"{sys.version_info.major}.{sys.version_info.minor}"
+if version != '3.11': raise SystemExit(f'unexpected runtime Python: {version}')
+if sys.prefix != expected: raise SystemExit('runtime sys.prefix mismatch')
+if sys.base_prefix == sys.prefix: raise SystemExit('runtime is not isolated')
+print(version)
+PY
+)"
+[[ "$RUNTIME_PYTHON_VERSION" == 3.11 ]] || fail 'installed C3 runtime Python identity mismatch'
 FINAL_ENVIRONMENT_REPORT="$(run_owner "$RUNTIME_PYTHON" "$AUDIT_REPO/$VERIFIER_REL" "$AUDIT_REPO/$LOCK_REL")"
 FINAL_INVENTORY_SHA="$(printf '%s\n' "$FINAL_ENVIRONMENT_REPORT" | awk -F= '$1 == "LOCKED_INVENTORY_SHA256" {print $2}')"
 [[ "$FINAL_INVENTORY_SHA" == "$INVENTORY_SHA" ]] || fail 'installed C3 runtime inventory changed after root ownership transfer'
@@ -163,23 +169,6 @@ done
 install -o root -g root -m 0755 "$TMP/dispatcher.sh" "$DISPATCHER"
 install -o root -g root -m 0440 "$TMP/sudoers" "$SUDOERS"
 DISPATCHER_SHA="$(sha256sum "$DISPATCHER" | awk '{print $1}')"
-CONF_TMP="$(mktemp /etc/hermes-deals-audits.d/.lidl-v631-c3-readonly.conf.XXXXXX)"
-cat > "$CONF_TMP" <<CONF
-audit_name='lidl-v631-c3-readonly'
-registered_merge_sha='$EXPECTED_SHA'
-c3_blob='$EXPECTED_C3_BLOB'
-core_blob='$EXPECTED_CORE_BLOB'
-planner_blob='$EXPECTED_PLANNER_BLOB'
-dispatcher_blob='$EXPECTED_DISPATCHER_BLOB'
-dispatcher_sha256='$DISPATCHER_SHA'
-runtime_python='$RUNTIME_PYTHON'
-runtime_lock_sha256='$LOCK_SHA'
-runtime_inventory_sha256='$INVENTORY_SHA'
-CONF
-chown root:root "$CONF_TMP"
-chmod 0644 "$CONF_TMP"
-mv -f -- "$CONF_TMP" "$CONF"
-
 [[ "$(sha256sum "$INDEX" | awk '{print $1}')" == "$INDEX_SHA_BEFORE" ]] || fail 'audit Git index content changed during installation'
 [[ "$(stat -c '%U:%G:%a:%s:%Y' "$INDEX")" == "$INDEX_STAT_BEFORE" ]] || fail 'audit Git index metadata changed during installation'
 [[ ! -e "$INDEX.lock" ]] || fail 'installer left audit Git index lock'
@@ -191,11 +180,31 @@ sudo -l -U github-runner | grep -Fq "$DISPATCHER" || fail 'github-runner dispatc
 RUNNER_HAS_DOCKER="$(id -nG github-runner | tr ' ' '\n' | grep -Fxq docker && echo true || echo false)"
 [[ "$RUNNER_HAS_DOCKER" == false ]] || fail 'github-runner must not belong to docker group'
 
+CONF_TMP="$(mktemp /etc/hermes-deals-audits.d/.lidl-v631-c3-readonly.conf.XXXXXX)"
+cat > "$CONF_TMP" <<CONF
+audit_name='lidl-v631-c3-readonly'
+registered_merge_sha='$EXPECTED_SHA'
+c3_blob='$EXPECTED_C3_BLOB'
+core_blob='$EXPECTED_CORE_BLOB'
+planner_blob='$EXPECTED_PLANNER_BLOB'
+dispatcher_blob='$EXPECTED_DISPATCHER_BLOB'
+dispatcher_sha256='$DISPATCHER_SHA'
+runtime_python='$RUNTIME_PYTHON'
+runtime_python_sha256='$RUNTIME_PYTHON_SHA'
+runtime_lock_sha256='$LOCK_SHA'
+runtime_inventory_sha256='$INVENTORY_SHA'
+CONF
+chown root:root "$CONF_TMP"
+chmod 0644 "$CONF_TMP"
+mv -f -- "$CONF_TMP" "$CONF"
+
+RUNTIME_COMMITTED=true
+
 printf 'INSTALL_RESULT=PASS\n'
 printf 'AUDIT=lidl-v631-c3-readonly\nREGISTERED_COMMIT=%s\nAUDIT_CURRENT_HEAD=%s\n' "$EXPECTED_SHA" "$HEAD_SHA"
 printf 'C3_BLOB_SHA=%s\nCORE_BLOB_SHA=%s\nPLANNER_BLOB_SHA=%s\nDISPATCHER_BLOB_SHA=%s\n' "$EXPECTED_C3_BLOB" "$EXPECTED_CORE_BLOB" "$EXPECTED_PLANNER_BLOB" "$EXPECTED_DISPATCHER_BLOB"
 printf 'DISPATCHER_SHA256=%s\n' "$DISPATCHER_SHA"
-printf 'RUNTIME_PYTHON=%s\nRUNTIME_LOCK_SHA256=%s\nRUNTIME_INVENTORY_SHA256=%s\n' "$RUNTIME_PYTHON" "$LOCK_SHA" "$INVENTORY_SHA"
+printf 'RUNTIME_PYTHON=%s\nRUNTIME_PYTHON_SHA256=%s\nRUNTIME_PYTHON_VERSION=%s\nRUNTIME_LOCK_SHA256=%s\nRUNTIME_INVENTORY_SHA256=%s\n' "$RUNTIME_PYTHON" "$RUNTIME_PYTHON_SHA" "$RUNTIME_PYTHON_VERSION" "$LOCK_SHA" "$INVENTORY_SHA"
 printf 'AUDIT_GIT_INDEX_UNCHANGED=true\nSUDOERS_VALID=true\nRUNNER_HAS_DOCKER_GROUP=false\n'
 printf 'PRIVATE_STAGING_ROOT=%s\nSANITIZED_EVIDENCE_ROOT=%s\n' "$PRIVATE_ROOT" "$EVIDENCE_ROOT"
 printf 'AUDIT_RUNTIME_PACKAGE_INSTALL=true\nSYSTEM_PACKAGE_INSTALL=false\n'

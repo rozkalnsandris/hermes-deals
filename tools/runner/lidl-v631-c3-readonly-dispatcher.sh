@@ -23,11 +23,11 @@ PRIMARY='/home/andris/hermes-deals'
 CORPUS_ROOT='/home/andris/hermes-deals-lidl-corpus'
 PRIVATE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly-private'
 EVIDENCE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly'
-RUNTIME_ROOT='/opt/hermes-deals-audits/lidl-v631-c3-readonly/runtime-py311'
-RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"
+RUNTIME_PARENT='/opt/hermes-deals-audits/lidl-v631-c3-readonly'
 C3_REL='tools/lidl_v631_c3_readonly_preflight.py'
 CORE_REL='backend/app/lidl_v631_c3_readonly_preflight.py'
 PLANNER_REL='backend/app/lidl_v631_semantic_persistence.py'
+DISPATCHER_REL='tools/runner/lidl-v631-c3-readonly-dispatcher.sh'
 LOCK_REL='backend/locks/runtime-py311.txt'
 MANIFEST_REL='backend/locks/manifest.json'
 VERIFIER_REL='scripts/verify-python-lock-environment.py'
@@ -41,14 +41,16 @@ EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'
 source "$CONF"
 [[ "${audit_name:-}" == 'lidl-v631-c3-readonly' ]] || fail 'registration name mismatch'
 [[ "${registered_merge_sha:-}" =~ ^[0-9a-f]{40}$ ]] || fail 'registered merge SHA invalid'
-for name in c3_blob core_blob planner_blob dispatcher_blob dispatcher_sha256 runtime_lock_sha256 runtime_inventory_sha256; do
+for name in c3_blob core_blob planner_blob dispatcher_blob dispatcher_sha256 runtime_lock_sha256 runtime_inventory_sha256 runtime_python_sha256; do
   value="${!name:-}"
-  if [[ "$name" == dispatcher_sha256 || "$name" == runtime_lock_sha256 || "$name" == runtime_inventory_sha256 ]]; then
+  if [[ "$name" == dispatcher_sha256 || "$name" == runtime_lock_sha256 || "$name" == runtime_inventory_sha256 || "$name" == runtime_python_sha256 ]]; then
     [[ "$value" =~ ^[0-9a-f]{64}$ ]] || fail "$name invalid"
   else
     [[ "$value" =~ ^[0-9a-f]{40}$ ]] || fail "$name invalid"
   fi
 done
+RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311-${registered_merge_sha:0:12}-${runtime_lock_sha256:0:16}"
+RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"
 [[ "${runtime_python:-}" == "$RUNTIME_PYTHON" ]] || fail 'registered runtime Python path mismatch'
 [[ "$(sha256sum /usr/local/sbin/hermes-deals-lidl-v631-c3-readonly | awk '{print $1}')" == "$dispatcher_sha256" ]] || fail 'installed dispatcher content drift'
 
@@ -134,6 +136,7 @@ for spec in \
   "$C3_REL:$c3_blob" \
   "$CORE_REL:$core_blob" \
   "$PLANNER_REL:$planner_blob" \
+  "$DISPATCHER_REL:$dispatcher_blob" \
   "$LOCK_REL:$EXPECTED_LOCK_BLOB" \
   "$MANIFEST_REL:$EXPECTED_MANIFEST_BLOB" \
   "$VERIFIER_REL:$EXPECTED_VERIFIER_BLOB"; do
@@ -145,13 +148,25 @@ done
 
 [[ -d "$RUNTIME_ROOT" && ! -L "$RUNTIME_ROOT" ]] || blocked 'pinned C3 audit runtime missing or unsafe'
 [[ "$(readlink -f -- "$RUNTIME_ROOT")" == "$RUNTIME_ROOT" ]] || fail 'pinned C3 runtime path drift'
-[[ -x "$RUNTIME_PYTHON" ]] || blocked 'pinned C3 audit Python missing'
+[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]] || blocked 'pinned C3 audit Python missing or unsafe'
+[[ "$(sha256sum "$RUNTIME_PYTHON" | awk '{print $1}')" == "$runtime_python_sha256" ]] || blocked 'pinned C3 runtime interpreter drift'
 if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
   fail 'pinned C3 runtime ownership is unsafe'
 fi
 if find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
   fail 'pinned C3 runtime write permissions are unsafe'
 fi
+RUNTIME_PYTHON_VERSION="$(run_owner "$RUNTIME_PYTHON" - "$RUNTIME_ROOT" <<'PY'
+import sys
+expected=sys.argv[1]
+version=f"{sys.version_info.major}.{sys.version_info.minor}"
+if version != '3.11': raise SystemExit(f'unexpected runtime Python: {version}')
+if sys.prefix != expected: raise SystemExit('runtime sys.prefix mismatch')
+if sys.base_prefix == sys.prefix: raise SystemExit('runtime is not isolated')
+print(version)
+PY
+)" || blocked 'pinned C3 runtime interpreter identity failed'
+[[ "$RUNTIME_PYTHON_VERSION" == 3.11 ]] || blocked 'pinned C3 runtime Python version mismatch'
 [[ "$(sha256sum "$AUDIT_REPO/$LOCK_REL" | awk '{print $1}')" == "$runtime_lock_sha256" ]] || fail 'registered runtime lock SHA mismatch'
 MANIFEST_LOCK_SHA="$(python3 - "$AUDIT_REPO/$MANIFEST_REL" <<'PY'
 import json, sys
@@ -245,14 +260,14 @@ CORPUS_AFTER="$(corpus_tree)"
 
 SUMMARY="$DEST/summary.json"
 [[ ! -e "$SUMMARY" ]] || fail 'sanitized summary already exists'
-python3 - "$RUN_LOG" "$SUMMARY" "$CURRENT_SHA" "$RC" "$CORPUS_BEFORE" "$runtime_lock_sha256" "$runtime_inventory_sha256" <<'PY'
+python3 - "$RUN_LOG" "$SUMMARY" "$CURRENT_SHA" "$RC" "$CORPUS_BEFORE" "$runtime_lock_sha256" "$runtime_inventory_sha256" "$runtime_python_sha256" "$RUNTIME_PYTHON_VERSION" <<'PY'
 import json, re, sys
 from pathlib import Path
-log, out, sha, rc, corpus, lock_sha, inventory_sha = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], sys.argv[7]
+log, out, sha, rc, corpus, lock_sha, inventory_sha, python_sha, python_version = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], sys.argv[7], sys.argv[8], sys.argv[9]
 summary={
  'schema_version':1,'audit':'lidl-v631-c3-readonly','commit_sha':sha,
  'result':'BLOCKED' if rc==30 else 'PASS','reason':'runner_failed_closed' if rc==30 else 'validated_read_only_write_plan',
- 'corpus_tree_sha256':corpus,'runtime_lock_sha256':lock_sha,'runtime_inventory_sha256':inventory_sha,
+ 'corpus_tree_sha256':corpus,'runtime_lock_sha256':lock_sha,'runtime_inventory_sha256':inventory_sha,'runtime_python_sha256':python_sha,'runtime_python_version':python_version,
  'safety':{'production_database_write':False,'review_write':False,'production_publish':False,'production_deploy':False,'corpus_write':False,'source_replacement':False,'systemd_change':False,'scheduler_change':False,'docker_exec':False,'container_create':False,'package_install':False}
 }
 if rc==0:
@@ -289,5 +304,5 @@ if [[ "$RC" -eq 30 ]]; then
   exit 30
 fi
 printf 'C3_DISPATCH_RESULT=PASS\n'
-printf 'RUNTIME_LOCK_SHA256=%s\nRUNTIME_INVENTORY_SHA256=%s\n' "$runtime_lock_sha256" "$runtime_inventory_sha256"
+printf 'RUNTIME_LOCK_SHA256=%s\nRUNTIME_INVENTORY_SHA256=%s\nRUNTIME_PYTHON_SHA256=%s\nRUNTIME_PYTHON_VERSION=%s\n' "$runtime_lock_sha256" "$runtime_inventory_sha256" "$runtime_python_sha256" "$RUNTIME_PYTHON_VERSION"
 printf 'PRODUCTION_DATABASE_WRITE=false\nCORPUS_WRITE=false\nREVIEW_WRITE=false\nPRODUCTION_PUBLISH=false\nPRODUCTION_DEPLOY=false\nSYSTEMD_CHANGE=false\nSCHEDULER_CHANGE=false\nPACKAGE_INSTALL=false\n'
