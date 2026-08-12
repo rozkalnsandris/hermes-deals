@@ -176,3 +176,36 @@ def test_c3_module_has_no_apply_or_commit_path() -> None:
     source = Path(c3.__file__).read_text(encoding="utf-8")
     assert "apply_lidl_v631_semantic_persistence_plan" not in source
     assert ".commit(" not in source
+
+
+def test_read_only_guard_blocks_write_on_postgresql_ci() -> None:
+    import os
+
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.orm import Session
+
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url.startswith("postgresql"):
+        pytest.skip("PostgreSQL-only C3 transaction integration regression")
+
+    engine = create_engine(database_url, future=True)
+    probe_table = "lidl_c3_readonly_forbidden_probe"
+    try:
+        with Session(engine) as db:
+            state = c3.enforce_postgres_read_only(db)
+            assert state == {
+                "transaction_read_only": "on",
+                "transaction_isolation": "repeatable read",
+            }
+            with pytest.raises(DBAPIError):
+                db.execute(text(f"CREATE TABLE {probe_table} (id integer)"))
+            db.rollback()
+
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT to_regclass(:table_name)"),
+                {"table_name": f"public.{probe_table}"},
+            ).scalar_one() is None
+    finally:
+        engine.dispose()

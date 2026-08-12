@@ -265,4 +265,5 @@ jobs:
           python -m pytest -q -s \
             tests/test_current_deals_sql_postgresql_contract.py \
             tests/test_current_deals_sql_postgresql_runtime.py \
-            tests/test_current_deals_postgresql_materialization_benchmark.py
+            tests/test_current_deals_postgresql_materialization_benchmark.py \
+            tests/test_lidl_v631_c3_readonly_preflight.py
