@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 import hashlib
+import json
 from pathlib import Path
 import unittest
 from uuid import UUID
@@ -25,6 +27,12 @@ FIXTURE = (
     / "fixtures"
     / "lidl"
     / "issue_615_reviewed_canary_landliebe.json"
+)
+FULL_ROW_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "lidl"
+    / "issue_620_full_semantic_row_landliebe.json.b64"
 )
 RECEIPT_SHA256 = "b5670a4cd6cb2fe9c7d31ef3dd1a330e67f636d6a2912a42a00aad89469bb5c9"
 ROW_KEY = "dc83d8fb7156f7e7e48eccb01f0ade4c744308c69c4caad9f3afee53305a4669"
@@ -59,38 +67,8 @@ def source_binding() -> dict[str, object]:
 
 
 def semantic_row() -> dict[str, object]:
-    return {
-        "semantic_row_key": ROW_KEY,
-        "page": 19,
-        "product_name": "LANDLIEBE Butter",
-        "package_text": "250 g",
-        "price_eur": "1.39",
-        "regular_price_eur": "2.69",
-        "regular_price_source": "uvp",
-        "pricing_mode": "fixed_package",
-        "price_basis": "fixed_or_explicit",
-        "channel": "physical_store",
-        "scope": "in_scope",
-        "weekly_partition": "production_ready",
-        "weekly_eligibility_state": "production_ready",
-        "production_ready_shadow": True,
-        "parser_production_ready_shadow": True,
-        "comparison_eligible_shadow": True,
-        "semantic_gate_reasons": [],
-        "card_bbox": [
-            139.2440948486328,
-            97.16217041015625,
-            307.3262023925781,
-            285.38002014160156,
-        ],
-        "app_price_eur": None,
-        "requires_app": False,
-        "coupon_required": False,
-        "coupon_signal": False,
-        "multi_buy_signal": False,
-        "warnings": [],
-        "rejection_reasons": [],
-    }
+    raw = base64.b64decode(FULL_ROW_FIXTURE.read_text().strip(), validate=True)
+    return json.loads(raw.decode("utf-8"))
 
 
 def _auth(plan: dict[str, object]) -> dict[str, object]:
@@ -148,6 +126,20 @@ class LidlV631SemanticPersistenceTest(unittest.TestCase):
     def test_fixture_is_exact_reviewed_canary_receipt(self) -> None:
         self.assertEqual(hashlib.sha256(self.receipt).hexdigest(), RECEIPT_SHA256)
 
+    def test_full_row_fixture_matches_extracted_binding(self) -> None:
+        row = semantic_row()
+        canonical = json.dumps(
+            row,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.assertEqual(len(canonical), 1873)
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), ROW_BINDING)
+        self.assertEqual(row["semantic_row_key"], ROW_KEY)
+        self.assertEqual(row["page"], 19)
+        self.assertEqual(row["product_name"], "LANDLIEBE Butter")
+
     def test_exact_landliebe_fixture_builds_deterministic_create_plan(self) -> None:
         first = self.plan()
         second = self.plan()
@@ -162,6 +154,7 @@ class LidlV631SemanticPersistenceTest(unittest.TestCase):
             },
         )
         self.assertEqual(first["bindings"]["semantic_row_key"], ROW_KEY)
+        self.assertEqual(first["bindings"]["row_binding_sha256"], ROW_BINDING)
         self.assertEqual(
             first["offer_candidate"]["source_offer_id"],
             (
@@ -236,7 +229,7 @@ class LidlV631SemanticPersistenceTest(unittest.TestCase):
                 row[field] = value
                 with self.assertRaisesRegex(
                     LidlSemanticPersistenceError,
-                    "differs from reviewed receipt",
+                    "canonical binding SHA-256 mismatch",
                 ):
                     self.plan(rows=[row])
 
@@ -247,6 +240,15 @@ class LidlV631SemanticPersistenceTest(unittest.TestCase):
             "differs from reviewed receipt",
         ):
             self.plan(binding=binding)
+
+    def test_unchecked_full_row_field_drift_fails_closed(self) -> None:
+        row = semantic_row()
+        row["channel_source"] = "tampered-source"
+        with self.assertRaisesRegex(
+            LidlSemanticPersistenceError,
+            "canonical binding SHA-256 mismatch",
+        ):
+            self.plan(rows=[row])
 
     def test_more_than_one_row_is_rejected(self) -> None:
         with self.assertRaisesRegex(

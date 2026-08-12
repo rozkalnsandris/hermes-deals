@@ -145,5 +145,12 @@
     "line": 30,
     "commit": "bb6ddc738fdab6009cf0792dfccedb726f4d6cbd",
     "reason": "Same immutable Lidl source/semantic SHA-256 fixture after squash merge #618; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_620_full_semantic_row_landliebe.json.b64",
+    "line": 1,
+    "commit": "4008c6e332ef089f26174f9dfe7d557fcd7b0b10",
+    "reason": "Base64 encoding of the exact immutable reviewed Lidl semantic-row evidence extracted under #620; not authentication material."
   }
 ]
