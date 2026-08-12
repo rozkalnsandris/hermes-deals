@@ -37,7 +37,7 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
         "65273e99a855e3ea26c65329745c5101d4d2d742",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
         "6e43d68a51ed1e6efaad3b55632c17de173ec99c",
-        "eac776d7b8d6ac2001d0e7c26f59f3d597d9c0b2",
+        "e374ffae2c66e4bc1cb4d9c0969d5738e8a60252",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -188,9 +188,13 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert 'BUILD_UMASK="$(umask)"' in source
     assert "umask 022" in source
     assert 'umask "$BUILD_UMASK"' in source
+    assert 'chmod -R a+rX,go-w "$RUNTIME_ROOT"' in source
     assert r'find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \)' in source
     assert r'find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022' in source
     assert '[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]]' in source
+    assert 'run_owner test -x "$RUNTIME_ROOT"' in source
+    assert 'run_owner test -x "$RUNTIME_PYTHON"' in source
+    assert "installed C3 runtime Python cannot execute as audit owner" in source
     assert "RUNTIME_PYTHON_SHA" in source
     assert "sys.prefix != expected" in source
     assert "sys.base_prefix == sys.prefix" in source
@@ -212,6 +216,27 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert "docker run" not in source
     assert "apply_lidl_v631" not in source
     assert "production_database_write=true" not in source.casefold()
+
+
+def test_installer_keeps_build_umask_until_pinned_runtime_is_verified() -> None:
+    source = _text(INSTALLER)
+    enable = source.index("umask 022")
+    pip_install = source.index("-m pip install --no-cache-dir --require-hashes --only-binary=:all:")
+    inventory = source.index("pinned C3 runtime inventory SHA invalid")
+    import_check = source.index("pinned C3 runtime import failed")
+    restore = source.index('umask "$BUILD_UMASK"')
+    assert enable < pip_install < inventory < import_check < restore
+
+
+def test_installer_runtime_is_traversable_after_root_ownership_transfer() -> None:
+    source = _text(INSTALLER)
+    ownership = source.index('chown -hR root:root "$RUNTIME_ROOT"')
+    permissions = source.index('chmod -R a+rX,go-w "$RUNTIME_ROOT"')
+    owner_traverse = source.index('run_owner test -x "$RUNTIME_ROOT"')
+    owner_python = source.index('run_owner test -x "$RUNTIME_PYTHON"')
+    execute_probe = source.index("installed C3 runtime Python cannot execute as audit owner")
+    identity = source.index("RUNTIME_PYTHON_VERSION=")
+    assert ownership < permissions < owner_traverse < owner_python < execute_probe < identity
 
 
 def test_workflow_never_invokes_installer() -> None:

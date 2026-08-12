@@ -35,7 +35,7 @@ EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'
 EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'
 
 for user in andris github-runner; do id "$user" >/dev/null 2>&1 || fail "required user missing: $user"; done
-for command in bash docker find git grep head id install mktemp mv python3 readlink rm runuser sha256sum stat sudo systemctl visudo; do
+for command in bash chmod docker find git grep head id install mktemp mv python3 readlink rm runuser sha256sum stat sudo systemctl visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command missing: $command"
 done
 AUDIT_REPO="$(readlink -f -- "$AUDIT_REPO")"
@@ -122,7 +122,6 @@ install -d -o andris -g andris -m 0700 "$RUNTIME_ROOT"
 BUILD_UMASK="$(umask)"
 umask 022
 run_owner python3 -m venv --copies "$RUNTIME_ROOT" || fail 'could not create pinned C3 audit venv at final path'
-umask "$BUILD_UMASK"
 [[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]] || fail 'pinned C3 audit venv Python missing or unsafe'
 runuser -u andris -- env -i \
   HOME=/home/andris USER=andris LOGNAME=andris PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
@@ -135,10 +134,10 @@ INVENTORY_SHA="$(printf '%s\n' "$ENVIRONMENT_REPORT" | awk -F= '$1 == "LOCKED_IN
 for module in sqlalchemy psycopg pydantic; do
   run_owner "$RUNTIME_PYTHON" -c "import $module" >/dev/null 2>&1 || fail "pinned C3 runtime import failed: $module"
 done
+umask "$BUILD_UMASK"
 
 chown -hR root:root "$RUNTIME_ROOT"
-find "$RUNTIME_ROOT" -type d -exec chmod go-w {} +
-find "$RUNTIME_ROOT" -type f -exec chmod go-w {} +
+chmod -R a+rX,go-w "$RUNTIME_ROOT"
 if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
   fail 'installed C3 runtime ownership is unsafe'
 fi
@@ -146,6 +145,9 @@ if find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022 -print -quit |
   fail 'installed C3 runtime write permissions are unsafe'
 fi
 [[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]] || fail 'installed C3 runtime Python missing or unsafe'
+run_owner test -x "$RUNTIME_ROOT" || fail 'installed C3 runtime root is not traversable by audit owner'
+run_owner test -x "$RUNTIME_PYTHON" || fail 'installed C3 runtime Python is not executable by audit owner'
+run_owner "$RUNTIME_PYTHON" -c 'import sys; raise SystemExit(0 if sys.prefix else 1)' >/dev/null 2>&1 || fail 'installed C3 runtime Python cannot execute as audit owner'
 RUNTIME_PYTHON_SHA="$(sha256sum "$RUNTIME_PYTHON" | awk '{print $1}')"
 [[ "$RUNTIME_PYTHON_SHA" =~ ^[0-9a-f]{64}$ ]] || fail 'installed C3 runtime Python SHA invalid'
 RUNTIME_PYTHON_VERSION="$(run_owner "$RUNTIME_PYTHON" - "$RUNTIME_ROOT" <<'PY'
