@@ -17,6 +17,7 @@ PLAN = ROOT / "config/aldi-a30-authoritative-cycle-2026cw32-cw33.json"
 RUNNER = ROOT / "tools/run-hermes-deals-aldi-a30-authoritative-cycle-v01.sh"
 INSTALLER = ROOT / "tools/runner/install-aldi-a30-authoritative-cycle-dispatcher.sh"
 WORKFLOW = ROOT / ".github/workflows/aldi-a30-authoritative-cycle-rpi5.yml"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 def load_review_module():
@@ -66,9 +67,10 @@ class AldiA30AuthoritativeCycleContractTest(unittest.TestCase):
             "277435981",
             "self-hosted",
             "hermes-deals-audit",
-            "actions/upload-artifact@v6",
+            f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0",
         ):
             self.assertIn(required, text)
+        self.assertNotIn("uses: actions/upload-artifact@v6", text)
 
     def test_safety_boundaries(self) -> None:
         text = "\n".join(

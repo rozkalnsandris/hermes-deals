@@ -124,7 +124,7 @@ jobs:
                   handle.write(f"failure_type={payload.get('error_type', '')}\n")
           PY
       - if: always() && steps.run.outputs.artifact_dir != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: aldi-gate-d2-legacy-family-diagnostic-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.run.outputs.artifact_dir }}
