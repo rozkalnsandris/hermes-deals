@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -68,6 +69,31 @@ def install_runtime(monkeypatch, module, tmp_path: Path):
     monkeypatch.setattr(module, "REQUEST", request)
     monkeypatch.setattr(module, "CONFIG", config)
 
+    # Hosted GitHub runners are non-root. Keep functional fixture validation
+    # mode/symlink-accurate without depending on the test process UID; root
+    # ownership itself is tested independently with synthetic stat metadata.
+    monkeypatch.setattr(
+        module,
+        "regular_root_file",
+        lambda path, mode=0o600: Path(path).is_file()
+        and not Path(path).is_symlink()
+        and stat.S_IMODE(Path(path).stat().st_mode) == mode,
+    )
+    monkeypatch.setattr(
+        module,
+        "root_runtime_file",
+        lambda path: Path(path).is_file()
+        and not Path(path).is_symlink()
+        and stat.S_IMODE(Path(path).stat().st_mode) in {0o444, 0o555},
+    )
+    monkeypatch.setattr(
+        module,
+        "root_runtime_dir",
+        lambda path: Path(path).is_dir()
+        and not Path(path).is_symlink()
+        and stat.S_IMODE(Path(path).stat().st_mode) in {0o555, 0o755},
+    )
+
     real_sha = module.sha_file
 
     def fixture_sha(path: Path):
@@ -113,6 +139,27 @@ def result_payload(module, decision="NO_CANDIDATE_IN_DESIGNATED_ROOTS"):
     }
     payload["diagnostic_fingerprint"] = hashlib.sha256(module.canonical_bytes(payload)).hexdigest()
     return payload
+
+
+def test_root_ownership_helpers_fail_closed_on_non_root_metadata():
+    module = load_module()
+
+    regular = SimpleNamespace(
+        lstat=lambda: SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=1000, st_gid=1000),
+        is_symlink=lambda: False,
+    )
+    runtime_file = SimpleNamespace(
+        lstat=lambda: SimpleNamespace(st_mode=stat.S_IFREG | 0o444, st_uid=1000, st_gid=1000),
+        is_symlink=lambda: False,
+    )
+    runtime_dir = SimpleNamespace(
+        lstat=lambda: SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=1000, st_gid=1000),
+        is_symlink=lambda: False,
+    )
+
+    assert module.regular_root_file(regular) is False
+    assert module.root_runtime_file(runtime_file) is False
+    assert module.root_runtime_dir(runtime_dir) is False
 
 
 def test_config_is_exact_schema_all_authorities_false_and_fixed_paths(monkeypatch, tmp_path):
