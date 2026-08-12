@@ -167,13 +167,27 @@ def _pick(row: Mapping[str, Any], *names: str) -> Any:
     return next((row.get(name) for name in names if name in row), None)
 
 
+def _semantic_row_binding_sha256(row: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        _jsonable(dict(row)),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return _sha(canonical)
+
+
 def _reviewed_row(rows: Sequence[Mapping[str, Any]], row_binding_sha: str, receipt: Mapping[str, Any]) -> dict[str, Any]:
     if len(rows) != 1:
         raise LidlSemanticPersistenceError("exactly one semantic row is required")
     row = dict(rows[0])
     selected = dict(receipt["selected"])
-    if _require_sha(row_binding_sha, "row_binding_sha256") != selected.get("row_binding_sha256"):
+    supplied_binding = _require_sha(row_binding_sha, "row_binding_sha256")
+    reviewed_binding = _require_sha(selected.get("row_binding_sha256"), "reviewed row_binding_sha256")
+    if supplied_binding != reviewed_binding:
         raise LidlSemanticPersistenceError("semantic row binding SHA-256 mismatch")
+    if _semantic_row_binding_sha256(row) != supplied_binding:
+        raise LidlSemanticPersistenceError("semantic row canonical binding SHA-256 mismatch")
     pairs = {
         "semantic_row_key": row.get("semantic_row_key"),
         "page": row.get("page"),
