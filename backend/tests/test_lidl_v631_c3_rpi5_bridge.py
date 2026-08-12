@@ -36,8 +36,8 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
         "c31df993e94707ffa35b82c4976f4b79e1154add",
         "65273e99a855e3ea26c65329745c5101d4d2d742",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
-        "eed8e2d6b8d3054c741ad71b433c53518f5fec3e",
-        "3f19e354a5ede64d064f532f31490a1404ea946e",
+        "526ad7127885b3481d3703cfa28d26f0a525d29d",
+        "1f0ab803eee2f8efdef744db698104e3c202a0a3",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -156,11 +156,13 @@ def test_workflow_reads_only_fixed_sanitized_evidence_path() -> None:
 def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() -> None:
     source = _text(INSTALLER)
     assert "[[ ${EUID:-$(id -u)} -eq 0 ]]" in source
-    assert "audit clone is not exact clean main at installer SHA" in source
+    assert "audit clone is not clean main" in source
+    assert 'merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_SHA"' in source
+    assert "current audit main blob identity drift" in source
     assert "EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'" in source
     assert "EXPECTED_CORE_BLOB='65273e99a855e3ea26c65329745c5101d4d2d742'" in source
     assert "EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'" in source
-    assert "EXPECTED_DISPATCHER_BLOB='eed8e2d6b8d3054c741ad71b433c53518f5fec3e'" in source
+    assert "EXPECTED_DISPATCHER_BLOB='526ad7127885b3481d3703cfa28d26f0a525d29d'" in source
     assert "EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'" in source
     assert "EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'" in source
     assert "EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'" in source

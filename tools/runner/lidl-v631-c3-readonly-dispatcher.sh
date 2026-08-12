@@ -41,7 +41,7 @@ EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'
 source "$CONF"
 [[ "${audit_name:-}" == 'lidl-v631-c3-readonly' ]] || fail 'registration name mismatch'
 [[ "${registered_merge_sha:-}" =~ ^[0-9a-f]{40}$ ]] || fail 'registered merge SHA invalid'
-for name in c3_blob core_blob planner_blob dispatcher_sha256 runtime_lock_sha256 runtime_inventory_sha256; do
+for name in c3_blob core_blob planner_blob dispatcher_blob dispatcher_sha256 runtime_lock_sha256 runtime_inventory_sha256; do
   value="${!name:-}"
   if [[ "$name" == dispatcher_sha256 || "$name" == runtime_lock_sha256 || "$name" == runtime_inventory_sha256 ]]; then
     [[ "$value" =~ ^[0-9a-f]{64}$ ]] || fail "$name invalid"
@@ -146,8 +146,11 @@ done
 [[ -d "$RUNTIME_ROOT" && ! -L "$RUNTIME_ROOT" ]] || blocked 'pinned C3 audit runtime missing or unsafe'
 [[ "$(readlink -f -- "$RUNTIME_ROOT")" == "$RUNTIME_ROOT" ]] || fail 'pinned C3 runtime path drift'
 [[ -x "$RUNTIME_PYTHON" ]] || blocked 'pinned C3 audit Python missing'
-if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root -o -perm /022 \) -print -quit | grep -q .; then
-  fail 'pinned C3 runtime ownership or write permissions are unsafe'
+if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
+  fail 'pinned C3 runtime ownership is unsafe'
+fi
+if find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
+  fail 'pinned C3 runtime write permissions are unsafe'
 fi
 [[ "$(sha256sum "$AUDIT_REPO/$LOCK_REL" | awk '{print $1}')" == "$runtime_lock_sha256" ]] || fail 'registered runtime lock SHA mismatch'
 MANIFEST_LOCK_SHA="$(python3 - "$AUDIT_REPO/$MANIFEST_REL" <<'PY'

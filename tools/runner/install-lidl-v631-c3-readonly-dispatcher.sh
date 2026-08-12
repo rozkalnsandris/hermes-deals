@@ -31,7 +31,7 @@ RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-aud
 EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'
 EXPECTED_CORE_BLOB='65273e99a855e3ea26c65329745c5101d4d2d742'
 EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'
-EXPECTED_DISPATCHER_BLOB='eed8e2d6b8d3054c741ad71b433c53518f5fec3e'
+EXPECTED_DISPATCHER_BLOB='526ad7127885b3481d3703cfa28d26f0a525d29d'
 EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'
 EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'
 EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'
@@ -56,7 +56,9 @@ run_owner() { runuser -u andris -- env -i HOME=/home/andris USER=andris LOGNAME=
 BRANCH="$(git_read branch --show-current)"
 HEAD_SHA="$(git_read rev-parse HEAD)"
 STATUS="$(git_read status --porcelain=v1 --untracked-files=all)"
-[[ "$BRANCH" == main && "$HEAD_SHA" == "$EXPECTED_SHA" && -z "$STATUS" ]] || fail 'audit clone is not exact clean main at installer SHA'
+[[ "$BRANCH" == main && -z "$STATUS" ]] || fail 'audit clone is not clean main'
+git_read cat-file -e "$EXPECTED_SHA^{commit}" || fail 'registered merge commit is unavailable'
+git_read merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_SHA" || fail 'registered merge is not an ancestor of current audit main'
 ORIGIN="$(git_read remote get-url origin)"
 case "$ORIGIN" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
@@ -74,6 +76,7 @@ for spec in \
   path="${spec%%:*}"; expected="${spec##*:}"
   git_read cat-file -e "$EXPECTED_SHA:$path" || fail "registered file missing: $path"
   [[ "$(git_read rev-parse "$EXPECTED_SHA:$path")" == "$expected" ]] || fail "registered blob identity drift: $path"
+  [[ "$(git_read rev-parse "$HEAD_SHA:$path")" == "$expected" ]] || fail "current audit main blob identity drift: $path"
 done
 
 LOCK_SHA="$(sha256sum "$AUDIT_REPO/$LOCK_REL" | awk '{print $1}')"
@@ -125,8 +128,11 @@ done
 chown -hR root:root "$BUILD_VENV"
 find "$BUILD_VENV" -type d -exec chmod go-w {} +
 find "$BUILD_VENV" -type f -exec chmod go-w {} +
-if find "$BUILD_VENV" -xdev \( ! -user root -o ! -group root -o -perm /022 \) -print -quit | grep -q .; then
-  fail 'prepared C3 runtime ownership or permissions are unsafe'
+if find "$BUILD_VENV" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
+  fail 'prepared C3 runtime ownership is unsafe'
+fi
+if find "$BUILD_VENV" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
+  fail 'prepared C3 runtime write permissions are unsafe'
 fi
 
 install -d -o root -g root -m 0755 /etc/hermes-deals-audits.d /var/lib/hermes-deals /opt/hermes-deals-audits "$RUNTIME_PARENT"
@@ -138,8 +144,11 @@ mv -- "$BUILD_VENV" "$RUNTIME_NEXT"
 rm -rf -- "$RUNTIME_ROOT"
 mv -- "$RUNTIME_NEXT" "$RUNTIME_ROOT"
 [[ -x "$RUNTIME_PYTHON" ]] || fail 'installed C3 runtime Python missing'
-if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root -o -perm /022 \) -print -quit | grep -q .; then
-  fail 'installed C3 runtime ownership or permissions are unsafe'
+if find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \) -print -quit | grep -q .; then
+  fail 'installed C3 runtime ownership is unsafe'
+fi
+if find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022 -print -quit | grep -q .; then
+  fail 'installed C3 runtime write permissions are unsafe'
 fi
 FINAL_ENVIRONMENT_REPORT="$(run_owner "$RUNTIME_PYTHON" "$AUDIT_REPO/$VERIFIER_REL" "$AUDIT_REPO/$LOCK_REL")"
 FINAL_INVENTORY_SHA="$(printf '%s\n' "$FINAL_ENVIRONMENT_REPORT" | awk -F= '$1 == "LOCKED_INVENTORY_SHA256" {print $2}')"
@@ -180,7 +189,7 @@ RUNNER_HAS_DOCKER="$(id -nG github-runner | tr ' ' '\n' | grep -Fxq docker && ec
 [[ "$RUNNER_HAS_DOCKER" == false ]] || fail 'github-runner must not belong to docker group'
 
 printf 'INSTALL_RESULT=PASS\n'
-printf 'AUDIT=lidl-v631-c3-readonly\nREGISTERED_COMMIT=%s\n' "$EXPECTED_SHA"
+printf 'AUDIT=lidl-v631-c3-readonly\nREGISTERED_COMMIT=%s\nAUDIT_CURRENT_HEAD=%s\n' "$EXPECTED_SHA" "$HEAD_SHA"
 printf 'C3_BLOB_SHA=%s\nCORE_BLOB_SHA=%s\nPLANNER_BLOB_SHA=%s\nDISPATCHER_BLOB_SHA=%s\n' "$EXPECTED_C3_BLOB" "$EXPECTED_CORE_BLOB" "$EXPECTED_PLANNER_BLOB" "$EXPECTED_DISPATCHER_BLOB"
 printf 'DISPATCHER_SHA256=%s\n' "$DISPATCHER_SHA"
 printf 'RUNTIME_PYTHON=%s\nRUNTIME_LOCK_SHA256=%s\nRUNTIME_INVENTORY_SHA256=%s\n' "$RUNTIME_PYTHON" "$LOCK_SHA" "$INVENTORY_SHA"
