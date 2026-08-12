@@ -198,17 +198,39 @@ jobs:
               if runner_rc == 0:
                   raise SystemExit("Gate D3 failure exists with zero dispatcher exit")
               failure = json.loads(failure_path.read_text(encoding="utf-8"))
+              legacy_failure_keys = {
+                  "schema_version",
+                  "audit",
+                  "error_type",
+                  "raw_exception_exported",
+              }
+              modern_failure_keys = legacy_failure_keys | {
+                  "failure_stage",
+                  "reason_code",
+                  "raw_stderr_exported",
+              }
               if failure.get("schema_version") != 1 or failure.get("audit") != "aldi-gate-d3-recovery-inventory":
                   raise SystemExit("Gate D3 failure schema/audit mismatch")
               if failure.get("raw_exception_exported") is not False:
                   raise SystemExit("failure raw exception flag drift")
-              if failure.get("raw_stderr_exported") is not False:
-                  raise SystemExit("failure raw stderr flag drift")
-              decision = "INVENTORY_EXECUTION_BLOCKED"
-              fingerprint = ""
-              failure_type = str(failure.get("error_type") or "DispatchError")[:80]
-              failure_stage = str(failure.get("failure_stage") or "unknown")[:80]
-              reason_code = str(failure.get("reason_code") or "dispatch_error")[:120]
+              if set(failure) == legacy_failure_keys:
+                  if failure.get("error_type") != "DispatchError":
+                      raise SystemExit("legacy Gate D3 failure type mismatch")
+                  decision = "RUNTIME_REGISTRATION_REQUIRED"
+                  fingerprint = ""
+                  failure_type = "LegacyGateD3FailureSchema"
+                  failure_stage = "runtime_registration"
+                  reason_code = "legacy_gate_d3_failure_schema_requires_exact_pr_281_registration"
+              elif set(failure) == modern_failure_keys:
+                  if failure.get("raw_stderr_exported") is not False:
+                      raise SystemExit("failure raw stderr flag drift")
+                  decision = "INVENTORY_EXECUTION_BLOCKED"
+                  fingerprint = ""
+                  failure_type = str(failure.get("error_type") or "DispatchError")[:80]
+                  failure_stage = str(failure.get("failure_stage") or "unknown")[:80]
+                  reason_code = str(failure.get("reason_code") or "dispatch_error")[:120]
+              else:
+                  raise SystemExit("unsupported Gate D3 failure field set")
 
           bridge = {
               "schema_version": 1,
