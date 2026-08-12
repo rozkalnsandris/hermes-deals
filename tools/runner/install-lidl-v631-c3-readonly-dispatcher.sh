@@ -110,6 +110,8 @@ visudo -cf "$TMP/sudoers" >/dev/null
 
 install -d -o andris -g andris -m 0700 "$TMP/runtime-build"
 BUILD_VENV="$TMP/runtime-build/venv"
+BUILD_UMASK="$(umask)"
+umask 022
 run_owner python3 -m venv "$BUILD_VENV" || fail 'could not create pinned C3 audit venv'
 BUILD_PYTHON="$BUILD_VENV/bin/python"
 [[ -x "$BUILD_PYTHON" ]] || fail 'pinned C3 audit venv Python missing'
@@ -124,6 +126,7 @@ INVENTORY_SHA="$(printf '%s\n' "$ENVIRONMENT_REPORT" | awk -F= '$1 == "LOCKED_IN
 for module in sqlalchemy psycopg pydantic; do
   run_owner "$BUILD_PYTHON" -c "import $module" >/dev/null 2>&1 || fail "pinned C3 runtime import failed: $module"
 done
+umask "$BUILD_UMASK"
 
 chown -hR root:root "$BUILD_VENV"
 find "$BUILD_VENV" -type d -exec chmod go-w {} +

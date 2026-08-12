@@ -37,7 +37,7 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
         "65273e99a855e3ea26c65329745c5101d4d2d742",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
         "526ad7127885b3481d3703cfa28d26f0a525d29d",
-        "1f0ab803eee2f8efdef744db698104e3c202a0a3",
+        "af2b0bf81d7f8d538bd1a42d4a66ccc94007f3fc",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -172,6 +172,11 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert "PIP_CONFIG_FILE=/dev/null" in source
     assert "verify-python-lock-environment.py" in source
     assert "chown -hR root:root \"$BUILD_VENV\"" in source
+    assert 'BUILD_UMASK="$(umask)"' in source
+    assert "umask 022" in source
+    assert 'umask "$BUILD_UMASK"' in source
+    assert 'find "$BUILD_VENV" -xdev \\( ! -user root -o ! -group root \\)' in source
+    assert 'find "$BUILD_VENV" -xdev \\( -type f -o -type d \\) -perm /022' in source
     assert "AUDIT_RUNTIME_PACKAGE_INSTALL=true" in source
     assert "SYSTEM_PACKAGE_INSTALL=false" in source
     assert "/usr/local/sbin/hermes-deals-lidl-v631-c3-readonly" in source
