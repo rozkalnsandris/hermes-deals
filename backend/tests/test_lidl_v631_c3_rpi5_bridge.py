@@ -28,7 +28,7 @@ def test_c3_rpi5_workflow_is_owner_gated_and_does_not_checkout_pr_code() -> None
     assert "pull-requests: write" not in source
 
 
-def test_c3_authorizer_binds_merged_registration_and_current_main_blobs() -> None:
+def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> None:
     source = _text(WORKFLOW)
     for marker in (
         "if not pr.get('merged') or not pr.get('merged_at')",
@@ -36,15 +36,34 @@ def test_c3_authorizer_binds_merged_registration_and_current_main_blobs() -> Non
         "c31df993e94707ffa35b82c4976f4b79e1154add",
         "65273e99a855e3ea26c65329745c5101d4d2d742",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
-        "de26a292d727a89f9ad2b701a543897b6f87224b",
-        "a5c1fdc09ba70ca1d009f0e983a5ab16a187c679",
+        "6e43d68a51ed1e6efaad3b55632c17de173ec99c",
+        "eac776d7b8d6ac2001d0e7c26f59f3d597d9c0b2",
+        "d6a64564901ce38dd4a790d44ead89be917f1b21",
+        "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
+        "5c7c8d5e32ef84308b688213224b2528d99378e0",
+        "backend/locks/runtime-py311.txt",
+        "scripts/verify-python-lock-environment.py",
         "current main C3 blob drift",
     ):
         assert marker in source
 
 
-def test_dispatcher_is_read_only_against_live_runtime_and_fail_closed() -> None:
+def test_dispatcher_uses_root_owned_pinned_runtime_and_stays_read_only() -> None:
     source = _text(DISPATCHER)
+    assert "RUNTIME_PARENT='/opt/hermes-deals-audits/lidl-v631-c3-readonly'" in source
+    assert 'RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311-${registered_merge_sha:0:12}-${runtime_lock_sha256:0:16}"' in source
+    assert 'RUNTIME_PYTHON="$RUNTIME_ROOT/bin/python"' in source
+    assert "runtime_python_sha256" in source
+    assert "runtime_python_version" in source
+    assert '[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]]' in source
+    assert 'sys.prefix != expected' in source
+    assert 'sys.base_prefix == sys.prefix' in source
+    assert "runtime_lock_sha256" in source
+    assert "runtime_inventory_sha256" in source
+    assert "runtime_python_sha256" in source
+    assert "runtime_python_version" in source
+    assert "verify-python-lock-environment.py" in source
+    assert 'run_owner "$RUNTIME_PYTHON" -c "import $module"' in source
     assert "docker ps" in source
     assert "docker inspect" in source
     assert "postgres:18.4-bookworm" in source
@@ -84,6 +103,18 @@ def test_dispatcher_is_read_only_against_live_runtime_and_fail_closed() -> None:
         assert token not in source
 
 
+def test_dispatcher_emits_sanitized_blocked_evidence_before_runtime_or_db_access() -> None:
+    source = _text(DISPATCHER)
+    assert "write_blocked_summary()" in source
+    assert "'result':'BLOCKED'" in source
+    assert "'reason':'preflight_blocked'" in source
+    assert "write_blocked_summary\n  exit 30" in source
+    blocked_definition = source.index("write_blocked_summary()")
+    runtime_check = source.index("pinned C3 audit runtime missing or unsafe")
+    docker_check = source.index("expected exactly one running hermes-deals production db container")
+    assert blocked_definition < runtime_check < docker_check
+
+
 def test_dispatcher_private_material_is_root_owned_and_sanitized_output_is_fixed() -> None:
     source = _text(DISPATCHER)
     assert "PRIVATE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly-private'" in source
@@ -96,7 +127,7 @@ def test_dispatcher_private_material_is_root_owned_and_sanitized_output_is_fixed
     assert "chmod 0644 \"$SUMMARY\"" in source
     assert "POSTGRES_PASSWORD" in source
     assert "summary.update" in source
-    summary_block = source[source.index("summary={") : source.index("if [[ \"$RC\" -eq 30 ]]", source.index("summary={"))]
+    summary_block = source[source.index("summary={", source.index("SUMMARY=\"$DEST/summary.json\"")) :]
     assert "DATABASE_URL" not in summary_block
     assert "POSTGRES_PASSWORD" not in summary_block
     assert "github-runner:github-runner" not in source
@@ -126,26 +157,59 @@ def test_workflow_reads_only_fixed_sanitized_evidence_path() -> None:
     assert "transaction_rolled_back" in source
     assert "expected_first_apply_delta" in source
     assert "exact_key_counts" in source
+    assert "runtime_lock_sha256" in source
+    assert "runtime_inventory_sha256" in source
+    assert "runtime_python_sha256" in source
+    assert "runtime_python_version" in source
+    assert "runtime Python version mismatch" in source
 
 
-def test_installer_is_registration_only_and_does_not_install_apply_capability() -> None:
+def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() -> None:
     source = _text(INSTALLER)
     assert "[[ ${EUID:-$(id -u)} -eq 0 ]]" in source
-    assert "audit clone is not exact clean main at installer SHA" in source
+    assert "audit clone is not clean main" in source
+    assert 'merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_SHA"' in source
+    assert "current audit main blob identity drift" in source
     assert "EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'" in source
     assert "EXPECTED_CORE_BLOB='65273e99a855e3ea26c65329745c5101d4d2d742'" in source
     assert "EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'" in source
-    assert "EXPECTED_DISPATCHER_BLOB='de26a292d727a89f9ad2b701a543897b6f87224b'" in source
+    assert "EXPECTED_DISPATCHER_BLOB='6e43d68a51ed1e6efaad3b55632c17de173ec99c'" in source
+    assert "EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'" in source
+    assert "EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'" in source
+    assert "EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'" in source
+    assert "RUNTIME_PARENT='/opt/hermes-deals-audits/lidl-v631-c3-readonly'" in source
+    assert 'RUNTIME_ROOT="$RUNTIME_PARENT/runtime-py311-${EXPECTED_SHA:0:12}-${LOCK_SHA:0:16}"' in source
+    assert 'run_owner python3 -m venv --copies "$RUNTIME_ROOT"' in source
+    assert "--require-hashes --only-binary=:all:" in source
+    assert "PIP_CONFIG_FILE=/dev/null" in source
+    assert "verify-python-lock-environment.py" in source
+    assert '[[ ! -e "$RUNTIME_ROOT" ]]' in source
+    assert 'chown -hR root:root "$RUNTIME_ROOT"' in source
+    assert 'BUILD_UMASK="$(umask)"' in source
+    assert "umask 022" in source
+    assert 'umask "$BUILD_UMASK"' in source
+    assert r'find "$RUNTIME_ROOT" -xdev \( ! -user root -o ! -group root \)' in source
+    assert r'find "$RUNTIME_ROOT" -xdev \( -type f -o -type d \) -perm /022' in source
+    assert '[[ -f "$RUNTIME_PYTHON" && ! -L "$RUNTIME_PYTHON" && -x "$RUNTIME_PYTHON" ]]' in source
+    assert "RUNTIME_PYTHON_SHA" in source
+    assert "sys.prefix != expected" in source
+    assert "sys.base_prefix == sys.prefix" in source
+    assert "RUNTIME_COMMITTED=false" in source
+    assert "RUNTIME_COMMITTED=true" in source
+    assert "RUNTIME_NEXT" not in source
+    assert "BUILD_VENV" not in source
+    assert "AUDIT_RUNTIME_PACKAGE_INSTALL=true" in source
+    assert "SYSTEM_PACKAGE_INSTALL=false" in source
     assert "/usr/local/sbin/hermes-deals-lidl-v631-c3-readonly" in source
     assert "/etc/sudoers.d/hermes-deals-lidl-v631-c3-readonly" in source
-    assert "PRIVATE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly-private'" in source
-    assert "EVIDENCE_ROOT='/var/lib/hermes-deals/lidl-v631-c3-readonly'" in source
-    assert "install -d -o root -g root -m 0700 \"$PRIVATE_ROOT\"" in source
-    assert "install -d -o root -g root -m 0755 \"$EVIDENCE_ROOT\"" in source
     assert "RUNNER_HAS_DOCKER_GROUP=false" in source
     assert "systemctl is-active" in source
     assert "systemctl enable" not in source
     assert "systemctl restart" not in source
+    assert "apt install" not in source
+    assert "apt-get install" not in source
+    assert "docker exec" not in source
+    assert "docker run" not in source
     assert "apply_lidl_v631" not in source
     assert "production_database_write=true" not in source.casefold()
 

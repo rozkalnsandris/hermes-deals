@@ -36,8 +36,11 @@ jobs:
           EXPECTED_C3_BLOB: c31df993e94707ffa35b82c4976f4b79e1154add
           EXPECTED_CORE_BLOB: 65273e99a855e3ea26c65329745c5101d4d2d742
           EXPECTED_PLANNER_BLOB: 5c183c4459275c99c7d0f9d66a7a5c425384a5be
-          EXPECTED_DISPATCHER_BLOB: de26a292d727a89f9ad2b701a543897b6f87224b
-          EXPECTED_INSTALLER_BLOB: a5c1fdc09ba70ca1d009f0e983a5ab16a187c679
+          EXPECTED_DISPATCHER_BLOB: 6e43d68a51ed1e6efaad3b55632c17de173ec99c
+          EXPECTED_INSTALLER_BLOB: eac776d7b8d6ac2001d0e7c26f59f3d597d9c0b2
+          EXPECTED_LOCK_BLOB: d6a64564901ce38dd4a790d44ead89be917f1b21
+          EXPECTED_MANIFEST_BLOB: bb0e40363afeb89a176b95bc3b9314dbef075a5d
+          EXPECTED_VERIFIER_BLOB: 5c7c8d5e32ef84308b688213224b2528d99378e0
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -74,6 +77,9 @@ jobs:
             'backend/app/lidl_v631_semantic_persistence.py':os.environ['EXPECTED_PLANNER_BLOB'],
             'tools/runner/lidl-v631-c3-readonly-dispatcher.sh':os.environ['EXPECTED_DISPATCHER_BLOB'],
             'tools/runner/install-lidl-v631-c3-readonly-dispatcher.sh':os.environ['EXPECTED_INSTALLER_BLOB'],
+            'backend/locks/runtime-py311.txt':os.environ['EXPECTED_LOCK_BLOB'],
+            'backend/locks/manifest.json':os.environ['EXPECTED_MANIFEST_BLOB'],
+            'scripts/verify-python-lock-environment.py':os.environ['EXPECTED_VERIFIER_BLOB'],
           }
           for path, expected in paths.items():
               encoded=urllib.parse.quote(path,safe='/')
@@ -148,6 +154,9 @@ jobs:
               if s.get('expected_first_apply_delta')!={'source_snapshots':1,'offer_candidates':1}: raise SystemExit('expected first-apply delta mismatch')
               if not re.fullmatch(r'[0-9a-f]{64}',pf) or not re.fullmatch(r'[0-9a-f]{64}',payload): raise SystemExit('fingerprint invalid')
               if s.get('transaction_rolled_back') is not True: raise SystemExit('rollback proof missing')
+              for key in ('runtime_lock_sha256','runtime_inventory_sha256','runtime_python_sha256'):
+                  if not re.fullmatch(r'[0-9a-f]{64}',str(s.get(key) or '')): raise SystemExit(f'invalid {key}')
+              if s.get('runtime_python_version')!='3.11': raise SystemExit('runtime Python version mismatch')
           else:
               if pf or payload: raise SystemExit('BLOCKED result must not expose plan fingerprints')
           out=Path(os.environ['GITHUB_OUTPUT'])
