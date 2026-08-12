@@ -152,5 +152,12 @@
     "line": 1,
     "commit": "4008c6e332ef089f26174f9dfe7d557fcd7b0b10",
     "reason": "Base64 encoding of the exact immutable reviewed Lidl semantic-row evidence extracted under #620; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_620_full_semantic_row_landliebe.json.b64",
+    "line": 1,
+    "commit": "76b002665690bd44bd2e39bb0e96d6c014e91541",
+    "reason": "Same exact immutable reviewed Lidl semantic-row evidence after squash merge #622; not authentication material."
   }
 ]
