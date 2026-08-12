@@ -74,7 +74,7 @@
     "file": "tools/runner/install-netto-missing-normal-price-rpi5-audit.sh",
     "line": 167,
     "commit": "150a95a72a423201195df567184a98acec4d52be",
-    "reason": "Same sudoers NOPASSWD syntax in squash-merge commit #438; not a password assignment or credential."
+    "reason": "Same sudoers NOPASSWD command-alias syntax in squash-merge commit #438; not a password assignment or credential."
   },
   {
     "rule_id": "generic-api-key",
