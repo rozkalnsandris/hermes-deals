@@ -109,18 +109,59 @@ def install_runtime(monkeypatch, module, tmp_path: Path):
 
 
 def result_payload(module, decision="NO_CANDIDATE_IN_DESIGNATED_ROOTS"):
+    if decision == "AMBIGUOUS_PLAUSIBLE_RECOVERY_CANDIDATES":
+        identities = ["1" * 64, "2" * 64]
+        authoritative_complete = False
+        next_step = "bind_and_resolve_distinct_historical_identities"
+    elif decision == "PLAUSIBLE_RECOVERY_CANDIDATE_FOUND":
+        identities = ["1" * 64]
+        authoritative_complete = False
+        next_step = "bind_candidate_to_independent_historical_provenance"
+    elif decision == "READY_FOR_IRRECOVERABLE_DECISION":
+        identities = []
+        authoritative_complete = True
+        next_step = "record_separate_owner_reviewed_irrecoverable_decision"
+    else:
+        identities = []
+        authoritative_complete = False
+        next_step = "authorize_additional_explicit_backup_inputs_or_mark_source_set_complete"
+
+    source_rows = [
+        {
+            "input_id": "backup-1",
+            "input_kind": "root",
+            "kind": "archive",
+            "source": f"safe-{index}.tar.gz",
+            "identity_sha256": identity,
+            "provenance_status": "unbound_requires_gate_d4_binding",
+            "root_id": "backup-1",
+        }
+        for index, identity in enumerate(identities)
+    ]
     payload = {
         "schema_version": 1,
         "mode": "ALDI_GATE_D4_BOUNDED_BACKUP_DISCOVERY",
         "issue_number": 631,
+        "request_schema_version": 1,
         "decision": decision,
+        "authoritative_source_set_complete": authoritative_complete,
+        "designated_root_count": 1,
+        "designated_file_count": 0,
+        "designated_input_count": 1,
+        "complete_recovery_source_count": len(source_rows),
+        "distinct_complete_identity_count": len(identities),
+        "root_reports": [{"root_id": "backup-1", "archives": [{"path": "safe/file.tar.gz"}]}],
+        "file_reports": [],
+        "plausible_recovery_sources": source_rows,
+        "complete_identities": identities,
         "provenance_binding_complete": False,
         "historical_recovery_authorized": False,
         "irrecoverable_decision_recorded": False,
-        "root_reports": [{"root_id": "backup-1", "archives": [{"path": "safe/file.tar.gz"}]}],
-        "plausible_recovery_sources": [],
+        "next_step": next_step,
         "safety": {
+            "explicit_inputs_only": True,
             "explicit_roots_only": True,
+            "exact_file_allowlist_enabled": False,
             "raw_page_bytes_exported": False,
             "network_acquisition_authorized": False,
             "archive_extraction_authorized": False,
