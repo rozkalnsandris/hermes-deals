@@ -41,7 +41,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Overall:** **72.0%** `██████████████░░░░░░` — weighted project completion
 
-**Weighted roadmap progress during 09.08.2026:** **+0.0 percentage points** **(72.0% → 72.0%)**
+**Weighted roadmap progress during 12.08.2026:** **+0.0 percentage points** **(72.0% → 72.0%)**
 
 **Store catalogues**
 - **Netto:** **78.6%** `████████░░`
@@ -51,20 +51,18 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **54/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **152 total** · **24 during the previous day** (09.08.2026)
+**Development activity:** **Issues fixed:** **185 total** · **6 during the previous day** (12.08.2026)
 
 <details>
-<summary>Show 24 issues fixed on 09.08.2026</summary>
+<summary>Show 6 issues fixed on 12.08.2026</summary>
 
-[#439](https://github.com/rozkalnsandris/hermes-deals/issues/439) · [#443](https://github.com/rozkalnsandris/hermes-deals/issues/443) · [#448](https://github.com/rozkalnsandris/hermes-deals/issues/448) · [#451](https://github.com/rozkalnsandris/hermes-deals/issues/451) · [#454](https://github.com/rozkalnsandris/hermes-deals/issues/454) · [#459](https://github.com/rozkalnsandris/hermes-deals/issues/459) · [#462](https://github.com/rozkalnsandris/hermes-deals/issues/462) · [#469](https://github.com/rozkalnsandris/hermes-deals/issues/469)
-[#470](https://github.com/rozkalnsandris/hermes-deals/issues/470) · [#473](https://github.com/rozkalnsandris/hermes-deals/issues/473) · [#474](https://github.com/rozkalnsandris/hermes-deals/issues/474) · [#477](https://github.com/rozkalnsandris/hermes-deals/issues/477) · [#478](https://github.com/rozkalnsandris/hermes-deals/issues/478) · [#480](https://github.com/rozkalnsandris/hermes-deals/issues/480) · [#483](https://github.com/rozkalnsandris/hermes-deals/issues/483) · [#486](https://github.com/rozkalnsandris/hermes-deals/issues/486)
-[#491](https://github.com/rozkalnsandris/hermes-deals/issues/491) · [#493](https://github.com/rozkalnsandris/hermes-deals/issues/493) · [#495](https://github.com/rozkalnsandris/hermes-deals/issues/495) · [#497](https://github.com/rozkalnsandris/hermes-deals/issues/497) · [#499](https://github.com/rozkalnsandris/hermes-deals/issues/499) · [#501](https://github.com/rozkalnsandris/hermes-deals/issues/501) · [#503](https://github.com/rozkalnsandris/hermes-deals/issues/503) · [#507](https://github.com/rozkalnsandris/hermes-deals/issues/507)
+[#290](https://github.com/rozkalnsandris/hermes-deals/issues/290) · [#578](https://github.com/rozkalnsandris/hermes-deals/issues/578) · [#580](https://github.com/rozkalnsandris/hermes-deals/issues/580) · [#617](https://github.com/rozkalnsandris/hermes-deals/issues/617) · [#620](https://github.com/rozkalnsandris/hermes-deals/issues/620) · [#623](https://github.com/rozkalnsandris/hermes-deals/issues/623)
 
 </details>
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 10.08.2026 07:42 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 13.08.2026 07:47 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
