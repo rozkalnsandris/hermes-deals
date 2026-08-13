@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sys
 
+from sqlalchemy.exc import SQLAlchemyError
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND = REPO_ROOT / "backend"
@@ -79,8 +81,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         finally:
             db.close()
-    except (LidlC3ReadonlyPreflightError, LidlSemanticPersistenceError) as exc:
-        print(f"BLOCKED: {exc}", file=sys.stderr)
+    except (LidlC3ReadonlyPreflightError, LidlSemanticPersistenceError):
+        print("BLOCKED_CODE=domain_validation", file=sys.stderr)
+        return 30
+    except SQLAlchemyError:
+        print("BLOCKED_CODE=database_read_error", file=sys.stderr)
+        return 30
+    except Exception:
+        print("BLOCKED_CODE=unexpected_internal_error", file=sys.stderr)
         return 30
 
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
