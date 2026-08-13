@@ -33,6 +33,54 @@ ALLOWED_DECISIONS = {
     "PLAUSIBLE_RECOVERY_CANDIDATE_FOUND",
     "AMBIGUOUS_PLAUSIBLE_RECOVERY_CANDIDATES",
 }
+RESULT_FIELDS = {
+    "schema_version",
+    "mode",
+    "issue_number",
+    "request_schema_version",
+    "decision",
+    "authoritative_source_set_complete",
+    "designated_root_count",
+    "designated_file_count",
+    "designated_input_count",
+    "complete_recovery_source_count",
+    "distinct_complete_identity_count",
+    "root_reports",
+    "file_reports",
+    "plausible_recovery_sources",
+    "complete_identities",
+    "provenance_binding_complete",
+    "historical_recovery_authorized",
+    "irrecoverable_decision_recorded",
+    "next_step",
+    "safety",
+    "diagnostic_fingerprint",
+}
+RESULT_SAFETY_FIELDS = {
+    "explicit_inputs_only",
+    "explicit_roots_only",
+    "exact_file_allowlist_enabled",
+    "raw_page_bytes_exported",
+    "network_acquisition_authorized",
+    "archive_extraction_authorized",
+    "source_or_corpus_mutation_authorized",
+    "manifest_regeneration_authorized",
+    "parser_execution_authorized",
+    "candidate_creation_authorized",
+    "review_or_publication_write_authorized",
+    "production_database_write_authorized",
+    "production_deployment_authorized",
+    "scheduler_systemd_canary_authorized",
+    "destructive_cleanup_authorized",
+    "newer_41_plus_41_substitution_authorized",
+    "strict_49_plus_41_frozen_contract_unchanged",
+}
+RESULT_NEXT_STEPS = {
+    "NO_CANDIDATE_IN_DESIGNATED_ROOTS": "authorize_additional_explicit_backup_inputs_or_mark_source_set_complete",
+    "READY_FOR_IRRECOVERABLE_DECISION": "record_separate_owner_reviewed_irrecoverable_decision",
+    "PLAUSIBLE_RECOVERY_CANDIDATE_FOUND": "bind_candidate_to_independent_historical_provenance",
+    "AMBIGUOUS_PLAUSIBLE_RECOVERY_CANDIDATES": "bind_and_resolve_distinct_historical_identities",
+}
 AUTHORITY_FLAGS = (
     "raw_evidence_export_authorized",
     "raw_exception_export_authorized",
@@ -90,6 +138,10 @@ def require(condition: bool, message: str) -> None:
 
 def is_hex(value: Any, length: int) -> bool:
     return isinstance(value, str) and len(value) == length and all(ch in "0123456789abcdef" for ch in value)
+
+
+def nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def sha_file(path: Path) -> str:
@@ -222,25 +274,90 @@ def canonical_bytes(value: Any) -> bytes:
 
 
 def validate_result(payload: dict[str, Any]) -> None:
+    require(set(payload) == RESULT_FIELDS, "result field set mismatch")
     require(payload.get("schema_version") == 1, "result schema mismatch")
     require(payload.get("mode") == "ALDI_GATE_D4_BOUNDED_BACKUP_DISCOVERY", "result mode mismatch")
     require(payload.get("issue_number") == 631, "result issue mismatch")
+    request_schema = payload.get("request_schema_version")
+    require(request_schema in {1, 2}, "request schema mismatch")
     require(payload.get("decision") in ALLOWED_DECISIONS, "result decision mismatch")
+
+    authoritative_complete = payload.get("authoritative_source_set_complete")
+    require(isinstance(authoritative_complete, bool), "authoritative completeness invalid")
+    for field in (
+        "designated_root_count",
+        "designated_file_count",
+        "designated_input_count",
+        "complete_recovery_source_count",
+        "distinct_complete_identity_count",
+    ):
+        require(nonnegative_int(payload.get(field)), f"{field} invalid")
+
+    root_count = payload["designated_root_count"]
+    file_count = payload["designated_file_count"]
+    input_count = payload["designated_input_count"]
+    source_count = payload["complete_recovery_source_count"]
+    identity_count = payload["distinct_complete_identity_count"]
+    require(input_count == root_count + file_count and input_count > 0, "designated input count mismatch")
+    if request_schema == 1:
+        require(file_count == 0, "v1 result cannot contain exact-file inputs")
+
+    root_reports = payload.get("root_reports")
+    file_reports = payload.get("file_reports")
+    source_rows = payload.get("plausible_recovery_sources")
+    identities = payload.get("complete_identities")
+    require(isinstance(root_reports, list) and len(root_reports) == root_count, "root report count mismatch")
+    require(isinstance(file_reports, list) and len(file_reports) == file_count, "file report count mismatch")
+    require(isinstance(source_rows, list) and len(source_rows) == source_count, "source count mismatch")
+    require(isinstance(identities, list) and len(identities) == identity_count, "identity count mismatch")
+    require(
+        all(is_hex(identity, 64) for identity in identities) and identities == sorted(set(identities)),
+        "complete identities invalid",
+    )
+
+    source_identities: list[str] = []
+    for row in source_rows:
+        require(isinstance(row, dict), "recovery source row invalid")
+        identity = row.get("identity_sha256")
+        require(is_hex(identity, 64), "recovery source identity invalid")
+        source_identities.append(identity)
+    require(sorted(set(source_identities)) == identities, "recovery source identities mismatch")
+
+    if identity_count > 1:
+        expected_decision = "AMBIGUOUS_PLAUSIBLE_RECOVERY_CANDIDATES"
+    elif identity_count == 1:
+        expected_decision = "PLAUSIBLE_RECOVERY_CANDIDATE_FOUND"
+    elif authoritative_complete:
+        expected_decision = "READY_FOR_IRRECOVERABLE_DECISION"
+    else:
+        expected_decision = "NO_CANDIDATE_IN_DESIGNATED_ROOTS"
+    require(payload.get("decision") == expected_decision, "decision/count semantics mismatch")
+    require(payload.get("next_step") == RESULT_NEXT_STEPS[expected_decision], "next-step semantics mismatch")
+
     require(payload.get("provenance_binding_complete") is False, "provenance binding drift")
     require(payload.get("historical_recovery_authorized") is False, "historical recovery authority drift")
     require(payload.get("irrecoverable_decision_recorded") is False, "irrecoverable decision drift")
+
+    safety = payload.get("safety")
+    require(isinstance(safety, dict) and set(safety) == RESULT_SAFETY_FIELDS, "result safety schema mismatch")
+    require(safety.get("explicit_inputs_only") is True, "explicit-inputs safety missing")
+    require(safety.get("explicit_roots_only") is (file_count == 0), "explicit-roots safety mismatch")
+    require(safety.get("exact_file_allowlist_enabled") is (file_count > 0), "exact-file safety mismatch")
+    require(safety.get("strict_49_plus_41_frozen_contract_unchanged") is True, "frozen contract drift")
+    for key, value in safety.items():
+        if key not in {
+            "explicit_inputs_only",
+            "explicit_roots_only",
+            "exact_file_allowlist_enabled",
+            "strict_49_plus_41_frozen_contract_unchanged",
+        }:
+            require(value is False, f"unsafe result flag: {key}")
+
     fingerprint = payload.get("diagnostic_fingerprint")
     require(is_hex(fingerprint, 64), "fingerprint missing")
     fingerprint_source = dict(payload)
     fingerprint_source.pop("diagnostic_fingerprint", None)
     require(hashlib.sha256(canonical_bytes(fingerprint_source)).hexdigest() == fingerprint, "fingerprint mismatch")
-    safety = payload.get("safety")
-    require(isinstance(safety, dict), "result safety missing")
-    require(safety.get("explicit_roots_only") is True, "explicit-roots safety missing")
-    require(safety.get("strict_49_plus_41_frozen_contract_unchanged") is True, "frozen contract drift")
-    for key, value in safety.items():
-        if key not in {"explicit_roots_only", "strict_49_plus_41_frozen_contract_unchanged"}:
-            require(value is False, f"unsafe result flag: {key}")
     validate_relative_values(payload)
 
 
