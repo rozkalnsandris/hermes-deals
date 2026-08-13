@@ -33,11 +33,11 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
     for marker in (
         "if not pr.get('merged') or not pr.get('merged_at')",
         "registration merge is not reachable from current main",
-        "c31df993e94707ffa35b82c4976f4b79e1154add",
+        "1975cab5cb8d9c27104eb10b85ec7018659bfe2c",
         "69bc685ca5792079fdda1e73c09af94dfc28e29c",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
-        "6e43d68a51ed1e6efaad3b55632c17de173ec99c",
-        "d31d34fe7a7c7a223c72406482f9539a2d0ac446",
+        "40583d1f37b2b50007f024820c1b457869ae621e",
+        "94e18cd9979ce4ad789330187a5228dd42684fc9",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -73,7 +73,8 @@ def test_dispatcher_uses_root_owned_pinned_runtime_and_stays_read_only() -> None
     assert "--expected-head \"$CURRENT_SHA\"" in source
     assert "--corpus-root \"$CORPUS_ROOT\"" in source
     assert "merge-base --is-ancestor \"$registered_merge_sha\" \"$CURRENT_SHA\"" in source
-    assert "[[ \"$RC\" -eq 0 || \"$RC\" -eq 30 ]]" in source
+    assert "REASON_CODE='unexpected_runner_exit'" in source
+    assert "RC=30" in source
     assert "production_baseline_before') != report.get('production_baseline_after" in source
     assert "'transaction_read_only':'on'" in source
     assert "'transaction_isolation':'repeatable read'" in source
@@ -106,13 +107,31 @@ def test_dispatcher_uses_root_owned_pinned_runtime_and_stays_read_only() -> None
 def test_dispatcher_emits_sanitized_blocked_evidence_before_runtime_or_db_access() -> None:
     source = _text(DISPATCHER)
     assert "write_blocked_summary()" in source
+    assert "sanitize_reason_code()" in source
     assert "'result':'BLOCKED'" in source
     assert "'reason':'preflight_blocked'" in source
-    assert "write_blocked_summary\n  exit 30" in source
+    assert "'reason_code':reason_code" in source
+    assert "write_blocked_summary dispatcher_preflight_blocked\n  exit 30" in source
     blocked_definition = source.index("write_blocked_summary()")
     runtime_check = source.index("pinned C3 audit runtime missing or unsafe")
     docker_check = source.index("expected exactly one running hermes-deals production db container")
     assert blocked_definition < runtime_check < docker_check
+
+
+def test_dispatcher_sanitizes_child_failure_without_copying_private_log() -> None:
+    source = _text(DISPATCHER)
+    for code in (
+        "domain_validation",
+        "database_read_error",
+        "unexpected_internal_error",
+        "unexpected_runner_exit",
+    ):
+        assert code in source
+    assert "BLOCKED_CODE=(domain_validation|database_read_error|unexpected_internal_error)" in source
+    assert "REASON_CODE=\"${BLOCKED_CODES[0]#BLOCKED_CODE=}\"" in source
+    assert "summary['reason_code']=reason_code" in source
+    assert "summary['traceback']" not in source
+    assert "summary['run_log']" not in source
 
 
 def test_dispatcher_private_material_is_root_owned_and_sanitized_output_is_fixed() -> None:
@@ -162,6 +181,16 @@ def test_workflow_reads_only_fixed_sanitized_evidence_path() -> None:
     assert "runtime_python_sha256" in source
     assert "runtime_python_version" in source
     assert "runtime Python version mismatch" in source
+    assert "BLOCKED reason code invalid" in source
+    assert "PASS result must not expose blocked reason code" in source
+    for code in (
+        "dispatcher_preflight_blocked",
+        "domain_validation",
+        "database_read_error",
+        "unexpected_internal_error",
+        "unexpected_runner_exit",
+    ):
+        assert code in source
 
 
 def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() -> None:
@@ -170,10 +199,10 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert "audit clone is not clean main" in source
     assert 'merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_SHA"' in source
     assert "current audit main blob identity drift" in source
-    assert "EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'" in source
+    assert "EXPECTED_C3_BLOB='1975cab5cb8d9c27104eb10b85ec7018659bfe2c'" in source
     assert "EXPECTED_CORE_BLOB='69bc685ca5792079fdda1e73c09af94dfc28e29c'" in source
     assert "EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'" in source
-    assert "EXPECTED_DISPATCHER_BLOB='6e43d68a51ed1e6efaad3b55632c17de173ec99c'" in source
+    assert "EXPECTED_DISPATCHER_BLOB='40583d1f37b2b50007f024820c1b457869ae621e'" in source
     assert "EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'" in source
     assert "EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'" in source
     assert "EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'" in source
