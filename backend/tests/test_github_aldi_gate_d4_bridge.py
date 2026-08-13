@@ -17,12 +17,8 @@ MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
-RUNTIME_PR = 646
-RUNTIME_SHA = "8b9b7e66c754cb7f8a82d4d67503d59fd2ff000e"
-EXACT_COMMAND = f"/hermes-aldi gate-d4 pr={RUNTIME_PR}"
 
-
-def valid_event(body: str = EXACT_COMMAND) -> dict:
+def valid_event(body: str = "/hermes-aldi gate-d4 pr=637") -> dict:
     return {
         "sender": {"login": "rozkalnsandris", "id": 277435981},
         "issue": {"number": 631},
@@ -31,33 +27,33 @@ def valid_event(body: str = EXACT_COMMAND) -> dict:
 
 
 def fake_github(url: str, _token: str):
-    if url.endswith(f"/pulls/{RUNTIME_PR}"):
+    if url.endswith("/pulls/637"):
         return {
             "merged": True,
-            "merged_at": "2026-08-13T20:25:02Z",
-            "merge_commit_sha": RUNTIME_SHA,
+            "merged_at": "2026-08-12T21:56:07Z",
+            "merge_commit_sha": "c53665477a91a8b2b69cc5b63810c091c3072b8e",
             "base": {"ref": "main", "repo": {"full_name": "rozkalnsandris/hermes-deals"}},
         }
-    if f"/compare/{RUNTIME_SHA}...main" in url:
+    if "/compare/c53665477a91a8b2b69cc5b63810c091c3072b8e...main" in url:
         return {"status": "ahead"}
     raise AssertionError(f"unexpected URL: {url}")
 
 
 def test_exact_gate_d4_command_parses() -> None:
-    command = MODULE.parse_comment(EXACT_COMMAND)
+    command = MODULE.parse_comment("/hermes-aldi gate-d4 pr=637")
     assert command.operation == "aldi-gate-d4"
-    assert command.pr_number == RUNTIME_PR
+    assert command.pr_number == 637
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        EXACT_COMMAND + "\necho pwned",
-        EXACT_COMMAND + " extra=1",
-        "/hermes-aldi gate-d4 pr=637",
+        "/hermes-aldi gate-d4 pr=637\necho pwned",
+        "/hermes-aldi gate-d4 pr=637 extra=1",
+        "/hermes-aldi gate-d4 pr=636",
         "/hermes-aldi gate-d4 pr=0",
-        f"/hermes-aldi gate-d3 pr={RUNTIME_PR}",
-        f"/hermes-aldi deploy pr={RUNTIME_PR}",
+        "/hermes-aldi gate-d3 pr=637",
+        "/hermes-aldi deploy pr=637",
     ],
 )
 def test_parser_rejects_non_allowlisted_or_injected_commands(body: str) -> None:
@@ -71,8 +67,8 @@ def test_authorization_binds_owner_issue_runtime_pr_and_exact_sha() -> None:
     )
     assert result == {
         "operation": "aldi-gate-d4",
-        "pr_number": str(RUNTIME_PR),
-        "sha": RUNTIME_SHA,
+        "pr_number": "637",
+        "sha": "c53665477a91a8b2b69cc5b63810c091c3072b8e",
         "issue_number": "631",
         "comment_id": "5274000000",
         "trigger_actor": "rozkalnsandris",
@@ -108,14 +104,14 @@ def test_authorization_rejects_other_issue_pr_comment_or_wrong_repository() -> N
 
 def test_authorization_rejects_unmerged_drifted_or_unreachable_runtime() -> None:
     def unmerged(url: str, _token: str):
-        assert url.endswith(f"/pulls/{RUNTIME_PR}")
+        assert url.endswith("/pulls/637")
         return {"merged": False, "merged_at": None}
 
     with pytest.raises(MODULE.BridgeAuthorizationError, match="not merged"):
         MODULE.authorize_event(valid_event(), repository="rozkalnsandris/hermes-deals", token="test", get_json=unmerged)
 
     def drift(url: str, token: str):
-        if url.endswith(f"/pulls/{RUNTIME_PR}"):
+        if url.endswith("/pulls/637"):
             payload = fake_github(url, token)
             payload["merge_commit_sha"] = "0" * 40
             return payload
@@ -125,7 +121,7 @@ def test_authorization_rejects_unmerged_drifted_or_unreachable_runtime() -> None
         MODULE.authorize_event(valid_event(), repository="rozkalnsandris/hermes-deals", token="test", get_json=drift)
 
     def diverged(url: str, token: str):
-        if url.endswith(f"/pulls/{RUNTIME_PR}"):
+        if url.endswith("/pulls/637"):
             return fake_github(url, token)
         return {"status": "diverged"}
 
@@ -145,7 +141,7 @@ def test_workflow_is_exact_owner_issue_comment_and_self_hosted_job_has_no_checko
     assert "github.event.issue.number == 631" in text
     assert "github.actor == 'rozkalnsandris'" in text
     assert "github.event.comment.author_association == 'OWNER'" in text
-    assert f"github.event.comment.body == '{EXACT_COMMAND}'" in text
+    assert "github.event.comment.body == '/hermes-aldi gate-d4 pr=637'" in text
     assert "python tools/github_aldi_gate_d4_bridge.py" in text
     assert "permissions: {}" in text
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" in text
@@ -156,7 +152,7 @@ def test_workflow_is_exact_owner_issue_comment_and_self_hosted_job_has_no_checko
     audit_steps = audit_job["steps"]
     assert all("actions/checkout@" not in str(step) for step in audit_steps)
     assert "sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-gate-d4-backup-discovery" in text
-    assert RUNTIME_SHA not in text
+    assert "c53665477a91a8b2b69cc5b63810c091c3072b8e" not in text
 
     for forbidden in (
         "workflow_dispatch:",
@@ -177,17 +173,13 @@ def test_workflow_is_exact_owner_issue_comment_and_self_hosted_job_has_no_checko
         assert forbidden not in text
 
 
-def test_workflow_accepts_only_pinned_request_and_v2_sanitized_capability_flags() -> None:
+def test_workflow_never_accepts_backup_roots_from_comment_or_event() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert EXACT_COMMAND + " roots=" not in text
-    assert EXACT_COMMAND + " root=" not in text
-    assert EXACT_COMMAND + " files=" not in text
+    assert "/hermes-aldi gate-d4 pr=637 roots=" not in text
+    assert "/hermes-aldi gate-d4 pr=637 root=" not in text
     assert "github.event.comment.body |" not in text
-    assert EXACT_COMMAND in text
-    assert "explicit_inputs_only" in text
-    assert "exact_file_allowlist_enabled" in text
-    assert "designated_file_count" in text
-    assert "designated_input_count" in text
+    assert "github.event.comment.body" in text
+    assert "/hermes-aldi gate-d4 pr=637" in text
     for safety in (
         "raw_request_exported",
         "network_acquisition_authorized",
@@ -208,5 +200,5 @@ def test_authorizer_has_no_shell_execution_surface_and_is_exactly_bound() -> Non
     assert 'EXPECTED_REPOSITORY = "rozkalnsandris/hermes-deals"' in text
     assert "EXPECTED_OWNER_ID = 277435981" in text
     assert "EXPECTED_ISSUE_NUMBER = 631" in text
-    assert f"EXPECTED_RUNTIME_PR = {RUNTIME_PR}" in text
-    assert f'EXPECTED_RUNTIME_SHA = "{RUNTIME_SHA}"' in text
+    assert "EXPECTED_RUNTIME_PR = 637" in text
+    assert 'EXPECTED_RUNTIME_SHA = "c53665477a91a8b2b69cc5b63810c091c3072b8e"' in text
