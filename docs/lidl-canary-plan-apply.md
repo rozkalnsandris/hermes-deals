@@ -1,53 +1,72 @@
-# Lidl one-row canary: PLAN → APPLY → DONE
+# Lidl canary lifecycle: PLAN → APPLY → DONE
 
-This is the operator workflow for a reviewed Lidl V6.3.1 one-row production canary.
+The Lidl V6.3.1 one-row production canary is a **first-write validation gate**, not a workflow to repeat for every reviewed row.
 
-The safety checks remain strict, but C0/C1/C2/C3 are not separate operator ceremonies once the exact reviewed source/receipt/semantic row already exists. They are validation concerns inside PLAN.
+The first successful canary proved the persistence contract. Future rollout work should reuse the existing persistence core and move to a separately planned bounded rollout/batch gate instead of recreating C0/C1/C2/C3/C4 for another single row.
+
+## Canonical persistence contract
+
+No additional canary framework or wrapper is required.
+
+The canonical implementation already lives in `backend/app/lidl_v631_semantic_persistence.py`:
+
+- `build_lidl_v631_semantic_persistence_plan(...)` is the PLAN primitive;
+- `apply_lidl_v631_semantic_persistence_plan(...)` is the APPLY primitive.
+
+Both primitives are already input-driven. They receive the reviewed receipt bytes, exact semantic row, row-binding SHA-256 and frozen source binding as arguments rather than depending on a product-specific canary identity.
+
+The existing tests in `backend/tests/test_lidl_v631_semantic_persistence.py` remain the authoritative contract tests.
 
 ## 1. PLAN
 
-PLAN is one read-only operation.
+PLAN is one read-only validation boundary.
 
 It must:
 
-- bind the exact current Git commit and clean source state;
-- bind the reviewed receipt, semantic row and frozen source hashes;
-- use PostgreSQL `REPEATABLE READ, READ ONLY`;
+- bind one exact independently reviewed row and its frozen source evidence;
 - compute deterministic SourceSnapshot and OfferCandidate identities;
-- detect exact-key conflicts or an already-identical no-op;
-- emit plan and payload fingerprints;
-- emit the exact APPLY authorization payload;
-- require expected replay delta `0/0`;
+- detect an exact create, identical no-op or conflict;
+- produce deterministic payload and plan fingerprints;
+- report expected first-apply and replay deltas;
 - perform no production DB, Review, corpus, publication, deploy, source-replacement, systemd or scheduler write.
 
-A blocked/conflicting PLAN cannot be authorized for APPLY.
+For a production preflight, the caller must additionally enforce the production transaction as read-only and bind the current source/runtime state. Those are execution-environment guards around the PLAN primitive, not separate operator stages.
+
+A blocked/conflicting plan cannot proceed to APPLY.
 
 ## 2. APPLY
 
-APPLY is a separate explicit owner authorization for one exact PLAN fingerprint.
+APPLY is one separate explicit owner authorization for the exact reviewed row and exact PLAN fingerprint.
 
-The existing reviewed semantic persistence primitive remains authoritative for database mutation. It:
+The canonical APPLY primitive:
 
-- accepts only the exact one-row authorization contract;
-- permits at most one SourceSnapshot and one OfferCandidate write;
-- uses deterministic identities and the existing uniqueness contract;
+- accepts only the exact authorization scope and stable bindings;
+- rejects permission widening;
+- permits at most one SourceSnapshot and one OfferCandidate for a one-row canary;
+- preserves deterministic identities and the existing uniqueness constraint;
 - requires the post-write plan to become `NO_OP_IDENTICAL` before commit;
 - rolls back on an exception before successful commit;
-- accepts a pre-existing identical canary as a zero-write no-op;
+- treats an already-identical row as a zero-write no-op;
 - keeps Review, publication, deploy, corpus/source replacement, systemd and scheduler authority false.
-
-The reusable CLI verifies observed total-row deltas against the apply result after commit.
 
 ## 3. DONE
 
-`APPLY_PASS` or `APPLY_NO_OP_IDENTICAL` with zero replay writes is terminal for the canary.
+A first canary APPLY that reports the expected exact writes and zero-write identical replay is terminal for that canary.
 
-There is no mandatory C5/post-C4 verification ceremony. A new diagnostic/read-only audit is justified only if APPLY reports a mismatch, a later incident creates a concrete reason to re-check, or the owner explicitly requests an audit.
+There is **no mandatory C5/post-C4 verification stage** and no reason to repeat a new C0→C4 chain for the next reviewed row merely because another row is ready.
 
-Production deploy is a separate decision and is never implied by a canary DB write.
+A new read-only diagnostic is justified only when:
+
+- APPLY reports a mismatch or fails after commit;
+- a later incident creates a concrete reason to re-check the persisted row; or
+- the owner explicitly asks for a fresh audit.
+
+After the first canary has passed, the next engineering decision is the size and acceptance criteria of a separately authorized bounded rollout/batch gate. That rollout must have its own read-only plan and explicit write authorization, but it should not recreate the first-canary ceremony.
+
+Production deploy remains a separate decision and is never implied by a database canary or later batch write.
 
 ## Runtime policy
 
-Do not rebuild an unchanged audit Python environment merely because Git `main` advanced. Reusable audit runtime identity should be tied to the reviewed Python identity and dependency lock SHA; source execution remains independently bound to the exact Git SHA.
+Do not rebuild an unchanged audit Python environment merely because Git `main` advanced. Runtime identity should be tied to the reviewed Python identity and dependency-lock SHA, while source execution is independently bound to the exact Git SHA.
 
-Do not duplicate credentials, provenance and source validation across one-off operator shell scripts. The long-term interface is the repo-owned PLAN/APPLY entrypoint and the reviewed persistence primitive.
+Do not duplicate credentials, provenance checks or persistence logic across large one-off operator shell scripts. Reuse the canonical persistence core and keep execution-environment guards small and purpose-specific.
