@@ -15,7 +15,7 @@ The canonical implementation already lives in `backend/app/lidl_v631_semantic_pe
 
 Both primitives are already input-driven. They receive the reviewed receipt bytes, exact semantic row, row-binding SHA-256 and frozen source binding as arguments rather than depending on a product-specific canary identity.
 
-The existing tests in `backend/tests/test_lidl_v631_semantic_persistence.py` remain the authoritative contract tests. They cover exact reviewed bindings, conflict detection, read-only planning behavior, first apply `1/1`, identical replay `0/0` and permission-widening rejection.
+The existing tests in `backend/tests/test_lidl_v631_semantic_persistence.py` remain the authoritative persistence contract tests. They cover exact reviewed bindings, conflict detection, planner no-write behavior, first apply `1/1`, identical replay `0/0` and permission-widening rejection.
 
 ## 1. PLAN
 
@@ -30,7 +30,7 @@ It must:
 - report expected first-apply and replay deltas;
 - perform no production DB, Review, corpus, publication, deploy, source-replacement, systemd or scheduler write.
 
-For a production preflight, the caller must additionally enforce the production transaction as read-only and bind the current source/runtime state. Those are execution-environment guards around the PLAN primitive, not separate operator stages.
+The persistence planner itself performs no writes. For a production preflight, the caller must additionally enforce the database transaction as read-only and bind the current source/runtime state. Those are execution-environment guards around the PLAN primitive, not separate operator stages.
 
 A blocked/conflicting plan cannot proceed to APPLY.
 
