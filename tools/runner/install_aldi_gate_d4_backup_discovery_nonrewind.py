@@ -19,13 +19,13 @@ AUDIT_USER = "andris"
 AUDIT_HOME = "/home/andris"
 RUNNER_USER = "github-runner"
 AUDIT = "aldi-gate-d4-backup-discovery"
-EXPECTED_TARGET_SHA = "c53665477a91a8b2b69cc5b63810c091c3072b8e"
+EXPECTED_TARGET_SHA = "8b9b7e66c754cb7f8a82d4d67503d59fd2ff000e"
 D4_PATH = "tools/aldi_gate_d4_backup_discovery.py"
 D3_PATH = "tools/aldi_gate_d3_recovery_inventory.py"
 DISPATCHER_PATH = "tools/runner/aldi_gate_d4_backup_discovery_dispatch.py"
-EXPECTED_D4_BLOB = "90b4dcfc2b5d2c0062a7b66db6208e9fc5824989"
+EXPECTED_D4_BLOB = "f8ec4abb3f0c416335144f0f18e8a7c323353f4a"
 EXPECTED_D3_BLOB = "4c4432baa048011ac9dfd427d8e2a0d0b4cfd2a7"
-EXPECTED_DISPATCHER_BLOB = "dd3dd3945ba45c51dff1b34b2a282ca03db0090f"
+EXPECTED_DISPATCHER_BLOB = "2e7f8dd4f5b0dece36403072b6dfa6dab3aadd35"
 EXPECTED_D3_SHA256 = "606976346177b3a6a2965c6aab536f249f2097c41e08e76f3704990fe0473cb8"
 AUDITS_ROOT = Path("/usr/local/libexec/hermes-deals-audits")
 INSTALL_ROOT = AUDITS_ROOT / AUDIT
@@ -34,8 +34,8 @@ CONFIG_DST = Path("/etc/hermes-deals-audits.d/aldi-gate-d4-backup-discovery.json
 REQUEST_DST = Path("/etc/hermes-deals-audits.d/aldi-gate-d4-backup-discovery-request.json")
 SUDOERS_DST = Path("/etc/sudoers.d/hermes-deals-aldi-gate-d4-backup-discovery")
 RUNNER_SERVICE = "actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service"
-ROOT_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
-MAX_ROOTS = 8
+INPUT_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+MAX_INPUTS = 8
 FORBIDDEN_BROAD_ROOTS = {"/", "/home", "/home/andris"}
 EXHAUSTED_D3_ROOT = "/home/andris/.local/state/hermes-deals/aldi-perfect-shadow"
 AUTHORITY_FLAGS = (
@@ -157,43 +157,91 @@ def regular_root_file(path: Path, mode: int) -> bool:
     )
 
 
-def _canonical_root_string(value: Any) -> str:
-    require(isinstance(value, str) and value.startswith("/"), "backup root must be absolute")
+def _canonical_absolute_string(value: Any, *, kind: str) -> str:
+    require(isinstance(value, str) and value.startswith("/"), f"backup {kind} must be absolute")
     path = PurePosixPath(value)
-    require(".." not in path.parts, "backup root must not contain parent traversal")
+    require(".." not in path.parts, f"backup {kind} must not contain parent traversal")
     normalized = str(path)
-    require(normalized == value, "backup root path must be canonical")
+    require(normalized == value, f"backup {kind} path must be canonical")
+    return normalized
+
+
+def _canonical_root_string(value: Any) -> str:
+    normalized = _canonical_absolute_string(value, kind="root")
     require(normalized not in FORBIDDEN_BROAD_ROOTS, "backup root is too broad")
     require(normalized != EXHAUSTED_D3_ROOT, "Gate D3 state root was already covered")
     return normalized
 
 
-def validate_request_payload(payload: Mapping[str, Any]) -> None:
+def _canonical_file_string(value: Any) -> str:
+    normalized = _canonical_absolute_string(value, kind="file")
     require(
-        set(payload) == {"schema_version", "issue_number", "authoritative_source_set_complete", "roots"},
-        "request fields mismatch",
+        normalized.endswith(".tar.gz") or normalized.endswith(".tgz"),
+        "backup file must be a supported archive",
     )
-    require(payload.get("schema_version") == 1, "request schema mismatch")
+    exhausted = PurePosixPath(EXHAUSTED_D3_ROOT)
+    path = PurePosixPath(normalized)
+    require(path != exhausted and exhausted not in path.parents, "Gate D3 state root was already covered")
+    return normalized
+
+
+def _validate_input_id(raw_id: Any, ids: set[str]) -> str:
+    require(isinstance(raw_id, str) and INPUT_ID_RE.fullmatch(raw_id) is not None, "request input id invalid")
+    require(raw_id not in ids, "duplicate request input id")
+    ids.add(raw_id)
+    return raw_id
+
+
+def validate_request_payload(payload: Mapping[str, Any]) -> None:
+    schema = payload.get("schema_version")
+    require(schema in {1, 2}, "request schema mismatch")
+    if schema == 1:
+        require(
+            set(payload) == {"schema_version", "issue_number", "authoritative_source_set_complete", "roots"},
+            "request fields mismatch",
+        )
+        files: list[Any] = []
+    else:
+        require(
+            set(payload) == {"schema_version", "issue_number", "authoritative_source_set_complete", "roots", "files"},
+            "request fields mismatch",
+        )
+        files = payload.get("files")
+        require(isinstance(files, list), "request files invalid")
+
     require(payload.get("issue_number") == 631, "request issue mismatch")
     require(isinstance(payload.get("authoritative_source_set_complete"), bool), "request completeness flag invalid")
     roots = payload.get("roots")
-    require(isinstance(roots, list) and 1 <= len(roots) <= MAX_ROOTS, "request root count invalid")
+    require(isinstance(roots, list), "request roots invalid")
+    if schema == 1:
+        require(1 <= len(roots) <= MAX_INPUTS, "request root count invalid")
+    else:
+        require(roots or files, "at least one explicit backup input is required")
+        require(len(roots) + len(files) <= MAX_INPUTS, "request input count invalid")
+
     ids: set[str] = set()
-    paths: list[PurePosixPath] = []
+    root_paths: list[PurePosixPath] = []
+    file_paths: set[PurePosixPath] = set()
     for row in roots:
         require(isinstance(row, Mapping) and set(row) == {"id", "path"}, "request root entry invalid")
-        root_id = row.get("id")
-        require(isinstance(root_id, str) and ROOT_ID_RE.fullmatch(root_id) is not None, "request root id invalid")
-        require(root_id not in ids, "duplicate request root id")
+        _validate_input_id(row.get("id"), ids)
         normalized = PurePosixPath(_canonical_root_string(row.get("path")))
-        require(normalized not in paths, "duplicate request root path")
-        for existing in paths:
+        require(normalized not in root_paths, "duplicate request root path")
+        for existing in root_paths:
             require(
                 normalized not in existing.parents and existing not in normalized.parents,
                 "request roots must not overlap",
             )
-        ids.add(root_id)
-        paths.append(normalized)
+        root_paths.append(normalized)
+
+    for row in files:
+        require(isinstance(row, Mapping) and set(row) == {"id", "path"}, "request file entry invalid")
+        _validate_input_id(row.get("id"), ids)
+        normalized = PurePosixPath(_canonical_file_string(row.get("path")))
+        require(normalized not in file_paths, "duplicate request file path")
+        for root in root_paths:
+            require(root not in normalized.parents, "backup file must not be inside a designated root")
+        file_paths.add(normalized)
 
 
 def validate_owner_request() -> str:
