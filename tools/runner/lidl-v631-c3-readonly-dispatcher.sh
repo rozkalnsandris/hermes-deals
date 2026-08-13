@@ -77,19 +77,33 @@ install -d -o root -g root -m 0755 "$DEST"
 cleanup() { rm -rf -- "$STAGING"; }
 trap cleanup EXIT
 
+sanitize_reason_code() {
+  case "${1:-}" in
+    dispatcher_preflight_blocked|domain_validation|database_read_error|unexpected_internal_error|unexpected_runner_exit)
+      printf '%s\n' "$1"
+      ;;
+    *)
+      printf '%s\n' 'unexpected_internal_error'
+      ;;
+  esac
+}
+
 write_blocked_summary() {
+  local reason_code
   local summary="$DEST/summary.json"
+  reason_code="$(sanitize_reason_code "${1:-dispatcher_preflight_blocked}")"
   [[ ! -e "$summary" ]] || return 0
-  python3 - "$summary" "$CURRENT_SHA" <<'PY'
+  python3 - "$summary" "$CURRENT_SHA" "$reason_code" <<'PY'
 import json, sys
 from pathlib import Path
-out=Path(sys.argv[1]); sha=sys.argv[2]
+out=Path(sys.argv[1]); sha=sys.argv[2]; reason_code=sys.argv[3]
 summary={
   'schema_version':1,
   'audit':'lidl-v631-c3-readonly',
   'commit_sha':sha,
   'result':'BLOCKED',
   'reason':'preflight_blocked',
+  'reason_code':reason_code,
   'safety':{
     'production_database_write':False,
     'review_write':False,
@@ -112,7 +126,7 @@ PY
 
 blocked() {
   printf 'BLOCKED: %s\n' "$*" >&2
-  write_blocked_summary
+  write_blocked_summary dispatcher_preflight_blocked
   exit 30
 }
 
@@ -247,7 +261,19 @@ runuser -u andris -- env HOME=/home/andris PATH=/usr/local/bin:/usr/bin:/bin PYT
 RC=$?
 set -e
 unset DATABASE_URL
-[[ "$RC" -eq 0 || "$RC" -eq 30 ]] || fail "unexpected C3 runner exit code: $RC"
+
+REASON_CODE=''
+if [[ "$RC" -eq 30 ]]; then
+  mapfile -t BLOCKED_CODES < <(grep -E '^BLOCKED_CODE=(domain_validation|database_read_error|unexpected_internal_error)$' "$RUN_LOG" || true)
+  if [[ ${#BLOCKED_CODES[@]} -eq 1 ]]; then
+    REASON_CODE="${BLOCKED_CODES[0]#BLOCKED_CODE=}"
+  else
+    REASON_CODE='unexpected_internal_error'
+  fi
+elif [[ "$RC" -ne 0 ]]; then
+  REASON_CODE='unexpected_runner_exit'
+  RC=30
+fi
 
 CORPUS_AFTER="$(corpus_tree)"
 [[ "$CORPUS_AFTER" == "$CORPUS_BEFORE" ]] || fail 'authoritative corpus changed during C3 read-only preflight'
@@ -260,17 +286,21 @@ CORPUS_AFTER="$(corpus_tree)"
 
 SUMMARY="$DEST/summary.json"
 [[ ! -e "$SUMMARY" ]] || fail 'sanitized summary already exists'
-python3 - "$RUN_LOG" "$SUMMARY" "$CURRENT_SHA" "$RC" "$CORPUS_BEFORE" "$runtime_lock_sha256" "$runtime_inventory_sha256" "$runtime_python_sha256" "$RUNTIME_PYTHON_VERSION" <<'PY'
+python3 - "$RUN_LOG" "$SUMMARY" "$CURRENT_SHA" "$RC" "$REASON_CODE" "$CORPUS_BEFORE" "$runtime_lock_sha256" "$runtime_inventory_sha256" "$runtime_python_sha256" "$RUNTIME_PYTHON_VERSION" <<'PY'
 import json, re, sys
 from pathlib import Path
-log, out, sha, rc, corpus, lock_sha, inventory_sha, python_sha, python_version = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], sys.argv[7], sys.argv[8], sys.argv[9]
+log, out, sha, rc, reason_code, corpus, lock_sha, inventory_sha, python_sha, python_version = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], sys.argv[7], sys.argv[8], sys.argv[9], sys.argv[10]
+allowed_reason_codes={'domain_validation','database_read_error','unexpected_internal_error','unexpected_runner_exit'}
 summary={
  'schema_version':1,'audit':'lidl-v631-c3-readonly','commit_sha':sha,
  'result':'BLOCKED' if rc==30 else 'PASS','reason':'runner_failed_closed' if rc==30 else 'validated_read_only_write_plan',
  'corpus_tree_sha256':corpus,'runtime_lock_sha256':lock_sha,'runtime_inventory_sha256':inventory_sha,'runtime_python_sha256':python_sha,'runtime_python_version':python_version,
  'safety':{'production_database_write':False,'review_write':False,'production_publish':False,'production_deploy':False,'corpus_write':False,'source_replacement':False,'systemd_change':False,'scheduler_change':False,'docker_exec':False,'container_create':False,'package_install':False}
 }
-if rc==0:
+if rc==30:
+    if reason_code not in allowed_reason_codes: raise SystemExit('sanitized BLOCKED reason code invalid')
+    summary['reason_code']=reason_code
+else:
     lines=log.read_text(encoding='utf-8', errors='replace').splitlines()
     report=None
     for line in lines:

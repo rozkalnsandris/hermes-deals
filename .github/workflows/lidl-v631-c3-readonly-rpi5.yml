@@ -33,11 +33,11 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: '277435981'
-          EXPECTED_C3_BLOB: c31df993e94707ffa35b82c4976f4b79e1154add
+          EXPECTED_C3_BLOB: 1975cab5cb8d9c27104eb10b85ec7018659bfe2c
           EXPECTED_CORE_BLOB: 69bc685ca5792079fdda1e73c09af94dfc28e29c
           EXPECTED_PLANNER_BLOB: 5c183c4459275c99c7d0f9d66a7a5c425384a5be
-          EXPECTED_DISPATCHER_BLOB: 6e43d68a51ed1e6efaad3b55632c17de173ec99c
-          EXPECTED_INSTALLER_BLOB: d31d34fe7a7c7a223c72406482f9539a2d0ac446
+          EXPECTED_DISPATCHER_BLOB: 40583d1f37b2b50007f024820c1b457869ae621e
+          EXPECTED_INSTALLER_BLOB: 94e18cd9979ce4ad789330187a5228dd42684fc9
           EXPECTED_LOCK_BLOB: d6a64564901ce38dd4a790d44ead89be917f1b21
           EXPECTED_MANIFEST_BLOB: bb0e40363afeb89a176b95bc3b9314dbef075a5d
           EXPECTED_VERIFIER_BLOB: 5c7c8d5e32ef84308b688213224b2528d99378e0
@@ -157,7 +157,10 @@ jobs:
               for key in ('runtime_lock_sha256','runtime_inventory_sha256','runtime_python_sha256'):
                   if not re.fullmatch(r'[0-9a-f]{64}',str(s.get(key) or '')): raise SystemExit(f'invalid {key}')
               if s.get('runtime_python_version')!='3.11': raise SystemExit('runtime Python version mismatch')
+              if 'reason_code' in s: raise SystemExit('PASS result must not expose blocked reason code')
           else:
+              allowed={'dispatcher_preflight_blocked','domain_validation','database_read_error','unexpected_internal_error','unexpected_runner_exit'}
+              if s.get('reason_code') not in allowed: raise SystemExit('BLOCKED reason code invalid')
               if pf or payload: raise SystemExit('BLOCKED result must not expose plan fingerprints')
           out=Path(os.environ['GITHUB_OUTPUT'])
           with out.open('a',encoding='utf-8') as f:
