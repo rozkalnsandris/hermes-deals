@@ -88,6 +88,8 @@ def load_semantic_row(path: Path) -> dict[str, Any]:
     import base64
 
     encoded = _regular_file(path, label="reviewed semantic row").read_bytes()
+    if encoded.endswith(b"\n"):
+        encoded = encoded[:-1]
     try:
         raw = base64.b64decode(encoded, validate=True)
     except ValueError as exc:
