@@ -15,7 +15,7 @@ The canonical implementation already lives in `backend/app/lidl_v631_semantic_pe
 
 Both primitives are already input-driven. They receive the reviewed receipt bytes, exact semantic row, row-binding SHA-256 and frozen source binding as arguments rather than depending on a product-specific canary identity.
 
-The existing tests in `backend/tests/test_lidl_v631_semantic_persistence.py` remain the authoritative contract tests.
+The existing tests in `backend/tests/test_lidl_v631_semantic_persistence.py` remain the authoritative contract tests. They cover exact reviewed bindings, conflict detection, read-only planning behavior, first apply `1/1`, identical replay `0/0` and permission-widening rejection.
 
 ## 1. PLAN
 
