@@ -34,10 +34,10 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
         "if not pr.get('merged') or not pr.get('merged_at')",
         "registration merge is not reachable from current main",
         "c31df993e94707ffa35b82c4976f4b79e1154add",
-        "65273e99a855e3ea26c65329745c5101d4d2d742",
+        "69bc685ca5792079fdda1e73c09af94dfc28e29c",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
         "6e43d68a51ed1e6efaad3b55632c17de173ec99c",
-        "e374ffae2c66e4bc1cb4d9c0969d5738e8a60252",
+        "d31d34fe7a7c7a223c72406482f9539a2d0ac446",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -171,7 +171,7 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert 'merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_SHA"' in source
     assert "current audit main blob identity drift" in source
     assert "EXPECTED_C3_BLOB='c31df993e94707ffa35b82c4976f4b79e1154add'" in source
-    assert "EXPECTED_CORE_BLOB='65273e99a855e3ea26c65329745c5101d4d2d742'" in source
+    assert "EXPECTED_CORE_BLOB='69bc685ca5792079fdda1e73c09af94dfc28e29c'" in source
     assert "EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'" in source
     assert "EXPECTED_DISPATCHER_BLOB='6e43d68a51ed1e6efaad3b55632c17de173ec99c'" in source
     assert "EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'" in source
