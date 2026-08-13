@@ -223,35 +223,79 @@ CORPUS_BEFORE="$(corpus_tree)"
 [[ "$CORPUS_BEFORE" =~ ^[0-9a-f]{64}$ ]] || fail 'corpus baseline digest invalid'
 
 mapfile -t DB_IDS < <(docker ps --filter 'label=com.docker.compose.project=hermes-deals' --filter 'label=com.docker.compose.service=db' --format '{{.ID}}')
+mapfile -t API_IDS < <(docker ps --filter 'label=com.docker.compose.project=hermes-deals' --filter 'label=com.docker.compose.service=api' --format '{{.ID}}')
 [[ ${#DB_IDS[@]} -eq 1 ]] || blocked 'expected exactly one running hermes-deals production db container'
+[[ ${#API_IDS[@]} -eq 1 ]] || blocked 'expected exactly one running hermes-deals production api container'
 DB_ID="${DB_IDS[0]}"
-INSPECT="$STAGING/db-inspect.json"
-[[ ! -e "$INSPECT" ]] || fail 'private inspect path already exists'
-docker inspect "$DB_ID" > "$INSPECT"
-chmod 0600 "$INSPECT"
-[[ "$(stat -c '%U:%G:%a' "$INSPECT")" == root:root:600 ]] || fail 'private inspect metadata mismatch'
+API_ID="${API_IDS[0]}"
+DB_INSPECT="$STAGING/db-inspect.json"
+API_INSPECT="$STAGING/api-inspect.json"
+[[ ! -e "$DB_INSPECT" && ! -e "$API_INSPECT" ]] || fail 'private inspect path already exists'
+docker inspect "$DB_ID" > "$DB_INSPECT"
+docker inspect "$API_ID" > "$API_INSPECT"
+chmod 0600 "$DB_INSPECT" "$API_INSPECT"
+[[ "$(stat -c '%U:%G:%a' "$DB_INSPECT")" == root:root:600 ]] || fail 'private db inspect metadata mismatch'
+[[ "$(stat -c '%U:%G:%a' "$API_INSPECT")" == root:root:600 ]] || fail 'private api inspect metadata mismatch'
 
-DATABASE_URL="$(python3 - "$INSPECT" <<'PY'
-import json, sys
-from urllib.parse import quote
-obj=json.load(open(sys.argv[1], encoding='utf-8'))[0]
-state=obj.get('State') or {}; health=state.get('Health') or {}
-if state.get('Running') is not True or health.get('Status') != 'healthy': raise SystemExit('db container is not running+healthy')
-if str((obj.get('Config') or {}).get('Image') or '') != 'postgres:18.4-bookworm': raise SystemExit('db image identity mismatch')
+DATABASE_URL="$(python3 - "$DB_INSPECT" "$API_INSPECT" <<'PY'
+import ipaddress
+import json
+import sys
+from urllib.parse import urlsplit
+
+db=json.load(open(sys.argv[1], encoding='utf-8'))[0]
+api=json.load(open(sys.argv[2], encoding='utf-8'))[0]
+
+def require_healthy(obj, label):
+    state=obj.get('State') or {}
+    health=state.get('Health') or {}
+    if state.get('Running') is not True or health.get('Status') != 'healthy':
+        raise SystemExit(f'{label} container is not running+healthy')
+
+require_healthy(db, 'db')
+require_healthy(api, 'api')
+if str((db.get('Config') or {}).get('Image') or '') != 'postgres:18.4-bookworm':
+    raise SystemExit('db image identity mismatch')
+if not str((api.get('Config') or {}).get('Image') or '').startswith('hermes-deals-api:'):
+    raise SystemExit('api image identity mismatch')
+
+db_networks=(db.get('NetworkSettings') or {}).get('Networks') or {}
+api_networks=(api.get('NetworkSettings') or {}).get('Networks') or {}
+db_internal=[(k, str(v.get('IPAddress') or '')) for k,v in db_networks.items() if k.endswith('_internal') and v.get('IPAddress')]
+api_internal=[k for k,v in api_networks.items() if k.endswith('_internal') and v.get('IPAddress')]
+if len(db_internal) != 1 or len(api_internal) != 1 or db_internal[0][0] != api_internal[0]:
+    raise SystemExit('production internal network identity mismatch')
+db_ip=db_internal[0][1]
+try:
+    if ipaddress.ip_address(db_ip).version != 4:
+        raise ValueError
+except ValueError:
+    raise SystemExit('production db internal IP is invalid')
+
 env={}
-for row in (obj.get('Config') or {}).get('Env') or []:
+for row in (api.get('Config') or {}).get('Env') or []:
     if '=' in row:
-        k,v=row.split('=',1); env[k]=v
-for key in ('POSTGRES_USER','POSTGRES_PASSWORD','POSTGRES_DB'):
-    if not env.get(key): raise SystemExit(f'missing {key}')
-networks=(obj.get('NetworkSettings') or {}).get('Networks') or {}
-ips=[str(v.get('IPAddress') or '') for k,v in networks.items() if k.endswith('_internal') and v.get('IPAddress')]
-if len(ips) != 1: raise SystemExit('production db internal network identity is ambiguous')
-print('postgresql+psycopg://%s:%s@%s:5432/%s' % (quote(env['POSTGRES_USER'],safe=''),quote(env['POSTGRES_PASSWORD'],safe=''),ips[0],quote(env['POSTGRES_DB'],safe='')))
+        k,v=row.split('=',1)
+        env[k]=v
+runtime_url=str(env.get('DATABASE_URL') or '')
+parts=urlsplit(runtime_url)
+if parts.scheme != 'postgresql+psycopg' or parts.hostname != 'db' or parts.port != 5432:
+    raise SystemExit('api runtime DATABASE_URL target mismatch')
+if not parts.username or parts.password is None or not parts.path or parts.path == '/':
+    raise SystemExit('api runtime DATABASE_URL credentials/database missing')
+if parts.fragment:
+    raise SystemExit('api runtime DATABASE_URL fragment is not allowed')
+try:
+    userinfo, target = runtime_url.rsplit('@', 1)
+except ValueError as exc:
+    raise SystemExit('api runtime DATABASE_URL authority invalid') from exc
+if not target.startswith('db:5432/'):
+    raise SystemExit('api runtime DATABASE_URL authority mismatch')
+print(userinfo + '@' + db_ip + ':5432/' + target[len('db:5432/'):])
 PY
-)" || blocked 'could not derive production DB read-only connection target'
+)" || blocked 'could not derive production DB read-only connection from healthy API runtime'
 [[ "$DATABASE_URL" == postgresql+psycopg://* ]] || fail 'derived DATABASE_URL shape invalid'
-rm -f -- "$INSPECT"
+rm -f -- "$DB_INSPECT" "$API_INSPECT"
 
 RUN_LOG="$STAGING/c3.log"
 [[ ! -e "$RUN_LOG" ]] || fail 'private C3 log path already exists'

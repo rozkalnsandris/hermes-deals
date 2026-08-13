@@ -36,8 +36,8 @@ def test_c3_authorizer_binds_registration_current_main_and_runtime_blobs() -> No
         "1975cab5cb8d9c27104eb10b85ec7018659bfe2c",
         "69bc685ca5792079fdda1e73c09af94dfc28e29c",
         "5c183c4459275c99c7d0f9d66a7a5c425384a5be",
-        "40583d1f37b2b50007f024820c1b457869ae621e",
-        "94e18cd9979ce4ad789330187a5228dd42684fc9",
+        "6e7187dd8bda79843c7fe56df63269c8f2bf7b36",
+        "73c16820b12d79496802e166a03bac13b434bfcb",
         "d6a64564901ce38dd4a790d44ead89be917f1b21",
         "bb0e40363afeb89a176b95bc3b9314dbef075a5d",
         "5c7c8d5e32ef84308b688213224b2528d99378e0",
@@ -67,6 +67,7 @@ def test_dispatcher_uses_root_owned_pinned_runtime_and_stays_read_only() -> None
     assert "docker ps" in source
     assert "docker inspect" in source
     assert "postgres:18.4-bookworm" in source
+    assert "com.docker.compose.service=api" in source
     assert "DATABASE_URL=\"$DATABASE_URL\"" in source
     assert "PYTHONDONTWRITEBYTECODE=1" in source
     assert "lidl_v631_c3_readonly_preflight.py" in source
@@ -102,6 +103,24 @@ def test_dispatcher_uses_root_owned_pinned_runtime_and_stays_read_only() -> None
     )
     for token in forbidden:
         assert token not in source
+
+
+def test_dispatcher_uses_healthy_api_runtime_database_url_not_init_password() -> None:
+    source = _text(DISPATCHER)
+    assert "expected exactly one running hermes-deals production api container" in source
+    assert "API_INSPECT=\"$STAGING/api-inspect.json\"" in source
+    assert "def require_healthy(obj, label):" in source
+    assert "container is not running+healthy" in source
+    assert "require_healthy(db, 'db')" in source
+    assert "require_healthy(api, 'api')" in source
+    assert "hermes-deals-api:" in source
+    assert "api runtime DATABASE_URL target mismatch" in source
+    assert "api runtime DATABASE_URL credentials/database missing" in source
+    assert "production internal network identity mismatch" in source
+    assert "could not derive production DB read-only connection from healthy API runtime" in source
+    assert "POSTGRES_PASSWORD" not in source
+    assert "POSTGRES_USER" not in source
+    assert "POSTGRES_DB" not in source
 
 
 def test_dispatcher_emits_sanitized_blocked_evidence_before_runtime_or_db_access() -> None:
@@ -141,10 +160,12 @@ def test_dispatcher_private_material_is_root_owned_and_sanitized_output_is_fixed
     assert "root:root:700" in source
     assert "root:root:755" in source
     assert "db-inspect.json" in source
-    assert "root:root:600" in source
+    assert "api-inspect.json" in source
+    assert "private db inspect metadata mismatch" in source
+    assert "private api inspect metadata mismatch" in source
     assert "chown root:root \"$SUMMARY\"" in source
     assert "chmod 0644 \"$SUMMARY\"" in source
-    assert "POSTGRES_PASSWORD" in source
+    assert "POSTGRES_PASSWORD" not in source
     assert "summary.update" in source
     summary_block = source[source.index("summary={", source.index("SUMMARY=\"$DEST/summary.json\"")) :]
     assert "DATABASE_URL" not in summary_block
@@ -202,7 +223,7 @@ def test_installer_provisions_only_hash_pinned_audit_runtime_and_registration() 
     assert "EXPECTED_C3_BLOB='1975cab5cb8d9c27104eb10b85ec7018659bfe2c'" in source
     assert "EXPECTED_CORE_BLOB='69bc685ca5792079fdda1e73c09af94dfc28e29c'" in source
     assert "EXPECTED_PLANNER_BLOB='5c183c4459275c99c7d0f9d66a7a5c425384a5be'" in source
-    assert "EXPECTED_DISPATCHER_BLOB='40583d1f37b2b50007f024820c1b457869ae621e'" in source
+    assert "EXPECTED_DISPATCHER_BLOB='6e7187dd8bda79843c7fe56df63269c8f2bf7b36'" in source
     assert "EXPECTED_LOCK_BLOB='d6a64564901ce38dd4a790d44ead89be917f1b21'" in source
     assert "EXPECTED_MANIFEST_BLOB='bb0e40363afeb89a176b95bc3b9314dbef075a5d'" in source
     assert "EXPECTED_VERIFIER_BLOB='5c7c8d5e32ef84308b688213224b2528d99378e0'" in source
