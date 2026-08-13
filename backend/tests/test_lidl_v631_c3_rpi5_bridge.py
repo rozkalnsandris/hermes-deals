@@ -109,7 +109,10 @@ def test_dispatcher_uses_healthy_api_runtime_database_url_not_init_password() ->
     source = _text(DISPATCHER)
     assert "expected exactly one running hermes-deals production api container" in source
     assert "API_INSPECT=\"$STAGING/api-inspect.json\"" in source
-    assert "api container is not running+healthy" in source
+    assert "def require_healthy(obj, label):" in source
+    assert "container is not running+healthy" in source
+    assert "require_healthy(db, 'db')" in source
+    assert "require_healthy(api, 'api')" in source
     assert "hermes-deals-api:" in source
     assert "api runtime DATABASE_URL target mismatch" in source
     assert "api runtime DATABASE_URL credentials/database missing" in source
