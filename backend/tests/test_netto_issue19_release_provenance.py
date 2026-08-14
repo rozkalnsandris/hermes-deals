@@ -57,6 +57,9 @@ def _snapshot(
         snapshot_path=str(path),
         sha256=sha256(path.read_bytes()).hexdigest(),
         collected_at=collected_at,
+        content_type=(
+            "application/vnd.hermes-deals.netto-store-prospect+json"
+        ),
     )
 
 
