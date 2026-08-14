@@ -127,11 +127,57 @@ class Netto19ProductionReadonlyVerifierContractTest(unittest.TestCase):
         self.assertIn("table_digest(db, 'offer_review_revisions')", text)
         self.assertNotIn("table_digest(db, 'review_items')", text)
 
+    def test_daily_ui_contract_reads_active_hashed_w4_bundle(self) -> None:
+        original = MODULE.http_text
+        calls: list[str] = []
+        html = '<html><script type="module" src="/ui/assets/index.abcdEFGH1234.js"></script></html>'
+        script = (
+            'payload.source_contract!=="explicit_immutable_retailer_evidence_only";'
+            'deal.special_confidence==="high";'
+            'countEl.textContent=String(rows.length);'
+        )
+        responses = {
+            '/ui': html,
+            '/ui/assets/index.abcdEFGH1234.js': script,
+        }
+
+        def fake_http_text(path: str) -> str:
+            calls.append(path)
+            return responses[path]
+
+        MODULE.http_text = fake_http_text
+        try:
+            MODULE.validate_daily_ui_contract()
+        finally:
+            MODULE.http_text = original
+
+        self.assertEqual(calls, ['/ui', '/ui/assets/index.abcdEFGH1234.js'])
+
+    def test_daily_ui_script_resolution_is_fail_closed_and_keeps_legacy_rollback_compatible(self) -> None:
+        legacy = '<script src="/ui/app.js"></script>'
+        self.assertEqual(MODULE.daily_ui_script_path(legacy), '/ui/app.js')
+
+        mixed = (
+            '<script src="/ui/app.js"></script>'
+            '<script type="module" src="/ui/assets/index.abcdefgh1234.js"></script>'
+        )
+        with self.assertRaises(MODULE.VerifyError):
+            MODULE.daily_ui_script_path(mixed)
+
+        ambiguous = (
+            '<script type="module" src="/ui/assets/index.abcdefgh1234.js"></script>'
+            '<script type="module" src="/ui/assets/vendor.ijklmnop5678.js"></script>'
+        )
+        with self.assertRaises(MODULE.VerifyError):
+            MODULE.daily_ui_script_path(ambiguous)
+
     def test_daily_and_weekly_ui_count_contracts_are_explicit(self) -> None:
         text = VERIFIER.read_text(encoding='utf-8')
-        self.assertIn("http_text('/ui/app.js')", text)
+        self.assertIn("html = http_text('/ui')", text)
+        self.assertIn('HASHED_UI_JS_SRC_RE', text)
         self.assertIn('countEl.textContent=String(rows.length)', text)
         self.assertIn('deal.special_confidence===\"high\"', text)
+        self.assertIn('payload.source_contract!==\"explicit_immutable_retailer_evidence_only\"', text)
         self.assertIn('/api/v1/deals/weekly-specials/ui?week_start=', text)
         self.assertIn("ui.get('ui_contract') == WEEKLY_UI_CONTRACT", text)
         self.assertIn("'daily_ui_count_contract': 'PASS'", text)
