@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,7 +32,7 @@ class Netto19ProductionReadonlyVerifierContractTest(unittest.TestCase):
         self.assertNotIn('actions/checkout', text)
         self.assertNotIn('pull_request_target:', text)
 
-    def test_verifier_contains_no_mutating_runtime_operations(self) -> None:
+    def test_verifier_contains_no_mutating_runtime_operations_and_forces_read_only_db_sessions(self) -> None:
         text = VERIFIER.read_text(encoding='utf-8').lower()
         forbidden = (
             ' compose up ', 'docker build', 'docker restart', 'docker stop',
@@ -42,6 +43,7 @@ class Netto19ProductionReadonlyVerifierContractTest(unittest.TestCase):
         for token in forbidden:
             with self.subTest(token=token):
                 self.assertNotIn(token, text)
+        self.assertIn('default_transaction_read_only=on', text)
         self.assertIn("'deployment_performed': false", text)
         self.assertIn("'database_write_performed': false", text)
         self.assertIn("'review_write_performed': false", text)
@@ -82,23 +84,65 @@ class Netto19ProductionReadonlyVerifierContractTest(unittest.TestCase):
             'source_contract': MODULE.DAILY_CONTRACT,
             'retailer_counts': {'netto': 1},
             'deals': [{
+                'offer_candidate_id': '00000000-0000-0000-0000-000000000099',
                 'source_chain': 'netto', 'source_store_external_id': '5659',
                 'source_snapshot_id': snap.id, 'source_snapshot_sha256': snap.sha256,
                 'special_valid_on': '2026-08-06', 'is_daily_special': True,
-                'shadow_only': True,
+                'special_confidence': 'high', 'shadow_only': True,
             }],
         }
         rows = MODULE.validate_daily_payload(payload, day=date(2026, 8, 6), selected=snap)
         self.assertEqual(len(rows), 1)
+        self.assertEqual(len(MODULE.daily_ui_high_confidence_ids(date(2026, 8, 6), rows)), 1)
         empty = {
             'as_of': '2026-08-20', 'timezone': 'Europe/Berlin',
             'source_contract': MODULE.DAILY_CONTRACT, 'retailer_counts': {}, 'deals': [],
         }
         self.assertEqual(MODULE.validate_daily_payload(empty, day=date(2026, 8, 20), selected=None), [])
 
-    def test_installer_requires_detached_exact_main_source_and_narrow_sudo(self) -> None:
+    def test_container_raw_snapshot_path_is_mapped_to_bounded_host_raw_root(self) -> None:
+        original = MODULE.HOST_RAW_ROOT
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'data' / 'raw'
+            root.mkdir(parents=True)
+            manifest = root / 'netto' / 'manifest.json'
+            manifest.parent.mkdir()
+            manifest.write_text('{}', encoding='utf-8')
+            MODULE.HOST_RAW_ROOT = root
+            try:
+                self.assertEqual(
+                    MODULE.host_snapshot_path('/data/raw/netto/manifest.json'),
+                    manifest.resolve(),
+                )
+                with self.assertRaises(MODULE.VerifyError):
+                    MODULE.host_snapshot_path('/etc/passwd')
+                with self.assertRaises(MODULE.VerifyError):
+                    MODULE.host_snapshot_path('/data/raw/../escape.json')
+            finally:
+                MODULE.HOST_RAW_ROOT = original
+
+    def test_review_queue_and_revision_tables_are_both_covered_by_digest(self) -> None:
+        text = VERIFIER.read_text(encoding='utf-8')
+        self.assertIn("table_digest(db, 'offer_review_items')", text)
+        self.assertIn("table_digest(db, 'offer_review_revisions')", text)
+        self.assertNotIn("table_digest(db, 'review_items')", text)
+
+    def test_daily_and_weekly_ui_count_contracts_are_explicit(self) -> None:
+        text = VERIFIER.read_text(encoding='utf-8')
+        self.assertIn("http_text('/ui/app.js')", text)
+        self.assertIn('countEl.textContent=String(rows.length)', text)
+        self.assertIn('deal.special_confidence===\"high\"', text)
+        self.assertIn('/api/v1/deals/weekly-specials/ui?week_start=', text)
+        self.assertIn("ui.get('ui_contract') == WEEKLY_UI_CONTRACT", text)
+        self.assertIn("'daily_ui_count_contract': 'PASS'", text)
+        self.assertIn("'weekly_ui_count_contract': 'PASS'", text)
+
+    def test_installer_requires_exact_self_binding_detached_main_source_and_narrow_sudo(self) -> None:
         text = INSTALLER.read_text(encoding='utf-8')
         self.assertIn('netto-19-production-readonly-v1', text)
+        self.assertIn("INSTALLER_SOURCE=\"$(readlink -f -- \"${BASH_SOURCE[0]}\")\"", text)
+        self.assertIn('installer must execute from the reviewed detached source worktree', text)
+        self.assertIn('running installer bytes differ from registered commit', text)
         self.assertIn('source worktree must be detached', text)
         self.assertIn('merge-base --is-ancestor', text)
         self.assertIn('must not belong to the Docker group', text)

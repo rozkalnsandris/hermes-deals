@@ -7,13 +7,15 @@ from datetime import date, datetime, timedelta
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
 from typing import Any
 
 PRIMARY = Path('/home/andris/hermes-deals')
+HOST_RAW_ROOT = PRIMARY / 'data' / 'raw'
+CONTAINER_RAW_ROOT = PurePosixPath('/data/raw')
 OWNER = 'andris'
 OWNER_HOME = '/home/andris'
 RUNNER_USER = 'github-runner'
@@ -24,6 +26,7 @@ REQUIRED_FIX_COMMITS = (
 POLICY_PATH = 'backend/tests/fixtures/netto/n25_title_package_review_policy_v1.json'
 DAILY_CONTRACT = 'explicit_immutable_retailer_evidence_only'
 WEEKLY_CONTRACT = 'single_week_query_short_periods_plus_explicit_immutable_daily_evidence'
+WEEKLY_UI_CONTRACT = 'normalized_unique_deals_by_id_v1'
 SHA40_RE = re.compile(r'[0-9a-f]{40}')
 SHA256_RE = re.compile(r'[0-9a-f]{64}')
 
@@ -107,7 +110,9 @@ def db_identity(db_container: str) -> tuple[str, str]:
 def psql(db_container: str, sql: str) -> str:
     user, name = db_identity(db_container)
     return compose(
-        'exec', '-T', 'db', 'psql',
+        'exec', '-T',
+        '-e', 'PGOPTIONS=-c default_transaction_read_only=on',
+        'db', 'psql',
         '-X', '-v', 'ON_ERROR_STOP=1',
         '-U', user, '-d', name,
         '-Atqc', sql,
@@ -116,7 +121,15 @@ def psql(db_container: str, sql: str) -> str:
 
 
 def table_digest(db_container: str, table: str, where: str = 'TRUE') -> tuple[int, str]:
-    require(table in {'source_snapshots', 'offer_candidates', 'review_items'}, 'unsafe table')
+    require(
+        table in {
+            'source_snapshots',
+            'offer_candidates',
+            'offer_review_items',
+            'offer_review_revisions',
+        },
+        'unsafe table',
+    )
     count = int(psql(db_container, f'SELECT count(*) FROM {table} WHERE {where};'))
     sql = (
         'COPY (SELECT row_to_json(t)::text FROM '
@@ -126,13 +139,16 @@ def table_digest(db_container: str, table: str, where: str = 'TRUE') -> tuple[in
     return count, hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
-def http_json(path: str) -> dict[str, Any]:
-    result = run([
+def http_text(path: str) -> str:
+    return run([
         '/usr/bin/curl', '--fail', '--silent', '--show-error', '--max-time', '20',
         f'http://127.0.0.1:9128{path}',
-    ], timeout=25)
+    ], timeout=25).stdout
+
+
+def http_json(path: str) -> dict[str, Any]:
     try:
-        payload = json.loads(result.stdout)
+        payload = json.loads(http_text(path))
     except json.JSONDecodeError as exc:
         raise VerifyError(f'HTTP JSON invalid for {path}') from exc
     require(isinstance(payload, dict), f'HTTP JSON root invalid for {path}')
@@ -147,6 +163,32 @@ def http_status(path: str) -> int:
     ], timeout=25)
     require(result.stdout.isdigit(), f'HTTP status invalid for {path}')
     return int(result.stdout)
+
+
+def host_snapshot_path(stored_path: str) -> Path:
+    raw = PurePosixPath(stored_path)
+    require(raw.is_absolute(), 'Netto manifest path is not absolute')
+    host_root = HOST_RAW_ROOT.resolve(strict=True)
+    host_prefix = PurePosixPath(str(host_root))
+    try:
+        if raw == CONTAINER_RAW_ROOT or CONTAINER_RAW_ROOT in raw.parents:
+            relative = raw.relative_to(CONTAINER_RAW_ROOT)
+        elif raw == host_prefix or host_prefix in raw.parents:
+            relative = raw.relative_to(host_prefix)
+        else:
+            raise ValueError
+    except ValueError as exc:
+        raise VerifyError('Netto manifest path outside approved raw roots') from exc
+    require(bool(relative.parts), 'Netto manifest path points at raw root')
+    require('..' not in relative.parts, 'Netto manifest path contains traversal')
+    candidate = host_root.joinpath(*relative.parts)
+    require(candidate.is_file() and not candidate.is_symlink(), 'Netto manifest path unavailable')
+    resolved = candidate.resolve(strict=True)
+    try:
+        resolved.relative_to(host_root)
+    except ValueError as exc:
+        raise VerifyError('Netto manifest path escapes host raw root') from exc
+    return resolved
 
 
 @dataclass(frozen=True)
@@ -180,9 +222,8 @@ def parse_snapshot_rows(db_container: str) -> list[Snapshot]:
         if not line.strip():
             continue
         row = json.loads(line)
-        path = Path(str(row['snapshot_path']))
+        path = host_snapshot_path(str(row['snapshot_path']))
         expected = str(row['sha256'])
-        require(path.is_file() and not path.is_symlink(), 'Netto manifest path unavailable')
         require(SHA256_RE.fullmatch(expected) is not None, 'Netto manifest SHA invalid')
         data = path.read_bytes()
         require(hashlib.sha256(data).hexdigest() == expected, 'Netto manifest SHA mismatch')
@@ -234,6 +275,27 @@ def validate_daily_payload(payload: dict[str, Any], *, day: date, selected: Snap
     return netto
 
 
+def daily_ui_high_confidence_ids(day: date, daily_netto: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(row.get('offer_candidate_id'))
+        for row in daily_netto
+        if row.get('special_valid_on') == day.isoformat()
+        and row.get('is_daily_special') is True
+        and row.get('special_confidence') == 'high'
+    }
+
+
+def validate_daily_ui_contract() -> None:
+    script = http_text('/ui/app.js')
+    required = (
+        'payload.source_contract!=="explicit_immutable_retailer_evidence_only"',
+        'deal.special_confidence==="high"',
+        'countEl.textContent=String(rows.length)',
+    )
+    for marker in required:
+        require(marker in script, f'daily UI count contract missing: {marker}')
+
+
 def validate_review_only_policy(production_revision: str) -> None:
     policy = json.loads(owner_git('show', f'{production_revision}:{POLICY_PATH}'))
     require(policy['title_policy']['automatic_selection_enabled'] is False, 'title auto-selection enabled')
@@ -262,7 +324,7 @@ def find_covered_probes(snapshots: list[Snapshot], *, max_windows: int = 4) -> l
             if selected is not None:
                 payload = http_json(f'/api/v1/deals/daily-specials?as_of={day.isoformat()}')
                 netto = validate_daily_payload(payload, day=day, selected=selected)
-                if netto:
+                if daily_ui_high_confidence_ids(day, netto):
                     probes.append((day, selected, netto))
                     break
             day += timedelta(days=1)
@@ -272,7 +334,7 @@ def find_covered_probes(snapshots: list[Snapshot], *, max_windows: int = 4) -> l
     return probes
 
 
-def validate_weekly_probe(day: date, daily_netto: list[dict[str, Any]]) -> int:
+def validate_weekly_probe(day: date, daily_netto: list[dict[str, Any]]) -> tuple[int, int]:
     monday = day - timedelta(days=day.isoweekday() - 1)
     payload = http_json(f'/api/v1/deals/weekly-specials?week_start={monday.isoformat()}')
     require(payload.get('week_start') == monday.isoformat(), 'weekly start mismatch')
@@ -291,13 +353,34 @@ def validate_weekly_probe(day: date, daily_netto: list[dict[str, Any]]) -> int:
         and item.get('source_chain') == 'netto'
         and item.get('is_daily_special') is True
     }
-    daily_high_ids = {
-        str(item.get('offer_candidate_id'))
-        for item in daily_netto
-        if item.get('special_confidence') == 'high'
-    }
+    daily_high_ids = daily_ui_high_confidence_ids(day, daily_netto)
     require(weekly_netto_ids == daily_high_ids, 'daily/weekly high-confidence Netto set mismatch')
-    return len(weekly_netto_ids)
+
+    ui = http_json(f'/api/v1/deals/weekly-specials/ui?week_start={monday.isoformat()}')
+    require(ui.get('week_start') == monday.isoformat(), 'weekly UI start mismatch')
+    require(ui.get('timezone') == 'Europe/Berlin', 'weekly UI timezone mismatch')
+    require(ui.get('source_contract') == WEEKLY_CONTRACT, 'weekly UI source contract mismatch')
+    require(ui.get('ui_contract') == WEEKLY_UI_CONTRACT, 'weekly UI contract mismatch')
+    ui_days = ui.get('days')
+    ui_deals = ui.get('deals')
+    require(isinstance(ui_days, list) and isinstance(ui_deals, list), 'weekly UI payload invalid')
+    require(int(ui.get('count', -1)) == sum(len(item.get('deal_ids') or []) for item in ui_days if isinstance(item, dict)), 'weekly UI total count mismatch')
+    ui_day = next((item for item in ui_days if isinstance(item, dict) and item.get('date') == day.isoformat()), None)
+    require(isinstance(ui_day, dict), 'weekly UI probe day missing')
+    by_id = {
+        str(item.get('offer_candidate_id')): item
+        for item in ui_deals
+        if isinstance(item, dict)
+    }
+    ui_netto_ids = {
+        str(offer_id)
+        for offer_id in ui_day.get('deal_ids') or []
+        if isinstance(by_id.get(str(offer_id)), dict)
+        and by_id[str(offer_id)].get('source_chain') == 'netto'
+        and by_id[str(offer_id)].get('is_daily_special') is True
+    }
+    require(ui_netto_ids == daily_high_ids, 'weekly UI Netto count/set mismatch')
+    return len(weekly_netto_ids), len(ui_netto_ids)
 
 
 def main() -> int:
@@ -335,13 +418,15 @@ def main() -> int:
         owner_git('merge-base', '--is-ancestor', required, production_revision)
 
     validate_review_only_policy(production_revision)
+    require(psql(db, 'SHOW default_transaction_read_only;') == 'on', 'database read-only session enforcement missing')
 
     alembic_before = psql(db, 'SELECT version_num FROM alembic_version;')
     require(bool(alembic_before), 'Alembic revision unavailable')
     db_before = {
         'source_snapshots': table_digest(db, 'source_snapshots', "source_chain='netto'"),
         'offer_candidates': table_digest(db, 'offer_candidates', "source_chain='netto'"),
-        'review_items': table_digest(db, 'review_items'),
+        'offer_review_items': table_digest(db, 'offer_review_items'),
+        'offer_review_revisions': table_digest(db, 'offer_review_revisions'),
     }
 
     health = http_json('/api/health')
@@ -349,10 +434,16 @@ def main() -> int:
     require(health.get('service') == 'hermes-deals-api', 'health service mismatch')
     require(http_status('/ui') == 200, 'UI status not 200')
     require(http_status('/ui/review') in {200, 302}, 'Review UI status unexpected')
+    validate_daily_ui_contract()
 
     snapshots = parse_snapshot_rows(db)
     probes = find_covered_probes(snapshots)
-    weekly_counts = [validate_weekly_probe(day, netto) for day, _, netto in probes]
+    weekly_counts: list[int] = []
+    weekly_ui_counts: list[int] = []
+    for day, _, netto in probes:
+        weekly_count, weekly_ui_count = validate_weekly_probe(day, netto)
+        weekly_counts.append(weekly_count)
+        weekly_ui_counts.append(weekly_ui_count)
     latest_day, latest_snapshot, latest_netto = probes[0]
 
     outside_day = max(snapshot.valid_until for snapshot in snapshots) + timedelta(days=7)
@@ -363,7 +454,8 @@ def main() -> int:
     db_after = {
         'source_snapshots': table_digest(db, 'source_snapshots', "source_chain='netto'"),
         'offer_candidates': table_digest(db, 'offer_candidates', "source_chain='netto'"),
-        'review_items': table_digest(db, 'review_items'),
+        'offer_review_items': table_digest(db, 'offer_review_items'),
+        'offer_review_revisions': table_digest(db, 'offer_review_revisions'),
     }
     require(alembic_after == alembic_before, 'Alembic revision changed during verifier')
     require(db_after == db_before, 'database payload changed during verifier')
@@ -383,12 +475,15 @@ def main() -> int:
         'required_fix_commits_present': True,
         'daily_contract': 'PASS',
         'weekly_contract': 'PASS',
+        'daily_ui_count_contract': 'PASS',
+        'weekly_ui_count_contract': 'PASS',
         'review_only_policy': 'PASS',
         'covered_probe_count': len(probes),
         'latest_covered_probe_date': latest_day.isoformat(),
         'latest_covered_snapshot_id': latest_snapshot.id,
         'latest_covered_snapshot_sha256': latest_snapshot.sha256,
         'latest_covered_netto_count': len(latest_netto),
+        'latest_daily_ui_netto_count': len(daily_ui_high_confidence_ids(latest_day, latest_netto)),
         'historical_covered_probe_present': True,
         'covered_probes': [
             {
@@ -396,9 +491,13 @@ def main() -> int:
                 'snapshot_id': snapshot.id,
                 'snapshot_sha256': snapshot.sha256,
                 'daily_netto_count': len(netto),
+                'daily_ui_high_confidence_netto_count': len(daily_ui_high_confidence_ids(day, netto)),
                 'weekly_high_confidence_netto_count': weekly_count,
+                'weekly_ui_netto_count': weekly_ui_count,
             }
-            for (day, snapshot, netto), weekly_count in zip(probes, weekly_counts, strict=True)
+            for (day, snapshot, netto), weekly_count, weekly_ui_count in zip(
+                probes, weekly_counts, weekly_ui_counts, strict=True
+            )
         ],
         'outside_window_probe_date': outside_day.isoformat(),
         'outside_window_netto_count': 0,

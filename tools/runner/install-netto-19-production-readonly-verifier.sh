@@ -14,6 +14,7 @@ REGISTERED_SHA="$1"
 SOURCE_REPO="$(readlink -f -- "$2")"
 EXPECTED_SOURCE_REPO='/home/andris/hermes-deals-worktrees/netto-19-production-readonly-v1'
 PRIMARY_GIT_COMMON_DIR='/home/andris/hermes-deals/.git'
+INSTALLER_REL='tools/runner/install-netto-19-production-readonly-verifier.sh'
 VERIFIER_REL='tools/runner/netto_19_production_readonly_verify.py'
 RUNTIME_ROOT='/usr/local/libexec/hermes-deals-audits/netto-19-production-readonly-v1'
 VERIFIER_DST="$RUNTIME_ROOT/netto_19_production_readonly_verify.py"
@@ -25,6 +26,9 @@ RUNNER_USER='github-runner'
 
 [[ "$REGISTERED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'registered SHA is invalid'
 [[ "$SOURCE_REPO" == "$EXPECTED_SOURCE_REPO" ]] || fail "source worktree must be $EXPECTED_SOURCE_REPO"
+INSTALLER_SOURCE="$(readlink -f -- "${BASH_SOURCE[0]}")"
+[[ "$INSTALLER_SOURCE" == "$SOURCE_REPO/$INSTALLER_REL" ]] \
+  || fail 'installer must execute from the reviewed detached source worktree'
 
 for command in git grep id install mktemp python3 readlink runuser sha256sum stat sudo tr visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
@@ -63,11 +67,17 @@ git_source -C "$SOURCE_REPO" show-ref --verify --quiet refs/remotes/origin/main 
   || fail 'origin/main unavailable'
 git_source -C "$SOURCE_REPO" merge-base --is-ancestor "$REGISTERED_SHA" refs/remotes/origin/main \
   || fail 'registered SHA is not reachable from origin/main'
-git_source -C "$SOURCE_REPO" ls-files --error-unmatch "$VERIFIER_REL" >/dev/null \
-  || fail 'verifier source is not tracked'
-[[ -f "$SOURCE_REPO/$VERIFIER_REL" && ! -L "$SOURCE_REPO/$VERIFIER_REL" ]] \
-  || fail 'verifier source is missing or unsafe'
+for tracked in "$INSTALLER_REL" "$VERIFIER_REL"; do
+  git_source -C "$SOURCE_REPO" ls-files --error-unmatch "$tracked" >/dev/null \
+    || fail "required source is not tracked: $tracked"
+  [[ -f "$SOURCE_REPO/$tracked" && ! -L "$SOURCE_REPO/$tracked" ]] \
+    || fail "required source is missing or unsafe: $tracked"
+done
 
+INSTALLER_BLOB="$(git_source -C "$SOURCE_REPO" rev-parse "$REGISTERED_SHA:$INSTALLER_REL")"
+[[ "$INSTALLER_BLOB" =~ ^[0-9a-f]{40}$ ]] || fail 'installer blob identity is invalid'
+[[ "$(git_source -C "$SOURCE_REPO" hash-object "$INSTALLER_SOURCE")" == "$INSTALLER_BLOB" ]] \
+  || fail 'running installer bytes differ from registered commit'
 VERIFIER_BLOB="$(git_source -C "$SOURCE_REPO" rev-parse "$REGISTERED_SHA:$VERIFIER_REL")"
 [[ "$VERIFIER_BLOB" =~ ^[0-9a-f]{40}$ ]] || fail 'verifier blob identity is invalid'
 [[ "$(git_source -C "$SOURCE_REPO" hash-object "$SOURCE_REPO/$VERIFIER_REL")" == "$VERIFIER_BLOB" ]] \
@@ -83,6 +93,7 @@ trap cleanup EXIT
 
 cat >"$TMP/config" <<EOF
 registered_sha='$REGISTERED_SHA'
+installer_blob='$INSTALLER_BLOB'
 verifier_blob='$VERIFIER_BLOB'
 verifier_sha256='$VERIFIER_SHA256'
 verifier_path='$VERIFIER_DST'
@@ -109,6 +120,7 @@ CONFIG='/etc/hermes-deals-audits.d/netto-19-production-readonly-v1.conf'
 # shellcheck disable=SC1090
 source "$CONFIG"
 [[ "$registered_sha" == "$REQUESTED_SHA" ]] || fail 'registered verifier SHA mismatch'
+[[ "$installer_blob" =~ ^[0-9a-f]{40}$ ]] || fail 'registered installer identity invalid'
 [[ "$verifier_blob" =~ ^[0-9a-f]{40}$ && "$verifier_sha256" =~ ^[0-9a-f]{64}$ ]] \
   || fail 'registered verifier identity invalid'
 [[ -f "$verifier_path" && ! -L "$verifier_path" ]] || fail 'registered verifier file unsafe'
@@ -136,6 +148,7 @@ visudo -cf "$SUDOERS_DST" >/dev/null
 
 printf 'NETTO_19_READONLY_REGISTRATION=PASS\n'
 printf 'REGISTERED_SHA=%s\n' "$REGISTERED_SHA"
+printf 'INSTALLER_BLOB=%s\n' "$INSTALLER_BLOB"
 printf 'VERIFIER_BLOB=%s\n' "$VERIFIER_BLOB"
 printf 'VERIFIER_SHA256=%s\n' "$VERIFIER_SHA256"
 printf 'PRODUCTION_MUTATED=false\n'
