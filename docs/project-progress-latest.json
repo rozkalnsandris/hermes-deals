@@ -560,54 +560,17 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 185,
+  "completed_issue_count": 187,
   "completed_weighted_gate_count": 54,
-  "generated_at": "2026-08-13T05:47:13.582748Z",
-  "generated_at_local": "2026-08-13T07:47:13.582748+02:00",
+  "generated_at": "2026-08-14T05:44:29.003608Z",
+  "generated_at_local": "2026-08-14T07:44:29.003608+02:00",
   "overall_completed_units": 720,
   "overall_percent_tenths": 720,
-  "previous_day": "2026-08-12",
+  "previous_day": "2026-08-13",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 6,
-  "previous_day_completed_issues": [
-    {
-      "closed_at": "2026-08-12T20:32:12Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/290",
-      "number": 290,
-      "title": "P1 ALDI Gate D3: execute hardened RPi5 recovery inventory and classify legacy 49+41 evidence"
-    },
-    {
-      "closed_at": "2026-08-12T08:03:33Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/578",
-      "number": 578,
-      "title": "EDEKA: retain fail-closed raw source evidence before parser acceptance"
-    },
-    {
-      "closed_at": "2026-08-12T15:36:20Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/580",
-      "number": 580,
-      "title": "Security: pin ALDI self-hosted workflow external actions"
-    },
-    {
-      "closed_at": "2026-08-12T07:19:27Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/617",
-      "number": 617,
-      "title": "P1 Lidl rollout: add generic reviewed V6.3.1 semantic-row persistence planner"
-    },
-    {
-      "closed_at": "2026-08-12T08:25:46Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/620",
-      "number": 620,
-      "title": "P1 Lidl rollout: recompute reviewed semantic row binding before C3"
-    },
-    {
-      "closed_at": "2026-08-12T08:40:16Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/623",
-      "number": 623,
-      "title": "P1 CI: bind #622 Lidl semantic-row fixture finding to squash SHA"
-    }
-  ],
+  "previous_day_completed_issue_count": 0,
+  "previous_day_completed_issues": [],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
