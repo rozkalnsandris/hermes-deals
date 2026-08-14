@@ -14,6 +14,17 @@ STRATEGY = "lidl_weekly_trust_state_v1"
 RECEIPT_STRATEGY = "lidl_weekly_trust_receipt_v1"
 CONTROLLER_VERSION = "lidl-weekly-shadow-controller-v1"
 SEMANTIC_VIEW_VERSION = "lidl-weekly-semantic-view-v1"
+SEMANTIC_GATE_VERSION = "lidl-weekly-semantics-v1"
+SEMANTIC_EVIDENCE_FILES = frozenset(
+    {
+        "semantic-rows.json",
+        "accepted-physical.tsv",
+        "review-required.tsv",
+        "excluded.tsv",
+        "coverage-report.json",
+        "profile-binding.json",
+    }
+)
 MAX_RECORDS = 16
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -36,6 +47,16 @@ def canonical_bytes(value: Any) -> bytes:
 
 def canonical_digest(value: Any) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def _controller_digest(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def sha_file(path: Path) -> str:
@@ -121,7 +142,7 @@ def _controller_fingerprint(one_shot: Mapping[str, Any]) -> str:
     for key in ("target", "flyer_key", "scan", "parser_version"):
         if not identity[key]:
             raise LidlWeeklyTrustStateError(f"one-shot identity field is missing: {key}")
-    return canonical_digest(identity)
+    return _controller_digest(identity)
 
 
 def _validate_controller(
@@ -202,6 +223,50 @@ def _parse_campaign(one_shot: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_semantic_manifest(semantic_dir: Path) -> str:
+    allowed = set(SEMANTIC_EVIDENCE_FILES) | {"manifest.json"}
+    actual = {entry.name for entry in semantic_dir.iterdir()}
+    if actual != allowed:
+        missing = sorted(allowed - actual)
+        extra = sorted(actual - allowed)
+        raise LidlWeeklyTrustStateError(
+            f"semantic evidence file set mismatch: missing={missing} extra={extra}"
+        )
+
+    entries: list[dict[str, Any]] = []
+    for filename in sorted(SEMANTIC_EVIDENCE_FILES):
+        path = semantic_dir / filename
+        if path.is_symlink() or not path.is_file():
+            raise LidlWeeklyTrustStateError(
+                f"semantic evidence must be a regular file: {filename}"
+            )
+        raw = path.read_bytes()
+        entries.append(
+            {
+                "path": filename,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+            }
+        )
+
+    manifest_path = semantic_dir / "manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise LidlWeeklyTrustStateError("semantic manifest must be a regular file")
+    expected_raw = canonical_bytes(
+        {
+            "schema_version": 1,
+            "semantic_gate_version": SEMANTIC_GATE_VERSION,
+            "entries": entries,
+        }
+    )
+    actual_raw = manifest_path.read_bytes()
+    if actual_raw != expected_raw:
+        raise LidlWeeklyTrustStateError(
+            "semantic manifest does not bind current evidence files"
+        )
+    return hashlib.sha256(actual_raw).hexdigest()
+
+
 def _validate_semantic_dir(
     semantic_dir: Path,
     *,
@@ -211,9 +276,9 @@ def _validate_semantic_dir(
         raise LidlWeeklyTrustStateError(
             f"semantic evidence must be a directory: {semantic_dir}"
         )
+    manifest_sha256 = _validate_semantic_manifest(semantic_dir)
     coverage = load_json(semantic_dir / "coverage-report.json")
     binding = load_json(semantic_dir / "profile-binding.json")
-    manifest_sha256 = sha_file(semantic_dir / "manifest.json")
 
     if coverage.get("view_version") != SEMANTIC_VIEW_VERSION:
         raise LidlWeeklyTrustStateError("semantic view version mismatch")
