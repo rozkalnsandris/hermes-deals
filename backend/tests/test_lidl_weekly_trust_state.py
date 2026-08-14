@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -56,12 +57,37 @@ def one_shot(start: str) -> dict:
     }
 
 
+def controller_identity(status: dict) -> dict:
+    match = status["corpus_match"]
+    return {
+        "target": status["target"],
+        "flyer_key": match["flyer_key"],
+        "scan": match["scan"],
+        "source_pdf_sha256": match["source_pdf_sha256"],
+        "stable_source_identity_sha256": match["stable_source_identity_sha256"],
+        "parser_input_identity_sha256": match["parser_input_identity_sha256"],
+        "parser_version": status["parser_version"],
+        "parser_sha256": status["parser_sha256"],
+        "review_profile": dict(status["review_profile"]),
+    }
+
+
+def controller_fingerprint_reference(status: dict) -> str:
+    raw = json.dumps(
+        controller_identity(status),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 def controller(module, status: dict, *, result: str = "READY") -> dict:
     return {
         "schema_version": 1,
         "controller_version": module.CONTROLLER_VERSION,
         "result": result,
-        "execution_fingerprint": module._controller_fingerprint(status),
+        "execution_fingerprint": controller_fingerprint_reference(status),
         "target": status["target"],
         "dry_run": True,
         "corpus_write_authorized": False,
@@ -71,6 +97,25 @@ def controller(module, status: dict, *, result: str = "READY") -> dict:
         "systemd_change_authorized": False,
         "bounded_retry_authorized": False,
     }
+
+
+def rewrite_manifest(root: Path, module) -> None:
+    entries = []
+    for filename in sorted(module.SEMANTIC_EVIDENCE_FILES):
+        raw = (root / filename).read_bytes()
+        entries.append(
+            {
+                "path": filename,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+            }
+        )
+    manifest = {
+        "schema_version": 1,
+        "semantic_gate_version": module.SEMANTIC_GATE_VERSION,
+        "entries": entries,
+    }
+    (root / "manifest.json").write_bytes(module.canonical_bytes(manifest))
 
 
 def semantic_dir(tmp_path: Path, module, status: dict, *, suffix: str) -> Path:
@@ -101,15 +146,17 @@ def semantic_dir(tmp_path: Path, module, status: dict, *, suffix: str) -> Path:
         "production_deploy": False,
     }
     binding = {"schema_version": 1, **common}
-    (root / "coverage-report.json").write_text(
-        json.dumps(coverage), encoding="utf-8"
-    )
-    (root / "profile-binding.json").write_text(
-        json.dumps(binding), encoding="utf-8"
-    )
-    (root / "manifest.json").write_text(
-        json.dumps({"suffix": suffix}), encoding="utf-8"
-    )
+    files = {
+        "semantic-rows.json": b"[]\n",
+        "accepted-physical.tsv": b"semantic_row_key\n",
+        "review-required.tsv": b"semantic_row_key\n",
+        "excluded.tsv": b"semantic_row_key\n",
+        "coverage-report.json": module.canonical_bytes(coverage),
+        "profile-binding.json": module.canonical_bytes(binding),
+    }
+    for filename, content in files.items():
+        (root / filename).write_bytes(content)
+    rewrite_manifest(root, module)
     return root
 
 
@@ -119,6 +166,17 @@ def cycle(tmp_path: Path, module, start: str, *, suffix: str, result: str = "REA
         controller(module, status, result=result),
         status,
         semantic_dir=semantic_dir(tmp_path, module, status, suffix=suffix),
+    )
+
+
+def test_controller_fingerprint_matches_existing_controller_contract_without_newline() -> None:
+    module = load_module()
+    status = one_shot("2026-08-10")
+    expected = controller_fingerprint_reference(status)
+
+    assert module._controller_fingerprint(status) == expected
+    assert module._controller_fingerprint(status) != module.canonical_digest(
+        controller_identity(status)
     )
 
 
@@ -220,7 +278,16 @@ def test_same_week_conflicting_completed_identity_fails_closed(tmp_path: Path) -
         previous=None,
         previous_state_sha256=None,
     )
-    conflict = cycle(tmp_path, module, "2026-08-10", suffix="b")
+    status = one_shot("2026-08-10")
+    conflict_root = semantic_dir(tmp_path, module, status, suffix="b")
+    coverage_path = conflict_root / "coverage-report.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["production_ready_count"] += 1
+    coverage_path.write_bytes(module.canonical_bytes(coverage))
+    rewrite_manifest(conflict_root, module)
+    conflict = module.build_cycle_evidence(
+        controller(module, status), status, semantic_dir=conflict_root
+    )
 
     with pytest.raises(
         module.LidlWeeklyTrustStateError,
@@ -282,14 +349,50 @@ def test_non_completed_controller_state_cannot_be_cycle_evidence(
         )
 
 
-def test_semantic_safety_mismatch_fails_closed(tmp_path: Path) -> None:
+def test_tampered_semantic_file_fails_manifest_binding(tmp_path: Path) -> None:
+    module = load_module()
+    status = one_shot("2026-08-10")
+    root = semantic_dir(tmp_path, module, status, suffix="tampered")
+    coverage_path = root / "coverage-report.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["production_ready_count"] += 1
+    coverage_path.write_bytes(module.canonical_bytes(coverage))
+
+    with pytest.raises(
+        module.LidlWeeklyTrustStateError,
+        match="semantic manifest does not bind current evidence files",
+    ):
+        module.build_cycle_evidence(
+            controller(module, status), status, semantic_dir=root
+        )
+
+
+def test_semantic_extra_file_fails_closed(tmp_path: Path) -> None:
+    module = load_module()
+    status = one_shot("2026-08-10")
+    root = semantic_dir(tmp_path, module, status, suffix="extra")
+    (root / "unexpected.txt").write_text("unexpected", encoding="utf-8")
+
+    with pytest.raises(
+        module.LidlWeeklyTrustStateError,
+        match="semantic evidence file set mismatch",
+    ):
+        module.build_cycle_evidence(
+            controller(module, status), status, semantic_dir=root
+        )
+
+
+def test_semantic_safety_mismatch_fails_closed_even_with_valid_manifest(
+    tmp_path: Path,
+) -> None:
     module = load_module()
     status = one_shot("2026-08-10")
     root = semantic_dir(tmp_path, module, status, suffix="unsafe")
     coverage_path = root / "coverage-report.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
     coverage["auto_publish"] = True
-    coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
+    coverage_path.write_bytes(module.canonical_bytes(coverage))
+    rewrite_manifest(root, module)
 
     with pytest.raises(
         module.LidlWeeklyTrustStateError,
