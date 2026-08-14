@@ -30,6 +30,7 @@ DAILY_CONTRACT = 'explicit_immutable_retailer_evidence_only'
 WEEKLY_CONTRACT = 'single_week_query_short_periods_plus_explicit_immutable_daily_evidence'
 WEEKLY_UI_CONTRACT = 'normalized_unique_deals_by_id_v1'
 W4_BUNDLE_MARKER = 'w3-behavior-preserving-bootstrap-v1'
+NETTO_MANIFEST_CONTENT_TYPE = 'application/vnd.hermes-deals.netto-store-prospect+json'
 SHA40_RE = re.compile(r'[0-9a-f]{40}')
 SHA256_RE = re.compile(r'[0-9a-f]{64}')
 HASHED_UI_JS_PATH_RE = re.compile(
@@ -248,6 +249,7 @@ def parse_snapshot_rows(db_container: str) -> list[Snapshot]:
         WHERE source_chain='netto'
           AND scope='family_primary_netto'
           AND success IS TRUE
+          AND content_type='application/vnd.hermes-deals.netto-store-prospect+json'
         ORDER BY collected_at DESC, id DESC;
         """,
     )

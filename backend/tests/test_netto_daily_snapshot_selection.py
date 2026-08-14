@@ -12,6 +12,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from app.netto_daily_special_api import (
+    _NETTO_MANIFEST_CONTENT_TYPE,
     _cached_snapshot_offers,
     _latest_snapshot,
     daily_specials,
@@ -82,6 +83,25 @@ def _snapshot(
         source_url="https://example.invalid/store",
         final_url=f"https://example.invalid/{name}",
         collected_at=collected_at,
+        content_type=_NETTO_MANIFEST_CONTENT_TYPE,
+    )
+
+
+def _legacy_html_snapshot(
+    root: Path,
+    *,
+    collected_at: datetime,
+):
+    path = root / "legacy-family-primary.html"
+    path.write_text("<html><body>legacy Netto snapshot</body></html>", encoding="utf-8")
+    return SimpleNamespace(
+        id=uuid4(),
+        snapshot_path=str(path),
+        sha256=sha256(path.read_bytes()).hexdigest(),
+        source_url="https://example.invalid/store",
+        final_url="https://example.invalid/legacy",
+        collected_at=collected_at,
+        content_type="text/html",
     )
 
 
@@ -149,6 +169,46 @@ class NettoDailySnapshotSelectionTest(unittest.TestCase):
             payload.source_contract,
             "explicit_immutable_retailer_evidence_only",
         )
+
+    def test_out_of_window_ignores_legacy_family_primary_html_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            modern = _snapshot(
+                root,
+                name="current-manifest-week",
+                valid_from=date(2026, 8, 10),
+                valid_until=date(2026, 8, 15),
+                collected_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            )
+            legacy = _legacy_html_snapshot(
+                root,
+                collected_at=datetime(2026, 7, 24, tzinfo=timezone.utc),
+            )
+
+            payload = daily_specials(
+                as_of=date(2026, 8, 22),
+                db=_FakeDb([modern, legacy]),
+            )
+
+        self.assertEqual(payload.available_count, 0)
+        self.assertEqual(payload.count, 0)
+        self.assertEqual(payload.retailer_counts, {})
+        self.assertEqual(payload.deals, [])
+
+    def test_legacy_html_alone_is_not_trusted_as_manifest_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = _legacy_html_snapshot(
+                Path(tmp),
+                collected_at=datetime(2026, 7, 24, tzinfo=timezone.utc),
+            )
+            with self.assertRaises(HTTPException) as caught:
+                _latest_snapshot(
+                    _FakeDb([legacy]),
+                    date(2026, 7, 24),
+                )
+
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("snapshots are unavailable", str(caught.exception.detail))
 
     def test_matching_legacy_snapshot_without_pdf_stays_safe_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
