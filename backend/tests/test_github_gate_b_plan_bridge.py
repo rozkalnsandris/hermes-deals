@@ -189,7 +189,11 @@ def test_workflow_is_issue_comment_only_and_passes_no_raw_comment_to_rpi5_shell(
         "sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-gate-b-plan-dispatch"
         in text
     )
-    assert "actions/upload-artifact@v4" in text
+    assert (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2"
+        in text
+    )
+    assert "actions/upload-artifact@v4" not in text
     assert "retention-days: 30" in text
     assert 'state not in {"READY_TO_FREEZE", "BLOCKED"}' in text
     assert 'state == "BLOCKED" and runner_rc != 30' in text
