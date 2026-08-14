@@ -127,60 +127,115 @@ class Netto19ProductionReadonlyVerifierContractTest(unittest.TestCase):
         self.assertIn("table_digest(db, 'offer_review_revisions')", text)
         self.assertNotIn("table_digest(db, 'review_items')", text)
 
-    def test_daily_ui_contract_reads_active_hashed_w4_bundle(self) -> None:
-        original = MODULE.http_text
-        calls: list[str] = []
-        html = '<html><script type="module" src="/ui/assets/index.abcdEFGH1234.js"></script></html>'
-        script = (
-            'payload.source_contract!=="explicit_immutable_retailer_evidence_only";'
-            'deal.special_confidence==="high";'
-            'countEl.textContent=String(rows.length);'
+    def test_daily_ui_contract_reads_active_hashed_w4_bundle_and_exact_revision_source(self) -> None:
+        original_http = MODULE.http_text
+        original_git = MODULE.owner_git
+        calls: list[tuple[str, object]] = []
+        production_revision = '42238d93045e60430a42cd13b85b598e78c7d528'
+        script_path = '/ui/assets/index.abcdEFGH1234.js'
+        html = f'<HTML><SCRIPT TYPE=module SRC={script_path}></SCRIPT></HTML>'
+        bundle = (
+            'const bootstrap="w3-behavior-preserving-bootstrap-v1";'
+            'const contract="explicit_immutable_retailer_evidence_only";'
         )
-        responses = {
-            '/ui': html,
-            '/ui/assets/index.abcdEFGH1234.js': script,
-        }
+        source = '''
+export const DAILY_SPECIAL_SOURCE_CONTRACT = "explicit_immutable_retailer_evidence_only";
+if (payload.source_contract !== DAILY_SPECIAL_SOURCE_CONTRACT) throw new Error("bad");
+return deals.filter((deal) => deal.special_confidence === "high");
+function renderDay(key, iso, rows, root, countEl, label) {
+  countEl.textContent = String(rows.length);
+}
+'''
 
         def fake_http_text(path: str) -> str:
-            calls.append(path)
-            return responses[path]
+            calls.append(('http', path))
+            return {'/ui': html, script_path: bundle}[path]
+
+        def fake_owner_git(*args: str) -> str:
+            calls.append(('git', args))
+            self.assertEqual(
+                args,
+                ('show', f'{production_revision}:{MODULE.W4_DAILY_UI_SOURCE_PATH}'),
+            )
+            return source
 
         MODULE.http_text = fake_http_text
+        MODULE.owner_git = fake_owner_git
         try:
-            MODULE.validate_daily_ui_contract()
+            self.assertEqual(MODULE.validate_daily_ui_contract(production_revision), 'hashed-w4')
         finally:
-            MODULE.http_text = original
+            MODULE.http_text = original_http
+            MODULE.owner_git = original_git
 
-        self.assertEqual(calls, ['/ui', '/ui/assets/index.abcdEFGH1234.js'])
+        self.assertEqual(
+            calls,
+            [('http', '/ui'), ('http', script_path), ('git', ('show', f'{production_revision}:{MODULE.W4_DAILY_UI_SOURCE_PATH}'))],
+        )
 
-    def test_daily_ui_script_resolution_is_fail_closed_and_keeps_legacy_rollback_compatible(self) -> None:
-        legacy = '<script src="/ui/app.js"></script>'
-        self.assertEqual(MODULE.daily_ui_script_path(legacy), '/ui/app.js')
+    def test_daily_ui_script_resolution_uses_html_parser_and_fails_closed(self) -> None:
+        hashed = '/ui/assets/index.abcdefgh1234.js'
+        self.assertEqual(
+            MODULE.daily_ui_script_path(f'<SCRIPT TYPE=module SRC={hashed}></SCRIPT>'),
+            hashed,
+        )
+        self.assertEqual(
+            MODULE.daily_ui_script_path("<script defer src='/ui/app.js'></script>"),
+            '/ui/app.js',
+        )
 
         mixed = (
             '<script src="/ui/app.js"></script>'
-            '<script type="module" src="/ui/assets/index.abcdefgh1234.js"></script>'
+            f'<script type="module" src="{hashed}"></script>'
         )
         with self.assertRaises(MODULE.VerifyError):
             MODULE.daily_ui_script_path(mixed)
 
         ambiguous = (
-            '<script type="module" src="/ui/assets/index.abcdefgh1234.js"></script>'
+            f'<script type="module" src="{hashed}"></script>'
             '<script type="module" src="/ui/assets/vendor.ijklmnop5678.js"></script>'
         )
         with self.assertRaises(MODULE.VerifyError):
             MODULE.daily_ui_script_path(ambiguous)
 
+    def test_daily_ui_semantic_contract_accepts_w3_and_w4_source_but_fails_closed(self) -> None:
+        legacy = (
+            'payload.source_contract!=="explicit_immutable_retailer_evidence_only";'
+            'deal.special_confidence==="high";'
+            'countEl.textContent=String(rows.length);'
+        )
+        MODULE.validate_daily_ui_script_semantics(legacy)
+
+        w4_source = '''
+const DAILY_SPECIAL_SOURCE_CONTRACT = "explicit_immutable_retailer_evidence_only";
+if (payload.source_contract !== DAILY_SPECIAL_SOURCE_CONTRACT) throw new Error("bad");
+return deals.filter((deal) => deal.special_confidence === "high");
+countEl.textContent = String(rows.length);
+'''
+        MODULE.validate_daily_ui_script_semantics(w4_source)
+        broken = (
+            w4_source.replace('payload.source_contract !== DAILY_SPECIAL_SOURCE_CONTRACT', 'true'),
+            w4_source.replace('deal.special_confidence === "high"', 'true'),
+            w4_source.replace('countEl.textContent = String(rows.length);', ''),
+        )
+        for script in broken:
+            with self.subTest(script=script):
+                with self.assertRaises(MODULE.VerifyError):
+                    MODULE.validate_daily_ui_script_semantics(script)
+
     def test_daily_and_weekly_ui_count_contracts_are_explicit(self) -> None:
         text = VERIFIER.read_text(encoding='utf-8')
+        self.assertIn('from html.parser import HTMLParser', text)
         self.assertIn("html = http_text('/ui')", text)
-        self.assertIn('HASHED_UI_JS_SRC_RE', text)
-        self.assertIn('countEl.textContent=String(rows.length)', text)
-        self.assertIn('deal.special_confidence===\"high\"', text)
-        self.assertIn('payload.source_contract!==\"explicit_immutable_retailer_evidence_only\"', text)
+        self.assertIn('HASHED_UI_JS_PATH_RE', text)
+        self.assertIn('DAILY_SOURCE_CONTRACT_DIRECT_RE', text)
+        self.assertIn('DAILY_SOURCE_CONTRACT_CONST_RE', text)
+        self.assertIn('DAILY_HIGH_CONFIDENCE_RE', text)
+        self.assertIn('DAILY_COUNT_RE', text)
+        self.assertIn("owner_git('show', f'{production_revision}:{W4_DAILY_UI_SOURCE_PATH}')", text)
         self.assertIn('/api/v1/deals/weekly-specials/ui?week_start=', text)
         self.assertIn("ui.get('ui_contract') == WEEKLY_UI_CONTRACT", text)
         self.assertIn("'daily_ui_count_contract': 'PASS'", text)
+        self.assertIn("'daily_ui_asset_mode': daily_ui_asset_mode", text)
         self.assertIn("'weekly_ui_count_contract': 'PASS'", text)
 
     def test_installer_requires_exact_self_binding_detached_main_source_and_narrow_sudo(self) -> None:
