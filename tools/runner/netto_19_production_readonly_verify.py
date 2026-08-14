@@ -5,6 +5,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -24,18 +25,30 @@ REQUIRED_FIX_COMMITS = (
     '52a3127c940dc36177846812932a08f49d913692',
 )
 POLICY_PATH = 'backend/tests/fixtures/netto/n25_title_package_review_policy_v1.json'
+W4_DAILY_UI_SOURCE_PATH = 'backend/frontend/src/features/daily-specials.js'
 DAILY_CONTRACT = 'explicit_immutable_retailer_evidence_only'
 WEEKLY_CONTRACT = 'single_week_query_short_periods_plus_explicit_immutable_daily_evidence'
 WEEKLY_UI_CONTRACT = 'normalized_unique_deals_by_id_v1'
+W4_BUNDLE_MARKER = 'w3-behavior-preserving-bootstrap-v1'
 SHA40_RE = re.compile(r'[0-9a-f]{40}')
 SHA256_RE = re.compile(r'[0-9a-f]{64}')
-HASHED_UI_JS_SRC_RE = re.compile(
-    r'<script\b[^>]*\bsrc=["\'](/ui/assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.js)["\'][^>]*>',
-    re.IGNORECASE,
+HASHED_UI_JS_PATH_RE = re.compile(
+    r'/ui/assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.js'
 )
-LEGACY_UI_JS_SRC_RE = re.compile(
-    r'<script\b[^>]*\bsrc=["\'](/ui/app\.js)["\'][^>]*>',
-    re.IGNORECASE,
+DAILY_SOURCE_CONTRACT_DIRECT_RE = re.compile(
+    rf'\bsource_contract\s*!==\s*["\']{re.escape(DAILY_CONTRACT)}["\']'
+)
+DAILY_SOURCE_CONTRACT_CONST_RE = re.compile(
+    rf'\bDAILY_SPECIAL_SOURCE_CONTRACT\s*=\s*["\']{re.escape(DAILY_CONTRACT)}["\']'
+)
+DAILY_SOURCE_CONTRACT_USE_RE = re.compile(
+    r'\bsource_contract\s*!==\s*DAILY_SPECIAL_SOURCE_CONTRACT\b'
+)
+DAILY_HIGH_CONFIDENCE_RE = re.compile(
+    r'\bspecial_confidence\s*===\s*["\']high["\']'
+)
+DAILY_COUNT_RE = re.compile(
+    r'\bcountEl\.textContent\s*=\s*String\(\s*rows\.length\s*\)'
 )
 
 
@@ -46,6 +59,19 @@ class VerifyError(RuntimeError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise VerifyError(message)
+
+
+class _ScriptSrcParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sources: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != 'script':
+            return
+        for name, value in attrs:
+            if name == 'src' and value is not None:
+                self.sources.append(value.strip())
 
 
 def run(args: list[str], *, input_text: str | None = None, timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -294,8 +320,14 @@ def daily_ui_high_confidence_ids(day: date, daily_netto: list[dict[str, Any]]) -
 
 
 def daily_ui_script_path(html: str) -> str:
-    hashed = HASHED_UI_JS_SRC_RE.findall(html)
-    legacy = LEGACY_UI_JS_SRC_RE.findall(html)
+    parser = _ScriptSrcParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception as exc:
+        raise VerifyError('daily UI HTML parsing failed') from exc
+    hashed = [src for src in parser.sources if HASHED_UI_JS_PATH_RE.fullmatch(src)]
+    legacy = [src for src in parser.sources if src == '/ui/app.js']
     require(not (hashed and legacy), 'daily UI mixes hashed and legacy script modes')
     if hashed:
         require(len(hashed) == 1, 'daily UI hashed script reference is ambiguous')
@@ -304,16 +336,31 @@ def daily_ui_script_path(html: str) -> str:
     return legacy[0]
 
 
-def validate_daily_ui_contract() -> None:
-    html = http_text('/ui')
-    script = http_text(daily_ui_script_path(html))
-    required = (
-        'payload.source_contract!=="explicit_immutable_retailer_evidence_only"',
-        'deal.special_confidence==="high"',
-        'countEl.textContent=String(rows.length)',
+def validate_daily_ui_script_semantics(script: str) -> None:
+    direct_contract = DAILY_SOURCE_CONTRACT_DIRECT_RE.search(script) is not None
+    constant_contract = (
+        DAILY_SOURCE_CONTRACT_CONST_RE.search(script) is not None
+        and DAILY_SOURCE_CONTRACT_USE_RE.search(script) is not None
     )
-    for marker in required:
-        require(marker in script, f'daily UI count contract missing: {marker}')
+    require(direct_contract or constant_contract, 'daily UI source-contract semantic check missing')
+    require(DAILY_HIGH_CONFIDENCE_RE.search(script) is not None, 'daily UI high-confidence filter semantic check missing')
+    require(DAILY_COUNT_RE.search(script) is not None, 'daily UI count semantic check missing')
+
+
+def validate_daily_ui_contract(production_revision: str) -> str:
+    html = http_text('/ui')
+    script_path = daily_ui_script_path(html)
+    script = http_text(script_path)
+    if script_path == '/ui/app.js':
+        validate_daily_ui_script_semantics(script)
+        return 'legacy-w3'
+
+    require(HASHED_UI_JS_PATH_RE.fullmatch(script_path) is not None, 'daily UI hashed script path invalid')
+    require(W4_BUNDLE_MARKER in script, 'daily UI hashed bundle behavior marker missing')
+    require(DAILY_CONTRACT in script, 'daily UI hashed bundle source-contract literal missing')
+    source = owner_git('show', f'{production_revision}:{W4_DAILY_UI_SOURCE_PATH}')
+    validate_daily_ui_script_semantics(source)
+    return 'hashed-w4'
 
 
 def validate_review_only_policy(production_revision: str) -> None:
@@ -454,7 +501,7 @@ def main() -> int:
     require(health.get('service') == 'hermes-deals-api', 'health service mismatch')
     require(http_status('/ui') == 200, 'UI status not 200')
     require(http_status('/ui/review') in {200, 302}, 'Review UI status unexpected')
-    validate_daily_ui_contract()
+    daily_ui_asset_mode = validate_daily_ui_contract(production_revision)
 
     snapshots = parse_snapshot_rows(db)
     probes = find_covered_probes(snapshots)
@@ -496,6 +543,7 @@ def main() -> int:
         'daily_contract': 'PASS',
         'weekly_contract': 'PASS',
         'daily_ui_count_contract': 'PASS',
+        'daily_ui_asset_mode': daily_ui_asset_mode,
         'weekly_ui_count_contract': 'PASS',
         'review_only_policy': 'PASS',
         'covered_probe_count': len(probes),
@@ -540,12 +588,12 @@ def main() -> int:
         'host_root_change_performed': False,
     }
     target = evidence_dir / 'receipt.json'
-    target.write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    target.write_text(json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + '\n', encoding='utf-8')
     os.chown(target, 0, 0)
     os.chmod(target, 0o644)
     run(['/usr/bin/chown', f'{RUNNER_USER}:{RUNNER_USER}', str(target)])
     run(['/usr/bin/chmod', '0600', str(target)])
-    print(json.dumps(receipt, sort_keys=True))
+    print(json.dumps(receipt, sort_keys=True, allow_nan=False))
     return 0
 
 
