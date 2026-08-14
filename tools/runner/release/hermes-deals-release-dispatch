@@ -211,9 +211,20 @@ PY
   CURRENT_IMAGE_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')" \
     || fail "production API image tag could not be inspected"
   [[ "$CURRENT_IMAGE_ID" == "$ROLLBACK_IMAGE_ID" ]] || fail "production image ID does not match registered rollback baseline"
-  [[ "$CURRENT_IMAGE_TAG" == hermes-deals-api:release-* ]] || fail "production image is not a Hermes Deals release image"
   CURRENT_IMAGE_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
     || fail "production API revision label could not be inspected"
+  MANAGED_BASELINE_SHA=''
+  if [[ "$CURRENT_IMAGE_TAG" =~ ^hermes-deals-api:(main|w4b|w4c)-([0-9a-f]{12})$ ]]; then
+    MANAGED_BASELINE_SHA="${BASH_REMATCH[2]}"
+    [[ "$CURRENT_IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]] \
+      || fail "managed production baseline requires an exact OCI revision label"
+    [[ "$MANAGED_BASELINE_SHA" == "${CURRENT_IMAGE_REVISION:0:12}" ]] \
+      || fail "managed production baseline tag does not match OCI revision"
+  elif [[ "$CURRENT_IMAGE_TAG" =~ ^hermes-deals-api:release-[A-Za-z0-9_.-]+$ ]]; then
+    :
+  else
+    fail "production image is not a managed Hermes Deals release image"
+  fi
   if [[ "$CURRENT_IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
     [[ "$CURRENT_IMAGE_REVISION" == "$ROLLBACK_SHA" ]] || fail "production OCI revision does not match registered rollback baseline"
   elif [[ -n "$CURRENT_IMAGE_REVISION" && "$CURRENT_IMAGE_REVISION" != '<no value>' ]]; then
