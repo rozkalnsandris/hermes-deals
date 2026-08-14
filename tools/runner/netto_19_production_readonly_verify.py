@@ -29,6 +29,14 @@ WEEKLY_CONTRACT = 'single_week_query_short_periods_plus_explicit_immutable_daily
 WEEKLY_UI_CONTRACT = 'normalized_unique_deals_by_id_v1'
 SHA40_RE = re.compile(r'[0-9a-f]{40}')
 SHA256_RE = re.compile(r'[0-9a-f]{64}')
+HASHED_UI_JS_SRC_RE = re.compile(
+    r'<script\b[^>]*\bsrc=["\'](/ui/assets/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}\.js)["\'][^>]*>',
+    re.IGNORECASE,
+)
+LEGACY_UI_JS_SRC_RE = re.compile(
+    r'<script\b[^>]*\bsrc=["\'](/ui/app\.js)["\'][^>]*>',
+    re.IGNORECASE,
+)
 
 
 class VerifyError(RuntimeError):
@@ -285,8 +293,20 @@ def daily_ui_high_confidence_ids(day: date, daily_netto: list[dict[str, Any]]) -
     }
 
 
+def daily_ui_script_path(html: str) -> str:
+    hashed = HASHED_UI_JS_SRC_RE.findall(html)
+    legacy = LEGACY_UI_JS_SRC_RE.findall(html)
+    require(not (hashed and legacy), 'daily UI mixes hashed and legacy script modes')
+    if hashed:
+        require(len(hashed) == 1, 'daily UI hashed script reference is ambiguous')
+        return hashed[0]
+    require(len(legacy) == 1, 'daily UI active script reference missing or ambiguous')
+    return legacy[0]
+
+
 def validate_daily_ui_contract() -> None:
-    script = http_text('/ui/app.js')
+    html = http_text('/ui')
+    script = http_text(daily_ui_script_path(html))
     required = (
         'payload.source_contract!=="explicit_immutable_retailer_evidence_only"',
         'deal.special_confidence==="high"',
