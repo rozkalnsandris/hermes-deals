@@ -1,0 +1,193 @@
+name: Hermes Lidl Gate D control
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions: {}
+
+concurrency:
+  group: hermes-deals-lidl-gate-d-control
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner Gate D control command
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 24 &&
+      github.actor == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/hermes-lidl gate-d ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      plan_fingerprint: ${{ steps.authorize.outputs.plan_fingerprint }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+    steps:
+      - name: Checkout reviewed default-branch authorization code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate exact issue, owner, command and merged bridge identity
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_lidl_gate_d_control.py
+
+  control:
+    name: Apply one registered Lidl Gate D control operation on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Create private sanitized control evidence directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_TEMP" == "/home/github-runner/_work/_temp" ]]
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-lidl-gate-d-control-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run only the fixed root-owned Gate D dispatcher
+        id: dispatch
+        env:
+          OPERATION: ${{ needs.authorize.outputs.operation }}
+          PLAN_FINGERPRINT: ${{ needs.authorize.outputs.plan_fingerprint }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$OPERATION" =~ ^(activate|disable|rollback)$ ]]
+          [[ "$PLAN_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]]
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-gate-d-control \
+            "$OPERATION" "$PLAN_FINGERPRINT" \
+            >"$ARTIFACT_DIR/dispatcher-result.json" 2>/dev/null
+          dispatcher_rc=$?
+          set -e
+          echo "dispatcher_rc=$dispatcher_rc" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect and sanitize control result
+        id: inspect
+        if: always() && steps.prepare.outputs.artifact_dir != ''
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_OPERATION: ${{ needs.authorize.outputs.operation }}
+          EXPECTED_PLAN: ${{ needs.authorize.outputs.plan_fingerprint }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          DISPATCHER_RC: ${{ steps.dispatch.outputs.dispatcher_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          root = Path(os.environ["ARTIFACT_DIR"])
+          operation = os.environ["EXPECTED_OPERATION"]
+          plan = os.environ["EXPECTED_PLAN"]
+          commit = os.environ["EXPECTED_SHA"]
+          rc = int(os.environ.get("DISPATCHER_RC") or "255")
+          if operation not in {"activate", "disable", "rollback"}:
+              raise SystemExit("invalid authorized operation")
+          if re.fullmatch(r"[0-9a-f]{64}", plan) is None or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+              raise SystemExit("invalid authorized identity")
+
+          raw_path = root / "dispatcher-result.json"
+          bridge = {
+              "schema_version": 1,
+              "control": "lidl-gate-d-control",
+              "operation": operation,
+              "registered_commit": commit,
+              "plan_fingerprint": plan,
+              "dispatcher_rc": rc,
+              "raw_stderr_exported": False,
+              "production_write_authorized": False,
+              "database_write_authorized": False,
+              "review_write_authorized": False,
+              "publication_authorized": False,
+              "deployment_authorized": False,
+          }
+          if rc == 0:
+              if not raw_path.is_file() or raw_path.is_symlink() or raw_path.stat().st_size > 64 * 1024:
+                  raise SystemExit("successful dispatcher result missing or unsafe")
+              raw = json.loads(raw_path.read_text(encoding="utf-8"))
+              required = {
+                  "schema_version": 1,
+                  "control": "lidl-gate-d-control",
+                  "issue_number": 24,
+                  "bridge_pr": 656,
+                  "operation": operation,
+                  "result": "PASS",
+                  "registered_commit": commit,
+                  "plan_fingerprint": plan,
+                  "systemd_change_performed": True,
+                  "rollback_preserves_evidence_root": True,
+                  "production_write_authorized": False,
+                  "database_write_authorized": False,
+                  "review_write_authorized": False,
+                  "publication_authorized": False,
+                  "deployment_authorized": False,
+              }
+              for key, value in required.items():
+                  if raw.get(key) != value:
+                      raise SystemExit(f"dispatcher result mismatch: {key}")
+              bridge["result"] = "PASS"
+              bridge["systemd_change_performed"] = True
+              bridge["rollback_preserves_evidence_root"] = True
+              bridge["installed_unit_count"] = int(raw.get("installed_unit_count", 0))
+              bridge["evidence_root_created"] = bool(raw.get("evidence_root_created", False))
+              if operation == "rollback":
+                  bridge["removed_unit_count"] = int(raw.get("removed_unit_count", 0))
+          else:
+              bridge["result"] = "CONTROL_EXECUTION_BLOCKED"
+              bridge["systemd_change_outcome"] = "failed_or_fail_closed"
+
+          raw_path.unlink(missing_ok=True)
+          out = root / "bridge-result.json"
+          out.write_text(json.dumps(bridge, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload only sanitized Gate D control evidence
+        if: always() && steps.prepare.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: hermes-lidl-gate-d-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}/bridge-result.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce successful registered control operation
+        if: always()
+        env:
+          DISPATCHER_RC: ${{ steps.dispatch.outputs.dispatcher_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "${DISPATCHER_RC:-255}" == "0" ]]
