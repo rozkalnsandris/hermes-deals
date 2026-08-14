@@ -98,9 +98,19 @@ for key in ("POSTGRES_USER", "POSTGRES_DB"):
 CURRENT_CONTAINER="$("${COMPOSE[@]}" ps -q api)"
 [[ -n "$CURRENT_CONTAINER" ]] || fail 'production API container is not running'
 CURRENT_TAG="$(docker inspect "$CURRENT_CONTAINER" --format '{{.Config.Image}}')"
-[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]] \
-  || fail 'production API image is not a Hermes Deals release image'
 CURRENT_REVISION="$(docker inspect "$CURRENT_CONTAINER" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+MANAGED_TAG_SHA=''
+if [[ "$CURRENT_TAG" =~ ^hermes-deals-api:(main|w4b|w4c)-([0-9a-f]{12})$ ]]; then
+  MANAGED_TAG_SHA="${BASH_REMATCH[2]}"
+  [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]] \
+    || fail 'managed production image requires an exact OCI revision label'
+  [[ "$MANAGED_TAG_SHA" == "${CURRENT_REVISION:0:12}" ]] \
+    || fail 'managed production image tag does not match OCI revision'
+elif [[ "$CURRENT_TAG" =~ ^hermes-deals-api:release-[A-Za-z0-9_.-]+$ ]]; then
+  :
+else
+  fail 'production API image is not a managed Hermes Deals release image'
+fi
 PRODUCTION_REF=''
 PRODUCTION_PROVENANCE=''
 if [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then

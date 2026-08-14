@@ -41,7 +41,7 @@ def test_release_launcher_preserves_direct_main_fail_closed_boundaries() -> None
         "git status --porcelain --untracked-files=normal",
         '[[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]',
         "exact current main has no successful CI push run",
-        "production API image is not a Hermes Deals release image",
+        "production API image is not a managed Hermes Deals release image",
         "production API image has no valid release SHA provenance",
         "production API image has malformed OCI revision label",
         "production OCI revision contradicts resolved Git commit",
@@ -59,6 +59,18 @@ def test_release_launcher_preserves_direct_main_fail_closed_boundaries() -> None
         assert marker in text
 
 
+def test_launcher_accepts_only_bounded_managed_tags_with_oci_binding() -> None:
+    text = read_launcher()
+    assert "org.opencontainers.image.revision" in text
+    assert '^hermes-deals-api:(main|w4b|w4c)-([0-9a-f]{12})$' in text
+    assert '^hermes-deals-api:release-[A-Za-z0-9_.-]+$' in text
+    assert 'MANAGED_TAG_SHA="${BASH_REMATCH[2]}"' in text
+    assert '[[ "$MANAGED_TAG_SHA" == "${CURRENT_REVISION:0:12}" ]]' in text
+    assert "managed production image requires an exact OCI revision label" in text
+    assert "managed production image tag does not match OCI revision" in text
+    assert '[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]]' not in text
+
+
 def test_launcher_prefers_full_oci_revision_with_canonical_tag_fallback() -> None:
     text = read_launcher()
     assert "org.opencontainers.image.revision" in text
@@ -66,7 +78,6 @@ def test_launcher_prefers_full_oci_revision_with_canonical_tag_fallback() -> Non
     assert "PRODUCTION_PROVENANCE='oci-revision'" in text
     assert "PRODUCTION_PROVENANCE='canonical-tag'" in text
     assert 'release-[0-9]+\\.[0-9]+\\.[0-9]+-([0-9a-f]{7})' in text
-    assert '[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]]' in text
 
 
 def test_launcher_reconciles_only_added_revisions_at_exact_live_head() -> None:
