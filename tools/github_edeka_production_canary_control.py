@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import base64
+import binascii
 import json
 import os
 from pathlib import Path
@@ -98,9 +99,11 @@ def _validate_plan_contract(plan_file: Mapping[str, Any]) -> None:
     content = plan_file.get("content")
     if encoding != "base64" or not isinstance(content, str):
         raise BridgeAuthorizationError("EDEKA canary plan content is unavailable")
+    compact = "".join(content.split())
     try:
-        payload = json.loads(base64.b64decode(content, validate=True))
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        decoded = base64.b64decode(compact, validate=True)
+        payload = json.loads(decoded.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise BridgeAuthorizationError("EDEKA canary plan JSON is invalid") from exc
     if not isinstance(payload, dict):
         raise BridgeAuthorizationError("EDEKA canary plan root is invalid")
@@ -153,7 +156,10 @@ def _validate_plan_contract(plan_file: Mapping[str, Any]) -> None:
     ids = [row.get("source_offer_id") for row in rows if isinstance(row, Mapping)]
     if len(ids) != 3 or len(set(ids)) != 3 or any(not value for value in ids):
         raise BridgeAuthorizationError("EDEKA canary source_offer_id set is invalid")
-    if any(not isinstance(row, Mapping) or row.get("review_required") is not False for row in rows):
+    if any(
+        not isinstance(row, Mapping) or row.get("review_required") is not False
+        for row in rows
+    ):
         raise BridgeAuthorizationError("EDEKA canary rows must all be resolved")
 
 
