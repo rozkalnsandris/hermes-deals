@@ -230,10 +230,20 @@ def service_is_active() -> bool:
     return result.stdout.strip() == "active"
 
 
+def _best_effort_activation_cleanup() -> bool:
+    run_command(["/usr/bin/systemctl", "stop", TIMER_UNIT], check=False)
+    run_command(["/usr/bin/systemctl", "stop", SERVICE_UNIT], check=False)
+    run_command(["/usr/bin/systemctl", "disable", "--no-reload", TIMER_UNIT], check=False)
+    run_command(["/usr/bin/systemctl", "daemon-reload"], check=False)
+    run_command(["/usr/bin/systemctl", "reset-failed", SERVICE_UNIT, TIMER_UNIT], check=False)
+    return not timer_is_live_enabled() and not timer_is_active() and not service_is_active()
+
+
 def activate(config: Mapping[str, Any], expected_sha: str) -> dict[str, Any]:
     validate_exact_source_checkout(expected_sha)
     enabled_before = timer_is_live_enabled()
     active_before = timer_is_active()
+    service_active_before = service_is_active()
     require(enabled_before == active_before, "timer enable/active state is inconsistent before activation")
     if enabled_before and active_before:
         return {
@@ -242,11 +252,17 @@ def activate(config: Mapping[str, Any], expected_sha: str) -> dict[str, Any]:
             "timer_disable_performed": False, "timer_stop_performed": False, "service_stop_performed": False,
             "timer_may_trigger_refetch": False, "activation_state": "already_active",
         }
-    run_command(["/usr/bin/systemctl", "daemon-reload"])
-    run_command(["/usr/bin/systemctl", "enable", "--no-reload", TIMER_UNIT])
-    run_command(["/usr/bin/systemctl", "start", TIMER_UNIT])
-    require(timer_is_live_enabled(), "timer did not become enabled")
-    require(timer_is_active(), "timer did not become active")
+    require(not service_active_before, "monitor service is unexpectedly active before timer activation")
+    try:
+        run_command(["/usr/bin/systemctl", "daemon-reload"])
+        run_command(["/usr/bin/systemctl", "enable", "--no-reload", TIMER_UNIT])
+        run_command(["/usr/bin/systemctl", "start", TIMER_UNIT])
+        require(timer_is_live_enabled(), "timer did not become enabled")
+        require(timer_is_active(), "timer did not become active")
+    except Exception as exc:
+        if not _best_effort_activation_cleanup():
+            raise ControlError("activation failed and fail-safe cleanup did not restore disabled/inactive state") from exc
+        raise
     return {
         "systemd_change_performed": True, "root_host_mutation_performed": True,
         "daemon_reload_performed": True, "timer_enable_performed": True, "timer_start_performed": True,
@@ -259,18 +275,27 @@ def disable() -> dict[str, Any]:
     enabled_before = timer_is_live_enabled()
     timer_active_before = timer_is_active()
     service_active_before = service_is_active()
-    run_command(["/usr/bin/systemctl", "stop", TIMER_UNIT], check=False)
-    run_command(["/usr/bin/systemctl", "stop", SERVICE_UNIT], check=False)
-    run_command(["/usr/bin/systemctl", "disable", "--no-reload", TIMER_UNIT], check=False)
-    run_command(["/usr/bin/systemctl", "daemon-reload"])
+    if not enabled_before and not timer_active_before and not service_active_before:
+        return {
+            "systemd_change_performed": False, "root_host_mutation_performed": False,
+            "daemon_reload_performed": False, "timer_enable_performed": False, "timer_start_performed": False,
+            "timer_disable_performed": False, "timer_stop_performed": False, "service_stop_performed": False,
+            "timer_may_trigger_refetch": False, "activation_state": "already_disabled",
+        }
+    if timer_active_before:
+        run_command(["/usr/bin/systemctl", "stop", TIMER_UNIT])
+    if service_active_before:
+        run_command(["/usr/bin/systemctl", "stop", SERVICE_UNIT])
+    if enabled_before:
+        run_command(["/usr/bin/systemctl", "disable", "--no-reload", TIMER_UNIT])
+        run_command(["/usr/bin/systemctl", "daemon-reload"])
     run_command(["/usr/bin/systemctl", "reset-failed", SERVICE_UNIT, TIMER_UNIT], check=False)
     require(not timer_is_live_enabled(), "timer remains enabled after disable")
     require(not timer_is_active(), "timer remains active after disable")
     require(not service_is_active(), "service remains active after disable")
-    changed = enabled_before or timer_active_before or service_active_before
     return {
-        "systemd_change_performed": changed, "root_host_mutation_performed": enabled_before,
-        "daemon_reload_performed": True, "timer_enable_performed": False, "timer_start_performed": False,
+        "systemd_change_performed": True, "root_host_mutation_performed": enabled_before,
+        "daemon_reload_performed": enabled_before, "timer_enable_performed": False, "timer_start_performed": False,
         "timer_disable_performed": enabled_before, "timer_stop_performed": timer_active_before,
         "service_stop_performed": service_active_before, "timer_may_trigger_refetch": False,
         "activation_state": "disabled",
@@ -293,12 +318,14 @@ def _unlink_verified(path: Path, *, mode: int, expected_sha256: str | None = Non
 
 
 def rollback(config: Mapping[str, Any]) -> dict[str, Any]:
+    expected_config_sha256 = sha_bytes(canonical_bytes(config))
+    require(sha_file(CONFIG) == expected_config_sha256, "registration config bytes changed before rollback")
     disabled = disable()
     removed = 0
     for name in UNIT_NAMES:
         if _unlink_verified(UNIT_DIR / name, mode=0o644, expected_sha256=str(config["unit_sha256"][name])):
             removed += 1
-    config_removed = _unlink_verified(CONFIG, mode=0o600)
+    config_removed = _unlink_verified(CONFIG, mode=0o600, expected_sha256=expected_config_sha256)
     run_command(["/usr/bin/systemctl", "daemon-reload"])
     run_command(["/usr/bin/systemctl", "reset-failed", SERVICE_UNIT, TIMER_UNIT], check=False)
     require(not timer_is_live_enabled() and not timer_is_active() and not service_is_active(), "monitor remains live after rollback")
