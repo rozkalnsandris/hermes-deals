@@ -138,6 +138,7 @@ def test_control_activate_sequence_and_fail_safe(monkeypatch: pytest.MonkeyPatch
         "unit_active",
         lambda unit: states["timer_active"] if unit == module.TIMER_UNIT else states["service_active"],
     )
+    monkeypatch.setattr(module, "unit_failed", lambda _unit: False)
 
     def fake_run(argv: list[str], *, check: bool = True, timeout: int = 120):
         calls.append(argv)
@@ -145,10 +146,12 @@ def test_control_activate_sequence_and_fail_safe(monkeypatch: pytest.MonkeyPatch
             states["enabled"] = True
         if argv[:2] == ["/usr/bin/systemctl", "start"] and argv[-1] == module.TIMER_UNIT:
             states["timer_active"] = True
+
         class Result:
             returncode = 0
             stdout = ""
             stderr = ""
+
         return Result()
 
     monkeypatch.setattr(module, "run", fake_run)
@@ -159,6 +162,18 @@ def test_control_activate_sequence_and_fail_safe(monkeypatch: pytest.MonkeyPatch
     assert ["/usr/bin/systemctl", "daemon-reload"] in calls
     assert ["/usr/bin/systemctl", "--no-reload", "enable", module.TIMER_UNIT] in calls
     assert ["/usr/bin/systemctl", "start", module.TIMER_UNIT] in calls
+
+
+def test_control_treats_runtime_enabled_state_as_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_module(CONTROL_PATH, "edeka_monitor_control_enabled_state")
+
+    class Result:
+        returncode = 0
+        stdout = "enabled-runtime\n"
+        stderr = ""
+
+    monkeypatch.setattr(module, "run", lambda _argv, check=False: Result())
+    assert module.timer_enabled() is True
 
 
 def test_control_disable_and_rollback_are_refetch_free_in_source() -> None:
@@ -173,3 +188,5 @@ def test_control_runtime_requires_pinned_registered_checkout() -> None:
     source = CONTROL_PATH.read_text(encoding="utf-8")
     assert 'git_text("rev-parse", "HEAD") == EXPECTED_REGISTRATION_SHA' in source
     assert "dedicated EDEKA audit HEAD drifted from registration SHA" in source
+    assert "monitor service unexpectedly failed before activation" in source
+    assert "timer unexpectedly failed before activation" in source

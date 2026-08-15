@@ -80,13 +80,7 @@ def regular_root_file(path: Path, mode: int) -> bool:
         info = path.lstat()
     except OSError:
         return False
-    return (
-        stat.S_ISREG(info.st_mode)
-        and not path.is_symlink()
-        and info.st_uid == 0
-        and info.st_gid == 0
-        and stat.S_IMODE(info.st_mode) == mode
-    )
+    return stat.S_ISREG(info.st_mode) and not path.is_symlink() and info.st_uid == 0 and info.st_gid == 0 and stat.S_IMODE(info.st_mode) == mode
 
 
 def load_json_root_file(path: Path, mode: int, label: str) -> dict[str, Any]:
@@ -100,29 +94,14 @@ def load_json_root_file(path: Path, mode: int, label: str) -> dict[str, Any]:
 
 
 def run(argv: list[str], *, check: bool = True, timeout: int = 120) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        argv,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-        timeout=timeout,
-        env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"},
-    )
+    result = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False, timeout=timeout, env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"})
     if check:
         require(result.returncode == 0, f"command failed: {Path(argv[0]).name}")
     return result
 
 
 def git(*args: str, check: bool = True, text: bool = True) -> subprocess.CompletedProcess[str]:
-    command = [
-        "/usr/sbin/runuser", "-u", AUDIT_USER, "--",
-        "/usr/bin/env", "-i",
-        "HOME=/home/andris", "USER=andris", "LOGNAME=andris",
-        "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "GIT_OPTIONAL_LOCKS=0",
-        "/usr/bin/git", "-C", str(SOURCE_REPO), *args,
-    ]
+    command = ["/usr/sbin/runuser", "-u", AUDIT_USER, "--", "/usr/bin/env", "-i", "HOME=/home/andris", "USER=andris", "LOGNAME=andris", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "GIT_OPTIONAL_LOCKS=0", "/usr/bin/git", "-C", str(SOURCE_REPO), *args]
     result = run(command, check=False, timeout=45)
     if check:
         require(result.returncode == 0, f"audit Git command failed: {args[0]}")
@@ -136,30 +115,7 @@ def git_text(*args: str) -> str:
 
 def validate_registration_config(expected_fingerprint: str) -> dict[str, Any]:
     config = load_json_root_file(REGISTRATION_CONFIG, 0o600, "EDEKA monitor registration config")
-    expected_keys = {
-        "schema_version",
-        "registration_sha",
-        "repo_root",
-        "planner_blob",
-        "runtime_blob",
-        "installer_blob",
-        "schedule",
-        "unit_sha256",
-        "shadow_evidence_root",
-        "monitor_evidence_root",
-        "cache_root",
-        "unit_dir",
-        "registration_scope",
-        "daemon_reload_performed",
-        "timer_enable_performed",
-        "timer_start_performed",
-        "source_refetch_performed",
-        "production_database_write_performed",
-        "review_write_performed",
-        "publication_write_performed",
-        "production_deploy_performed",
-        "registration_fingerprint_sha256",
-    }
+    expected_keys = {"schema_version", "registration_sha", "repo_root", "planner_blob", "runtime_blob", "installer_blob", "schedule", "unit_sha256", "shadow_evidence_root", "monitor_evidence_root", "cache_root", "unit_dir", "registration_scope", "daemon_reload_performed", "timer_enable_performed", "timer_start_performed", "source_refetch_performed", "production_database_write_performed", "review_write_performed", "publication_write_performed", "production_deploy_performed", "registration_fingerprint_sha256"}
     require(set(config) == expected_keys, "registration config schema drift")
     require(config.get("schema_version") == 1, "registration schema mismatch")
     require(config.get("registration_sha") == EXPECTED_REGISTRATION_SHA, "registration SHA drift")
@@ -174,18 +130,8 @@ def validate_registration_config(expected_fingerprint: str) -> dict[str, Any]:
     require(config.get("cache_root") == str(CACHE_ROOT), "cache root drift")
     require(config.get("unit_dir") == str(UNIT_DIR), "unit directory drift")
     require(config.get("registration_scope") == "unit_files_only_no_manager_reload", "registration scope drift")
-    for key in (
-        "daemon_reload_performed",
-        "timer_enable_performed",
-        "timer_start_performed",
-        "source_refetch_performed",
-        "production_database_write_performed",
-        "review_write_performed",
-        "publication_write_performed",
-        "production_deploy_performed",
-    ):
+    for key in ("daemon_reload_performed", "timer_enable_performed", "timer_start_performed", "source_refetch_performed", "production_database_write_performed", "review_write_performed", "publication_write_performed", "production_deploy_performed"):
         require(config.get(key) is False, f"unsafe registration flag: {key}")
-
     core = {key: value for key, value in config.items() if key != "registration_fingerprint_sha256"}
     computed = sha256_bytes(canonical_bytes(core))
     require(computed == EXPECTED_REGISTRATION_FINGERPRINT, "registration fingerprint recomputation mismatch")
@@ -196,23 +142,7 @@ def validate_registration_config(expected_fingerprint: str) -> dict[str, Any]:
 
 def validate_control_config(control_sha: str, expected_fingerprint: str) -> dict[str, Any]:
     config = load_json_root_file(CONTROL_CONFIG, 0o600, "EDEKA monitor control config")
-    expected_keys = {
-        "schema_version",
-        "control",
-        "issue_number",
-        "control_sha",
-        "dispatcher_blob",
-        "dispatcher_sha256",
-        "registration_sha",
-        "registration_fingerprint_sha256",
-        "root_registration_only",
-        "systemd_change_performed",
-        "source_refetch_performed",
-        "production_database_write_performed",
-        "review_write_performed",
-        "publication_write_performed",
-        "production_deploy_performed",
-    }
+    expected_keys = {"schema_version", "control", "issue_number", "control_sha", "dispatcher_blob", "dispatcher_sha256", "registration_sha", "registration_fingerprint_sha256", "root_registration_only", "systemd_change_performed", "source_refetch_performed", "production_database_write_performed", "review_write_performed", "publication_write_performed", "production_deploy_performed"}
     require(set(config) == expected_keys, "control config schema drift")
     require(config.get("schema_version") == 1 and config.get("control") == CONTROL, "control config identity drift")
     require(config.get("issue_number") == EXPECTED_ISSUE_NUMBER, "control issue drift")
@@ -220,14 +150,7 @@ def validate_control_config(control_sha: str, expected_fingerprint: str) -> dict
     require(config.get("registration_sha") == EXPECTED_REGISTRATION_SHA, "control registration SHA drift")
     require(config.get("registration_fingerprint_sha256") == expected_fingerprint, "control fingerprint drift")
     require(config.get("root_registration_only") is True, "control root-registration gate drift")
-    for key in (
-        "systemd_change_performed",
-        "source_refetch_performed",
-        "production_database_write_performed",
-        "review_write_performed",
-        "publication_write_performed",
-        "production_deploy_performed",
-    ):
+    for key in ("systemd_change_performed", "source_refetch_performed", "production_database_write_performed", "review_write_performed", "publication_write_performed", "production_deploy_performed"):
         require(config.get(key) is False, f"unsafe control registration flag: {key}")
     dispatcher_blob = str(config.get("dispatcher_blob") or "")
     require(SHA40_RE.fullmatch(dispatcher_blob) is not None, "control dispatcher Git blob invalid")
@@ -260,14 +183,22 @@ def systemctl_state(verb: str, unit: str) -> tuple[int, str]:
     return result.returncode, result.stdout.strip()
 
 
+ENABLED_STATES = {"enabled", "enabled-runtime", "linked", "linked-runtime", "alias"}
+
+
 def timer_enabled() -> bool:
     _, state = systemctl_state("is-enabled", TIMER_UNIT)
-    return state == "enabled"
+    return state in ENABLED_STATES
 
 
 def unit_active(unit: str) -> bool:
     rc, state = systemctl_state("is-active", unit)
     return rc == 0 and state == "active"
+
+
+def unit_failed(unit: str) -> bool:
+    rc, state = systemctl_state("is-failed", unit)
+    return rc == 0 and state == "failed"
 
 
 def verify_disabled_inactive() -> None:
@@ -300,7 +231,9 @@ def activate(registration: Mapping[str, Any]) -> dict[str, Any]:
     preflight_units(registration)
     require(not timer_enabled(), "timer already enabled before activation")
     require(not unit_active(TIMER_UNIT), "timer already active before activation")
+    require(not unit_failed(TIMER_UNIT), "timer unexpectedly failed before activation")
     require(not unit_active(SERVICE_UNIT), "monitor service unexpectedly active before activation")
+    require(not unit_failed(SERVICE_UNIT), "monitor service unexpectedly failed before activation")
     try:
         run(["/usr/bin/systemctl", "daemon-reload"])
         run(["/usr/bin/systemctl", "--no-reload", "enable", TIMER_UNIT])
@@ -312,15 +245,7 @@ def activate(registration: Mapping[str, Any]) -> dict[str, Any]:
         if not cleanup_ok:
             raise ControlError("activation failed and fail-safe cleanup could not be verified")
         raise
-    return {
-        "timer_enabled": True,
-        "timer_active": True,
-        "service_active_after_activation": unit_active(SERVICE_UNIT),
-        "source_refetch_authorized": True,
-        "bounded_retry_authorized": True,
-        "source_refetch_may_have_been_triggered": True,
-        "fail_safe_cleanup_required": False,
-    }
+    return {"timer_enabled": True, "timer_active": True, "service_active_after_activation": unit_active(SERVICE_UNIT), "source_refetch_authorized": True, "bounded_retry_authorized": True, "source_refetch_may_have_been_triggered": True, "fail_safe_cleanup_required": False}
 
 
 def disable(registration: Mapping[str, Any]) -> dict[str, Any]:
@@ -328,15 +253,7 @@ def disable(registration: Mapping[str, Any]) -> dict[str, Any]:
     cleanup_ok = fail_safe_disable()
     require(cleanup_ok, "disable could not verify safe inactive state")
     validate_installed_units(registration)
-    return {
-        "timer_enabled": False,
-        "timer_active": False,
-        "service_active_after_disable": False,
-        "installed_unit_count": len(UNIT_NAMES),
-        "source_refetch_authorized": False,
-        "bounded_retry_authorized": False,
-        "source_refetch_may_have_been_triggered": False,
-    }
+    return {"timer_enabled": False, "timer_active": False, "service_active_after_disable": False, "installed_unit_count": len(UNIT_NAMES), "source_refetch_authorized": False, "bounded_retry_authorized": False, "source_refetch_may_have_been_triggered": False}
 
 
 def fsync_directory(path: Path) -> None:
@@ -352,11 +269,9 @@ def rollback(control_sha: str, expected_fingerprint: str) -> dict[str, Any]:
     preflight_units(registration)
     cleanup_ok = fail_safe_disable()
     require(cleanup_ok, "rollback could not verify safe inactive state")
-
     registration = validate_registration_config(expected_fingerprint)
     validate_control_config(control_sha, expected_fingerprint)
     validate_installed_units(registration)
-
     removed = 0
     for name in UNIT_NAMES:
         path = UNIT_DIR / name
@@ -365,38 +280,22 @@ def rollback(control_sha: str, expected_fingerprint: str) -> dict[str, Any]:
         path.unlink()
         removed += 1
     fsync_directory(UNIT_DIR)
-
     run(["/usr/bin/systemctl", "daemon-reload"])
     run(["/usr/bin/systemctl", "reset-failed", SERVICE_UNIT, TIMER_UNIT], check=False)
     verify_disabled_inactive()
     for name in UNIT_NAMES:
         path = UNIT_DIR / name
         require(not path.exists() and not path.is_symlink(), f"unit remains after rollback: {name}")
-    return {
-        "timer_enabled": False,
-        "timer_active": False,
-        "service_active_after_rollback": False,
-        "removed_unit_count": removed,
-        "source_refetch_authorized": False,
-        "bounded_retry_authorized": False,
-        "source_refetch_may_have_been_triggered": False,
-    }
+    return {"timer_enabled": False, "timer_active": False, "service_active_after_rollback": False, "removed_unit_count": removed, "source_refetch_authorized": False, "bounded_retry_authorized": False, "source_refetch_may_have_been_triggered": False}
 
 
-def execute(
-    operation: str,
-    control_sha: str,
-    expected_fingerprint: str,
-    refetch_authority: str,
-    retry_authority: str,
-) -> dict[str, Any]:
+def execute(operation: str, control_sha: str, expected_fingerprint: str, refetch_authority: str, retry_authority: str) -> dict[str, Any]:
     require(os.geteuid() == 0, "EDEKA monitor control must run as root")
     require(operation in OPERATIONS, "unsupported EDEKA monitor operation")
     require(SHA40_RE.fullmatch(control_sha) is not None, "control SHA is invalid")
     require(expected_fingerprint == EXPECTED_REGISTRATION_FINGERPRINT, "registration fingerprint mismatch")
     validate_control_config(control_sha, expected_fingerprint)
     registration = validate_registration_config(expected_fingerprint)
-
     if operation == "activate":
         require(refetch_authority == "source-refetch=authorized", "activate source-refetch authority missing")
         require(retry_authority == "bounded-retries=authorized", "activate bounded-retry authority missing")
@@ -409,26 +308,7 @@ def execute(
         require(refetch_authority == "source-refetch=forbidden", "rollback must forbid source refetch")
         require(retry_authority == "bounded-retries=forbidden", "rollback must forbid bounded retries")
         detail = rollback(control_sha, expected_fingerprint)
-
-    return {
-        "schema_version": 1,
-        "control": CONTROL,
-        "issue_number": EXPECTED_ISSUE_NUMBER,
-        "operation": operation,
-        "result": "PASS",
-        "control_sha": control_sha,
-        "registered_commit": EXPECTED_REGISTRATION_SHA,
-        "registration_fingerprint_sha256": EXPECTED_REGISTRATION_FINGERPRINT,
-        "systemd_change_performed": True,
-        "rollback_preserves_shadow_evidence_root": True,
-        "rollback_preserves_monitor_evidence_root": True,
-        "rollback_preserves_cache_root": True,
-        "production_database_write_authorized": False,
-        "review_write_authorized": False,
-        "publication_authorized": False,
-        "deployment_authorized": False,
-        **detail,
-    }
+    return {"schema_version": 1, "control": CONTROL, "issue_number": EXPECTED_ISSUE_NUMBER, "operation": operation, "result": "PASS", "control_sha": control_sha, "registered_commit": EXPECTED_REGISTRATION_SHA, "registration_fingerprint_sha256": EXPECTED_REGISTRATION_FINGERPRINT, "systemd_change_performed": True, "rollback_preserves_shadow_evidence_root": True, "rollback_preserves_monitor_evidence_root": True, "rollback_preserves_cache_root": True, "production_database_write_authorized": False, "review_write_authorized": False, "publication_authorized": False, "deployment_authorized": False, **detail}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -444,25 +324,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        receipt = execute(
-            args.operation,
-            args.control_sha,
-            args.registration_fingerprint,
-            args.refetch_authority,
-            args.retry_authority,
-        )
+        receipt = execute(args.operation, args.control_sha, args.registration_fingerprint, args.refetch_authority, args.retry_authority)
     except (OSError, ValueError, ControlError, subprocess.SubprocessError) as exc:
-        print(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "control": CONTROL,
-                    "result": "BLOCKED",
-                    "error_type": type(exc).__name__,
-                },
-                sort_keys=True,
-            )
-        )
+        print(json.dumps({"schema_version": 1, "control": CONTROL, "result": "BLOCKED", "error_type": type(exc).__name__}, sort_keys=True))
         return 2
     print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
     return 0
