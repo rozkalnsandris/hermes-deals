@@ -16,7 +16,7 @@ EXPECTED_ISSUE_NUMBER = 26
 EXPECTED_CI_WORKFLOW = "Hermes Deals CI checks"
 EXPECTED_CI_PATH = ".github/workflows/ci.yml"
 EXPECTED_REGISTRATION_SHA = "85c3aca4ac62cbffa281365562af52c5e52d8d24"
-EXPECTED_REGISTRATION_FINGERPRINT = "f724ad3c5d84e469847f462512fb96128dbd1e44f679f52606c363e9a70762fb"
+EXPECTED_REGISTRATION_FINGERPRINT = "970fac96fd487fe2a027f6dd1055e6563ccec331e53e889511c1e35c5038f947"
 REQUIRED_CONTROL_PATHS = {
     ".github/workflows/hermes-edeka-weekly-monitor-control.yml",
     "tools/github_edeka_weekly_monitor_control.py",
