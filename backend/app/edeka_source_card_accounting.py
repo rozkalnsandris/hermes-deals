@@ -166,6 +166,14 @@ def _has_hidden_price_evidence(article: Tag, dialog: Tag) -> bool:
                     and "pfand" not in value_folded
                 ):
                     return True
+                # HTML class values are presentation/classification tokens, not
+                # hidden source data. Tailwind classes legitimately contain
+                # decimal sizing values such as h-62.5; treating those numbers
+                # as possible prices creates false unexplained-loss failures.
+                # Structural price class names remain fail-closed in
+                # _is_pfand_only_unpriced_card().
+                if key_folded == "class":
+                    continue
                 without_dates = _FULL_DATE_RE.sub("", value)
                 if (
                     "pfand" not in value_folded

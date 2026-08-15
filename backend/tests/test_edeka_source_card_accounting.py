@@ -146,6 +146,35 @@ def test_hidden_aria_price_attribute_remains_fail_closed() -> None:
         )
 
 
+def test_tailwind_decimal_height_class_is_not_hidden_price_evidence() -> None:
+    report = build_edeka_source_card_accounting(
+        _page(
+            granini_extra=(
+                '<img class="w-full object-contain inline-block aspect-square '
+                'pb-4 mx-auto lg:group-[.grid]/card:h-62.5 h-37.5 '
+                'sm:h-[11.563rem]" width="185" height="185" alt="">'
+            )
+        ),
+        _context(),
+        parsed_offer_ids={"bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"},
+    )
+
+    assert report["summary"]["excluded_count"] == 1
+    assert report["summary"]["unexplained_source_card_loss"] is False
+    assert report["excluded_cards"][0]["source_offer_id"] == (
+        "68aa5875-e4e1-4a5b-8d6c-221a2319dc2b"
+    )
+
+
+def test_price_semantic_class_still_remains_fail_closed() -> None:
+    with pytest.raises(ValueError, match="unexplained parser losses"):
+        build_edeka_source_card_accounting(
+            _page(granini_extra='<div class="price-shell h-62.5"></div>'),
+            _context(),
+            parsed_offer_ids={"bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"},
+        )
+
+
 def _write_manifest(tmp_path: Path) -> tuple[Path, str]:
     raw = _page().encode("utf-8")
     raw_path = tmp_path / "071897-offers.html"
