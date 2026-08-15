@@ -3,6 +3,8 @@ from __future__ import annotations
 from hashlib import sha1
 from pathlib import Path
 import re
+from runpy import run_path
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 DISPATCHER = ROOT / "tools/runner/edeka_production_canary_control.py"
@@ -41,6 +43,23 @@ def test_registration_pins_exact_reviewed_canary_sources() -> None:
         EXPECTED_WORKFLOW_BLOB,
     ):
         assert value in installer
+
+
+def test_dispatcher_run_accepts_binary_input_without_duplicate_stdin() -> None:
+    namespace = run_path(str(DISPATCHER))
+    helper = namespace["run"]
+    payload = b"backup-verification-probe"
+    result = helper(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())",
+        ],
+        input_bytes=payload,
+    )
+    assert result.returncode == 0
+    assert result.stdout == payload
+    assert result.stderr == b""
 
 
 def test_dispatcher_keeps_compromised_runner_inputs_narrow() -> None:
@@ -99,6 +118,8 @@ def test_backup_is_verified_without_exposing_database_password_to_host_argv() ->
     assert '"pg_dump", "--format=custom"' in source
     assert '"pg_restore", "--list"' in source
     assert "backup verification empty" in source
+    assert 'stdin=subprocess.DEVNULL if input_bytes is None else None' in source
+    assert 'stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL' not in source
     assert '"/bin/sh"' not in source
     assert "backup_sha256" in source
     assert "DATABASE_URL=" in source

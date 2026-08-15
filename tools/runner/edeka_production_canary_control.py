@@ -86,7 +86,7 @@ def run(argv: list[str], *, timeout: int = 120, input_bytes: bytes | None = None
     result = subprocess.run(
         argv,
         input=input_bytes,
-        stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL if input_bytes is None else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
