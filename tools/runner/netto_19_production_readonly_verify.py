@@ -31,6 +31,11 @@ WEEKLY_CONTRACT = 'single_week_query_short_periods_plus_explicit_immutable_daily
 WEEKLY_UI_CONTRACT = 'normalized_unique_deals_by_id_v1'
 W4_BUNDLE_MARKER = 'w3-behavior-preserving-bootstrap-v1'
 NETTO_MANIFEST_CONTENT_TYPE = 'application/vnd.hermes-deals.netto-store-prospect+json'
+INLINE_PRODUCTION_SCRIPT = 'inline:production-app.js'
+PRODUCTION_BUNDLE_SCRIPT_ATTR = 'data-hermes-production-bundle'
+PRODUCTION_BUNDLE_SCRIPT_VALUE = 'app.js'
+PRODUCTION_BUNDLE_META_NAME = 'hermes-production-bundle'
+PRODUCTION_BUNDLE_META_VALUE = 'inline-v1'
 SHA40_RE = re.compile(r'[0-9a-f]{40}')
 SHA256_RE = re.compile(r'[0-9a-f]{64}')
 HASHED_UI_JS_PATH_RE = re.compile(
@@ -66,13 +71,54 @@ class _ScriptSrcParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.sources: list[str] = []
+        self.inline_production_scripts: list[str] = []
+        self.production_bundle_meta_count = 0
+        self.errors: list[str] = []
+        self._capture_inline_production = False
+        self._inline_parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == 'meta':
+            names = [value for name, value in attrs if name == 'name']
+            contents = [value for name, value in attrs if name == 'content']
+            if names == [PRODUCTION_BUNDLE_META_NAME] and contents == [PRODUCTION_BUNDLE_META_VALUE]:
+                self.production_bundle_meta_count += 1
+            return
         if tag != 'script':
             return
-        for name, value in attrs:
-            if name == 'src' and value is not None:
-                self.sources.append(value.strip())
+
+        src_values = [value.strip() for name, value in attrs if name == 'src' and value is not None]
+        marker_values = [value for name, value in attrs if name == PRODUCTION_BUNDLE_SCRIPT_ATTR]
+        if len(src_values) > 1:
+            self.errors.append('daily UI script has duplicate src attributes')
+        if len(marker_values) > 1:
+            self.errors.append('daily UI production script marker is duplicated')
+        self.sources.extend(src_values)
+
+        if not marker_values:
+            return
+        if marker_values != [PRODUCTION_BUNDLE_SCRIPT_VALUE]:
+            self.errors.append('daily UI production script marker value is invalid')
+            return
+        if src_values:
+            self.errors.append('daily UI production inline script must not use src')
+            return
+        if self._capture_inline_production:
+            self.errors.append('daily UI production inline script nesting is invalid')
+            return
+        self._capture_inline_production = True
+        self._inline_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_inline_production:
+            self._inline_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != 'script' or not self._capture_inline_production:
+            return
+        self.inline_production_scripts.append(''.join(self._inline_parts))
+        self._capture_inline_production = False
+        self._inline_parts = []
 
 
 def run(args: list[str], *, input_text: str | None = None, timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -321,21 +367,50 @@ def daily_ui_high_confidence_ids(day: date, daily_netto: list[dict[str, Any]]) -
     }
 
 
-def daily_ui_script_path(html: str) -> str:
+def _parse_daily_ui_scripts(html: str) -> _ScriptSrcParser:
     parser = _ScriptSrcParser()
     try:
         parser.feed(html)
         parser.close()
+    except VerifyError:
+        raise
     except Exception as exc:
         raise VerifyError('daily UI HTML parsing failed') from exc
+    require(not parser.errors, parser.errors[0] if parser.errors else 'daily UI HTML parsing failed')
+    require(not parser._capture_inline_production, 'daily UI production inline script is unterminated')
+    return parser
+
+
+def _daily_ui_script_selection(html: str) -> tuple[str, str | None]:
+    parser = _parse_daily_ui_scripts(html)
     hashed = [src for src in parser.sources if HASHED_UI_JS_PATH_RE.fullmatch(src)]
     legacy = [src for src in parser.sources if src == '/ui/app.js']
-    require(not (hashed and legacy), 'daily UI mixes hashed and legacy script modes')
+    inline = parser.inline_production_scripts
+    mode_count = int(bool(hashed)) + int(bool(legacy)) + int(bool(inline))
+    require(mode_count == 1, 'daily UI active script reference missing or ambiguous')
+
+    if inline:
+        require(len(inline) == 1, 'daily UI production inline script is ambiguous')
+        require(
+            parser.production_bundle_meta_count == 1,
+            'daily UI production inline meta marker missing or ambiguous',
+        )
+        return INLINE_PRODUCTION_SCRIPT, inline[0]
+
+    require(
+        parser.production_bundle_meta_count == 0,
+        'daily UI production inline meta marker has no matching inline script',
+    )
     if hashed:
         require(len(hashed) == 1, 'daily UI hashed script reference is ambiguous')
-        return hashed[0]
+        return hashed[0], None
     require(len(legacy) == 1, 'daily UI active script reference missing or ambiguous')
-    return legacy[0]
+    return legacy[0], None
+
+
+def daily_ui_script_path(html: str) -> str:
+    script_ref, _ = _daily_ui_script_selection(html)
+    return script_ref
 
 
 def validate_daily_ui_script_semantics(script: str) -> None:
@@ -351,13 +426,20 @@ def validate_daily_ui_script_semantics(script: str) -> None:
 
 def validate_daily_ui_contract(production_revision: str) -> str:
     html = http_text('/ui')
-    script_path = daily_ui_script_path(html)
-    script = http_text(script_path)
-    if script_path == '/ui/app.js':
+    script_ref, inline_script = _daily_ui_script_selection(html)
+    if script_ref == INLINE_PRODUCTION_SCRIPT:
+        require(inline_script is not None, 'daily UI production inline script missing')
+        require(W4_BUNDLE_MARKER in inline_script, 'daily UI production inline behavior marker missing')
+        require(DAILY_CONTRACT in inline_script, 'daily UI production inline source-contract literal missing')
+        validate_daily_ui_script_semantics(inline_script)
+        return 'inline-production'
+
+    script = http_text(script_ref)
+    if script_ref == '/ui/app.js':
         validate_daily_ui_script_semantics(script)
         return 'legacy-w3'
 
-    require(HASHED_UI_JS_PATH_RE.fullmatch(script_path) is not None, 'daily UI hashed script path invalid')
+    require(HASHED_UI_JS_PATH_RE.fullmatch(script_ref) is not None, 'daily UI hashed script path invalid')
     require(W4_BUNDLE_MARKER in script, 'daily UI hashed bundle behavior marker missing')
     require(DAILY_CONTRACT in script, 'daily UI hashed bundle source-contract literal missing')
     source = owner_git('show', f'{production_revision}:{W4_DAILY_UI_SOURCE_PATH}')
