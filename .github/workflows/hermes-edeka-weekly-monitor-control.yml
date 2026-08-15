@@ -55,7 +55,7 @@ jobs:
       - self-hosted
       - linux
       - ARM64
-      - rpi5
+      - hermes-deals-audit
     timeout-minutes: 10
     permissions: {}
     env:
