@@ -370,13 +370,12 @@ def build_new_staged_root() -> Path:
             payload = NEW_TIMER_BYTES if name == TIMER_UNIT else (STAGED_ROOT / name).read_bytes()
             target = temp / name
             fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o444)
-            try:
-                os.write(fd, payload)
-                os.fsync(fd)
-                os.fchown(fd, 0, 0)
-                os.fchmod(fd, 0o444)
-            finally:
-                os.close(fd)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                os.fchown(handle.fileno(), 0, 0)
+                os.fchmod(handle.fileno(), 0o444)
         expected = {
             SERVICE_UNIT: SERVICE_SHA256,
             TIMER_UNIT: NEW_TIMER_SHA256,
@@ -463,7 +462,9 @@ def verify_new_state(new_config: Mapping[str, Any], new_sudoers: bytes) -> None:
     stored = read_json_root(CONFIG, 0o600, "new Lidl Gate D config")
     require(stored == new_config, "new Lidl Gate D config drift")
     require(plan_fingerprint(stored) == NEW_PLAN_FINGERPRINT, "new Lidl plan fingerprint drift")
-    require(sha256_file(UNIT_DIR / TIMER_UNIT) == NEW_TIMER_SHA256, "new installed Lidl timer drift")
+    for name, digest in expected_new.items():
+        require(regular_root_file(UNIT_DIR / name, 0o644), f"installed Lidl unit missing: {name}")
+        require(sha256_file(UNIT_DIR / name) == digest, f"installed Lidl unit drift: {name}")
     require(SUDOERS.read_bytes() == new_sudoers, "new Lidl sudoers drift")
     require(timer_enabled(), "Lidl timer lost enabled state")
     require(unit_active(TIMER_UNIT), "Lidl timer did not become active")
