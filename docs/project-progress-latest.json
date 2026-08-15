@@ -59,8 +59,8 @@
       "weight_units": 200
     },
     {
-      "completed_units": 80,
-      "completion_percent_tenths": 800,
+      "completed_units": 100,
+      "completion_percent_tenths": 1000,
       "id": "release",
       "items": [
         {
@@ -113,7 +113,7 @@
           "units": 5
         },
         {
-          "completed": false,
+          "completed": true,
           "id": "netto-production-verification",
           "issue": 19,
           "label": "Production verification of merged Netto daily-special fixes",
@@ -224,8 +224,8 @@
       "weight_units": 140
     },
     {
-      "completed_units": 120,
-      "completion_percent_tenths": 857,
+      "completed_units": 140,
+      "completion_percent_tenths": 1000,
       "id": "lidl",
       "items": [
         {
@@ -285,7 +285,7 @@
           "units": 3
         },
         {
-          "completed": false,
+          "completed": true,
           "id": "lidl-weekly",
           "issue": 24,
           "label": "Second weekly family, controlled canary, timer and rollback",
@@ -560,18 +560,58 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 187,
-  "completed_weighted_gate_count": 54,
-  "generated_at": "2026-08-14T05:44:29.003608Z",
-  "generated_at_local": "2026-08-14T07:44:29.003608+02:00",
-  "overall_completed_units": 720,
-  "overall_percent_tenths": 720,
-  "previous_day": "2026-08-13",
-  "previous_day_completed_gate_count": 0,
-  "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 0,
-  "previous_day_completed_issues": [],
-  "previous_day_progress_units": 0,
+  "completed_issue_count": 191,
+  "completed_weighted_gate_count": 56,
+  "generated_at": "2026-08-15T04:45:31.081615Z",
+  "generated_at_local": "2026-08-15T06:45:31.081615+02:00",
+  "overall_completed_units": 760,
+  "overall_percent_tenths": 760,
+  "previous_day": "2026-08-14",
+  "previous_day_completed_gate_count": 1,
+  "previous_day_completed_gates": [
+    {
+      "category_id": "lidl",
+      "closed_at": "2026-08-14T19:33:39Z",
+      "id": "lidl-weekly",
+      "issue": 24,
+      "label": "Second weekly family, controlled canary, timer and rollback",
+      "units": 20
+    }
+  ],
+  "previous_day_completed_issue_count": 5,
+  "previous_day_completed_issues": [
+    {
+      "closed_at": "2026-08-14T19:33:39Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/24",
+      "number": 24,
+      "title": "P1 Lidl: automate weekly discovery, review gate and controlled production rollout"
+    },
+    {
+      "closed_at": "2026-08-14T19:37:25Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/358",
+      "number": 358,
+      "title": "Lidl Gate A: accept reviewed same-PDF parser-input refresh without mutating immutable source"
+    },
+    {
+      "closed_at": "2026-08-14T15:26:02Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/582",
+      "number": 582,
+      "title": "Security: pin Lidl self-hosted workflow external actions"
+    },
+    {
+      "closed_at": "2026-08-13T22:29:05Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/615",
+      "number": 615,
+      "title": "P1 Lidl rollout: prepare exact reviewed one-row production canary preflight"
+    },
+    {
+      "closed_at": "2026-08-13T22:20:39Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/648",
+      "number": 648,
+      "title": "Lidl canary: document PLAN → APPLY → DONE and stop repeating first-canary ceremony"
+    }
+  ],
+  "previous_day_progress_units": 20,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
   "schema_version": 2,
@@ -584,8 +624,8 @@
       "weight_units": 140
     },
     {
-      "completed_units": 120,
-      "completion_percent_tenths": 857,
+      "completed_units": 140,
+      "completion_percent_tenths": 1000,
       "id": "lidl",
       "label": "Lidl",
       "weight_units": 140
