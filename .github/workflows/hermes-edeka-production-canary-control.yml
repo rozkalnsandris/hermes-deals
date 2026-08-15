@@ -1,0 +1,157 @@
+name: EDEKA production canary owner control
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: hermes-deals-edeka-production-canary-control
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner canary command
+    if: >-
+      github.repository == 'rozkalnsandris/hermes-deals' &&
+      github.event.issue.number == 26 &&
+      !github.event.issue.pull_request &&
+      github.event.sender.login == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/hermes-edeka canary ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+      ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
+    steps:
+      - name: Checkout exact default-branch authorizer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate owner, exact main SHA, plan and CI
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/github_edeka_production_canary_control.py
+
+  control:
+    name: Invoke fixed root-owned EDEKA canary dispatcher
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 20
+    permissions: {}
+    steps:
+      - name: Run registered fixed dispatcher
+        id: dispatch
+        env:
+          OPERATION: ${{ needs.authorize.outputs.operation }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-edeka-production-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir" >> "$GITHUB_OUTPUT"
+          printf 'control=edeka-production-canary\noperation=%s\ncommit_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$OPERATION" "$TARGET_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$export_dir/runner-request.txt"
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-edeka-production-canary-control \
+            "$OPERATION" "$TARGET_SHA" "$export_dir" \
+            2>&1 | tee "$export_dir/runner-dispatch.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$rc" > "$export_dir/runner-dispatch-exit-code.txt"
+          exit "$rc"
+
+      - name: Upload sanitized canary evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: edeka-production-canary-${{ needs.authorize.outputs.operation }}-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: Report sanitized canary control result
+    needs:
+      - authorize
+      - control
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment result on EDEKA issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.authorize.outputs.issue_number }}
+          OPERATION: ${{ needs.authorize.outputs.operation }}
+          TARGET_SHA: ${{ needs.authorize.outputs.sha }}
+          TRIGGER_ACTOR: ${{ needs.authorize.outputs.trigger_actor }}
+          CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+          CONTROL_RESULT: ${{ needs.control.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          repository = os.environ["REPOSITORY"]
+          issue_number = int(os.environ["ISSUE_NUMBER"])
+          operation = os.environ["OPERATION"]
+          target_sha = os.environ["TARGET_SHA"]
+          run_id = os.environ["RUN_ID"]
+          run_attempt = os.environ["RUN_ATTEMPT"]
+          body = (
+              f"<!-- edeka-production-canary:{run_id}:{run_attempt} -->\n"
+              "## EDEKA production canary control\n\n"
+              f"- Trigger actor: `{os.environ['TRIGGER_ACTOR']}`\n"
+              f"- Operation: `{operation}`\n"
+              f"- Exact authorized main: `{target_sha}`\n"
+              f"- Exact-main CI run: `{os.environ['CI_RUN_ID']}`\n"
+              f"- Control result: **{os.environ['CONTROL_RESULT']}**\n"
+              f"- Workflow run: {os.environ['SERVER_URL']}/{repository}/actions/runs/{run_id}/attempts/{run_attempt}\n"
+              f"- Artifact: `edeka-production-canary-{operation}-{target_sha}-run-{run_id}`\n\n"
+              "The root-owned dispatcher remains the authority boundary for retained evidence, backup, baseline counts, exact authorization JSON, database transaction, replay and rollback verification.\n"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-edeka-production-canary-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/issues/{issue_number}/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment response: {response.status}")
+          PY
