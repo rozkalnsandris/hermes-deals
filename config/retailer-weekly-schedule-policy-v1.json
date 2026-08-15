@@ -1,0 +1,30 @@
+{
+  "authority": {
+    "live_scheduler_change_requires_explicit_owner_authorization": true,
+    "merge_changes_live_scheduler": false,
+    "production_database_write_authorized": false,
+    "production_deploy_authorized": false,
+    "publication_write_authorized": false,
+    "review_write_authorized": false
+  },
+  "canonical_on_calendar": "Sun *-*-* 00:10:00 Europe/Berlin",
+  "policy": "retailer-weekly-collection-sunday-0010-v1",
+  "publication_buffer_minutes": 10,
+  "publication_reference": "Sun *-*-* 00:00:00 Europe/Berlin",
+  "retailers": {
+    "aldi_nord": {
+      "activation_default": "Sun *-*-* 00:10:00 Europe/Berlin"
+    },
+    "edeka_patzer_071897": {
+      "activation_default": "Sun *-*-* 00:10:00 Europe/Berlin"
+    },
+    "lidl_physical_store": {
+      "activation_default": "Sun *-*-* 00:10:00 Europe/Berlin"
+    },
+    "netto_5659": {
+      "activation_default": "Sun *-*-* 00:10:00 Europe/Berlin"
+    }
+  },
+  "schema_version": 1,
+  "timezone": "Europe/Berlin"
+}
