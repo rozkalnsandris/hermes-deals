@@ -1,0 +1,193 @@
+name: EDEKA weekly monitor owner control
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions: {}
+
+concurrency:
+  group: hermes-edeka-weekly-monitor-control
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize EDEKA monitor owner command
+    if: >-
+      github.event.issue.number == 26 &&
+      github.event.issue.pull_request == null &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.sender.login == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      startsWith(github.event.comment.body, '/hermes-edeka monitor ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      control_sha: ${{ steps.authorize.outputs.control_sha }}
+      registration_sha: ${{ steps.authorize.outputs.registration_sha }}
+      fingerprint: ${{ steps.authorize.outputs.fingerprint }}
+      refetch: ${{ steps.authorize.outputs.refetch }}
+      retries: ${{ steps.authorize.outputs.retries }}
+      current_main: ${{ steps.authorize.outputs.current_main }}
+      ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
+    steps:
+      - name: Checkout reviewed owner authorizer
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Authorize exact owner command
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/github_edeka_weekly_monitor_control.py
+
+  control:
+    name: Apply owner-authorized EDEKA monitor control
+    needs:
+      - authorize
+    runs-on:
+      - self-hosted
+      - linux
+      - ARM64
+      - rpi5
+    timeout-minutes: 10
+    permissions: {}
+    env:
+      DISPATCHER: /usr/local/sbin/hermes-deals-edeka-weekly-monitor-control
+      OPERATION: ${{ needs.authorize.outputs.operation }}
+      CONTROL_SHA: ${{ needs.authorize.outputs.control_sha }}
+      REGISTRATION_SHA: ${{ needs.authorize.outputs.registration_sha }}
+      REGISTRATION_FINGERPRINT: ${{ needs.authorize.outputs.fingerprint }}
+      REFETCH: ${{ needs.authorize.outputs.refetch }}
+      RETRIES: ${{ needs.authorize.outputs.retries }}
+      CURRENT_MAIN: ${{ needs.authorize.outputs.current_main }}
+      CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+    steps:
+      - name: Execute fixed root dispatcher and sanitize receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          export_dir="${RUNNER_TEMP}/edeka-weekly-monitor-control-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          umask 077
+          mkdir -p "$export_dir"
+          raw="$export_dir/raw.jsonl"
+          sanitized="$export_dir/control-receipt.json"
+
+          set +e
+          sudo --non-interactive -- "$DISPATCHER" \
+            "$OPERATION" \
+            "$CONTROL_SHA" \
+            "$REGISTRATION_FINGERPRINT" \
+            "source-refetch=$REFETCH" \
+            "bounded-retries=$RETRIES" >"$raw"
+          rc=$?
+          set -e
+
+          python3 - "$raw" "$sanitized" "$rc" "$OPERATION" "$CONTROL_SHA" "$REGISTRATION_SHA" "$REGISTRATION_FINGERPRINT" "$CURRENT_MAIN" "$CI_RUN_ID" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          raw_path, out_path, rc_text, operation, control_sha, registration_sha, fingerprint, current_main, ci_run_id = sys.argv[1:]
+          rc = int(rc_text)
+          lines = [line for line in Path(raw_path).read_text(encoding="utf-8").splitlines() if line.strip()]
+          payload = None
+          if lines:
+              try:
+                  candidate = json.loads(lines[-1])
+              except json.JSONDecodeError:
+                  candidate = None
+              if isinstance(candidate, dict):
+                  payload = candidate
+
+          if rc == 0:
+              if not isinstance(payload, dict):
+                  raise SystemExit("dispatcher success without JSON receipt")
+              expected = {
+                  "control": "edeka-weekly-monitor-control-v1",
+                  "issue_number": 26,
+                  "operation": operation,
+                  "result": "PASS",
+                  "control_sha": control_sha,
+                  "registered_commit": registration_sha,
+                  "registration_fingerprint_sha256": fingerprint,
+                  "production_database_write_authorized": False,
+                  "review_write_authorized": False,
+                  "publication_authorized": False,
+                  "deployment_authorized": False,
+                  "rollback_preserves_shadow_evidence_root": True,
+                  "rollback_preserves_monitor_evidence_root": True,
+                  "rollback_preserves_cache_root": True,
+                  "systemd_change_performed": True,
+              }
+              for key, value in expected.items():
+                  if payload.get(key) != value:
+                      raise SystemExit(f"dispatcher receipt mismatch: {key}")
+              if operation == "activate":
+                  if payload.get("source_refetch_authorized") is not True:
+                      raise SystemExit("activate source-refetch authority missing from receipt")
+                  if payload.get("bounded_retry_authorized") is not True:
+                      raise SystemExit("activate retry authority missing from receipt")
+                  if payload.get("source_refetch_may_have_been_triggered") is not True:
+                      raise SystemExit("activate catch-up/refetch warning missing")
+                  if payload.get("timer_enabled") is not True or payload.get("timer_active") is not True:
+                      raise SystemExit("activate timer state mismatch")
+              else:
+                  if payload.get("source_refetch_authorized") is not False:
+                      raise SystemExit("non-activate source-refetch authority drift")
+                  if payload.get("bounded_retry_authorized") is not False:
+                      raise SystemExit("non-activate retry authority drift")
+                  if payload.get("source_refetch_may_have_been_triggered") is not False:
+                      raise SystemExit("non-activate refetch warning drift")
+                  if payload.get("timer_enabled") is not False or payload.get("timer_active") is not False:
+                      raise SystemExit("non-activate timer state mismatch")
+              sanitized_payload = {
+                  **payload,
+                  "current_main_at_authorization": current_main,
+                  "exact_main_ci_run_id": ci_run_id,
+                  "dispatcher_exit_code": rc,
+              }
+          else:
+              sanitized_payload = {
+                  "schema_version": 1,
+                  "control": "edeka-weekly-monitor-control-v1",
+                  "operation": operation,
+                  "result": "BLOCKED",
+                  "control_sha": control_sha,
+                  "registered_commit": registration_sha,
+                  "registration_fingerprint_sha256": fingerprint,
+                  "current_main_at_authorization": current_main,
+                  "exact_main_ci_run_id": ci_run_id,
+                  "dispatcher_exit_code": rc,
+                  "production_database_write_authorized": False,
+                  "review_write_authorized": False,
+                  "publication_authorized": False,
+                  "deployment_authorized": False,
+              }
+              if isinstance(payload, dict) and isinstance(payload.get("error_type"), str):
+                  sanitized_payload["error_type"] = payload["error_type"]
+
+          Path(out_path).write_text(
+              json.dumps(sanitized_payload, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          rm -f "$raw"
+          echo "EDEKA_WEEKLY_MONITOR_CONTROL_EXPORT=$export_dir" >> "$GITHUB_ENV"
+          test "$rc" -eq 0
+
+      - name: Upload sanitized control evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edeka-weekly-monitor-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.EDEKA_WEEKLY_MONITOR_CONTROL_EXPORT }}/control-receipt.json
+          if-no-files-found: error
+          retention-days: 30
