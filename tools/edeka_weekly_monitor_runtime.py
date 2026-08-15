@@ -204,6 +204,9 @@ def _run_shadow_cycle(runner: Path, expected_sha: str, timeout_seconds: int) -> 
             "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "LANG": "C.UTF-8",
             "HERMES_AUDIT_TRIGGER": "systemd-schedule",
+            "PIP_NO_CACHE_DIR": "1",
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+            "PIP_NO_INPUT": "1",
         },
     )
 
