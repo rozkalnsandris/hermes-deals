@@ -17,6 +17,7 @@ EXPECTED_OWNER_ID = 277435981
 EXPECTED_ISSUE_NUMBER = 26
 EXPECTED_CI_WORKFLOW = "Hermes Deals CI checks"
 EXPECTED_CI_PATH = ".github/workflows/ci.yml"
+EXPECTED_PLAN_ID = "edeka-patzer-production-canary-v01"
 REQUIRED_PATHS = {
     "backend/app/edeka_production_canary.py",
     "config/edeka-production-canary-v01.json",
@@ -109,7 +110,7 @@ def _validate_plan_contract(plan_file: Mapping[str, Any]) -> None:
         raise BridgeAuthorizationError("EDEKA canary plan root is invalid")
     if payload.get("schema_version") != 1:
         raise BridgeAuthorizationError("EDEKA canary plan schema mismatch")
-    if payload.get("plan_id") != "edeka-production-canary-v0.1":
+    if payload.get("plan_id") != EXPECTED_PLAN_ID:
         raise BridgeAuthorizationError("EDEKA canary plan identity mismatch")
     if payload.get("state") != "preparation_only":
         raise BridgeAuthorizationError("EDEKA canary plan is not preparation_only")
