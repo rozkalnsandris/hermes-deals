@@ -365,6 +365,7 @@ def build_registration_config(
         "monitor_evidence_root": str(MONITOR_EVIDENCE_ROOT),
         "cache_root": str(CACHE_ROOT),
         "unit_dir": str(UNIT_DIR),
+        "registration_scope": "unit_files_only_no_manager_reload",
         "daemon_reload_performed": False,
         "timer_enable_performed": False,
         "timer_start_performed": False,
@@ -433,6 +434,12 @@ def register_units(args: argparse.Namespace) -> dict[str, Any]:
         config_changed = write_exclusive_or_identical(CONFIG_DST, canonical_bytes(config), 0o600)
         require_units_inactive_and_timer_not_enabled()
 
+    unit_file_installation_performed = any(unit_changes.values())
+    root_host_mutation_performed = (
+        unit_file_installation_performed
+        or config_changed
+        or any(created_data_roots.values())
+    )
     return {
         "result": "PASS",
         "registration_sha": args.registration_sha,
@@ -441,6 +448,8 @@ def register_units(args: argparse.Namespace) -> dict[str, Any]:
         "unit_file_changes": unit_changes,
         "registration_config_changed": config_changed,
         "data_root_changes": created_data_roots,
+        "systemd_unit_file_installation_performed": unit_file_installation_performed,
+        "root_host_mutation_performed": root_host_mutation_performed,
         "daemon_reload_performed": False,
         "timer_enable_performed": False,
         "timer_start_performed": False,
@@ -473,6 +482,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     print("EDEKA_WEEKLY_MONITOR_UNIT_REGISTRATION=PASS")
+    print(f"SYSTEMD_UNIT_FILE_INSTALLATION={'true' if result['systemd_unit_file_installation_performed'] else 'false'}")
+    print(f"ROOT_HOST_MUTATION={'true' if result['root_host_mutation_performed'] else 'false'}")
     print("SYSTEMD_DAEMON_RELOAD=false")
     print("SYSTEMD_TIMER_ENABLE=false")
     print("SYSTEMD_TIMER_START=false")
