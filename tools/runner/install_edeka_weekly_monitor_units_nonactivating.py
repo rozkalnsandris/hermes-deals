@@ -99,8 +99,7 @@ def validate_source_repo(registration_sha: str) -> dict[str, str]:
     require(git("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout == b"", "dedicated EDEKA audit repository is not clean")
     git("cat-file", "-e", f"{registration_sha}^{{commit}}")
     git("show-ref", "--verify", "--quiet", "refs/remotes/origin/main")
-    ancestry = git("merge-base", "--is-ancestor", registration_sha, "refs/remotes/origin/main", check=False)
-    require(ancestry.returncode == 0 and not ancestry.stderr, "registration SHA is not reachable from origin/main")
+    require(git_text("rev-parse", "refs/remotes/origin/main") == registration_sha, "registration SHA is not exact origin/main")
 
     expected = {PLANNER_REL: EXPECTED_PLANNER_BLOB, RUNTIME_REL: EXPECTED_RUNTIME_BLOB}
     for path, oid in expected.items():
