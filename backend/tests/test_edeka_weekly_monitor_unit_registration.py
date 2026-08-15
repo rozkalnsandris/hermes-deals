@@ -171,6 +171,12 @@ def test_registration_pins_the_merged_monitor_source_blobs() -> None:
     )
 
 
+def test_registration_requires_exact_origin_main_not_ancestor_only() -> None:
+    source = INSTALLER.read_text(encoding="utf-8")
+    assert 'git_text("rev-parse", "refs/remotes/origin/main") == registration_sha' in source
+    assert 'merge-base", "--is-ancestor"' not in source
+
+
 def test_registration_input_rejects_schedule_injection() -> None:
     module = load_installer()
     with pytest.raises(module.RegistrationError, match="one line"):
