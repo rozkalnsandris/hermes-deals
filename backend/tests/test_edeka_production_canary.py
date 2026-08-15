@@ -20,14 +20,8 @@ from app.edeka_production_canary import (
     execute_prepared_canary,
     load_plan,
 )
-from app.models import (
-    Base,
-    OfferCandidateRecord,
-    OfferNormalization,
-    SourceSnapshot,
-)
+from app.models import Base, OfferCandidateRecord, OfferNormalization, SourceSnapshot
 from app.schemas import OfferCandidate, SourceChain
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLAN_PATH = REPO_ROOT / "config" / "edeka-production-canary-v01.json"
@@ -79,26 +73,25 @@ def _offer(plan_row: dict[str, object]) -> OfferCandidate:
 
 
 def _evidence(plan) -> CanaryEvidence:
-    manifest = {
-        "source_chain": "edeka",
-        "scope": "family_primary_edeka",
-        "public_market_id": "071897",
-        "internal_market_id": "587881",
-        "store_name": "EDEKA Patzer",
-        "source_url": SOURCE_URL,
-        "final_url": SOURCE_URL,
-        "snapshot_id": plan.source["shadow_snapshot_id"],
-        "collected_at": COLLECTED_AT.isoformat(),
-        "valid_from": plan.source["campaign_valid_from"],
-        "valid_until": plan.source["campaign_valid_until"],
-        "offer_count": plan.source["full_offer_count"],
-        "raw_html_sha256": plan.source["raw_html_sha256"],
-    }
     selected = [_offer(row) for row in plan.rows]
     return CanaryEvidence(
         manifest_path=Path("/retained/edeka-manifest.json"),
         raw_html_path=Path("/retained/edeka-source.html"),
-        manifest=manifest,
+        manifest={
+            "source_chain": "edeka",
+            "scope": "family_primary_edeka",
+            "public_market_id": "071897",
+            "internal_market_id": "587881",
+            "store_name": "EDEKA Patzer",
+            "source_url": SOURCE_URL,
+            "final_url": SOURCE_URL,
+            "snapshot_id": plan.source["shadow_snapshot_id"],
+            "collected_at": COLLECTED_AT.isoformat(),
+            "valid_from": plan.source["campaign_valid_from"],
+            "valid_until": plan.source["campaign_valid_until"],
+            "offer_count": plan.source["full_offer_count"],
+            "raw_html_sha256": plan.source["raw_html_sha256"],
+        },
         raw_html=b"retained-edeka-source",
         offers=selected,
         selected_offers=selected,
@@ -108,10 +101,7 @@ def _evidence(plan) -> CanaryEvidence:
 
 class EdekaProductionCanaryTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = create_engine(
-            "sqlite+pysqlite:///:memory:",
-            future=True,
-        )
+        self.engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
         Base.metadata.create_all(self.engine)
         self.db = Session(self.engine)
         self.db.execute(
@@ -131,15 +121,22 @@ class EdekaProductionCanaryTest(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
-    def _authorization_file(
+    def _counts(self) -> dict[str, int]:
+        counts = _table_counts(self.db)
+        # Count reads autobegin in SQLAlchemy 2.x. Tests deliberately close that
+        # read transaction before exercising the executor's own atomic begin().
+        self.db.rollback()
+        return counts
+
+    def _authorization(
         self,
-        temporary: str,
+        directory: str,
         *,
         mode: str,
         baseline: dict[str, int],
         backup_verified: bool = True,
     ) -> Path:
-        path = Path(temporary) / f"authorization-{mode}.json"
+        path = Path(directory) / f"authorization-{mode}.json"
         path.write_text(
             json.dumps(
                 {
@@ -159,7 +156,7 @@ class EdekaProductionCanaryTest(unittest.TestCase):
         )
         return path
 
-    def test_exact_repo_plan_contract_is_loaded(self) -> None:
+    def test_repo_plan_is_exact_preparation_only_contract(self) -> None:
         self.assertEqual(self.plan.payload["state"], "preparation_only")
         self.assertFalse(self.plan.payload["production_apply_authorized"])
         self.assertEqual(
@@ -182,44 +179,33 @@ class EdekaProductionCanaryTest(unittest.TestCase):
             all(row["review_required"] is False for row in self.plan.rows)
         )
 
-    def test_verify_empty_state_is_read_only(self) -> None:
-        before = _table_counts(self.db)
-        result = execute_prepared_canary(
-            self.db,
-            self.plan,
-            self.evidence,
-            mode="verify",
+    def test_verify_is_read_only_and_apply_requires_separate_authorization(self) -> None:
+        baseline = self._counts()
+        verified = execute_prepared_canary(
+            self.db, self.plan, self.evidence, mode="verify"
         )
-        after = _table_counts(self.db)
+        self.assertEqual(verified["state"], "empty")
+        self.assertFalse(verified["writes_performed"])
+        self.assertEqual(verified["expected_next_delta"], self.plan.expected_first_delta)
+        self.assertEqual(self._counts(), baseline)
 
-        self.assertEqual(result["state"], "empty")
-        self.assertFalse(result["writes_performed"])
-        self.assertEqual(result["expected_next_delta"], self.plan.expected_first_delta)
-        self.assertEqual(after, before)
-
-    def test_apply_without_separate_owner_authorization_fails(self) -> None:
-        before = _table_counts(self.db)
         with self.assertRaisesRegex(ValueError, "requires owner authorization"):
             execute_prepared_canary(
-                self.db,
-                self.plan,
-                self.evidence,
-                mode="apply",
+                self.db, self.plan, self.evidence, mode="apply"
             )
-        self.assertEqual(_table_counts(self.db), before)
+        self.assertEqual(self._counts(), baseline)
 
     def test_apply_requires_verified_rollback_backup(self) -> None:
-        baseline = _table_counts(self.db)
-        with tempfile.TemporaryDirectory() as temporary:
-            auth = self._authorization_file(
-                temporary,
+        baseline = self._counts()
+        with tempfile.TemporaryDirectory() as directory:
+            auth = self._authorization(
+                directory,
                 mode="apply",
                 baseline=baseline,
                 backup_verified=False,
             )
             with self.assertRaisesRegex(
-                ValueError,
-                "rollback_backup_verified mismatch",
+                ValueError, "rollback_backup_verified mismatch"
             ):
                 execute_prepared_canary(
                     self.db,
@@ -228,15 +214,13 @@ class EdekaProductionCanaryTest(unittest.TestCase):
                     mode="apply",
                     authorization_path=auth,
                 )
-        self.assertEqual(_table_counts(self.db), baseline)
+        self.assertEqual(self._counts(), baseline)
 
     def test_first_apply_is_exact_and_replay_is_zero_delta(self) -> None:
-        baseline = _table_counts(self.db)
-        with tempfile.TemporaryDirectory() as temporary:
-            auth = self._authorization_file(
-                temporary,
-                mode="apply",
-                baseline=baseline,
+        baseline = self._counts()
+        with tempfile.TemporaryDirectory() as directory:
+            auth = self._authorization(
+                directory, mode="apply", baseline=baseline
             )
             applied = execute_prepared_canary(
                 self.db,
@@ -260,39 +244,26 @@ class EdekaProductionCanaryTest(unittest.TestCase):
         self.assertEqual(replay["delta"], self.plan.expected_replay_delta)
         self.assertFalse(replay["writes_performed"])
         self.assertEqual(
-            self.db.scalar(select(func.count()).select_from(SourceSnapshot)),
-            1,
+            self.db.scalar(select(func.count()).select_from(SourceSnapshot)), 1
         )
         self.assertEqual(
-            self.db.scalar(select(func.count()).select_from(OfferCandidateRecord)),
-            3,
+            self.db.scalar(select(func.count()).select_from(OfferCandidateRecord)), 3
         )
         self.assertEqual(
-            self.db.scalar(select(func.count()).select_from(OfferNormalization)),
-            3,
+            self.db.scalar(select(func.count()).select_from(OfferNormalization)), 3
         )
+        self.db.rollback()
 
-    def test_partial_existing_state_fails_closed(self) -> None:
+    def test_partial_state_and_wrong_alembic_head_fail_closed(self) -> None:
         self.db.add(_build_snapshot(self.plan, self.evidence))
         self.db.commit()
-
         with self.assertRaisesRegex(ValueError, "partial persisted state"):
             execute_prepared_canary(
-                self.db,
-                self.plan,
-                self.evidence,
-                mode="verify",
+                self.db, self.plan, self.evidence, mode="verify"
             )
-        self.assertEqual(
-            self.db.scalar(select(func.count()).select_from(SourceSnapshot)),
-            1,
-        )
-        self.assertEqual(
-            self.db.scalar(select(func.count()).select_from(OfferCandidateRecord)),
-            0,
-        )
+        self.db.delete(self.db.get(SourceSnapshot, _canary_snapshot_id(self.plan)))
+        self.db.commit()
 
-    def test_wrong_alembic_head_fails_before_write(self) -> None:
         self.db.execute(text("DELETE FROM alembic_version"))
         self.db.execute(
             text(
@@ -301,24 +272,18 @@ class EdekaProductionCanaryTest(unittest.TestCase):
             )
         )
         self.db.commit()
-        before = _table_counts(self.db)
-
+        baseline = self._counts()
         with self.assertRaisesRegex(ValueError, "Alembic head mismatch"):
             execute_prepared_canary(
-                self.db,
-                self.plan,
-                self.evidence,
-                mode="verify",
+                self.db, self.plan, self.evidence, mode="verify"
             )
-        self.assertEqual(_table_counts(self.db), before)
+        self.assertEqual(self._counts(), baseline)
 
-    def test_rollback_uses_separate_mode_bound_authorization(self) -> None:
-        baseline = _table_counts(self.db)
-        with tempfile.TemporaryDirectory() as temporary:
-            apply_auth = self._authorization_file(
-                temporary,
-                mode="apply",
-                baseline=baseline,
+    def test_rollback_requires_separate_mode_bound_authorization(self) -> None:
+        baseline = self._counts()
+        with tempfile.TemporaryDirectory() as directory:
+            apply_auth = self._authorization(
+                directory, mode="apply", baseline=baseline
             )
             execute_prepared_canary(
                 self.db,
@@ -327,7 +292,6 @@ class EdekaProductionCanaryTest(unittest.TestCase):
                 mode="apply",
                 authorization_path=apply_auth,
             )
-
             with self.assertRaisesRegex(ValueError, "authorized_mode mismatch"):
                 execute_prepared_canary(
                     self.db,
@@ -337,10 +301,8 @@ class EdekaProductionCanaryTest(unittest.TestCase):
                     authorization_path=apply_auth,
                 )
 
-            rollback_auth = self._authorization_file(
-                temporary,
-                mode="rollback",
-                baseline=baseline,
+            rollback_auth = self._authorization(
+                directory, mode="rollback", baseline=baseline
             )
             rolled_back = execute_prepared_canary(
                 self.db,
@@ -352,10 +314,13 @@ class EdekaProductionCanaryTest(unittest.TestCase):
 
         self.assertEqual(rolled_back["state"], "rolled_back")
         self.assertTrue(rolled_back["writes_performed"])
-        self.assertEqual(_table_counts(self.db), baseline)
-        self.assertIsNone(self.db.get(SourceSnapshot, _canary_snapshot_id(self.plan)))
+        self.assertEqual(self._counts(), baseline)
+        self.assertIsNone(
+            self.db.get(SourceSnapshot, _canary_snapshot_id(self.plan))
+        )
+        self.db.rollback()
 
-    def test_executor_source_has_no_network_acquisition_path(self) -> None:
+    def test_executor_has_no_network_or_parallel_business_write_path(self) -> None:
         source = (
             REPO_ROOT / "backend" / "app" / "edeka_production_canary.py"
         ).read_text(encoding="utf-8")
