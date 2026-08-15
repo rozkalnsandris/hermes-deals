@@ -40,7 +40,7 @@ def command(operation: str, *, refetch: str, retries: str) -> str:
         f"/hermes-edeka monitor {operation} "
         f"control={'1' * 40} "
         "registration=85c3aca4ac62cbffa281365562af52c5e52d8d24 "
-        "fingerprint=f724ad3c5d84e469847f462512fb96128dbd1e44f679f52606c363e9a70762fb "
+        "fingerprint=970fac96fd487fe2a027f6dd1055e6563ccec331e53e889511c1e35c5038f947 "
         f"refetch={refetch} retries={retries}"
     )
 
