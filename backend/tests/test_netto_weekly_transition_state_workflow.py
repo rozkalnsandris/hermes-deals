@@ -9,7 +9,7 @@ WORKFLOW = ROOT / ".github/workflows/netto-weekly-transition-state.yml"
 def test_schedule_is_timezone_aware_non_top_of_hour_and_main_only_runtime() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "schedule:" in text
-    assert "cron: '17 6 * * *'" in text
+    assert "cron: '10 0 * * 0'" in text
     assert "timezone: 'Europe/Berlin'" in text
     assert "workflow_dispatch:" in text
     assert "runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]" in text
