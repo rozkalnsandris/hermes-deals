@@ -126,6 +126,7 @@ def test_registration_config_is_deterministic_and_nonactivating() -> None:
     second = module.build_registration_config(**kwargs)
     assert first == second
     assert len(first["registration_fingerprint_sha256"]) == 64
+    assert first["registration_scope"] == "unit_files_only_no_manager_reload"
     assert first["daemon_reload_performed"] is False
     assert first["timer_enable_performed"] is False
     assert first["timer_start_performed"] is False
@@ -175,6 +176,14 @@ def test_registration_requires_exact_origin_main_not_ancestor_only() -> None:
     source = INSTALLER.read_text(encoding="utf-8")
     assert 'git_text("rev-parse", "refs/remotes/origin/main") == registration_sha' in source
     assert 'merge-base", "--is-ancestor"' not in source
+
+
+def test_registration_receipt_reports_unit_and_host_mutation_separately() -> None:
+    source = INSTALLER.read_text(encoding="utf-8")
+    assert '"systemd_unit_file_installation_performed": unit_file_installation_performed' in source
+    assert '"root_host_mutation_performed": root_host_mutation_performed' in source
+    assert 'SYSTEMD_UNIT_FILE_INSTALLATION=' in source
+    assert 'ROOT_HOST_MUTATION=' in source
 
 
 def test_registration_input_rejects_schedule_injection() -> None:
