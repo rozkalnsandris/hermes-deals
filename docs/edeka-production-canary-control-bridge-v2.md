@@ -1,1 +1,0 @@
-This source-only control bridge remains non-authoritative until a separately reviewed, checksum-bound root dispatcher and least-privilege sudo policy are explicitly owner-authorized and installed on the RPi5. Merging the bridge alone performs no production database write, root registration, scheduler change, or deployment.
