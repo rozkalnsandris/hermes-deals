@@ -56,6 +56,20 @@ def digest_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _selected_offer_cardinality_evidence(selected_count: int) -> dict[str, int | str]:
+    if selected_count == 0:
+        bound_state = "ZERO"
+    elif selected_count > MAX_OFFERS:
+        bound_state = "OVERFLOW"
+    else:
+        bound_state = "IN_RANGE"
+    return {
+        "bound_state": bound_state,
+        "max_offers": MAX_OFFERS,
+        "selected_offer_count": selected_count,
+    }
+
+
 def _observed(value: str) -> datetime:
     try:
         result = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -546,7 +560,13 @@ def run_diagnostic(
             source_text = source_bytes.decode("utf-8", errors="replace")
             offers = producer._offer_map(source_text)
             selected, iso_week, valid_from, valid_until = producer._select_week(offers, observed)
-            require(0 < len(selected) <= MAX_OFFERS, "selected offer count outside diagnostic bound")
+            selected_cardinality = _selected_offer_cardinality_evidence(len(selected))
+            if selected_cardinality["bound_state"] != "IN_RANGE":
+                print(
+                    "SELECTED_OFFER_CARDINALITY_EVIDENCE="
+                    + json.dumps(selected_cardinality, separators=(",", ":"), sort_keys=True)
+                )
+                raise DiagnosticError("selected offer count outside diagnostic bound")
 
             final = urlsplit(page.url)
             require(
