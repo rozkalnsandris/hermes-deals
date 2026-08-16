@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from hashlib import sha256
+import inspect
 import json
 from pathlib import Path
 import sys
@@ -18,6 +19,22 @@ def offer(start: str, price: float = 1.0) -> dict[str, object]:
         "currentPrice": {"priceValue": price},
         "promotionPrices": [{"validFromLocalDate": start}],
     }
+
+
+class FakeWeekViewPage:
+    def __init__(self, result: object) -> None:
+        self.result = result
+        self.label: str | None = None
+        self.script = ""
+        self.waits: list[int] = []
+
+    def evaluate(self, script: str, label: str) -> object:
+        self.script = script
+        self.label = label
+        return self.result
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        self.waits.append(milliseconds)
 
 
 class AldiWeeklyShadowProducerTest(unittest.TestCase):
@@ -107,6 +124,68 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         )
         self.assertEqual(set(selected), {"next"})
         self.assertEqual(iso_week, "2026-W34")
+
+    def test_berlin_sunday_rollover_applies_even_when_utc_is_saturday(self):
+        rows = {
+            "old": offer("2026-08-10"),
+            "next": offer("2026-08-17"),
+        }
+        selected, iso_week, _, _ = producer._select_week(
+            rows,
+            datetime(2026, 8, 15, 22, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(set(selected), {"next"})
+        self.assertEqual(iso_week, "2026-W34")
+
+    def test_sunday_next_family_maps_to_next_week_visual_view(self):
+        label = producer._week_view_label(
+            datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+            date(2026, 8, 17),
+        )
+        self.assertEqual(label, "Nächste Woche")
+
+    def test_berlin_monday_maps_same_family_to_current_visual_view(self):
+        label = producer._week_view_label(
+            datetime(2026, 8, 16, 22, 30, tzinfo=timezone.utc),
+            date(2026, 8, 17),
+        )
+        self.assertEqual(label, "Aktuelle Woche")
+
+    def test_visual_week_view_rejects_unsupported_family(self):
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "no supported current/next visual week view",
+        ):
+            producer._week_view_label(
+                datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+                date(2026, 8, 24),
+            )
+
+    def test_visual_week_view_sync_requires_one_exact_control(self):
+        page = FakeWeekViewPage({"match_count": 1})
+        producer._sync_week_view(page, "Nächste Woche")
+        self.assertEqual(page.label, "Nächste Woche")
+        self.assertEqual(page.waits, [750])
+        self.assertIn("normalize(el.textContent) === label", page.script)
+
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "week-view control is not unique",
+        ):
+            producer._sync_week_view(
+                FakeWeekViewPage({"match_count": 2}),
+                "Nächste Woche",
+            )
+
+    def test_build_capture_syncs_visual_week_before_lazy_load_scroll(self):
+        source = inspect.getsource(producer.build_capture)
+        select_index = source.index("offers, iso_week, valid_from, valid_until = _select_week")
+        sync_index = source.index("_sync_week_view(page, week_view_label)")
+        scroll_index = source.index("for y in range(0, 20_001, 800)")
+        geometry_index = source.index("geometry = page.evaluate")
+        self.assertLess(select_index, sync_index)
+        self.assertLess(sync_index, scroll_index)
+        self.assertLess(scroll_index, geometry_index)
 
     def test_missing_validity_start_is_not_promoted(self):
         rows = {

@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import aldi_new_immutable_baseline_gate as gate_a_module
 import aldi_new_baseline_page_card_parity as gate_b_module
@@ -23,6 +24,7 @@ GATE_A_MODE = "ALDI_NEW_IMMUTABLE_BASELINE_GATE_A_V01"
 GATE_B_MODE = "ALDI_NEW_BASELINE_PAGE_CARD_PARITY_V01"
 GATE_C_MODE = "ALDI_NEW_BASELINE_GATE_C_REPLAY_V01"
 ALDI_HOSTS = {"aldi-nord.de", "www.aldi-nord.de"}
+ALDI_LOCAL_TZ = ZoneInfo("Europe/Berlin")
 NEXT_DATA_RE = re.compile(
     r"""<script[^>]+id=["']__NEXT_DATA__["'][^>]*>(.*?)</script>""",
     re.I | re.S,
@@ -110,6 +112,12 @@ def _observed(value: str) -> datetime:
     return result.astimezone(timezone.utc)
 
 
+def _observed_local_date(observed: datetime) -> date:
+    if observed.tzinfo is None:
+        raise ProducerError("observed datetime must include timezone")
+    return observed.astimezone(ALDI_LOCAL_TZ).date()
+
+
 def _local_date(value: Any) -> date | None:
     if not isinstance(value, str):
         return None
@@ -175,7 +183,8 @@ def _select_week(
     highest = max(counts.values())
     tied = sorted(key for key, count in counts.items() if count == highest)
 
-    target_date = observed.date() + timedelta(days=1) if observed.weekday() == 6 else observed.date()
+    local_date = _observed_local_date(observed)
+    target_date = local_date + timedelta(days=1) if local_date.weekday() == 6 else local_date
     target_key = _week_key(target_date)
     if target_key in tied:
         selected_key = target_key
@@ -200,6 +209,68 @@ def _select_week(
     sunday = monday + timedelta(days=6)
     iso_week = f"{selected_key[0]}-W{selected_key[1]:02d}"
     return selected, iso_week, monday, sunday
+
+
+def _week_view_label(observed: datetime, valid_from: date) -> str:
+    local_date = _observed_local_date(observed)
+    current_monday = local_date - timedelta(days=local_date.weekday())
+    if valid_from == current_monday:
+        return "Aktuelle Woche"
+    if valid_from == current_monday + timedelta(days=7):
+        return "Nächste Woche"
+    raise ProducerError(
+        "selected ALDI week has no supported current/next visual week view"
+    )
+
+
+def _sync_week_view(page: Any, label: str) -> None:
+    result = page.evaluate(
+        r"""(label) => {
+          const normalize = value => (value || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const visible = el => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return (
+              rect.width > 4 &&
+              rect.height > 4 &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden'
+            );
+          };
+          const selectors = [
+            'button',
+            'a',
+            '[role="tab"]',
+            '[role="button"]',
+            '[role="radio"]',
+            'label'
+          ].join(',');
+          const matches = Array.from(document.querySelectorAll(selectors))
+            .filter(el => visible(el) && normalize(el.textContent) === label);
+          const unique = Array.from(new Set(matches));
+          if (unique.length !== 1) {
+            return {match_count: unique.length};
+          }
+          const control = unique[0];
+          control.scrollIntoView({block: 'center', inline: 'nearest'});
+          control.click();
+          return {
+            match_count: 1,
+            tag_name: control.tagName.toLowerCase(),
+            role: control.getAttribute('role') || ''
+          };
+        }""",
+        label,
+    )
+    if not isinstance(result, dict) or result.get("match_count") != 1:
+        count = result.get("match_count") if isinstance(result, dict) else "invalid"
+        raise ProducerError(
+            f"ALDI visual week-view control is not unique: {label} ({count})"
+        )
+    page.wait_for_timeout(750)
 
 
 def _candidate_id(object_id: str) -> str:
@@ -274,17 +345,19 @@ def build_capture(
                 except Exception:
                     pass
 
+            offers, iso_week, valid_from, valid_until = _select_week(
+                all_offers,
+                observed,
+            )
+            week_view_label = _week_view_label(observed, valid_from)
+
             page.wait_for_timeout(750)
+            _sync_week_view(page, week_view_label)
             for y in range(0, 20_001, 800):
                 page.evaluate("(value) => window.scrollTo(0, value)", y)
                 page.wait_for_timeout(75)
             page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
             page.wait_for_timeout(1000)
-
-            offers, iso_week, valid_from, valid_until = _select_week(
-                all_offers,
-                observed,
-            )
 
             geometry = page.evaluate(
                 r"""(ids) => {
