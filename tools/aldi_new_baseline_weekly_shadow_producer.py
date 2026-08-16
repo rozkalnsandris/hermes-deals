@@ -35,6 +35,22 @@ class ProducerError(RuntimeError):
     pass
 
 
+class _WeekViewTarget(str):
+    """Exact week label with one explicitly bounded Sunday rollover alias."""
+
+    rollover_alias: str | None
+
+    def __new__(
+        cls,
+        value: str,
+        *,
+        rollover_alias: str | None = None,
+    ) -> "_WeekViewTarget":
+        result = str.__new__(cls, value)
+        result.rollover_alias = rollover_alias
+        return result
+
+
 def canonical_bytes(value: Any) -> bytes:
     return (
         json.dumps(
@@ -217,6 +233,11 @@ def _week_view_label(observed: datetime, valid_from: date) -> str:
     if valid_from == current_monday:
         return "Aktuelle Woche"
     if valid_from == current_monday + timedelta(days=7):
+        if local_date.weekday() == 6 and valid_from == local_date + timedelta(days=1):
+            return _WeekViewTarget(
+                "Nächste Woche",
+                rollover_alias="Aktuelle Woche",
+            )
         return "Nächste Woche"
     raise ProducerError(
         "selected ALDI week has no supported current/next visual week view"
@@ -224,8 +245,20 @@ def _week_view_label(observed: datetime, valid_from: date) -> str:
 
 
 def _sync_week_view(page: Any, label: str) -> None:
+    rollover_alias = getattr(label, "rollover_alias", None)
+    selector_input: str | dict[str, str] = str(label)
+    if rollover_alias:
+        selector_input = {
+            "label": str(label),
+            "rollover_alias": str(rollover_alias),
+        }
+
     result = page.evaluate(
-        r"""(label) => {
+        r"""(input) => {
+          const label = typeof input === 'string' ? input : input.label;
+          const rolloverAlias = typeof input === 'string'
+            ? ''
+            : (input.rollover_alias || '');
           const normalize = value => (value || '')
             .replace(/\u00a0/g, ' ')
             .replace(/\s+/g, ' ')
@@ -248,29 +281,62 @@ def _sync_week_view(page: Any, label: str) -> None:
             '[role="radio"]',
             'label'
           ].join(',');
-          const matches = Array.from(document.querySelectorAll(selectors))
-            .filter(el => visible(el) && normalize(el.textContent) === label);
-          const unique = Array.from(new Set(matches));
-          if (unique.length !== 1) {
-            return {match_count: unique.length};
+          const exactVisible = value => Array.from(document.querySelectorAll(selectors))
+            .filter(el => visible(el) && normalize(el.textContent) === value);
+          const matches = Array.from(new Set(exactVisible(label)));
+          if (matches.length === 1) {
+            const control = matches[0];
+            control.scrollIntoView({block: 'center', inline: 'nearest'});
+            control.click();
+            return {
+              match_count: 1,
+              alias_match_count: 0,
+              selected_label: label,
+              tag_name: control.tagName.toLowerCase(),
+              role: control.getAttribute('role') || ''
+            };
           }
-          const control = unique[0];
+          if (matches.length !== 0 || !rolloverAlias) {
+            return {match_count: matches.length, alias_match_count: 0};
+          }
+          const aliases = Array.from(new Set(exactVisible(rolloverAlias)));
+          if (aliases.length !== 1) {
+            return {match_count: 0, alias_match_count: aliases.length};
+          }
+          const control = aliases[0];
           control.scrollIntoView({block: 'center', inline: 'nearest'});
           control.click();
           return {
-            match_count: 1,
+            match_count: 0,
+            alias_match_count: 1,
+            selected_label: rolloverAlias,
             tag_name: control.tagName.toLowerCase(),
             role: control.getAttribute('role') || ''
           };
         }""",
-        label,
+        selector_input,
     )
-    if not isinstance(result, dict) or result.get("match_count") != 1:
-        count = result.get("match_count") if isinstance(result, dict) else "invalid"
+    if not isinstance(result, dict):
         raise ProducerError(
-            f"ALDI visual week-view control is not unique: {label} ({count})"
+            f"ALDI visual week-view control is not unique: {label} (invalid)"
         )
-    page.wait_for_timeout(750)
+
+    count = result.get("match_count")
+    if count == 1:
+        page.wait_for_timeout(750)
+        return
+    if count == 0 and rollover_alias:
+        alias_count = result.get("alias_match_count")
+        if alias_count == 1:
+            page.wait_for_timeout(750)
+            return
+        raise ProducerError(
+            "ALDI visual week-view rollover alias is not unique: "
+            f"{rollover_alias} ({alias_count})"
+        )
+    raise ProducerError(
+        f"ALDI visual week-view control is not unique: {label} ({count})"
+    )
 
 
 def _candidate_id(object_id: str) -> str:
