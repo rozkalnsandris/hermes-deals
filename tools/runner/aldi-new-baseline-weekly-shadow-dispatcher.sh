@@ -50,7 +50,13 @@ for name in "${!expected_hashes[@]}"; do
 done
 
 [[ -d "$PRIMARY_REPO/.git" && ! -L "$PRIMARY_REPO/.git" ]] || fail "primary repository missing or unsafe"
-git_read() { GIT_OPTIONAL_LOCKS=0 git -C "$PRIMARY_REPO" "$@"; }
+git_read() {
+  runuser -u andris -- env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/bin:/usr/bin:/bin \
+    GIT_OPTIONAL_LOCKS=0 \
+    git -C "$PRIMARY_REPO" "$@"
+}
 [[ "$(git_read branch --show-current)" == main ]] || fail "primary repository is not on main"
 [[ -z "$(git_read status --porcelain)" ]] || fail "primary repository is dirty"
 [[ "$(git_read rev-parse HEAD)" == "$EXPECTED_MAIN_SHA" ]] || fail "primary main drift"
