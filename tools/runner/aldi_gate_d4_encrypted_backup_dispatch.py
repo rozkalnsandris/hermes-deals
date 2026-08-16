@@ -101,7 +101,11 @@ def _contract() -> ModuleType:
 
 
 def validate_result(payload: Mapping[str, Any], expected_count: int) -> None:
-    _contract().validate_result(payload, expected_count)
+    contract = _contract()
+    try:
+        contract.validate_result(payload, expected_count)
+    except contract.ContractError as exc:
+        raise EncryptedDispatchError(str(exc)) from exc
 
 
 def _preload_config(commit: str) -> dict[str, Any]:
@@ -173,7 +177,16 @@ def load_request(config: Mapping[str, Any]):
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise EncryptedDispatchError("request invalid") from exc
     require(isinstance(payload, dict), "request root invalid")
-    return payload, contract.validate_request_payload(payload, backup_root=BACKUP_ROOT, file_check=regular_root_file, hasher=sha_file)
+    try:
+        rows = contract.validate_request_payload(
+            payload,
+            backup_root=BACKUP_ROOT,
+            file_check=regular_root_file,
+            hasher=sha_file,
+        )
+    except contract.ContractError as exc:
+        raise EncryptedDispatchError(str(exc)) from exc
+    return payload, rows
 
 
 def validate_runtime(config: Mapping[str, Any], commit: str) -> Path:
