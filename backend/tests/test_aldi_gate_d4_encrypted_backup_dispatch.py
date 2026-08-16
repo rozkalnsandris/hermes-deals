@@ -78,7 +78,7 @@ def test_request_rejects_path_outside_exact_backup_root(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "REQUEST", request)
     monkeypatch.setattr(module, "sha_file", lambda _path: "b" * 64)
     monkeypatch.setattr(module, "regular_root_file", lambda path, mode=None: path == request)
-    with pytest.raises(module.EncryptedDispatchError, match="exact /opt/backups file"):
+    with pytest.raises(module._contract().ContractError, match="exact /opt/backups file"):
         module.load_request({"request_sha256": "b" * 64})
 
 
@@ -99,7 +99,7 @@ def test_request_rejects_invalid_ciphertext_sha(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "REQUEST", request)
     monkeypatch.setattr(module, "sha_file", lambda _path: "b" * 64)
     monkeypatch.setattr(module, "regular_root_file", lambda _path, _mode=None: True)
-    with pytest.raises(module.EncryptedDispatchError, match="ciphertext SHA invalid"):
+    with pytest.raises(module._contract().ContractError, match="ciphertext SHA invalid"):
         module.load_request({"request_sha256": "b" * 64})
 
 
@@ -196,14 +196,14 @@ def test_validate_result_rejects_irrecoverable_or_absolute_path():
     module.validate_result(base, 1)
     bad = dict(base)
     bad["decision"] = "READY_FOR_IRRECOVERABLE_DECISION"
-    with pytest.raises(module.EncryptedDispatchError, match="unsupported"):
+    with pytest.raises(module._contract().ContractError, match="unsupported"):
         module.validate_result(bad, 1)
     leaked = dict(base)
     leaked["leak"] = "/opt/backups/secret"
     leaked_source = dict(leaked)
     leaked_source.pop("diagnostic_fingerprint", None)
     leaked["diagnostic_fingerprint"] = module.hashlib.sha256(module.canonical_bytes(leaked_source)).hexdigest()
-    with pytest.raises(module.EncryptedDispatchError, match="absolute path"):
+    with pytest.raises(module._contract().ContractError, match="absolute path"):
         module.validate_result(leaked, 1)
 
 
