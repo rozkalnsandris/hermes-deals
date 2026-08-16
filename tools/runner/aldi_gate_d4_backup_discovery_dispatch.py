@@ -7,12 +7,13 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Mapping
 
 AUDIT = "aldi-gate-d4-backup-discovery"
 SCHEMA_VERSION = 1
@@ -27,6 +28,13 @@ RUNNER_USER = "github-runner"
 STAGING_ROOT = Path("/home/andris/hermes-deals-runner-evidence")
 EXPORT_ROOT = Path("/home/github-runner/_work/_temp")
 EXPORT_PREFIX = "hermes-deals-aldi-gate-d4-backup-discovery-"
+ISSUE_NUMBER = 631
+REQUEST_SCHEMA_V1 = 1
+REQUEST_SCHEMA_V2 = 2
+MAX_INPUTS = 8
+INPUT_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+FORBIDDEN_BROAD_ROOTS = {Path("/"), Path("/home"), Path("/home/andris")}
+GATE_D3_STATE_ROOT = Path("/home/andris/.local/state/hermes-deals/aldi-perfect-shadow")
 ALLOWED_DECISIONS = {
     "NO_CANDIDATE_IN_DESIGNATED_ROOTS",
     "READY_FOR_IRRECOVERABLE_DECISION",
@@ -120,6 +128,7 @@ ALLOWED_FAILURE_STAGES = {
     "request_validation",
     "runtime_validation",
     "staging_preparation",
+    "input_staging",
     "d4_cli_preflight",
     "d4_execution",
     "result_validation",
@@ -277,9 +286,9 @@ def validate_result(payload: dict[str, Any]) -> None:
     require(set(payload) == RESULT_FIELDS, "result field set mismatch")
     require(payload.get("schema_version") == 1, "result schema mismatch")
     require(payload.get("mode") == "ALDI_GATE_D4_BOUNDED_BACKUP_DISCOVERY", "result mode mismatch")
-    require(payload.get("issue_number") == 631, "result issue mismatch")
+    require(payload.get("issue_number") == ISSUE_NUMBER, "result issue mismatch")
     request_schema = payload.get("request_schema_version")
-    require(request_schema in {1, 2}, "request schema mismatch")
+    require(request_schema in {REQUEST_SCHEMA_V1, REQUEST_SCHEMA_V2}, "request schema mismatch")
     require(payload.get("decision") in ALLOWED_DECISIONS, "result decision mismatch")
 
     authoritative_complete = payload.get("authoritative_source_set_complete")
@@ -299,7 +308,7 @@ def validate_result(payload: dict[str, Any]) -> None:
     source_count = payload["complete_recovery_source_count"]
     identity_count = payload["distinct_complete_identity_count"]
     require(input_count == root_count + file_count and input_count > 0, "designated input count mismatch")
-    if request_schema == 1:
+    if request_schema == REQUEST_SCHEMA_V1:
         require(file_count == 0, "v1 result cannot contain exact-file inputs")
 
     root_reports = payload.get("root_reports")
@@ -452,11 +461,219 @@ def prepare_staging() -> tuple[Path, pwd.struct_passwd]:
 
 
 def stage_request(staging: Path, user: pwd.struct_passwd) -> Path:
+    """Legacy helper retained for focused tests; main uses stage_authorized_request."""
     staged = staging / "request.json"
     shutil.copyfile(REQUEST, staged, follow_symlinks=False)
     os.chown(staged, user.pw_uid, user.pw_gid)
     os.chmod(staged, 0o600)
     return staged
+
+
+def _load_bound_request() -> dict[str, Any]:
+    try:
+        payload = json.loads(REQUEST.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DispatchError("request invalid") from exc
+    require(isinstance(payload, dict), "request root must be an object")
+    return payload
+
+
+def _validate_input_id(raw_id: Any, seen: set[str]) -> str:
+    require(isinstance(raw_id, str) and INPUT_ID_RE.fullmatch(raw_id) is not None, "invalid backup input id")
+    require(raw_id not in seen, "duplicate backup input id")
+    seen.add(raw_id)
+    return raw_id
+
+
+def _resolve_original_root(path_value: Any) -> Path:
+    require(isinstance(path_value, str) and path_value.startswith("/"), "backup root must be absolute")
+    path = Path(path_value)
+    require(".." not in path.parts, "backup root must not contain parent traversal")
+    require(not path.is_symlink(), "backup root missing or unsafe")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise DispatchError("backup root missing") from exc
+    require(resolved == path, "backup root path must not contain symlinks")
+    require(resolved.is_dir() and not resolved.is_symlink(), "backup root missing or unsafe")
+    require(resolved not in FORBIDDEN_BROAD_ROOTS, "backup root is too broad")
+    require(resolved != GATE_D3_STATE_ROOT, "Gate D3 state root was already exhaustively covered")
+    return resolved
+
+
+def _resolve_original_file(path_value: Any) -> Path:
+    require(isinstance(path_value, str) and path_value.startswith("/"), "backup file must be absolute")
+    path = Path(path_value)
+    require(".." not in path.parts, "backup file must not contain parent traversal")
+    require(not path.is_symlink(), "backup file missing or unsafe")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise DispatchError("backup file missing") from exc
+    require(resolved == path, "backup file path must not contain symlinks")
+    require(resolved.is_file() and not resolved.is_symlink(), "backup file missing or unsafe")
+    require(resolved.name.endswith(".tar.gz") or resolved.name.endswith(".tgz"), "backup file must be a supported archive")
+    require(
+        resolved != GATE_D3_STATE_ROOT and GATE_D3_STATE_ROOT not in resolved.parents,
+        "Gate D3 state root was already exhaustively covered",
+    )
+    return resolved
+
+
+def _validate_bound_inputs(payload: Mapping[str, Any]) -> tuple[int, bool, list[tuple[str, Path]], list[tuple[str, Path]]]:
+    schema = payload.get("schema_version")
+    require(schema in {REQUEST_SCHEMA_V1, REQUEST_SCHEMA_V2}, "unsupported request schema_version")
+    if schema == REQUEST_SCHEMA_V1:
+        require(
+            set(payload) == {"schema_version", "issue_number", "authoritative_source_set_complete", "roots"},
+            "request fields mismatch",
+        )
+        raw_files: list[Any] = []
+    else:
+        require(
+            set(payload) == {"schema_version", "issue_number", "authoritative_source_set_complete", "roots", "files"},
+            "request fields mismatch",
+        )
+        raw_files = payload.get("files")
+        require(isinstance(raw_files, list), "files must be a list")
+
+    require(payload.get("issue_number") == ISSUE_NUMBER, "request issue_number mismatch")
+    complete = payload.get("authoritative_source_set_complete")
+    require(isinstance(complete, bool), "authoritative_source_set_complete must be boolean")
+    raw_roots = payload.get("roots")
+    require(isinstance(raw_roots, list), "roots must be a list")
+    if schema == REQUEST_SCHEMA_V1:
+        require(raw_roots, "at least one explicit backup root is required")
+    else:
+        require(raw_roots or raw_files, "at least one explicit backup input is required")
+    require(len(raw_roots) + len(raw_files) <= MAX_INPUTS, "too many backup inputs")
+
+    roots: list[tuple[str, Path]] = []
+    files: list[tuple[str, Path]] = []
+    seen_ids: set[str] = set()
+    resolved_roots: set[Path] = set()
+    resolved_files: set[Path] = set()
+    for raw in raw_roots:
+        require(isinstance(raw, dict) and set(raw) == {"id", "path"}, "backup root entry fields mismatch")
+        input_id = _validate_input_id(raw.get("id"), seen_ids)
+        root = _resolve_original_root(raw.get("path"))
+        require(root not in resolved_roots, "duplicate backup root path")
+        for _, existing in roots:
+            require(root not in existing.parents and existing not in root.parents, "backup roots must not overlap")
+        resolved_roots.add(root)
+        roots.append((input_id, root))
+    for raw in raw_files:
+        require(isinstance(raw, dict) and set(raw) == {"id", "path"}, "backup file entry fields mismatch")
+        input_id = _validate_input_id(raw.get("id"), seen_ids)
+        exact_file = _resolve_original_file(raw.get("path"))
+        require(exact_file not in resolved_files, "duplicate backup file path")
+        for _, root in roots:
+            require(root not in exact_file.parents, "backup file must not be inside a designated root")
+        resolved_files.add(exact_file)
+        files.append((input_id, exact_file))
+    roots.sort(key=lambda row: row[0])
+    files.sort(key=lambda row: row[0])
+    return int(schema), complete, roots, files
+
+
+def _make_private_dir(path: Path, user: pwd.struct_passwd) -> None:
+    path.mkdir(mode=0o700, parents=False)
+    os.chown(path, user.pw_uid, user.pw_gid)
+    os.chmod(path, 0o700)
+
+
+def _copy_regular_file(source: Path, destination: Path, user: pwd.struct_passwd) -> None:
+    before = source.lstat()
+    require(stat.S_ISREG(before.st_mode) and not source.is_symlink(), "authorized input contains unsupported file type")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(source, flags)
+    try:
+        opened = os.fstat(fd)
+        require(stat.S_ISREG(opened.st_mode), "authorized input file changed type")
+        require((opened.st_dev, opened.st_ino) == (before.st_dev, before.st_ino), "authorized input changed during staging")
+        with os.fdopen(fd, "rb", closefd=False) as src, destination.open("xb") as dst:
+            shutil.copyfileobj(src, dst, length=1024 * 1024)
+        closed_snapshot = os.fstat(fd)
+        require(
+            (closed_snapshot.st_dev, closed_snapshot.st_ino, closed_snapshot.st_size, closed_snapshot.st_mtime_ns, closed_snapshot.st_ctime_ns)
+            == (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns),
+            "authorized input changed during staging",
+        )
+    finally:
+        os.close(fd)
+    os.chown(destination, user.pw_uid, user.pw_gid)
+    os.chmod(destination, 0o600)
+
+
+def _copy_authorized_tree(source: Path, destination: Path, user: pwd.struct_passwd) -> None:
+    before = source.lstat()
+    require(stat.S_ISDIR(before.st_mode) and not source.is_symlink(), "authorized backup root missing or unsafe")
+    _make_private_dir(destination, user)
+    try:
+        entries = sorted(os.scandir(source), key=lambda item: item.name)
+    except OSError as exc:
+        raise DispatchError("authorized backup root unreadable by dispatcher") from exc
+    entry_names = [entry.name for entry in entries]
+    for entry in entries:
+        require(entry.name not in {".", ".."}, "authorized input entry invalid")
+        src = source / entry.name
+        dst = destination / entry.name
+        require(not entry.is_symlink(), "authorized input contains symlink")
+        if entry.is_dir(follow_symlinks=False):
+            _copy_authorized_tree(src, dst, user)
+        elif entry.is_file(follow_symlinks=False):
+            _copy_regular_file(src, dst, user)
+        else:
+            raise DispatchError("authorized input contains unsupported file type")
+    after = source.lstat()
+    require((after.st_dev, after.st_ino) == (before.st_dev, before.st_ino), "authorized backup root changed during staging")
+    try:
+        after_names = sorted(entry.name for entry in os.scandir(source))
+    except OSError as exc:
+        raise DispatchError("authorized backup root unreadable by dispatcher") from exc
+    require(after_names == entry_names, "authorized backup root changed during staging")
+
+
+def stage_authorized_request(staging: Path, user: pwd.struct_passwd) -> Path:
+    """Root-only staging boundary for the exact immutable request inputs.
+
+    Original paths are validated while privileged, copied without following symlinks
+    into one private audit-user-owned staging tree, and replaced only in an internal
+    request that is never exported. The unprivileged D4 scanner sees no inaccessible
+    root-owned parent and receives no authority to enumerate sibling backup roots.
+    """
+    payload = _load_bound_request()
+    schema, complete, roots, files = _validate_bound_inputs(payload)
+    inputs_root = staging / "authorized-inputs"
+    _make_private_dir(inputs_root, user)
+
+    staged_roots: list[dict[str, str]] = []
+    staged_files: list[dict[str, str]] = []
+    for index, (input_id, source) in enumerate(roots):
+        destination = inputs_root / f"root-{index:02d}"
+        _copy_authorized_tree(source, destination, user)
+        staged_roots.append({"id": input_id, "path": str(destination)})
+    for index, (input_id, source) in enumerate(files):
+        suffix = ".tar.gz" if source.name.endswith(".tar.gz") else ".tgz"
+        destination = inputs_root / f"file-{index:02d}{suffix}"
+        _copy_regular_file(source, destination, user)
+        staged_files.append({"id": input_id, "path": str(destination)})
+
+    rewritten: dict[str, Any] = {
+        "schema_version": schema,
+        "issue_number": ISSUE_NUMBER,
+        "authoritative_source_set_complete": complete,
+        "roots": staged_roots,
+    }
+    if schema == REQUEST_SCHEMA_V2:
+        rewritten["files"] = staged_files
+    staged_request = staging / "execution-request.json"
+    staged_request.write_text(json.dumps(rewritten, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    os.chown(staged_request, user.pw_uid, user.pw_gid)
+    os.chmod(staged_request, 0o600)
+    return staged_request
 
 
 def main() -> int:
@@ -490,7 +707,8 @@ def main() -> int:
         failure_stage = "staging_preparation"
         staging, audit_user = prepare_staging()
         try:
-            staged_request = stage_request(staging, audit_user)
+            failure_stage = "input_staging"
+            staged_request = stage_authorized_request(staging, audit_user)
             result = staging / "diagnostic-result.json"
 
             failure_stage = "d4_cli_preflight"
