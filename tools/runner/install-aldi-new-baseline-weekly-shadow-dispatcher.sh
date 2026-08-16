@@ -28,14 +28,20 @@ declare -A source_files=(
 )
 
 for user in andris github-runner; do id "$user" >/dev/null 2>&1 || fail "required user missing: $user"; done
-for command in awk bash git grep id install mktemp readlink rm sha256sum stat sudo systemctl visudo; do
+for command in awk bash git grep id install mktemp readlink rm runuser sha256sum stat sudo systemctl visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command missing: $command"
 done
 
 REPO="$(readlink -f -- "$REPO")"
 [[ "$REPO" == '/home/andris/hermes-deals' ]] || fail "repository path drift"
 [[ -d "$REPO/.git" && ! -L "$REPO/.git" ]] || fail "repository missing or unsafe"
-git_read() { GIT_OPTIONAL_LOCKS=0 git -C "$REPO" "$@"; }
+git_read() {
+  runuser -u andris -- env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/bin:/usr/bin:/bin \
+    GIT_OPTIONAL_LOCKS=0 \
+    git -C "$REPO" "$@"
+}
 [[ "$(git_read branch --show-current)" == main ]] || fail "repository is not on main"
 [[ -z "$(git_read status --porcelain)" ]] || fail "repository is dirty"
 [[ "$(git_read rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail "repository is not exact merged main"
