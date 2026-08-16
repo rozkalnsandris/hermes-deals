@@ -1,0 +1,272 @@
+name: Hermes ALDI Gate D4 encrypted backup bridge
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-aldi-gate-d4-encrypted-bridge
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner Gate D4 encrypted command
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 679 &&
+      github.actor == 'rozkalnsandris' &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.body == '/hermes-aldi gate-d4-encrypted pr=646'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      operation: ${{ steps.authorize.outputs.operation }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      sha: ${{ steps.authorize.outputs.sha }}
+      issue_number: ${{ steps.authorize.outputs.issue_number }}
+      comment_id: ${{ steps.authorize.outputs.comment_id }}
+      trigger_actor: ${{ steps.authorize.outputs.trigger_actor }}
+    steps:
+      - name: Checkout reviewed default-branch authorization code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate exact issue, owner, command and merged runtime identity
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python tools/github_aldi_gate_d4_encrypted_bridge.py
+
+  audit:
+    name: Run bounded read-only ALDI Gate D4 encrypted backup discovery on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.operation == 'aldi-gate-d4-encrypted'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 30
+    permissions: {}
+    outputs:
+      decision: ${{ steps.inspect.outputs.decision }}
+      fingerprint: ${{ steps.inspect.outputs.fingerprint }}
+      encrypted_count: ${{ steps.inspect.outputs.encrypted_count }}
+      request_sha: ${{ steps.inspect.outputs.request_sha }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+    steps:
+      - name: Create private Gate D4 encrypted artifact directory
+        id: prepare
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_TEMP" == "/home/github-runner/_work/_temp" ]]
+          artifact_dir="${RUNNER_TEMP}/hermes-deals-aldi-gate-d4-encrypted-backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run fixed root-owned encrypted backup dispatcher
+        id: dispatch
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.sha }}
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-gate-d4-encrypted-backup-discovery \
+            "$REGISTERED_SHA" "$ARTIFACT_DIR" >/dev/null 2>/dev/null
+          runner_rc=$?
+          set -e
+          echo "runner_rc=$runner_rc" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect only sanitized encrypted Gate D4 evidence
+        id: inspect
+        if: always() && steps.prepare.outputs.artifact_dir != ''
+        env:
+          ARTIFACT_DIR: ${{ steps.prepare.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          root = Path(os.environ["ARTIFACT_DIR"])
+          expected_sha = os.environ["EXPECTED_SHA"]
+          runner_rc = int(os.environ.get("RUNNER_RC") or "255")
+          allowed_names = {
+              "diagnostic-exit-code.txt",
+              "diagnostic-result.json",
+              "diagnostic-failure.json",
+              "dispatcher-evidence-manifest.json",
+          }
+          for entry in root.iterdir():
+              if entry.name not in allowed_names or not entry.is_file() or entry.is_symlink():
+                  raise SystemExit(f"unexpected encrypted Gate D4 artifact member: {entry.name}")
+              if entry.stat().st_size > 4 * 1024 * 1024:
+                  raise SystemExit(f"oversized encrypted Gate D4 artifact member: {entry.name}")
+
+          result_path = root / "diagnostic-result.json"
+          failure_path = root / "diagnostic-failure.json"
+          decision = "DISPATCH_UNAVAILABLE"
+          fingerprint = ""
+          encrypted_count = 0
+          request_sha = ""
+
+          if result_path.is_file():
+              if runner_rc != 0:
+                  raise SystemExit("encrypted Gate D4 result exists with nonzero dispatcher exit")
+              result = json.loads(result_path.read_text(encoding="utf-8"))
+              if result.get("schema_version") != 1 or result.get("mode") != "ALDI_GATE_D4_BOUNDED_BACKUP_DISCOVERY":
+                  raise SystemExit("encrypted Gate D4 result schema/mode mismatch")
+              if result.get("issue_number") != 631 or result.get("request_schema_version") != 2:
+                  raise SystemExit("encrypted Gate D4 internal request binding mismatch")
+              if result.get("authoritative_source_set_complete") is not False:
+                  raise SystemExit("encrypted discovery may not declare authoritative completeness")
+              if result.get("designated_root_count") != 0:
+                  raise SystemExit("encrypted discovery unexpectedly scanned a root")
+              decision = str(result.get("decision") or "")
+              if decision not in {
+                  "NO_CANDIDATE_IN_DESIGNATED_ROOTS",
+                  "PLAUSIBLE_RECOVERY_CANDIDATE_FOUND",
+                  "AMBIGUOUS_PLAUSIBLE_RECOVERY_CANDIDATES",
+              }:
+                  raise SystemExit("unsupported encrypted Gate D4 decision")
+              fingerprint = str(result.get("diagnostic_fingerprint") or "")
+              if re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+                  raise SystemExit("encrypted Gate D4 fingerprint mismatch")
+              if result.get("provenance_binding_complete") is not False:
+                  raise SystemExit("provenance binding drift")
+              if result.get("historical_recovery_authorized") is not False:
+                  raise SystemExit("historical recovery authority drift")
+              if result.get("irrecoverable_decision_recorded") is not False:
+                  raise SystemExit("irrecoverable decision drift")
+
+              manifest_path = root / "dispatcher-evidence-manifest.json"
+              if not manifest_path.is_file():
+                  raise SystemExit("encrypted Gate D4 manifest missing")
+              manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+              expected_manifest = {
+                  "schema_version": 1,
+                  "audit": "aldi-gate-d4-encrypted-backup-discovery",
+                  "commit_sha": expected_sha,
+                  "decision": decision,
+                  "diagnostic_fingerprint": fingerprint,
+                  "request_bound": True,
+                  "ciphertext_sha256_verified": True,
+                  "age_identity_verified": True,
+                  "age_identity_exported": False,
+                  "plaintext_tmpfs_verified": True,
+                  "plaintext_exported": False,
+                  "plaintext_cleanup_verified": True,
+                  "sanitization_passed": True,
+                  "raw_evidence_exported": False,
+                  "raw_exception_exported": False,
+                  "raw_stderr_exported": False,
+                  "raw_request_exported": False,
+                  "network_acquisition_authorized": False,
+                  "archive_extraction_authorized": False,
+                  "source_or_corpus_mutation_authorized": False,
+                  "review_or_publication_write_authorized": False,
+                  "production_database_write_authorized": False,
+                  "production_deployment_authorized": False,
+                  "scheduler_systemd_canary_authorized": False,
+                  "destructive_cleanup_authorized": False,
+                  "historical_recovery_binding_authorized": False,
+                  "irrecoverable_decision_recording_authorized": False,
+              }
+              for key, value in expected_manifest.items():
+                  if manifest.get(key) != value:
+                      raise SystemExit(f"encrypted Gate D4 manifest mismatch: {key}")
+              request_sha = str(manifest.get("request_sha256") or "")
+              if re.fullmatch(r"[0-9a-f]{64}", request_sha) is None:
+                  raise SystemExit("encrypted Gate D4 request SHA missing")
+              rows = manifest.get("encrypted_inputs")
+              encrypted_count = manifest.get("encrypted_input_count")
+              if isinstance(encrypted_count, bool) or not isinstance(encrypted_count, int) or not (1 <= encrypted_count <= 8):
+                  raise SystemExit("encrypted Gate D4 input count invalid")
+              if not isinstance(rows, list) or len(rows) != encrypted_count:
+                  raise SystemExit("encrypted Gate D4 input manifest mismatch")
+              seen = set()
+              for row in rows:
+                  if not isinstance(row, dict) or set(row) != {"id", "ciphertext_sha256"}:
+                      raise SystemExit("encrypted Gate D4 input row invalid")
+                  if not isinstance(row["id"], str) or row["id"] in seen:
+                      raise SystemExit("encrypted Gate D4 input id invalid")
+                  seen.add(row["id"])
+                  if re.fullmatch(r"[0-9a-f]{64}", str(row["ciphertext_sha256"])) is None:
+                      raise SystemExit("encrypted Gate D4 ciphertext SHA invalid")
+              if result.get("designated_file_count") != encrypted_count or result.get("designated_input_count") != encrypted_count:
+                  raise SystemExit("encrypted Gate D4 D4/input count mismatch")
+          elif failure_path.is_file():
+              if runner_rc == 0:
+                  raise SystemExit("encrypted Gate D4 failure exists with zero dispatcher exit")
+              failure = json.loads(failure_path.read_text(encoding="utf-8"))
+              required = {
+                  "schema_version", "audit", "error_type", "failure_stage", "reason_code",
+                  "raw_exception_exported", "raw_stderr_exported", "raw_request_exported",
+                  "age_identity_exported", "plaintext_exported",
+              }
+              if set(failure) != required:
+                  raise SystemExit("unsupported encrypted Gate D4 failure field set")
+              if failure.get("schema_version") != 1 or failure.get("audit") != "aldi-gate-d4-encrypted-backup-discovery":
+                  raise SystemExit("encrypted Gate D4 failure schema/audit mismatch")
+              for key in ("raw_exception_exported", "raw_stderr_exported", "raw_request_exported", "age_identity_exported", "plaintext_exported"):
+                  if failure.get(key) is not False:
+                      raise SystemExit(f"unsafe encrypted Gate D4 failure flag: {key}")
+              decision = "DISCOVERY_EXECUTION_BLOCKED"
+          else:
+              raise SystemExit("encrypted Gate D4 produced no sanitized result or failure evidence")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"decision={decision}\n")
+              handle.write(f"fingerprint={fingerprint}\n")
+              handle.write(f"encrypted_count={encrypted_count}\n")
+              handle.write(f"request_sha={request_sha}\n")
+          PY
+
+      - name: Upload sanitized encrypted Gate D4 evidence
+        if: always() && steps.prepare.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: hermes-aldi-gate-d4-encrypted-bridge-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.prepare.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Enforce fail-closed encrypted Gate D4 result
+        if: always()
+        env:
+          DECISION: ${{ steps.inspect.outputs.decision }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          case "$DECISION" in
+            NO_CANDIDATE_IN_DESIGNATED_ROOTS|PLAUSIBLE_RECOVERY_CANDIDATE_FOUND|AMBIGUOUS_PLAUSIBLE_RECOVERY_CANDIDATES)
+              [[ "$RUNNER_RC" == "0" ]]
+              ;;
+            *)
+              echo "Encrypted Gate D4 bridge failed closed: ${DECISION:-UNAVAILABLE}" >&2
+              exit 1
+              ;;
+          esac
