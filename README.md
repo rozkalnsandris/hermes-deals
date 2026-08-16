@@ -39,30 +39,30 @@ identities, and turns the result into a practical shopping UI for the household.
 <!-- project-progress:start -->
 ## Project progress
 
-**Overall:** **76.0%** `███████████████░░░░░` — weighted project completion
+**Overall:** **77.0%** `███████████████░░░░░` — weighted project completion
 
-**Weighted roadmap progress during 14.08.2026:** **+2.0 percentage points** **(74.0% → 76.0%)**
+**Weighted roadmap progress during 15.08.2026:** **+3.0 percentage points** **(74.0% → 77.0%)**
 
 **Store catalogues**
 - **Netto:** **78.6%** `████████░░`
 - **Lidl:** **100.0%** `██████████`
 - **ALDI Nord:** **75.0%** `████████░░`
-- **EDEKA Patzer:** **75.0%** `████████░░`
+- **EDEKA Patzer:** **85.0%** `█████████░`
 
-**Weighted roadmap gates:** **56/67 complete** · **1 during the previous day**
+**Weighted roadmap gates:** **57/67 complete** · **2 during the previous day**
 
-**Development activity:** **Issues fixed:** **191 total** · **5 during the previous day** (14.08.2026)
+**Development activity:** **Issues fixed:** **192 total** · **2 during the previous day** (15.08.2026)
 
 <details>
-<summary>Show 5 issues fixed on 14.08.2026</summary>
+<summary>Show 2 issues fixed on 15.08.2026</summary>
 
-[#24](https://github.com/rozkalnsandris/hermes-deals/issues/24) · [#358](https://github.com/rozkalnsandris/hermes-deals/issues/358) · [#582](https://github.com/rozkalnsandris/hermes-deals/issues/582) · [#615](https://github.com/rozkalnsandris/hermes-deals/issues/615) · [#648](https://github.com/rozkalnsandris/hermes-deals/issues/648)
+[#19](https://github.com/rozkalnsandris/hermes-deals/issues/19) · [#291](https://github.com/rozkalnsandris/hermes-deals/issues/291)
 
 </details>
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 15.08.2026 06:45 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 16.08.2026 06:48 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
