@@ -84,7 +84,7 @@ def test_source_pins_reviewed_runtime_contract_dispatcher_and_age():
         "f8ec4abb3f0c416335144f0f18e8a7c323353f4a",
         "4c4432baa048011ac9dfd427d8e2a0d0b4cfd2a7",
         "3d29c0860d35d0f7e8d4c1b284036c131c23850e",
-        "faf1b41f8ce600760ad477d7ef072ed882569f10",
+        "1d0445530949e94c09bd89e678dc6996e2ea5549",
         "/etc/rpi5-backup/age.key",
         '"age_sha256": age_sha',
         "AGE_SHA256=",
