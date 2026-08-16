@@ -1,0 +1,149 @@
+name: Hermes ALDI weekly-shadow request producer
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: hermes-aldi-weekly-shadow-producer-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 682 &&
+      github.event.comment.user.login == 'rozkalnsandris' &&
+      github.event.comment.user.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.body == '/hermes-aldi-new-baseline-weekly-shadow prepare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      main_sha: ${{ steps.auth.outputs.main_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: auth
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(git branch --show-current)" == "${{ github.event.repository.default_branch }}" ]]
+          [[ -z "$(git status --porcelain)" ]]
+          main_sha="$(git rev-parse HEAD)"
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
+          for path in \
+            tools/aldi_new_baseline_weekly_shadow_producer.py \
+            tools/runner/aldi-new-baseline-weekly-shadow-producer-dispatcher.sh \
+            tools/aldi_new_immutable_baseline_gate.py \
+            tools/aldi_new_baseline_page_card_parity.py \
+            tools/aldi_new_baseline_gate_c_replay.py
+          do test -f "$path"; done
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+  prepare-rpi5:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 30
+    permissions: {}
+    outputs:
+      request_sha256: ${{ steps.inspect.outputs.request_sha256 }}
+      baseline_id: ${{ steps.inspect.outputs.baseline_id }}
+      iso_week: ${{ steps.inspect.outputs.iso_week }}
+      artifact_name: ${{ steps.dispatch.outputs.artifact_name }}
+    steps:
+      - id: dispatch
+        env:
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_name="aldi-new-baseline-weekly-shadow-producer-$RUN_ID"
+          artifact_dir="$RUNNER_TEMP/$artifact_name"
+          [[ ! -e "$artifact_dir" ]]
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-new-baseline-weekly-shadow-producer-dispatch \
+            "$MAIN_SHA" "$COMMENT_ID" "$RUN_ID" "$artifact_dir"
+      - id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+        shell: python
+        run: |
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ["ARTIFACT_DIR"])
+          result = root / "producer-result.json"
+          manifest = root / "MANIFEST.sha256"
+          if not result.is_file() or not manifest.is_file():
+              raise SystemExit("sanitized producer evidence missing")
+          digest, name = manifest.read_text().strip().split("  ", 1)
+          if name != "producer-result.json" or hashlib.sha256(result.read_bytes()).hexdigest() != digest:
+              raise SystemExit("producer evidence manifest mismatch")
+          payload = json.loads(result.read_text())
+          if payload.get("decision") != "REQUEST_PREPARED":
+              raise SystemExit("producer did not prepare request")
+          for key in ("production_database_write","review_publication_write","source_mutation","production_deploy","scheduler_activation","automatic_retry"):
+              if payload.get(key) is not False:
+                  raise SystemExit(f"unsafe producer flag: {key}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"request_sha256={payload['request_sha256']}\n")
+              out.write(f"baseline_id={payload['baseline_id']}\n")
+              out.write(f"iso_week={payload['iso_week']}\n")
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: ${{ steps.dispatch.outputs.artifact_name }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    needs: [authorize, prepare-rpi5]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          RESULT: ${{ needs.prepare-rpi5.result }}
+          REQUEST_SHA: ${{ needs.prepare-rpi5.outputs.request_sha256 }}
+          BASELINE_ID: ${{ needs.prepare-rpi5.outputs.baseline_id }}
+          ISO_WEEK: ${{ needs.prepare-rpi5.outputs.iso_week }}
+          RUN_ID: ${{ github.run_id }}
+        shell: python
+        run: |
+          import json, os, urllib.request
+          body = "\n".join([
+            "## ALDI weekly-shadow request producer",
+            "",
+            f"- producer result: **{os.environ['RESULT'].upper()}**",
+            f"- exact main: `{os.environ['MAIN_SHA']}`",
+            f"- request SHA256: `{os.environ.get('REQUEST_SHA') or 'unavailable'}`",
+            f"- baseline: `{os.environ.get('BASELINE_ID') or 'unavailable'}`",
+            f"- ISO week: `{os.environ.get('ISO_WEEK') or 'unavailable'}`",
+            "- production DB write: `false`",
+            "- Review/publication write: `false`",
+            "- source mutation: `false`",
+            "- production deploy: `false`",
+            "- scheduler/retry: `false`",
+            "",
+            "A successful prepare only creates one immutable local request. Acceptance still requires the separate exact owner command `/hermes-aldi-new-baseline-weekly-shadow request=<sha256>`.",
+          ])
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/682/comments",
+              data=json.dumps({"body": body}).encode(), method="POST",
+              headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept":"application/vnd.github+json", "Content-Type":"application/json"},
+          )
+          urllib.request.urlopen(req, timeout=20).read()
