@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import gzip
 import importlib.util
+import inspect
+import io
 import json
 import os
 from pathlib import Path
+import tarfile
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +22,16 @@ def load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def valid_tar_gz() -> bytes:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+        payload = b"legacy-evidence"
+        info = tarfile.TarInfo("marker.txt")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+    return output.getvalue()
 
 
 def test_request_binds_only_exact_encrypted_files_and_ciphertext_sha(monkeypatch, tmp_path):
@@ -99,7 +111,7 @@ def test_prepare_tmpfs_fails_closed_when_parent_not_tmpfs(monkeypatch, tmp_path)
         module.prepare_tmpfs(SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid()), 1024)
 
 
-def test_decrypt_one_uses_open_fd_verifies_sha_and_emits_gzip_only(monkeypatch, tmp_path):
+def test_decrypt_one_uses_open_fd_verifies_sha_and_emits_valid_tar_gz(monkeypatch, tmp_path):
     module = load_module()
     source = tmp_path / "cipher.age"
     source.write_bytes(b"immutable-ciphertext")
@@ -107,16 +119,17 @@ def test_decrypt_one_uses_open_fd_verifies_sha_and_emits_gzip_only(monkeypatch, 
     run_dir.mkdir()
     expected_sha = module.hashlib.sha256(source.read_bytes()).hexdigest()
     monkeypatch.setattr(module.os, "chown", lambda *_args: None)
+    archive_bytes = valid_tar_gz()
 
     def fake_run(args, **kwargs):
         assert args[-1].startswith("/proc/self/fd/")
         assert kwargs["pass_fds"]
-        kwargs["stdout"].write(gzip.compress(b"tar-ish"))
+        kwargs["stdout"].write(archive_bytes)
         return SimpleNamespace(returncode=0, stderr=b"")
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
     destination = module.decrypt_one(Path("/usr/bin/age"), SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid()), "nightly-01", source, expected_sha, run_dir)
-    assert destination.read_bytes().startswith(b"\x1f\x8b")
+    assert destination.read_bytes() == archive_bytes
     assert destination.stat().st_mode & 0o777 == 0o600
 
 
@@ -128,6 +141,26 @@ def test_decrypt_one_wrong_sha_does_not_leave_plaintext(monkeypatch, tmp_path):
     run_dir.mkdir()
     with pytest.raises(module.EncryptedDispatchError, match="ciphertext SHA mismatch"):
         module.decrypt_one(Path("/usr/bin/age"), SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid()), "nightly-01", source, "0" * 64, run_dir)
+    assert not (run_dir / "nightly-01.tar.gz").exists()
+
+
+def test_decrypt_one_rejects_gzip_that_is_not_tar(monkeypatch, tmp_path):
+    module = load_module()
+    source = tmp_path / "cipher.age"
+    source.write_bytes(b"ciphertext")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    expected_sha = module.hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(module.os, "chown", lambda *_args: None)
+
+    def fake_run(_args, **kwargs):
+        import gzip
+        kwargs["stdout"].write(gzip.compress(b"not-a-tar"))
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    with pytest.raises(module.EncryptedDispatchError, match="valid tar.gz"):
+        module.decrypt_one(Path("/usr/bin/age"), SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid()), "nightly-01", source, expected_sha, run_dir)
     assert not (run_dir / "nightly-01.tar.gz").exists()
 
 
@@ -172,6 +205,18 @@ def test_validate_result_rejects_irrecoverable_or_absolute_path():
     leaked["diagnostic_fingerprint"] = module.hashlib.sha256(module.canonical_bytes(leaked_source)).hexdigest()
     with pytest.raises(module.EncryptedDispatchError, match="absolute path"):
         module.validate_result(leaked, 1)
+
+
+def test_installed_contract_is_verified_before_import_and_age_is_sha_bound():
+    module = load_module()
+    source = inspect.getsource(module)
+    main_source = inspect.getsource(module.main)
+    verify_source = inspect.getsource(module._verify_and_load_installed_contract)
+    age_source = inspect.getsource(module.select_age_binary)
+    assert verify_source.index("sha_file(CONTRACT_PATH)") < verify_source.index("_import_contract(CONTRACT_PATH)")
+    assert main_source.index("config = load_config(commit)") < main_source.index("_request, rows = load_request(config)")
+    assert 'sha_file(path) == config["age_sha256"]' in age_source
+    assert '"age_sha256"' in source
 
 
 def test_source_has_no_persistent_plaintext_or_backup_permission_workaround():
