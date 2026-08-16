@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import aldi_new_baseline_weekly_shadow_producer as producer
+import aldi_visual_card_bridge_diagnostic_v2 as diagnostic
 
 
 def offer(start: str, price: float = 1.0) -> dict[str, object]:
@@ -24,11 +25,11 @@ def offer(start: str, price: float = 1.0) -> dict[str, object]:
 class FakeWeekViewPage:
     def __init__(self, result: object) -> None:
         self.result = result
-        self.label: str | None = None
+        self.label: object | None = None
         self.script = ""
         self.waits: list[int] = []
 
-    def evaluate(self, script: str, label: str) -> object:
+    def evaluate(self, script: str, label: object) -> object:
         self.script = script
         self.label = label
         return self.result
@@ -137,12 +138,13 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         self.assertEqual(set(selected), {"next"})
         self.assertEqual(iso_week, "2026-W34")
 
-    def test_sunday_next_family_maps_to_next_week_visual_view(self):
+    def test_sunday_next_family_preserves_next_week_target_with_rollover_alias(self):
         label = producer._week_view_label(
             datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
             date(2026, 8, 17),
         )
         self.assertEqual(label, "Nächste Woche")
+        self.assertEqual(getattr(label, "rollover_alias", None), "Aktuelle Woche")
 
     def test_berlin_monday_maps_same_family_to_current_visual_view(self):
         label = producer._week_view_label(
@@ -150,6 +152,15 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
             date(2026, 8, 17),
         )
         self.assertEqual(label, "Aktuelle Woche")
+        self.assertIsNone(getattr(label, "rollover_alias", None))
+
+    def test_normal_weekday_next_family_has_no_rollover_alias(self):
+        label = producer._week_view_label(
+            datetime(2026, 8, 18, 10, 0, tzinfo=timezone.utc),
+            date(2026, 8, 24),
+        )
+        self.assertEqual(label, "Nächste Woche")
+        self.assertIsNone(getattr(label, "rollover_alias", None))
 
     def test_visual_week_view_rejects_unsupported_family(self):
         with self.assertRaisesRegex(
@@ -166,16 +177,55 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         producer._sync_week_view(page, "Nächste Woche")
         self.assertEqual(page.label, "Nächste Woche")
         self.assertEqual(page.waits, [750])
-        self.assertIn("normalize(el.textContent) === label", page.script)
+        self.assertIn("normalize(el.textContent) === value", page.script)
 
-        with self.assertRaisesRegex(
-            producer.ProducerError,
-            "week-view control is not unique",
-        ):
-            producer._sync_week_view(
-                FakeWeekViewPage({"match_count": 2}),
-                "Nächste Woche",
-            )
+        for count in (0, 2):
+            with self.assertRaisesRegex(
+                producer.ProducerError,
+                "week-view control is not unique",
+            ):
+                producer._sync_week_view(
+                    FakeWeekViewPage({"match_count": count}),
+                    "Nächste Woche",
+                )
+
+    def test_sunday_rollover_alias_requires_primary_zero_and_exactly_one_alias(self):
+        label = producer._week_view_label(
+            datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+            date(2026, 8, 17),
+        )
+        page = FakeWeekViewPage({"match_count": 0, "alias_match_count": 1})
+        producer._sync_week_view(page, label)
+        self.assertEqual(
+            page.label,
+            {
+                "label": "Nächste Woche",
+                "rollover_alias": "Aktuelle Woche",
+            },
+        )
+        self.assertEqual(page.waits, [750])
+        self.assertIn("matches.length !== 0 || !rolloverAlias", page.script)
+
+        for alias_count in (0, 2):
+            with self.assertRaisesRegex(
+                producer.ProducerError,
+                "rollover alias is not unique",
+            ):
+                producer._sync_week_view(
+                    FakeWeekViewPage(
+                        {"match_count": 0, "alias_match_count": alias_count}
+                    ),
+                    label,
+                )
+
+    def test_sunday_rollover_does_not_override_unique_primary_control(self):
+        label = producer._week_view_label(
+            datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+            date(2026, 8, 17),
+        )
+        page = FakeWeekViewPage({"match_count": 1, "alias_match_count": 1})
+        producer._sync_week_view(page, label)
+        self.assertEqual(page.waits, [750])
 
     def test_build_capture_syncs_visual_week_before_lazy_load_scroll(self):
         source = inspect.getsource(producer.build_capture)
@@ -186,6 +236,22 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         self.assertLess(select_index, sync_index)
         self.assertLess(sync_index, scroll_index)
         self.assertLess(scroll_index, geometry_index)
+
+    def test_rollover_remediation_preserves_v2_card_contract(self):
+        self.assertEqual(diagnostic.MAX_CARDS, 512)
+        self.assertEqual(
+            diagnostic.CARD_SELECTOR,
+            (
+                'a[href][data-testid*="product-tile"],'
+                'a[href][data-testid*="offer-tile"],'
+                '[role="link"][data-testid*="product-tile"],'
+                '[role="link"][data-testid*="offer-tile"]'
+            ),
+        )
+        source = inspect.getsource(diagnostic._inventory)
+        self.assertNotIn("textContent", source)
+        self.assertNotIn("innerText", source)
+        self.assertNotIn("raw.includes(token.value)", source)
 
     def test_missing_validity_start_is_not_promoted(self):
         rows = {
