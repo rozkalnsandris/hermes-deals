@@ -15,7 +15,7 @@ import aldi_new_baseline_weekly_shadow_producer as producer
 
 MODE = "ALDI_VISUAL_CARD_BRIDGE_DIAGNOSTIC_V02"
 ALDI_HOSTS = {"aldi-nord.de", "www.aldi-nord.de"}
-MAX_OFFERS = 256
+MAX_OFFERS = 512
 MAX_CARDS = 512
 MAX_TOKENS_PER_OFFER = 64
 MAX_FAMILIES = 96
