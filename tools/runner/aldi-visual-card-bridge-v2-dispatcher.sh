@@ -139,6 +139,7 @@ chmod 0700 "$staging"
 
 observed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 result="$staging/diagnostic-result.json"
+diagnostic_log="$staging/diagnostic.log"
 set +e
 runuser -u andris -- env -i \
   HOME=/home/andris USER=andris LOGNAME=andris \
@@ -149,10 +150,181 @@ runuser -u andris -- env -i \
     --source-url 'https://www.aldi-nord.de/angebote.html' \
     --browser-executable "$ALDI_A30_BROWSER_EXECUTABLE" \
     --observed-at-utc "$observed_at" \
-    --output "$result"
+    --output "$result" >"$diagnostic_log" 2>&1
 diagnostic_rc=$?
 set -e
-[[ "$diagnostic_rc" -eq 0 ]] || fail "v2 diagnostic blocked: exit=$diagnostic_rc"
+cat "$diagnostic_log"
+
+if [[ "$diagnostic_rc" -ne 0 ]]; then
+  if grep -Fq 'ERROR=DiagnosticError:visible product-card count outside diagnostic bound' "$diagnostic_log"; then
+    set +e
+    runuser -u andris -- env -i \
+      HOME=/home/andris USER=andris LOGNAME=andris \
+      PATH=/usr/local/bin:/usr/bin:/bin \
+      PYTHONPATH="$LIBEXEC" \
+      PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
+      "$ALDI_A30_BROWSER_PYTHON" - "$ALDI_A30_BROWSER_EXECUTABLE" "$observed_at" <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+from urllib.parse import urlsplit
+
+import aldi_new_baseline_weekly_shadow_producer as producer
+import aldi_visual_card_bridge_diagnostic_v2 as diagnostic
+from playwright.sync_api import sync_playwright
+
+browser_executable = Path(sys.argv[1])
+observed = diagnostic._observed(sys.argv[2])
+source_url = "https://www.aldi-nord.de/angebote.html"
+selector_families = {
+    "product_anchor": 'a[href][data-testid*="product-tile"]',
+    "offer_anchor": 'a[href][data-testid*="offer-tile"]',
+    "product_role_link": '[role="link"][data-testid*="product-tile"]',
+    "offer_role_link": '[role="link"][data-testid*="offer-tile"]',
+}
+
+with sync_playwright() as pw:
+    browser = pw.chromium.launch(
+        executable_path=str(browser_executable),
+        headless=True,
+        args=["--disable-dev-shm-usage", "--disable-gpu"],
+    )
+    try:
+        context = browser.new_context(
+            locale="de-DE",
+            timezone_id="Europe/Berlin",
+            viewport={"width": 1440, "height": 1000},
+            user_agent=(
+                "Mozilla/5.0 (X11; Linux aarch64) "
+                "AppleWebKit/537.36 Chrome/149 Safari/537.36"
+            ),
+        )
+        page = context.new_page()
+        response = page.goto(source_url, wait_until="domcontentloaded", timeout=120_000)
+        if response is None or response.status >= 400:
+            raise SystemExit("cardinality probe source unavailable")
+        source_text = response.body().decode("utf-8", errors="replace")
+        offers = producer._offer_map(source_text)
+        selected, _iso_week, valid_from, _valid_until = producer._select_week(offers, observed)
+        if not 0 < len(selected) <= diagnostic.MAX_OFFERS:
+            raise SystemExit("cardinality probe selected-offer bound failed")
+        final = urlsplit(page.url)
+        if final.scheme != "https" or (final.hostname or "").lower() not in diagnostic.ALDI_HOSTS:
+            raise SystemExit("cardinality probe redirect rejected")
+
+        for label in ("Alle akzeptieren", "Akzeptieren", "Zustimmen"):
+            try:
+                button = page.get_by_role("button", name=re.compile(label, re.I))
+                if button.count():
+                    button.first.click(timeout=1500)
+                    break
+            except Exception:
+                pass
+
+        week_view_label = producer._week_view_label(observed, valid_from)
+        page.wait_for_timeout(750)
+        producer._sync_week_view(page, week_view_label)
+
+        history = []
+        for _ in range(80):
+            state = page.evaluate(
+                r"""(selectors) => {
+                  const visible = el => {
+                    const r = el.getBoundingClientRect();
+                    const style = getComputedStyle(el);
+                    return r.width > 4 && r.height > 4 &&
+                      style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const domKey = el => {
+                    const parts = [];
+                    let current = el;
+                    while (current && current !== document.documentElement) {
+                      const parent = current.parentElement;
+                      if (!parent) break;
+                      const siblings = Array.from(parent.children)
+                        .filter(sibling => sibling.tagName === current.tagName);
+                      parts.push(`${current.tagName.toLowerCase()}:${siblings.indexOf(current)}`);
+                      current = parent;
+                    }
+                    return `dom:${parts.reverse().join('/')}`;
+                  };
+                  const familyCounts = {};
+                  for (const [name, selector] of Object.entries(selectors)) {
+                    const nodes = Array.from(document.querySelectorAll(selector));
+                    familyCounts[name] = {
+                      matched: nodes.length,
+                      visible: nodes.filter(visible).length
+                    };
+                  }
+                  const combined = Object.values(selectors).join(',');
+                  const visibleCards = Array.from(document.querySelectorAll(combined)).filter(visible);
+                  const structural = new Set(visibleCards.map(domKey));
+                  window.scrollTo(0, document.documentElement.scrollHeight);
+                  return {
+                    visible_combined_count: visibleCards.length,
+                    structural_unique_card_count: structural.size,
+                    document_height: Math.max(
+                      document.documentElement.scrollHeight,
+                      document.body?.scrollHeight || 0
+                    ),
+                    selector_family_counts: familyCounts
+                  };
+                }""",
+                selector_families,
+            )
+            if not isinstance(state, dict):
+                raise SystemExit("cardinality probe state invalid")
+            family_counts = state.get("selector_family_counts") or {}
+            signature = (
+                int(state.get("visible_combined_count") or 0),
+                int(state.get("structural_unique_card_count") or 0),
+                int(state.get("document_height") or 0),
+                tuple(
+                    (name, int((family_counts.get(name) or {}).get("matched") or 0),
+                     int((family_counts.get(name) or {}).get("visible") or 0))
+                    for name in sorted(selector_families)
+                ),
+            )
+            history.append((signature, state))
+            if len(history) >= 4 and len({item[0] for item in history[-4:]}) == 1:
+                break
+            page.wait_for_timeout(250)
+
+        stabilized = len(history) >= 4 and len({item[0] for item in history[-4:]}) == 1
+        final_state = history[-1][1]
+        structural_count = int(final_state.get("structural_unique_card_count") or 0)
+        if not stabilized:
+            bound_state = "UNSTABLE"
+        elif structural_count == 0:
+            bound_state = "ZERO"
+        elif structural_count > diagnostic.MAX_CARDS:
+            bound_state = "OVERFLOW"
+        else:
+            bound_state = "IN_RANGE"
+        evidence = {
+            "bound_state": bound_state,
+            "document_height": int(final_state.get("document_height") or 0),
+            "max_cards": diagnostic.MAX_CARDS,
+            "selected_offer_count": len(selected),
+            "selector_family_counts": final_state.get("selector_family_counts") or {},
+            "stabilized": stabilized,
+            "structural_unique_card_count": structural_count,
+            "visible_combined_count": int(final_state.get("visible_combined_count") or 0),
+        }
+        print("CARDINALITY_EVIDENCE=" + json.dumps(evidence, separators=(",", ":"), sort_keys=True))
+        context.close()
+    finally:
+        browser.close()
+PY
+    probe_rc=$?
+    set -e
+    if [[ "$probe_rc" -ne 0 ]]; then
+      printf 'CARDINALITY_PROBE_RESULT=FAILURE exit=%s\n' "$probe_rc" >&2
+    fi
+  fi
+  fail "v2 diagnostic blocked: exit=$diagnostic_rc"
+fi
 
 [[ -f "$result" && ! -L "$result" ]] || fail "v2 diagnostic result missing or unsafe"
 python3 - "$result" "$EXPECTED_MAIN_SHA" "$AUTHORIZATION_COMMENT_ID" "$GITHUB_RUN_ID" "$EXPORT_DIR" <<'PY'
