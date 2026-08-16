@@ -20,7 +20,7 @@ jobs:
       github.event.issue.number == 631 &&
       github.actor == 'rozkalnsandris' &&
       github.event.comment.author_association == 'OWNER' &&
-      github.event.comment.body == '/hermes-aldi gate-d4 pr=637'
+      github.event.comment.body == '/hermes-aldi gate-d4 pr=646'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -142,6 +142,9 @@ jobs:
                   raise SystemExit("Gate D4 result schema/mode mismatch")
               if result.get("issue_number") != 631:
                   raise SystemExit("Gate D4 result issue mismatch")
+              request_schema = result.get("request_schema_version")
+              if request_schema not in {1, 2}:
+                  raise SystemExit("Gate D4 request schema mismatch")
               decision = str(result.get("decision") or "")
               if decision not in {
                   "NO_CANDIDATE_IN_DESIGNATED_ROOTS",
@@ -159,13 +162,38 @@ jobs:
                   raise SystemExit("historical recovery authority drift")
               if result.get("irrecoverable_decision_recorded") is not False:
                   raise SystemExit("irrecoverable decision drift")
+
+              root_count = result.get("designated_root_count")
+              file_count = result.get("designated_file_count")
+              input_count = result.get("designated_input_count")
+              for label, value in (
+                  ("root", root_count),
+                  ("file", file_count),
+                  ("input", input_count),
+              ):
+                  if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                      raise SystemExit(f"Gate D4 designated {label} count invalid")
+              if input_count != root_count + file_count or input_count <= 0:
+                  raise SystemExit("Gate D4 designated input count mismatch")
+              if request_schema == 1 and file_count != 0:
+                  raise SystemExit("Gate D4 v1 result contains exact-file inputs")
+
               safety = result.get("safety")
-              if not isinstance(safety, dict) or safety.get("explicit_roots_only") is not True:
-                  raise SystemExit("explicit-roots safety flag missing")
+              if not isinstance(safety, dict) or safety.get("explicit_inputs_only") is not True:
+                  raise SystemExit("explicit-inputs safety flag missing")
+              if safety.get("explicit_roots_only") is not (file_count == 0):
+                  raise SystemExit("explicit-roots safety flag mismatch")
+              if safety.get("exact_file_allowlist_enabled") is not (file_count > 0):
+                  raise SystemExit("exact-file safety flag mismatch")
               if safety.get("strict_49_plus_41_frozen_contract_unchanged") is not True:
                   raise SystemExit("strict 49+41 safety flag drift")
               for key, value in safety.items():
-                  if key not in {"explicit_roots_only", "strict_49_plus_41_frozen_contract_unchanged"} and value is not False:
+                  if key not in {
+                      "explicit_inputs_only",
+                      "explicit_roots_only",
+                      "exact_file_allowlist_enabled",
+                      "strict_49_plus_41_frozen_contract_unchanged",
+                  } and value is not False:
                       raise SystemExit(f"unsafe Gate D4 authority flag: {key}")
 
               manifest_path = root / "dispatcher-evidence-manifest.json"
@@ -200,7 +228,7 @@ jobs:
               if re.fullmatch(r"[0-9a-f]{64}", request_sha) is None:
                   raise SystemExit("Gate D4 request SHA missing")
 
-              roots = int(result.get("designated_root_count", 0))
+              roots = root_count
               complete = int(result.get("complete_recovery_source_count", 0))
               identities = int(result.get("distinct_complete_identity_count", 0))
           elif failure_path.is_file():
