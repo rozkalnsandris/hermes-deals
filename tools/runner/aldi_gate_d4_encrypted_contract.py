@@ -43,6 +43,7 @@ def root_runtime_dir(p:Path)->bool:
 def canonical_encrypted_file(raw:Any,backup_root:Path=BACKUP_ROOT)->Path:
     require(isinstance(raw,str) and raw.startswith('/'),'encrypted backup path must be absolute')
     p=Path(raw); require('..' not in p.parts,'encrypted backup path must not traverse')
+    require(str(p)==raw,'encrypted backup path must be canonical')
     require(p.parent==backup_root,'encrypted backup must be exact /opt/backups file')
     require(re.fullmatch(r'rpi5_backup_[A-Za-z0-9._-]+\.tar\.gz\.age',p.name) is not None,'encrypted backup name invalid')
     return p
