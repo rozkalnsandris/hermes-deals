@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import os
 import pwd
 import shutil
+import stat
 import sys
 from typing import Any
 
@@ -19,13 +21,24 @@ FAILURE_STAGES = {
 }
 
 
+def _sha_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _load_support():
+    info = SUPPORT.lstat()
+    if not stat.S_ISREG(info.st_mode) or SUPPORT.is_symlink() or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o444:
+        raise RuntimeError("D4E support metadata unsafe")
+    if _sha_file(SUPPORT) != EXPECTED_SUPPORT_SHA256:
+        raise RuntimeError("D4E support SHA drift")
     spec = importlib.util.spec_from_file_location("aldi_gate_d4_d4e_support", SUPPORT)
     if spec is None or spec.loader is None:
         raise RuntimeError("D4E support import unavailable")
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-    if module.sha_file(SUPPORT) != EXPECTED_SUPPORT_SHA256:
-        raise RuntimeError("D4E support SHA drift")
     return module
 
 
