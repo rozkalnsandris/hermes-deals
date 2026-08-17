@@ -15,20 +15,21 @@ class AldiVisualCardBridgeV2SelectedOfferCardinalityEvidenceTest(unittest.TestCa
     def test_selected_offer_cardinality_classifies_zero_in_range_and_overflow(self):
         self.assertEqual(
             diagnostic._selected_offer_cardinality_evidence(0),
-            {"bound_state": "ZERO", "max_offers": 256, "selected_offer_count": 0},
+            {"bound_state": "ZERO", "max_offers": 512, "selected_offer_count": 0},
         )
-        for count in (1, 256):
+        for count in (1, 263, 512):
             self.assertEqual(
                 diagnostic._selected_offer_cardinality_evidence(count),
-                {"bound_state": "IN_RANGE", "max_offers": 256, "selected_offer_count": count},
+                {"bound_state": "IN_RANGE", "max_offers": 512, "selected_offer_count": count},
             )
         self.assertEqual(
-            diagnostic._selected_offer_cardinality_evidence(257),
-            {"bound_state": "OVERFLOW", "max_offers": 256, "selected_offer_count": 257},
+            diagnostic._selected_offer_cardinality_evidence(513),
+            {"bound_state": "OVERFLOW", "max_offers": 512, "selected_offer_count": 513},
         )
 
-    def test_evidence_preserves_existing_offer_bound(self):
-        self.assertEqual(diagnostic.MAX_OFFERS, 256)
+    def test_offer_bound_aligns_with_existing_card_domain(self):
+        self.assertEqual(diagnostic.MAX_OFFERS, 512)
+        self.assertEqual(diagnostic.MAX_OFFERS, diagnostic.MAX_CARDS)
         source = inspect.getsource(diagnostic._selected_offer_cardinality_evidence)
         self.assertIn("MAX_OFFERS", source)
         self.assertNotIn("MAX_OFFERS =", source)
@@ -41,7 +42,7 @@ class AldiVisualCardBridgeV2SelectedOfferCardinalityEvidenceTest(unittest.TestCa
         self.assertNotIn("selected_cardinality[\"bound_state\"] == \"IN_RANGE\"", source)
 
     def test_evidence_schema_contains_no_offer_content(self):
-        evidence = diagnostic._selected_offer_cardinality_evidence(257)
+        evidence = diagnostic._selected_offer_cardinality_evidence(513)
         self.assertEqual(
             set(evidence),
             {"bound_state", "max_offers", "selected_offer_count"},
