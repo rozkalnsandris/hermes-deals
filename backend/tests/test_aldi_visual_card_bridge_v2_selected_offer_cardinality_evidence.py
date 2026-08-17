@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 DISPATCHER = ROOT / "tools" / "runner" / "aldi-visual-card-bridge-v2-dispatcher.sh"
+WORKFLOW = ROOT / ".github" / "workflows" / "hermes-aldi-visual-card-bridge-v2.yml"
 sys.path.insert(0, str(ROOT / "tools"))
 import aldi_visual_card_bridge_diagnostic_v2 as diagnostic
 
@@ -33,6 +34,15 @@ class AldiVisualCardBridgeV2SelectedOfferCardinalityEvidenceTest(unittest.TestCa
         source = inspect.getsource(diagnostic._selected_offer_cardinality_evidence)
         self.assertIn("MAX_OFFERS", source)
         self.assertNotIn("MAX_OFFERS =", source)
+
+    def test_workflow_offer_bound_aligns_with_diagnostic_domain(self):
+        source = WORKFLOW.read_text(encoding="utf-8")
+        expected = (
+            f"if not 0 < selected <= {diagnostic.MAX_OFFERS} "
+            f"or not 0 < cards <= {diagnostic.MAX_CARDS}:"
+        )
+        self.assertIn(expected, source)
+        self.assertNotIn("selected <= 256", source)
 
     def test_blocked_run_emits_only_bounded_selected_offer_evidence_then_fails(self):
         source = inspect.getsource(diagnostic.run_diagnostic)
