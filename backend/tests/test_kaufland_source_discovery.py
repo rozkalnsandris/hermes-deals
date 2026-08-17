@@ -108,7 +108,7 @@ class KauflandNetworkBoundaryTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "UNSAFE_SOURCE_HOST")
         self.assertEqual(calls, [STORE_PAGE_URL])
 
-    def test_same_session_store_cookie_can_prove_overview_binding(self):
+    def test_same_session_exact_store_cookie_can_prove_overview_binding(self):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("dortmund-aplerbeck-1503.html"):
                 return httpx.Response(
@@ -133,7 +133,7 @@ class KauflandNetworkBoundaryTest(unittest.TestCase):
             report = discover_kaufland_source(client)
 
         self.assertTrue(report.store_binding_proven)
-        self.assertEqual(report.binding_method, "same_session_cookie_contains_store_id")
+        self.assertEqual(report.binding_method, "same_session_exact_store_cookie")
         self.assertIn("selectedStore", report.session_cookie_names)
         self.assertTrue(report.session_cookie_has_store_id)
         self.assertTrue(report.overview_request_cookie_has_store_id)
@@ -164,6 +164,33 @@ class KauflandNetworkBoundaryTest(unittest.TestCase):
         self.assertEqual(report.binding_method, "overview_body_exact_store_name")
         self.assertFalse(report.overview_request_cookie_has_store_id)
         self.assertTrue(report.overview_body_has_store_name)
+
+    def test_recent_store_list_containing_1503_does_not_prove_binding(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("dortmund-aplerbeck-1503.html"):
+                return httpx.Response(
+                    200,
+                    headers={
+                        "content-type": "text/html; charset=utf-8",
+                        "set-cookie": "recentStores=DE1503%2CDE4420; Path=/; Secure",
+                    },
+                    text=STORE_HTML,
+                    request=request,
+                )
+            if request.url.path == OVERVIEW_PATH:
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/html; charset=utf-8"},
+                    text="<html><body><h1>Alle Angebote</h1></body></html>",
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaises(KauflandSourceDiscoveryError) as caught:
+                discover_kaufland_source(client)
+
+        self.assertEqual(caught.exception.code, "STORE_BINDING_NOT_PROVEN")
 
     def test_unbound_generic_overview_fails_closed(self):
         def handler(request: httpx.Request) -> httpx.Response:

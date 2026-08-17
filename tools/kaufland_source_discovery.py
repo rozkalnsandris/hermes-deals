@@ -2,14 +2,35 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 
 import httpx
 
-from app.kaufland_source_discovery import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.kaufland_source_discovery import (  # noqa: E402
     KauflandSourceDiscoveryError,
     discover_kaufland_source,
 )
+
+
+def _failure_payload(*, source_state: str, code: str, error: str) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "source_state": source_state,
+        "store_binding_proven": False,
+        "error_code": code,
+        "error": error,
+        "production_database_write": False,
+        "review_write": False,
+        "production_publish": False,
+        "production_deploy": False,
+        "corpus_write": False,
+        "scheduler_change": False,
+        "systemd_change": False,
+    }
 
 
 def main() -> int:
@@ -29,50 +50,24 @@ def main() -> int:
         ) as client:
             report = discover_kaufland_source(client)
     except KauflandSourceDiscoveryError as exc:
-        print(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "source_state": "evidence_mismatch"
-                    if exc.code == "STORE_BINDING_NOT_PROVEN"
-                    else "source_unavailable",
-                    "store_binding_proven": False,
-                    "error_code": exc.code,
-                    "error": str(exc),
-                    "production_database_write": False,
-                    "review_write": False,
-                    "production_publish": False,
-                    "production_deploy": False,
-                    "corpus_write": False,
-                    "scheduler_change": False,
-                    "systemd_change": False,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        payload = _failure_payload(
+            source_state=(
+                "evidence_mismatch"
+                if exc.code == "STORE_BINDING_NOT_PROVEN"
+                else "source_unavailable"
+            ),
+            code=exc.code,
+            error=str(exc),
         )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 20
     except httpx.HTTPError as exc:
-        print(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "source_state": "source_unavailable",
-                    "store_binding_proven": False,
-                    "error_code": type(exc).__name__,
-                    "error": str(exc)[:1000],
-                    "production_database_write": False,
-                    "review_write": False,
-                    "production_publish": False,
-                    "production_deploy": False,
-                    "corpus_write": False,
-                    "scheduler_change": False,
-                    "systemd_change": False,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        payload = _failure_payload(
+            source_state="source_unavailable",
+            code=type(exc).__name__,
+            error=str(exc)[:1000],
         )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 21
 
     payload = report.as_public_dict()

@@ -4,7 +4,7 @@ import hashlib
 import re
 from dataclasses import asdict, dataclass
 from datetime import date
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import parse_qs, unquote, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -36,6 +36,7 @@ _SHORT_VALIDITY_RE = re.compile(
     re.IGNORECASE,
 )
 _STORE_ID_TOKEN_RE = re.compile(r"(?<!\d)(?:DE)?1503(?!\d)", re.IGNORECASE)
+_EXACT_STORE_COOKIE_VALUES = frozenset({STORE_ID.casefold(), f"DE{STORE_ID}".casefold()})
 
 
 class KauflandSourceDiscoveryError(RuntimeError):
@@ -363,12 +364,27 @@ def parse_store_page(html: bytes | str, source_url: str) -> StorePageEvidence:
     )
 
 
+def _is_exact_store_cookie_value(value: str) -> bool:
+    normalized = unquote(value).strip().strip('"').casefold()
+    return normalized in _EXACT_STORE_COOKIE_VALUES
+
+
 def _cookie_names(client: httpx.Client) -> tuple[str, ...]:
     return tuple(sorted({cookie.name for cookie in client.cookies.jar}))
 
 
 def _cookie_store_id_match(client: httpx.Client) -> bool:
-    return any(_STORE_ID_TOKEN_RE.search(cookie.value or "") for cookie in client.cookies.jar)
+    return any(_is_exact_store_cookie_value(cookie.value or "") for cookie in client.cookies.jar)
+
+
+def _request_cookie_store_id_match(cookie_header: str) -> bool:
+    for token in cookie_header.split(";"):
+        if "=" not in token:
+            continue
+        _, value = token.split("=", 1)
+        if _is_exact_store_cookie_value(value):
+            return True
+    return False
 
 
 def discover_kaufland_source(client: httpx.Client) -> KauflandDiscoveryReport:
@@ -386,8 +402,8 @@ def discover_kaufland_source(client: httpx.Client) -> KauflandDiscoveryReport:
         ).get_text(" ", strip=True)
     )
 
-    request_cookie_has_store_id = bool(
-        _STORE_ID_TOKEN_RE.search(overview_doc.request_cookie_header)
+    request_cookie_has_store_id = _request_cookie_store_id_match(
+        overview_doc.request_cookie_header
     )
     overview_body_has_store_name = STORE_NAME in overview_text
     overview_body_has_store_id = bool(_STORE_ID_TOKEN_RE.search(overview_text))
@@ -395,12 +411,12 @@ def discover_kaufland_source(client: httpx.Client) -> KauflandDiscoveryReport:
     if overview_body_has_store_name:
         binding_method = "overview_body_exact_store_name"
     elif request_cookie_has_store_id:
-        binding_method = "same_session_cookie_contains_store_id"
+        binding_method = "same_session_exact_store_cookie"
     else:
         raise KauflandSourceDiscoveryError(
             "STORE_BINDING_NOT_PROVEN",
             "Offer overview did not expose exact Aplerbeck identity and the "
-            "same-session overview request did not carry a store-1503 cookie",
+            "same-session overview request did not carry an exact 1503/DE1503 cookie",
         )
 
     return KauflandDiscoveryReport(
