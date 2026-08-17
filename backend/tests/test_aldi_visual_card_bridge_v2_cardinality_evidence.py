@@ -70,15 +70,18 @@ class AldiVisualCardBridgeV2CardinalityEvidenceTest(unittest.TestCase):
         self.assertIn("structural_unique_card_count: structural.size", self.probe)
         self.assertIn("visible_combined_count: visibleCards.length", self.probe)
 
-    def test_probe_selector_union_matches_v2_card_selector(self):
-        expected = (
-            'a[href][data-testid*="product-tile"],'
-            'a[href][data-testid*="offer-tile"],'
-            '[role="link"][data-testid*="product-tile"],'
-            '[role="link"][data-testid*="offer-tile"]'
-        )
+    def test_diagnostic_uses_canonical_product_anchor_while_probe_keeps_broad_evidence(self):
+        expected = 'a[href][data-testid*="product-tile"]'
+        self.assertEqual(diagnostic.CANONICAL_PRODUCT_CARD_SELECTOR, expected)
         self.assertEqual(diagnostic.CARD_SELECTOR, expected)
-        for selector in expected.split(","):
+        self.assertNotIn("offer-tile", diagnostic.CARD_SELECTOR)
+        self.assertNotIn('[role="link"]', diagnostic.CARD_SELECTOR)
+        for selector in (
+            'a[href][data-testid*="product-tile"]',
+            'a[href][data-testid*="offer-tile"]',
+            '[role="link"][data-testid*="product-tile"]',
+            '[role="link"][data-testid*="offer-tile"]',
+        ):
             self.assertIn(selector, self.probe)
 
     def test_probe_remains_read_only_and_fail_closed(self):

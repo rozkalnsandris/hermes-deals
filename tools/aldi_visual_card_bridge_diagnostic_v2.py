@@ -35,12 +35,8 @@ URL_FIELD_PARTS = {
 ASSET_FIELD_PARTS = {
     "image", "imageurl", "image_url", "asset", "media", "src", "picture",
 }
-CARD_SELECTOR = (
-    'a[href][data-testid*="product-tile"],'
-    'a[href][data-testid*="offer-tile"],'
-    '[role="link"][data-testid*="product-tile"],'
-    '[role="link"][data-testid*="offer-tile"]'
-)
+CANONICAL_PRODUCT_CARD_SELECTOR = 'a[href][data-testid*="product-tile"]'
+CARD_SELECTOR = CANONICAL_PRODUCT_CARD_SELECTOR
 
 
 class DiagnosticError(RuntimeError):

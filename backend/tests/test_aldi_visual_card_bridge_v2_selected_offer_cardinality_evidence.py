@@ -69,17 +69,13 @@ class AldiVisualCardBridgeV2SelectedOfferCardinalityEvidenceTest(unittest.TestCa
         self.assertIn('cat "$diagnostic_log"', source)
         self.assertIn('fail "v2 diagnostic blocked: exit=$diagnostic_rc"', source)
 
-    def test_card_and_matching_contracts_remain_unchanged(self):
+    def test_card_selector_uses_canonical_product_anchor_and_matching_remains_exact(self):
+        expected = 'a[href][data-testid*="product-tile"]'
         self.assertEqual(diagnostic.MAX_CARDS, 512)
-        self.assertEqual(
-            diagnostic.CARD_SELECTOR,
-            (
-                'a[href][data-testid*="product-tile"],'
-                'a[href][data-testid*="offer-tile"],'
-                '[role="link"][data-testid*="product-tile"],'
-                '[role="link"][data-testid*="offer-tile"]'
-            ),
-        )
+        self.assertEqual(diagnostic.CANONICAL_PRODUCT_CARD_SELECTOR, expected)
+        self.assertEqual(diagnostic.CARD_SELECTOR, expected)
+        self.assertNotIn("offer-tile", diagnostic.CARD_SELECTOR)
+        self.assertNotIn('[role="link"]', diagnostic.CARD_SELECTOR)
         inventory_source = inspect.getsource(diagnostic._inventory)
         self.assertNotIn("textContent", inventory_source)
         self.assertNotIn("innerText", inventory_source)
