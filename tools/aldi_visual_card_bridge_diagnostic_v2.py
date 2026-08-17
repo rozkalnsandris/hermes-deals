@@ -192,7 +192,20 @@ def _tokens_for_offer(row: Mapping[str, Any]) -> list[dict[str, str]]:
     tokens: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for path, raw in _flatten_leaves(row):
-        for token in _identity_tokens(path, raw):
+        identity_tokens = _identity_tokens(path, raw)
+        if (
+            path == "productSlug"
+            and len(identity_tokens) == 1
+            and identity_tokens[0]["token_kind"] == "url_slug_segment_exact"
+            and len(identity_tokens[0]["value"]) <= 175
+            and not identity_tokens[0]["value"].lower().endswith(".html")
+        ):
+            identity_tokens.append({
+                "field_path": path,
+                "token_kind": "url_slug_html_stem_exact",
+                "value": identity_tokens[0]["value"],
+            })
+        for token in identity_tokens:
             key = (token["field_path"], token["token_kind"], token["value"])
             if key in seen:
                 continue
@@ -349,6 +362,13 @@ def _inventory(page: Any, offers: Mapping[str, list[Mapping[str, str]]]) -> dict
                     token.token_kind === 'url_slug_segment_exact' &&
                     parsed.segments.includes(token.value)
                   ) kinds.add(`${name}:url_slug_segment_exact`);
+                  if (
+                    token.token_kind === 'url_slug_html_stem_exact' &&
+                    parsed.segments.some(segment =>
+                      segment.endsWith('.html') &&
+                      segment.slice(0, -5) === token.value
+                    )
+                  ) kinds.add(`${name}:url_slug_html_stem_exact`);
                   if (
                     token.token_kind === 'identity_exact' &&
                     (
