@@ -171,10 +171,11 @@ def _identity_tokens(path: str, raw: Any) -> list[dict[str, str]]:
             and 6 <= len(value) <= 180
             and any(ch.isalpha() for ch in value)
             and not any(ch.isspace() for ch in value)
+            and not any(separator in value for separator in ("/", "?", "#"))
         ):
             return [{
                 "field_path": path,
-                "token_kind": "url_slug_exact",
+                "token_kind": "url_slug_segment_exact",
                 "value": value,
             }]
         return []
@@ -330,9 +331,6 @@ def _inventory(page: Any, offers: Mapping[str, list[Mapping[str, str]]]) -> dict
                 if (token.token_kind === 'identity_exact' && value === token.value) {
                   kinds.add(`attribute_exact:${name}`);
                 }
-                if (token.token_kind === 'url_slug_exact' && value === token.value) {
-                  kinds.add(`attribute_exact:${name}`);
-                }
                 if (
                   name === 'href' || name === 'src' || name === 'action' ||
                   name === 'formaction' || name === 'poster'
@@ -347,6 +345,10 @@ def _inventory(page: Any, offers: Mapping[str, list[Mapping[str, str]]]) -> dict
                     token.token_kind.endsWith('_url_segment_exact') &&
                     parsed.segments.includes(token.value)
                   ) kinds.add(`${name}:url_segment_exact`);
+                  if (
+                    token.token_kind === 'url_slug_segment_exact' &&
+                    parsed.segments.includes(token.value)
+                  ) kinds.add(`${name}:url_slug_segment_exact`);
                   if (
                     token.token_kind === 'identity_exact' &&
                     (
