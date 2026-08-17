@@ -238,16 +238,12 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         self.assertLess(scroll_index, geometry_index)
 
     def test_rollover_remediation_preserves_v2_card_contract(self):
+        expected = 'a[href][data-testid*="product-tile"]'
         self.assertEqual(diagnostic.MAX_CARDS, 512)
-        self.assertEqual(
-            diagnostic.CARD_SELECTOR,
-            (
-                'a[href][data-testid*="product-tile"],'
-                'a[href][data-testid*="offer-tile"],'
-                '[role="link"][data-testid*="product-tile"],'
-                '[role="link"][data-testid*="offer-tile"]'
-            ),
-        )
+        self.assertEqual(diagnostic.CANONICAL_PRODUCT_CARD_SELECTOR, expected)
+        self.assertEqual(diagnostic.CARD_SELECTOR, expected)
+        self.assertNotIn("offer-tile", diagnostic.CARD_SELECTOR)
+        self.assertNotIn('[role="link"]', diagnostic.CARD_SELECTOR)
         source = inspect.getsource(diagnostic._inventory)
         self.assertNotIn("textContent", source)
         self.assertNotIn("innerText", source)
