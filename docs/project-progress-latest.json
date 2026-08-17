@@ -560,48 +560,31 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 192,
+  "completed_issue_count": 194,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-08-16T04:48:31.624374Z",
-  "generated_at_local": "2026-08-16T06:48:31.624374+02:00",
+  "generated_at": "2026-08-17T04:56:11.598449Z",
+  "generated_at_local": "2026-08-17T06:56:11.598449+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-08-15",
-  "previous_day_completed_gate_count": 2,
-  "previous_day_completed_gates": [
-    {
-      "category_id": "edeka",
-      "closed_at": "2026-08-15T11:54:32Z",
-      "id": "edeka-second-family",
-      "issue": 291,
-      "label": "Second distinct Patzer weekly campaign and two-cycle ledger",
-      "units": 10
-    },
-    {
-      "category_id": "release",
-      "closed_at": "2026-08-15T00:17:28Z",
-      "id": "netto-production-verification",
-      "issue": 19,
-      "label": "Production verification of merged Netto daily-special fixes",
-      "units": 20
-    }
-  ],
+  "previous_day": "2026-08-16",
+  "previous_day_completed_gate_count": 0,
+  "previous_day_completed_gates": [],
   "previous_day_completed_issue_count": 2,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-15T00:17:28Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/19",
-      "number": 19,
-      "title": "P0 Netto: verify merged daily-special fixes on RPi5"
+      "closed_at": "2026-08-16T09:01:26Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/631",
+      "number": 631,
+      "title": "P1 ALDI Gate D4: resolve missing legacy 49+41 evidence without substitution"
     },
     {
-      "closed_at": "2026-08-15T11:54:32Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/291",
-      "number": 291,
-      "title": "P1 EDEKA Gate D: capture second consecutive Patzer weekly shadow campaign"
+      "closed_at": "2026-08-16T09:01:33Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/679",
+      "number": 679,
+      "title": "P1 ALDI Gate D4E: inspect explicitly bound encrypted RPi5 backups without plaintext persistence"
     }
   ],
-  "previous_day_progress_units": 30,
+  "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
   "schema_version": 2,
