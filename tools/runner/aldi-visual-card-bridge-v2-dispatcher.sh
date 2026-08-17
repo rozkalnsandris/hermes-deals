@@ -347,7 +347,7 @@ if payload.get("decision") not in {
     raise SystemExit("v2 diagnostic decision rejected")
 selected = int(payload.get("selected_offer_count") or 0)
 cards = int(payload.get("visible_product_card_count") or 0)
-if not 0 < selected <= 256 or not 0 < cards <= 512:
+if not 0 < selected <= 512 or not 0 < cards <= 512:
     raise SystemExit("v2 diagnostic counts outside bounds")
 families = payload.get("families")
 if not isinstance(families, list) or len(families) > 96:
