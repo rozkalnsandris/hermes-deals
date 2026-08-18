@@ -242,12 +242,144 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         self.assertEqual(diagnostic.MAX_CARDS, 512)
         self.assertEqual(diagnostic.CANONICAL_PRODUCT_CARD_SELECTOR, expected)
         self.assertEqual(diagnostic.CARD_SELECTOR, expected)
+        self.assertEqual(producer.CANONICAL_PRODUCT_CARD_SELECTOR, expected)
+        self.assertEqual(producer.MAX_VISUAL_CARDS, diagnostic.MAX_CARDS)
         self.assertNotIn("offer-tile", diagnostic.CARD_SELECTOR)
         self.assertNotIn('[role="link"]', diagnostic.CARD_SELECTOR)
         source = inspect.getsource(diagnostic._inventory)
         self.assertNotIn("textContent", source)
         self.assertNotIn("innerText", source)
         self.assertNotIn("raw.includes(token.value)", source)
+
+    def test_product_slug_requires_live_proven_exact_simple_shape(self):
+        self.assertEqual(
+            producer._product_slug({"productSlug": "bio-kaffee-500-g"}),
+            "bio-kaffee-500-g",
+        )
+        invalid = [
+            None,
+            "",
+            "short",
+            "123456",
+            " bio-kaffee-500-g",
+            "bio-kaffee-500-g ",
+            "bio kaffee-500-g",
+            "bio/kaffee-500-g",
+            "bio-kaffee?500-g",
+            "bio-kaffee#500-g",
+            "bio-kaffee-500-g.html",
+        ]
+        for value in invalid:
+            with self.subTest(value=value):
+                with self.assertRaises(producer.ProducerError):
+                    producer._product_slug({"productSlug": value})
+
+    def test_visual_binding_input_keeps_object_id_source_but_requires_unique_slug(self):
+        rows = producer._visual_binding_input(
+            {
+                "object-b": {"productSlug": "zweites-produkt"},
+                "object-a": {"productSlug": "erstes-produkt"},
+            }
+        )
+        self.assertEqual(
+            rows,
+            [
+                {"object_id": "object-a", "product_slug": "erstes-produkt"},
+                {"object_id": "object-b", "product_slug": "zweites-produkt"},
+            ],
+        )
+        with self.assertRaisesRegex(producer.ProducerError, "not one-to-one"):
+            producer._visual_binding_input(
+                {
+                    "object-a": {"productSlug": "gleiches-produkt"},
+                    "object-b": {"productSlug": "gleiches-produkt"},
+                }
+            )
+
+    def test_visual_geometry_fails_closed_on_unexplained_ambiguous_or_shared_cards(self):
+        expected = {"object-a", "object-b"}
+        good = {
+            "width": 1000,
+            "height": 2000,
+            "visible_product_card_count": 2,
+            "rows": [
+                {
+                    "object_id": "object-a",
+                    "match_count": 1,
+                    "container_key": "dom:a",
+                    "x": 1,
+                    "y": 2,
+                    "width": 3,
+                    "height": 4,
+                },
+                {
+                    "object_id": "object-b",
+                    "match_count": 1,
+                    "container_key": "dom:b",
+                    "x": 5,
+                    "y": 6,
+                    "width": 7,
+                    "height": 8,
+                },
+            ],
+        }
+        width, height, rows = producer._validated_geometry(
+            good,
+            expected_object_ids=expected,
+        )
+        self.assertEqual((width, height, len(rows)), (1000.0, 2000.0, 2))
+
+        unexplained = json.loads(json.dumps(good))
+        unexplained["visible_product_card_count"] = 3
+        with self.assertRaisesRegex(producer.ProducerError, "parity"):
+            producer._validated_geometry(
+                unexplained,
+                expected_object_ids=expected,
+            )
+
+        ambiguous = json.loads(json.dumps(good))
+        ambiguous["rows"][0]["match_count"] = 2
+        with self.assertRaisesRegex(producer.ProducerError, "binding incomplete"):
+            producer._validated_geometry(
+                ambiguous,
+                expected_object_ids=expected,
+            )
+
+        shared = json.loads(json.dumps(good))
+        shared["rows"][1]["container_key"] = "dom:a"
+        with self.assertRaisesRegex(producer.ProducerError, "not one-to-one"):
+            producer._validated_geometry(
+                shared,
+                expected_object_ids=expected,
+            )
+
+    def test_build_capture_uses_only_canonical_href_html_stem_binding(self):
+        source = inspect.getsource(producer.build_capture)
+        self.assertIn("document.querySelectorAll(input.selector)", source)
+        self.assertIn("card.getAttribute('href')", source)
+        self.assertIn("segment.endsWith('.html')", source)
+        self.assertIn("segment.slice(0, -5) === slug", source)
+        self.assertIn("binding_input = _visual_binding_input(offers)", source)
+        self.assertIn("_validated_geometry", source)
+        for forbidden in (
+            "[data-product-id]",
+            "[data-offer-id]",
+            "[data-object-id]",
+            "searchParams",
+            "queryValues",
+            "containerFor",
+            "textContent",
+            "innerText",
+            "includes(offer.object_id)",
+            "includes(slug)",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+        self.assertEqual(
+            producer.PARSER_CONTRACT,
+            "aldi-new-baseline-objectid-source-productslug-href-html-stem-v02",
+        )
+        self.assertNotIn("aldi-new-baseline-exact-objectid-v01", source)
 
     def test_missing_validity_start_is_not_promoted(self):
         rows = {

@@ -25,6 +25,11 @@ GATE_B_MODE = "ALDI_NEW_BASELINE_PAGE_CARD_PARITY_V01"
 GATE_C_MODE = "ALDI_NEW_BASELINE_GATE_C_REPLAY_V01"
 ALDI_HOSTS = {"aldi-nord.de", "www.aldi-nord.de"}
 ALDI_LOCAL_TZ = ZoneInfo("Europe/Berlin")
+CANONICAL_PRODUCT_CARD_SELECTOR = 'a[href][data-testid*="product-tile"]'
+MAX_VISUAL_CARDS = 512
+PARSER_CONTRACT = (
+    "aldi-new-baseline-objectid-source-productslug-href-html-stem-v02"
+)
 NEXT_DATA_RE = re.compile(
     r"""<script[^>]+id=["']__NEXT_DATA__["'][^>]*>(.*?)</script>""",
     re.I | re.S,
@@ -343,6 +348,104 @@ def _candidate_id(object_id: str) -> str:
     return f"aldi:{sha256(object_id.encode('utf-8')).hexdigest()[:32]}"
 
 
+def _product_slug(raw: dict[str, Any]) -> str:
+    value = raw.get("productSlug")
+    if not isinstance(value, str):
+        raise ProducerError("selected ALDI offer productSlug missing")
+    if value != value.strip():
+        raise ProducerError("selected ALDI offer productSlug is not exact")
+    if not 6 <= len(value) <= 175:
+        raise ProducerError("selected ALDI offer productSlug length outside bound")
+    if not any(ch.isalpha() for ch in value):
+        raise ProducerError("selected ALDI offer productSlug lacks alphabetic content")
+    if any(ch.isspace() for ch in value):
+        raise ProducerError("selected ALDI offer productSlug contains whitespace")
+    if any(separator in value for separator in ("/", "?", "#")):
+        raise ProducerError("selected ALDI offer productSlug contains URL syntax")
+    if value.lower().endswith(".html"):
+        raise ProducerError("selected ALDI offer productSlug already has .html suffix")
+    return value
+
+
+def _visual_binding_input(
+    offers: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    if not 0 < len(offers) <= MAX_VISUAL_CARDS:
+        raise ProducerError("selected ALDI offer count outside visual-card bound")
+    result: list[dict[str, str]] = []
+    seen_slugs: set[str] = set()
+    for object_id in sorted(offers):
+        slug = _product_slug(offers[object_id])
+        if slug in seen_slugs:
+            raise ProducerError("selected ALDI productSlug is not one-to-one")
+        seen_slugs.add(slug)
+        result.append({"object_id": object_id, "product_slug": slug})
+    return result
+
+
+def _validated_geometry(
+    geometry: Any,
+    *,
+    expected_object_ids: set[str],
+) -> tuple[float, float, list[dict[str, Any]]]:
+    if not isinstance(geometry, dict):
+        raise ProducerError("invalid rendered product-card geometry")
+    try:
+        width = float(geometry.get("width") or 0)
+        height = float(geometry.get("height") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ProducerError("invalid rendered page dimensions") from exc
+    if width <= 0 or height <= 0:
+        raise ProducerError("invalid rendered page dimensions")
+
+    visible_count = geometry.get("visible_product_card_count")
+    if isinstance(visible_count, bool) or not isinstance(visible_count, int):
+        raise ProducerError("visible product-card count invalid")
+    if not 0 < visible_count <= MAX_VISUAL_CARDS:
+        raise ProducerError("visible product-card count outside producer bound")
+    if visible_count != len(expected_object_ids):
+        raise ProducerError(
+            "visible product-card parity differs from selected structured offers"
+        )
+
+    rows = geometry.get("rows")
+    if not isinstance(rows, list) or len(rows) != len(expected_object_ids):
+        raise ProducerError("visual productSlug binding row count mismatch")
+
+    row_ids: list[str] = []
+    bad: list[str] = []
+    container_keys: list[str] = []
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ProducerError("visual productSlug binding row invalid")
+        object_id = str(row.get("object_id") or "")
+        if not object_id:
+            raise ProducerError("visual productSlug binding objectID missing")
+        row_ids.append(object_id)
+        if row.get("match_count") != 1:
+            bad.append(object_id)
+            continue
+        key = str(row.get("container_key") or "")
+        if not key:
+            raise ProducerError("visual productSlug binding container key missing")
+        container_keys.append(key)
+        normalized_rows.append(row)
+
+    if set(row_ids) != expected_object_ids or len(row_ids) != len(set(row_ids)):
+        raise ProducerError("visual productSlug binding objectID set mismatch")
+    if bad:
+        raise ProducerError(
+            "exact productSlug href .html-stem binding incomplete: "
+            + ",".join(bad[:12])
+        )
+    if len(container_keys) != len(set(container_keys)):
+        raise ProducerError(
+            "exact productSlug href .html-stem binding is not one-to-one"
+        )
+    return width, height, normalized_rows
+
+
 def build_capture(
     *,
     source_url: str,
@@ -416,6 +519,7 @@ def build_capture(
                 observed,
             )
             week_view_label = _week_view_label(observed, valid_from)
+            binding_input = _visual_binding_input(offers)
 
             page.wait_for_timeout(750)
             _sync_week_view(page, week_view_label)
@@ -426,7 +530,7 @@ def build_capture(
             page.wait_for_timeout(1000)
 
             geometry = page.evaluate(
-                r"""(ids) => {
+                r"""(input) => {
                   const W = Math.max(
                     document.documentElement.scrollWidth,
                     document.body?.scrollWidth || 0
@@ -435,44 +539,35 @@ def build_capture(
                     document.documentElement.scrollHeight,
                     document.body?.scrollHeight || 0
                   );
-                  const nodes = Array.from(document.querySelectorAll(
-                    '[data-product-id],[data-offer-id],[data-object-id],a[href]'
-                  ));
+                  const visible = el => {
+                    const r = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    return r.width > 4 && r.height > 4 &&
+                      style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const cards = Array.from(
+                    document.querySelectorAll(input.selector)
+                  ).filter(visible);
 
-                  function hrefHasExactId(href, id) {
-                    if (!href) return false;
+                  function decodedPathSegments(href) {
+                    if (!href) return null;
                     try {
                       const url = new URL(href, document.baseURI);
-                      const pathParts = url.pathname.split('/').filter(Boolean)
-                        .map(part => {
-                          try { return decodeURIComponent(part); }
-                          catch (_) { return part; }
-                        });
-                      if (pathParts.includes(id)) return true;
-                      for (const value of url.searchParams.values()) {
-                        if (value === id) return true;
-                      }
-                      return false;
+                      return url.pathname.split('/').filter(Boolean).map(segment => {
+                        try { return decodeURIComponent(segment); }
+                        catch (_) { return segment; }
+                      });
                     } catch (_) {
-                      return false;
+                      return null;
                     }
                   }
 
-                  function carriesExactId(el, id) {
-                    return (
-                      el.getAttribute('data-product-id') === id ||
-                      el.getAttribute('data-offer-id') === id ||
-                      el.getAttribute('data-object-id') === id ||
-                      hrefHasExactId(el.getAttribute('href'), id)
-                    );
-                  }
-
-                  function containerFor(el) {
-                    return (
-                      el.closest(
-                        'article,li,[data-testid*="product"],[data-testid*="offer"],' +
-                        '[class*="product"],[class*="offer"]'
-                      ) || el
+                  function hrefHasExactHtmlStem(card, slug) {
+                    const segments = decodedPathSegments(card.getAttribute('href'));
+                    if (!segments) return false;
+                    return segments.some(segment =>
+                      segment.endsWith('.html') &&
+                      segment.slice(0, -5) === slug
                     );
                   }
 
@@ -493,24 +588,21 @@ def build_capture(
                   }
 
                   const rows = [];
-                  for (const id of ids) {
-                    const containers = Array.from(new Set(
-                      nodes
-                        .filter(el => carriesExactId(el, id))
-                        .map(containerFor)
-                        .filter(el => {
-                          const r = el.getBoundingClientRect();
-                          return r.width > 4 && r.height > 4;
-                        })
-                    ));
-                    if (containers.length !== 1) {
-                      rows.push({object_id: id, match_count: containers.length});
+                  for (const offer of input.offers) {
+                    const matches = cards.filter(card =>
+                      hrefHasExactHtmlStem(card, offer.product_slug)
+                    );
+                    if (matches.length !== 1) {
+                      rows.push({
+                        object_id: offer.object_id,
+                        match_count: matches.length
+                      });
                       continue;
                     }
-                    const el = containers[0];
+                    const el = matches[0];
                     const r = el.getBoundingClientRect();
                     rows.push({
-                      object_id: id,
+                      object_id: offer.object_id,
                       match_count: 1,
                       container_key: domKey(el),
                       x: r.left + window.scrollX,
@@ -519,38 +611,23 @@ def build_capture(
                       height: r.height
                     });
                   }
-                  return {width: W, height: H, rows};
+                  return {
+                    width: W,
+                    height: H,
+                    visible_product_card_count: cards.length,
+                    rows
+                  };
                 }""",
-                sorted(offers),
+                {
+                    "selector": CANONICAL_PRODUCT_CARD_SELECTOR,
+                    "offers": binding_input,
+                },
             )
 
-            width = float(geometry.get("width") or 0)
-            height = float(geometry.get("height") or 0)
-            if width <= 0 or height <= 0:
-                raise ProducerError("invalid rendered page dimensions")
-
-            bad = [
-                row["object_id"]
-                for row in geometry.get("rows", [])
-                if row.get("match_count") != 1
-            ]
-            if bad:
-                raise ProducerError(
-                    "explicit visual objectID binding incomplete: "
-                    + ",".join(bad[:12])
-                )
-
-            container_keys = [
-                str(row.get("container_key") or "")
-                for row in geometry["rows"]
-            ]
-            if (
-                any(not key for key in container_keys)
-                or len(container_keys) != len(set(container_keys))
-            ):
-                raise ProducerError(
-                    "explicit visual objectID binding is not one-to-one"
-                )
+            width, height, geometry_rows = _validated_geometry(
+                geometry,
+                expected_object_ids=set(offers),
+            )
 
             screenshot = output_dir / "official-render.png"
             page.screenshot(path=str(screenshot), full_page=True)
@@ -578,7 +655,7 @@ def build_capture(
     producer_hash = digest_bytes(producer_impl.read_bytes())
 
     ordered = sorted(
-        geometry["rows"],
+        geometry_rows,
         key=lambda row: (
             round(float(row["y"]), 3),
             round(float(row["x"]), 3),
@@ -681,9 +758,9 @@ def build_capture(
             "pages": manifest_rows,
         },
         "parser_identity": {
-            "contract": "aldi-new-baseline-exact-objectid-v01",
+            "contract": PARSER_CONTRACT,
             "contract_sha256": digest_bytes(
-                b"aldi-new-baseline-exact-objectid-v01\n"
+                (PARSER_CONTRACT + "\n").encode("utf-8")
             ),
             "implementation": (
                 "tools/aldi_new_baseline_weekly_shadow_producer.py"
