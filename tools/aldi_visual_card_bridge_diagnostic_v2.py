@@ -559,7 +559,7 @@ def run_diagnostic(
         browser = pw.chromium.launch(
             executable_path=str(browser_executable),
             headless=True,
-            args=["--disable-dev-shm-usage", "--disable-gpu"],
+            args=["--disable-gpu"],
         )
         try:
             context = browser.new_context(
