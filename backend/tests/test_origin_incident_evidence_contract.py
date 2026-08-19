@@ -164,7 +164,8 @@ def test_workflow_is_manual_owner_authorized_checkout_free_and_serialized():
     assert "actions/checkout@" not in text
     assert "group: hermes-deals-rpi5-audit" in text
     assert "/usr/local/sbin/hermes-deals-origin-incident-evidence-dispatch" in text
-    assert "actions/upload-artifact@v6" in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0" in text
+    assert "actions/upload-artifact@v6" not in text
 
 
 def test_workflow_requires_exact_registered_files_and_compiles_embedded_python():

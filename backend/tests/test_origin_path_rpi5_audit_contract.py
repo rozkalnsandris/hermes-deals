@@ -27,7 +27,8 @@ def test_origin_path_workflow_is_manual_owner_authorized_and_checkout_free():
     assert "actions/checkout@" not in text
     assert "hermes-deals-rpi5-audit" in text
     assert "/usr/local/sbin/hermes-deals-origin-path-audit-dispatch" in text
-    assert "actions/upload-artifact@v6" in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0" in text
+    assert "actions/upload-artifact@v6" not in text
 
 
 def test_workflow_requires_the_exact_registered_files():
