@@ -255,7 +255,8 @@ def test_workflow_has_owner_gate_no_self_hosted_checkout_and_shared_mutex() -> N
     assert 'int(sender.get("id") or 0) != 277435981' in text
     assert 'comparison.get("status") not in {"ahead", "identical"}' in text
     assert "tools/cloudflare_ingress_audit.py" in text
-    assert "uses: actions/upload-artifact@v6" in text
+    assert "uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0" in text
+    assert "uses: actions/upload-artifact@v6" not in text
     self_hosted = text.split("  rpi5-audit:\n", 1)[1].split("\n  report:\n", 1)[0]
     assert "actions/checkout" not in self_hosted
     assert "sudo --non-interactive /usr/local/sbin/hermes-deals-cloudflare-ingress-audit-dispatch" in self_hosted

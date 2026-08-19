@@ -40,9 +40,10 @@ def test_workflow_owner_and_exact_blob_authorization_is_fail_closed() -> None:
         "registered SHA is not reachable from current main",
         "registered package files differ from current main",
         "/usr/local/sbin/hermes-deals-origin-monitor-control",
-        "actions/upload-artifact@v6",
     ):
         assert marker in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0" in text
+    assert "actions/upload-artifact@v6" not in text
     assert "actions/checkout@" not in text
 
 
