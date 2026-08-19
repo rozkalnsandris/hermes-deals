@@ -1,0 +1,127 @@
+name: Kaufland K2 evidence preflight
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/kaufland-k2-evidence-preflight.yml
+      - backend/app/kaufland_evidence_preflight.py
+      - tools/kaufland_k2_evidence_preflight.py
+      - backend/tests/test_kaufland_k2_evidence_preflight.py
+      - backend/app/kaufland_source_discovery.py
+      - backend/locks/ci-py311.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-kaufland-k2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-preflight:
+    name: Read-only Kaufland store 1503 evidence preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/locks/ci-py311.txt
+
+      - name: Install hash-locked dependencies
+        working-directory: backend
+        run: |
+          python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            -r locks/ci-py311.txt
+          python -m pip check
+
+      - name: Run sanitized K2 source-only preflight
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="${RUNNER_TEMP}/kaufland-k2-preflight.json"
+
+          set +e
+          python tools/kaufland_k2_evidence_preflight.py >"$output"
+          rc=$?
+          set -e
+
+          cat "$output"
+
+          python3 - "$output" "$rc" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          rc = int(sys.argv[2])
+          payload = json.loads(path.read_text(encoding="utf-8"))
+
+          safety_flags = (
+              "production_database_write",
+              "review_write",
+              "production_publish",
+              "production_deploy",
+              "retained_evidence_write",
+              "raw_material_retained",
+              "corpus_write",
+              "scheduler_change",
+              "systemd_change",
+          )
+          for key in safety_flags:
+              if payload.get(key) is not False:
+                  raise SystemExit(
+                      f"unsafe or missing K2 safety flag: {key}={payload.get(key)!r}"
+                  )
+
+          print(f"KAUFLAND_K2_SOURCE_STATE={payload.get('source_state')}")
+          print(
+              "KAUFLAND_K2_STORE_BINDING_PROVEN="
+              f"{payload.get('store_binding_proven')}"
+          )
+          print(f"KAUFLAND_K2_FAMILY_COUNT={payload.get('family_count')}")
+          print(
+              "KAUFLAND_K2_DISTINCT_VALIDITY_FAMILY_COUNT="
+              f"{payload.get('distinct_validity_family_count')}"
+          )
+          print(
+              "KAUFLAND_K2_PREFLIGHT_MANIFEST_SHA256="
+              f"{payload.get('preflight_manifest_sha256')}"
+          )
+
+          if rc == 0:
+              if payload.get("source_state") != "available":
+                  raise SystemExit("K2 rc=0 without source_state=available")
+              if payload.get("store_binding_proven") is not True:
+                  raise SystemExit("K2 rc=0 without exact store binding")
+              if int(payload.get("family_count", 0)) < 3:
+                  raise SystemExit("K2 rc=0 with fewer than 3 store-bound families")
+              if int(payload.get("distinct_validity_family_count", 0)) < 3:
+                  raise SystemExit(
+                      "K2 rc=0 with fewer than 3 distinct validity families"
+                  )
+              families = payload.get("families") or []
+              if not any(item.get("relation") == "current_main" for item in families):
+                  raise SystemExit("K2 current_main family missing")
+              if not any(item.get("relation") == "preview_main" for item in families):
+                  raise SystemExit("K2 preview_main family missing")
+              if any(item.get("store_bound") is not True for item in families):
+                  raise SystemExit("K2 fetched a non-store-bound family")
+          elif rc not in {20, 21}:
+              raise SystemExit(f"unexpected K2 preflight exit code: {rc}")
+          PY
+
+          printf 'KAUFLAND_K2_RC=%s\n' "$rc"
+          exit "$rc"
