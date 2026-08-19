@@ -560,22 +560,22 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 195,
+  "completed_issue_count": 196,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-08-18T04:49:41.001200Z",
-  "generated_at_local": "2026-08-18T06:49:41.001200+02:00",
+  "generated_at": "2026-08-19T04:49:57.799270Z",
+  "generated_at_local": "2026-08-19T06:49:57.799270+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-08-17",
+  "previous_day": "2026-08-18",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
   "previous_day_completed_issue_count": 1,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-17T19:50:12Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/694",
-      "number": 694,
-      "title": "CHAT AUDIT / ALDI continuity: Sunday rollover week-view synchronization"
+      "closed_at": "2026-08-18T20:08:02Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/715",
+      "number": 715,
+      "title": "CHAT AUDIT / ALDI continuity: #714 merged, exact-carrier live verification next"
     }
   ],
   "previous_day_progress_units": 0,
