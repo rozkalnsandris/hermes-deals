@@ -11,9 +11,28 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.kaufland_source_discovery import (  # noqa: E402
+    STORE_ID,
     KauflandSourceDiscoveryError,
     discover_kaufland_source,
 )
+
+
+STORE_COOKIE_NAME = "storeName"
+STORE_COOKIE_VALUE = f"DE{STORE_ID}"
+STORE_COOKIE_DOMAIN = "filiale.kaufland.de"
+
+
+def _has_exact_store_selection_cookie(client: httpx.Client) -> bool:
+    for cookie in client.cookies.jar:
+        if cookie.name != STORE_COOKIE_NAME:
+            continue
+        if (cookie.domain or "").lstrip(".").casefold() != STORE_COOKIE_DOMAIN.casefold():
+            continue
+        if cookie.path != "/":
+            continue
+        if (cookie.value or "").strip().strip('"').casefold() == STORE_COOKIE_VALUE.casefold():
+            return True
+    return False
 
 
 def _failure_payload(*, source_state: str, code: str, error: str) -> dict[str, object]:
@@ -21,6 +40,7 @@ def _failure_payload(*, source_state: str, code: str, error: str) -> dict[str, o
         "schema_version": 1,
         "source_state": source_state,
         "store_binding_proven": False,
+        "store_selection_cookie_name": STORE_COOKIE_NAME,
         "error_code": code,
         "error": error,
         "production_database_write": False,
@@ -48,7 +68,27 @@ def main() -> int:
             timeout=timeout,
             follow_redirects=False,
         ) as client:
+            # Kaufland documents `storeName` as the HTTP cookie used to display
+            # market-specific content. This is client-local selection state only;
+            # it does not call a server-side write endpoint.
+            client.cookies.set(
+                STORE_COOKIE_NAME,
+                STORE_COOKIE_VALUE,
+                domain=STORE_COOKIE_DOMAIN,
+                path="/",
+            )
             report = discover_kaufland_source(client)
+            if not _has_exact_store_selection_cookie(client):
+                raise KauflandSourceDiscoveryError(
+                    "STORE_BINDING_NOT_PROVEN",
+                    "Exact storeName=DE1503 selection cookie was not preserved for the "
+                    "first-party Kaufland session",
+                )
+            if not report.overview_request_cookie_has_store_id:
+                raise KauflandSourceDiscoveryError(
+                    "STORE_BINDING_NOT_PROVEN",
+                    "Offer overview request did not carry the exact store-selection value",
+                )
     except KauflandSourceDiscoveryError as exc:
         payload = _failure_payload(
             source_state=(
@@ -73,6 +113,7 @@ def main() -> int:
     payload = report.as_public_dict()
     payload.update(
         {
+            "store_selection_cookie_name": STORE_COOKIE_NAME,
             "production_database_write": False,
             "review_write": False,
             "production_publish": False,
