@@ -1,0 +1,585 @@
+name: Netto hz34 blind reviewer pack runtime
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/netto-hz34-blind-review-pack.yml
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-netto-hz34-blind-review-pack
+  cancel-in-progress: false
+
+jobs:
+  ensure-label:
+    name: Ensure hz34 reviewer-pack label
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or reconcile owner-gated label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          label = {
+              "name": "audit:netto-hz34-blind-review-pack-v1",
+              "color": "5319e7",
+              "description": "Owner-gated source-only Netto hz34 blind reviewer pack retry",
+          }
+          repo, token = os.environ["REPOSITORY"], os.environ["GH_TOKEN"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit("unexpected repository")
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-hz34-review-pack-label",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          payload = json.dumps(label).encode()
+          try:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels/{encoded}",
+                  data=payload,
+                  method="PATCH",
+                  headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/labels",
+                  data=payload,
+                  method="POST",
+                  headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+          PY
+
+  authorize:
+    name: Authorize merged runtime PR
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-hz34-blind-review-pack-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.auth.outputs.sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+      actor: ${{ steps.auth.outputs.actor }}
+    steps:
+      - name: Validate owner, merged PR, exact diff and main ancestry
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals" or os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("unexpected repository/workflow ref")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
+              raise SystemExit("review-pack actor is not the repository owner")
+          if (event.get("label") or {}).get("name") != "audit:netto-hz34-blind-review-pack-v1":
+              raise SystemExit("unexpected review-pack label")
+          number = int((event.get("pull_request") or {}).get("number") or 0)
+          if number <= 0:
+              raise SystemExit("missing pull request number")
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-hz34-review-pack-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("review pack accepts only a merged runtime pull request")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("runtime pull request was not merged into repository main")
+
+          files = []
+          page = 1
+          while True:
+              rows = get(f"https://api.github.com/repos/{repo}/pulls/{number}/files?per_page=100&page={page}")
+              files.extend(str(row.get("filename") or "") for row in rows)
+              if len(rows) < 100:
+                  break
+              page += 1
+          expected_files = {
+              ".github/workflows/netto-hz34-blind-review-pack.yml",
+              "backend/tests/test_netto_hz34_blind_review_pack_workflow.py",
+          }
+          if set(files) != expected_files:
+              raise SystemExit(f"runtime PR file set mismatch: {sorted(files)}")
+
+          sha = str(pr.get("merge_commit_sha") or "")
+          if len(sha) != 40:
+              raise SystemExit("merged runtime PR SHA is invalid")
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("merged runtime SHA is not reachable from current main")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\npr_number={number}\nactor={sender['login']}\n")
+          PY
+
+  pack:
+    name: Generate exact hz34 source-only review pack
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      manifest_sha256: ${{ steps.verify.outputs.manifest_sha256 }}
+      ledger_sha256: ${{ steps.verify.outputs.ledger_sha256 }}
+      receipt_sha256: ${{ steps.verify.outputs.receipt_sha256 }}
+      tree_sha256: ${{ steps.verify.outputs.tree_sha256 }}
+      artifact_name: ${{ steps.verify.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    env:
+      UPSTREAM_ARTIFACT_ID: "9362894718"
+      UPSTREAM_RUN_ID: "32246715725"
+      UPSTREAM_ARTIFACT: netto-heldout-v2-59483092edf2d378e3ef44ac4c92dac3bbc597a2-run-32246715725
+      UPSTREAM_ARTIFACT_DIGEST: sha256:d99d955ca678e9ffc4b40566bf2e8bdd32b1994e43460ba470472bcbe356d651
+      UPSTREAM_ARTIFACT_BYTES: "35113989"
+      UPSTREAM_COMMIT: 59483092edf2d378e3ef44ac4c92dac3bbc597a2
+      EXPECTED_CAMPAIGN: hz34_hasb
+      EXPECTED_VALID_FROM: "2026-08-17"
+      EXPECTED_VALID_UNTIL: "2026-08-22"
+      EXPECTED_SOURCE_SHA256: 1fdb1a20b09f9d23663f4ff052fe412591eab799033262447708fd85e4058465
+      EXPECTED_PDF_SHA256: b92d7ace8428d49daf0658d769af88b1b0ef3fcd31e4244a00aeaf0150277169
+      EXPECTED_FREEZE_MANIFEST_SHA256: 0ca98977d2870e13a8ec985db6c90258fbe6276dc24737d606b739c6517ae4c8
+      EXPECTED_V2_FREEZE_MANIFEST_SHA256: f74fc51cac686bad54940c0bbf39f659c3554c6b97ea50a8960321b989aebb42
+      EXPECTED_PAGE_COUNT: "70"
+      PYMUPDF_VERSION: "1.28.0"
+      PYMUPDF_WHEEL: pymupdf-1.28.0-cp310-abi3-manylinux_2_28_x86_64.whl
+      PYMUPDF_WHEEL_SHA256: 44f0973f5e5edbaec95bc34b64e71d1959d4ee90b1328de1b4f4f5b4fa78673f
+    steps:
+      - name: Checkout exact reviewed runtime merge
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13.12"
+
+      - name: Install exact hashed PyMuPDF runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          wheel_dir="${RUNNER_TEMP}/pymupdf-wheel-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -m 700 "$wheel_dir"
+          python -m pip download \
+            --disable-pip-version-check \
+            --no-deps \
+            --only-binary=:all: \
+            --dest "$wheel_dir" \
+            "PyMuPDF==${PYMUPDF_VERSION}"
+          wheel="${wheel_dir}/${PYMUPDF_WHEEL}"
+          test -f "$wheel"
+          test "$(find "$wheel_dir" -maxdepth 1 -type f | wc -l)" -eq 1
+          printf '%s  %s\n' "$PYMUPDF_WHEEL_SHA256" "$wheel" | sha256sum --check --strict -
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --no-deps \
+            "$wheel"
+          python - <<'PY'
+          import importlib.metadata
+          version = importlib.metadata.version("PyMuPDF")
+          if version != "1.28.0":
+              raise SystemExit(f"unexpected PyMuPDF runtime: {version}")
+          print(f"PYMUPDF_VERSION={version}")
+          PY
+
+      - name: Download and verify exact frozen hz34 artifact once
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          zip_path="${RUNNER_TEMP}/netto-hz34-upstream-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip"
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          ZIP_PATH="$zip_path" python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.error, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          artifact_id = int(os.environ["UPSTREAM_ARTIFACT_ID"])
+          run_id = int(os.environ["UPSTREAM_RUN_ID"])
+          expected_name = os.environ["UPSTREAM_ARTIFACT"]
+          expected_digest = os.environ["UPSTREAM_ARTIFACT_DIGEST"]
+          expected_bytes = int(os.environ["UPSTREAM_ARTIFACT_BYTES"])
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-hz34-review-pack-upstream",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          metadata_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}",
+              headers=headers,
+          )
+          with urllib.request.urlopen(metadata_request, timeout=20) as response:
+              artifact = json.load(response)
+          workflow = artifact.get("workflow_run") or {}
+          if (
+              int(artifact.get("id") or 0) != artifact_id
+              or artifact.get("name") != expected_name
+              or artifact.get("expired") is not False
+              or artifact.get("digest") != expected_digest
+              or int(artifact.get("size_in_bytes") or 0) != expected_bytes
+              or int(workflow.get("id") or 0) != run_id
+          ):
+              raise SystemExit("upstream artifact metadata mismatch")
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  return None
+
+          archive_request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip",
+              headers=headers,
+          )
+          opener = urllib.request.build_opener(NoRedirect)
+          try:
+              opener.open(archive_request, timeout=20)
+              raise SystemExit("artifact endpoint unexpectedly did not redirect")
+          except urllib.error.HTTPError as error:
+              if error.code != 302:
+                  raise
+              location = error.headers.get("Location")
+          if not location:
+              raise SystemExit("artifact redirect URL is missing")
+
+          path = pathlib.Path(os.environ["ZIP_PATH"])
+          if path.exists() or path.is_symlink():
+              raise SystemExit("upstream ZIP destination already exists")
+          digest = hashlib.sha256()
+          size = 0
+          # Deliberately do not forward GitHub Authorization to the signed storage URL.
+          with urllib.request.urlopen(location, timeout=120) as response, path.open("xb") as output:
+              while True:
+                  chunk = response.read(1024 * 1024)
+                  if not chunk:
+                      break
+                  output.write(chunk)
+                  digest.update(chunk)
+                  size += len(chunk)
+          actual = f"sha256:{digest.hexdigest()}"
+          if actual != expected_digest or size != expected_bytes:
+              path.unlink(missing_ok=True)
+              raise SystemExit("downloaded upstream ZIP digest/size mismatch")
+          print(f"UPSTREAM_ARTIFACT_ID={artifact_id}")
+          print(f"UPSTREAM_ARTIFACT_DIGEST={actual}")
+          print(f"UPSTREAM_ARTIFACT_BYTES={size}")
+          PY
+
+      - name: Generate two independent source-only packs
+        id: generate
+        env:
+          ZIP_PATH: ${{ steps.upstream.outputs.zip_path }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          pack_a="${RUNNER_TEMP}/netto-hz34-review-pack-a-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          pack_b="${RUNNER_TEMP}/netto-hz34-review-pack-b-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "pack_a=$pack_a" >> "$GITHUB_OUTPUT"
+          echo "pack_b=$pack_b" >> "$GITHUB_OUTPUT"
+          common=(
+            --artifact-zip "$ZIP_PATH"
+            --artifact-id "$UPSTREAM_ARTIFACT_ID"
+            --workflow-run-id "$UPSTREAM_RUN_ID"
+            --expected-artifact-sha256 "${UPSTREAM_ARTIFACT_DIGEST#sha256:}"
+            --expected-commit "$UPSTREAM_COMMIT"
+            --expected-campaign "$EXPECTED_CAMPAIGN"
+            --expected-valid-from "$EXPECTED_VALID_FROM"
+            --expected-valid-until "$EXPECTED_VALID_UNTIL"
+            --expected-source-sha256 "$EXPECTED_SOURCE_SHA256"
+            --expected-pdf-sha256 "$EXPECTED_PDF_SHA256"
+            --expected-freeze-manifest-sha256 "$EXPECTED_FREEZE_MANIFEST_SHA256"
+            --expected-v2-freeze-manifest-sha256 "$EXPECTED_V2_FREEZE_MANIFEST_SHA256"
+            --expected-page-count "$EXPECTED_PAGE_COUNT"
+          )
+          python3 tools/netto_heldout_blind_artifact_pack.py "${common[@]}" --output "$pack_a"
+          python3 tools/netto_heldout_blind_artifact_pack.py "${common[@]}" --output "$pack_b"
+          rm -f -- "$ZIP_PATH"
+
+      - name: Verify checksums, safety contract and deterministic identity
+        id: verify
+        env:
+          PACK_A: ${{ steps.generate.outputs.pack_a }}
+          PACK_B: ${{ steps.generate.outputs.pack_b }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+
+          a = pathlib.Path(os.environ["PACK_A"])
+          b = pathlib.Path(os.environ["PACK_B"])
+          forbidden_names = {
+              "predictions.json",
+              "candidate-provenance.json",
+              "source-evidence.json",
+              "freeze-manifest-v2.json",
+              "freeze-receipt-v2.json",
+              "github-capture-result-v2.json",
+          }
+
+          def sha(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def files(root):
+              return {
+                  path.relative_to(root).as_posix(): sha(path)
+                  for path in sorted(root.rglob("*"))
+                  if path.is_file() and not path.is_symlink()
+              }
+
+          def verify_sum_file(root, name):
+              rows = {}
+              for line in (root / name).read_text(encoding="utf-8").splitlines():
+                  match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+                  if not match:
+                      raise SystemExit(f"invalid checksum row in {name}")
+                  digest, rel = match.groups()
+                  if rel in rows:
+                      raise SystemExit(f"duplicate checksum path in {name}")
+                  target = root / rel
+                  if not target.is_file() or target.is_symlink() or sha(target) != digest:
+                      raise SystemExit(f"checksum mismatch in {name}: {rel}")
+                  rows[rel] = digest
+              if not rows:
+                  raise SystemExit(f"empty checksum file: {name}")
+              return rows
+
+          tree_a = files(a)
+          tree_b = files(b)
+          if tree_a != tree_b:
+              raise SystemExit("second build is not byte-for-byte deterministic")
+          if any(pathlib.PurePosixPath(name).name in forbidden_names for name in tree_a):
+              raise SystemExit("forbidden upstream candidate/prediction member reached reviewer pack")
+
+          sums = verify_sum_file(a, "SHA256SUMS")
+          provenance = verify_sum_file(a, "ARTIFACT-SHA256SUMS")
+          expected_sum_members = set(tree_a) - {
+              "SHA256SUMS",
+              "ARTIFACT-SHA256SUMS",
+              "artifact-source-receipt.json",
+          }
+          if set(sums) != expected_sum_members:
+              raise SystemExit("SHA256SUMS does not exactly bind reviewer-pack core members")
+          if set(provenance) != {"SHA256SUMS", "artifact-source-receipt.json"}:
+              raise SystemExit("ARTIFACT-SHA256SUMS membership mismatch")
+
+          manifest = json.loads((a / "manifest.json").read_text(encoding="utf-8"))
+          ledger = json.loads((a / "independent-source-card-review-ledger.json").read_text(encoding="utf-8"))
+          receipt = json.loads((a / "artifact-source-receipt.json").read_text(encoding="utf-8"))
+          if manifest.get("page_count") != 70 or ledger.get("page_count") != 70:
+              raise SystemExit("review-pack page count mismatch")
+          if ledger.get("review_state") != "blank_before_independent_source_card_review":
+              raise SystemExit("review ledger is not blank")
+          if any((row.get("source_cards") or []) for row in ledger.get("pages") or []):
+              raise SystemExit("review ledger unexpectedly contains source-card truth")
+          expected_false = (
+              "forbidden_archive_members_extracted",
+              "prediction_payload_parsed",
+              "candidate_provenance_payload_parsed",
+              "parser_predictions_included",
+              "candidate_provenance_included",
+              "expected_truth_included",
+              "live_source_refetch_performed",
+              "database_write_performed",
+              "review_write_performed",
+              "publication_write_performed",
+              "deployment_performed",
+          )
+          if any(receipt.get(key) is not False for key in expected_false):
+              raise SystemExit("review-pack safety flag mismatch")
+          if (
+              receipt.get("artifact_id") != 9362894718
+              or receipt.get("workflow_run_id") != 32246715725
+              or receipt.get("artifact_zip_sha256") != "d99d955ca678e9ffc4b40566bf2e8bdd32b1994e43460ba470472bcbe356d651"
+              or receipt.get("registered_commit") != "59483092edf2d378e3ef44ac4c92dac3bbc597a2"
+              or receipt.get("campaign_key") != "hz34_hasb"
+              or receipt.get("source_sha256") != "1fdb1a20b09f9d23663f4ff052fe412591eab799033262447708fd85e4058465"
+              or receipt.get("source_pdf_sha256") != "b92d7ace8428d49daf0658d769af88b1b0ef3fcd31e4244a00aeaf0150277169"
+              or receipt.get("freeze_manifest_sha256") != "0ca98977d2870e13a8ec985db6c90258fbe6276dc24737d606b739c6517ae4c8"
+              or receipt.get("v2_freeze_manifest_sha256") != "f74fc51cac686bad54940c0bbf39f659c3554c6b97ea50a8960321b989aebb42"
+          ):
+              raise SystemExit("review-pack receipt identity mismatch")
+
+          manifest_sha = sha(a / "manifest.json")
+          ledger_sha = sha(a / "independent-source-card-review-ledger.json")
+          receipt_sha = sha(a / "artifact-source-receipt.json")
+          tree_digest = hashlib.sha256(
+              "".join(f"{digest}  {name}\n" for name, digest in sorted(tree_a.items())).encode()
+          ).hexdigest()
+          artifact_name = f"netto-hz34-blind-review-pack-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(
+                  f"manifest_sha256={manifest_sha}\n"
+                  f"ledger_sha256={ledger_sha}\n"
+                  f"receipt_sha256={receipt_sha}\n"
+                  f"tree_sha256={tree_digest}\n"
+                  f"artifact_name={artifact_name}\n"
+              )
+          print("REVIEW_PACK_DETERMINISM=PASS")
+          print(f"REVIEW_PACK_TREE_SHA256={tree_digest}")
+          PY
+
+      - name: Upload reviewer-safe pack only
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.verify.outputs.artifact_name }}
+          path: ${{ steps.generate.outputs.pack_a }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+          include-hidden-files: false
+
+  report:
+    name: Report and clear one-shot trigger
+    needs:
+      - authorize
+      - pack
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Publish sanitized execution receipt and clear label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          RUNTIME_SHA: ${{ needs.authorize.outputs.sha }}
+          PACK_RESULT: ${{ needs.pack.result }}
+          MANIFEST_SHA: ${{ needs.pack.outputs.manifest_sha256 }}
+          LEDGER_SHA: ${{ needs.pack.outputs.ledger_sha256 }}
+          RECEIPT_SHA: ${{ needs.pack.outputs.receipt_sha256 }}
+          TREE_SHA: ${{ needs.pack.outputs.tree_sha256 }}
+          OUTPUT_ARTIFACT_NAME: ${{ needs.pack.outputs.artifact_name }}
+          OUTPUT_ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}
+          OUTPUT_ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          pr = int(os.environ["PR_NUMBER"])
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-hz34-review-pack-report",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          if os.environ["PACK_RESULT"] == "success":
+              body = (
+                  "## Netto hz34 blind reviewer-pack retry — PASS\n\n"
+                  f"- runtime merge SHA: `{os.environ['RUNTIME_SHA']}`\n"
+                  "- upstream artifact: `9362894718`\n"
+                  "- upstream ZIP SHA256: `d99d955ca678e9ffc4b40566bf2e8bdd32b1994e43460ba470472bcbe356d651`\n"
+                  f"- reviewer-pack artifact: `{os.environ['OUTPUT_ARTIFACT_NAME']}` / ID `{os.environ['OUTPUT_ARTIFACT_ID']}`\n"
+                  f"- reviewer-pack artifact digest: `{os.environ['OUTPUT_ARTIFACT_DIGEST']}`\n"
+                  f"- manifest SHA256: `{os.environ['MANIFEST_SHA']}`\n"
+                  f"- blank ledger SHA256: `{os.environ['LEDGER_SHA']}`\n"
+                  f"- artifact-source receipt SHA256: `{os.environ['RECEIPT_SHA']}`\n"
+                  f"- deterministic tree SHA256: `{os.environ['TREE_SHA']}`\n"
+                  "- second build byte-for-byte deterministic: `PASS`\n"
+                  "- parser predictions included: `false`\n"
+                  "- candidate provenance included: `false`\n"
+                  "- expected truth included: `false`\n"
+                  "- live source refetch: `false`\n"
+                  "- DB/Review/publication/deploy/root/scheduler/systemd mutation: `false`\n\n"
+                  "**STOP:** truth creation/import/adjudication remains separately owner-gated."
+              )
+          else:
+              body = (
+                  "## Netto hz34 blind reviewer-pack retry — BLOCKED/FAIL\n\n"
+                  f"- runtime merge SHA: `{os.environ['RUNTIME_SHA']}`\n"
+                  "- pack job did not complete successfully.\n"
+                  "- no success claim is made; truth/adjudication remains blocked.\n"
+                  "- DB/Review/publication/deploy/root/scheduler/systemd mutation: `false`."
+              )
+
+          for issue in (732, 733):
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/issues/{issue}/comments",
+                  data=json.dumps({"body": body}).encode(),
+                  method="POST",
+                  headers=headers,
+              )
+              urllib.request.urlopen(request, timeout=20).close()
+
+          encoded = urllib.parse.quote("audit:netto-hz34-blind-review-pack-v1", safe="")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/{pr}/labels/{encoded}",
+              method="DELETE",
+              headers=headers,
+          )
+          try:
+              urllib.request.urlopen(request, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          PY
