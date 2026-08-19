@@ -19,6 +19,7 @@ from app.kaufland_evidence_freeze import (  # noqa: E402
     FreezeBundle,
     FreezeFamily,
     apply_freeze,
+    bundle_identity_sha256,
     inspect_occupancy,
     validate_retained_root,
 )
@@ -282,10 +283,27 @@ def _result_payload(decision, *, apply: bool) -> dict[str, object]:
     }
 
 
+def _validate_expected_bundle_identity(value: str | None, *, apply: bool) -> str | None:
+    if value is None:
+        if apply:
+            raise KauflandSourceDiscoveryError(
+                "FREEZE_BUNDLE_IDENTITY_REQUIRED",
+                "APPLY requires the exact PLAN bundle identity SHA-256",
+            )
+        return None
+    if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+        raise KauflandSourceDiscoveryError(
+            "FREEZE_BUNDLE_IDENTITY_INVALID",
+            "Expected bundle identity must be exactly 64 lowercase hexadecimal characters",
+        )
+    return value
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Owner-side Kaufland K2 retained evidence freeze")
     parser.add_argument("--retained-root", required=True, type=Path)
     parser.add_argument("--expected-revision", required=True)
+    parser.add_argument("--expected-bundle-identity-sha256")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--authorization-token")
     return parser.parse_args()
@@ -304,6 +322,10 @@ def main() -> int:
                 "FREEZE_AUTHORIZATION_REQUIRED",
                 "APPLY requires the exact Kaufland K2 retained-freeze authorization token",
             )
+        expected_bundle_identity = _validate_expected_bundle_identity(
+            args.expected_bundle_identity_sha256,
+            apply=args.apply,
+        )
 
         _verify_checkout(args.expected_revision)
         retained_root = validate_retained_root(args.retained_root, repository_root=ROOT)
@@ -322,6 +344,16 @@ def main() -> int:
                 path="/",
             )
             bundle = _capture_bundle(client, git_revision=args.expected_revision)
+
+        actual_bundle_identity = bundle_identity_sha256(bundle)
+        if (
+            expected_bundle_identity is not None
+            and expected_bundle_identity != actual_bundle_identity
+        ):
+            raise KauflandSourceDiscoveryError(
+                "FREEZE_BUNDLE_IDENTITY_MISMATCH",
+                "Captured Kaufland K2 bundle identity differs from the exact authorized PLAN identity",
+            )
 
         decision = inspect_occupancy(retained_root, bundle)
         if args.apply:

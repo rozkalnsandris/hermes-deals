@@ -28,6 +28,8 @@ The raw retained location must be owner-side and outside the repository.
 - it refuses a retained root inside the Git repository;
 - default execution is PLAN only;
 - APPLY additionally requires the exact literal authorization token implemented in source;
+- APPLY additionally requires the exact PLAN `bundle_identity_sha256` and recomputes the captured bundle identity before any retained write;
+- an absent, malformed or mismatched APPLY bundle identity fails closed before occupancy/write logic;
 - common store/overview sources are fetched repeatedly and must remain SHA-identical across the capture transaction;
 - each leaflet raw response must match the preflight SHA/byte count/final URL/content type/redirect identity;
 - target occupancy is create-once;
@@ -60,6 +62,7 @@ Expected PLAN properties:
 
 - `mode=PLAN`;
 - `action=PLAN_CREATE` for an empty target, or `PLAN_NO_OP` for identical existing evidence;
+- output includes the exact `bundle_identity_sha256` that must be owner-reviewed and later supplied to APPLY;
 - `retained_evidence_write=false`;
 - `raw_material_retained=false`;
 - `corpus_write=false`;
@@ -71,15 +74,18 @@ A PLAN error, source drift, unexpected family set or non-identical occupancy blo
 
 Do **not** execute this section from a generic `turpini`, merge command or deployment command.
 
-Only after the owner explicitly authorizes the exact reviewed PLAN + exact Git revision + retained root, run:
+Only after the owner explicitly authorizes the exact reviewed PLAN bundle identity + exact Git revision + retained root, run:
 
 ```bash
 python tools/kaufland_k2_evidence_freeze.py \
   --retained-root '<OWNER_RETAINED_ROOT>' \
   --expected-revision '<EXACT_MERGED_MAIN_SHA>' \
+  --expected-bundle-identity-sha256 '<PLAN_BUNDLE_IDENTITY_SHA256>' \
   --apply \
   --authorization-token 'I_AUTHORIZE_KAUFLAND_K2_RETAINED_FREEZE'
 ```
+
+The executor captures one internally consistent bundle, recomputes its identity, and requires exact equality with the authorized PLAN identity **before any retained write**. If the source changed after PLAN, APPLY fails closed with `FREEZE_BUNDLE_IDENTITY_MISMATCH` and leaves retained storage unchanged.
 
 For a first successful capture, expected result is `action=CREATE`. An exact replay must return `NO_OP`; it must not rewrite the bundle.
 
@@ -88,7 +94,7 @@ For a first successful capture, expected result is `action=CREATE`. An exact rep
 After a separately authorized APPLY:
 
 1. record the sanitized result only — no raw source in public GitHub comments/artifacts;
-2. verify the returned bundle key and bundle identity SHA-256;
+2. verify the returned bundle key and bundle identity SHA-256 exactly match the owner-authorized PLAN;
 3. verify manifest family count and exact validity families against the PLAN;
 4. independently read/hash retained files and compare to `manifest.json`;
 5. verify `INCOMPLETE` is absent;
@@ -98,6 +104,8 @@ After a separately authorized APPLY:
 
 ## Failure handling
 
+- `FREEZE_BUNDLE_IDENTITY_REQUIRED` / `FREEZE_BUNDLE_IDENTITY_INVALID`: stop; APPLY is not sufficiently bound to an exact reviewed PLAN.
+- `FREEZE_BUNDLE_IDENTITY_MISMATCH`: stop; the captured source identity differs from the owner-authorized PLAN. Do not write; run a fresh PLAN and obtain a new explicit owner authorization.
 - `EVIDENCE_COLLISION`: stop; never overwrite. Inspect the existing retained bundle and source identity.
 - `INCOMPLETE_EVIDENCE_PRESENT`: stop; inspect the partial capture manually. Do not delete or repair automatically.
 - `EVIDENCE_CHANGED_DURING_FREEZE`: stop; the source changed during the capture transaction. Run a new PLAN against fresh source evidence.
