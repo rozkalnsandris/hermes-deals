@@ -14,12 +14,12 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from app.kaufland_evidence_authorization import authorization_identity_sha256  # noqa: E402
 from app.kaufland_evidence_freeze import (  # noqa: E402
     CapturedArtifact,
     FreezeBundle,
     FreezeFamily,
     apply_freeze,
-    bundle_identity_sha256,
     inspect_occupancy,
     validate_retained_root,
 )
@@ -261,13 +261,19 @@ def _capture_bundle(client: httpx.Client, *, git_revision: str) -> FreezeBundle:
     )
 
 
-def _result_payload(decision, *, apply: bool) -> dict[str, object]:
+def _result_payload(
+    decision,
+    *,
+    apply: bool,
+    authorization_identity: str,
+) -> dict[str, object]:
     created = apply and decision.action == "CREATE"
     return {
         "schema_version": 1,
         "mode": "APPLY" if apply else "PLAN",
         "action": decision.action if apply else f"PLAN_{decision.action}",
         "bundle_key": decision.bundle_key,
+        "authorization_identity_sha256": authorization_identity,
         "bundle_identity_sha256": decision.bundle_identity_sha256,
         "artifact_count": decision.artifact_count,
         "family_count": decision.family_count,
@@ -283,18 +289,18 @@ def _result_payload(decision, *, apply: bool) -> dict[str, object]:
     }
 
 
-def _validate_expected_bundle_identity(value: str | None, *, apply: bool) -> str | None:
+def _validate_expected_authorization_identity(value: str | None, *, apply: bool) -> str | None:
     if value is None:
         if apply:
             raise KauflandSourceDiscoveryError(
-                "FREEZE_BUNDLE_IDENTITY_REQUIRED",
-                "APPLY requires the exact PLAN bundle identity SHA-256",
+                "FREEZE_AUTHORIZATION_IDENTITY_REQUIRED",
+                "APPLY requires the exact PLAN authorization identity SHA-256",
             )
         return None
     if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
         raise KauflandSourceDiscoveryError(
-            "FREEZE_BUNDLE_IDENTITY_INVALID",
-            "Expected bundle identity must be exactly 64 lowercase hexadecimal characters",
+            "FREEZE_AUTHORIZATION_IDENTITY_INVALID",
+            "Expected authorization identity must be exactly 64 lowercase hexadecimal characters",
         )
     return value
 
@@ -303,7 +309,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Owner-side Kaufland K2 retained evidence freeze")
     parser.add_argument("--retained-root", required=True, type=Path)
     parser.add_argument("--expected-revision", required=True)
-    parser.add_argument("--expected-bundle-identity-sha256")
+    parser.add_argument("--expected-authorization-identity-sha256")
+    parser.add_argument("--expected-bundle-identity-sha256", help=argparse.SUPPRESS)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--authorization-token")
     return parser.parse_args()
@@ -317,13 +324,19 @@ def main() -> int:
                 "GITHUB_ACTIONS_FORBIDDEN",
                 "Raw Kaufland retained freeze is owner-side only and may not run in GitHub Actions",
             )
+        if args.expected_bundle_identity_sha256 is not None:
+            raise KauflandSourceDiscoveryError(
+                "FREEZE_BUNDLE_AUTHORIZATION_DEPRECATED",
+                "Bundle identity is retained-evidence identity, not the owner "
+                "authorization identity; run a fresh PLAN",
+            )
         if args.apply and args.authorization_token != AUTHORIZATION_TOKEN:
             raise KauflandSourceDiscoveryError(
                 "FREEZE_AUTHORIZATION_REQUIRED",
                 "APPLY requires the exact Kaufland K2 retained-freeze authorization token",
             )
-        expected_bundle_identity = _validate_expected_bundle_identity(
-            args.expected_bundle_identity_sha256,
+        expected_authorization_identity = _validate_expected_authorization_identity(
+            args.expected_authorization_identity_sha256,
             apply=args.apply,
         )
 
@@ -345,20 +358,30 @@ def main() -> int:
             )
             bundle = _capture_bundle(client, git_revision=args.expected_revision)
 
-        actual_bundle_identity = bundle_identity_sha256(bundle)
+        actual_authorization_identity = authorization_identity_sha256(bundle)
         if (
-            expected_bundle_identity is not None
-            and expected_bundle_identity != actual_bundle_identity
+            expected_authorization_identity is not None
+            and expected_authorization_identity != actual_authorization_identity
         ):
             raise KauflandSourceDiscoveryError(
-                "FREEZE_BUNDLE_IDENTITY_MISMATCH",
-                "Captured Kaufland K2 bundle identity differs from the exact authorized PLAN identity",
+                "FREEZE_AUTHORIZATION_IDENTITY_MISMATCH",
+                "Captured Kaufland K2 exact-store family identity differs from the authorized PLAN identity",
             )
 
         decision = inspect_occupancy(retained_root, bundle)
         if args.apply:
             decision = apply_freeze(retained_root, bundle)
-        print(json.dumps(_result_payload(decision, apply=args.apply), indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                _result_payload(
+                    decision,
+                    apply=args.apply,
+                    authorization_identity=actual_authorization_identity,
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     except (KauflandSourceDiscoveryError, httpx.HTTPError, OSError, subprocess.CalledProcessError) as exc:
         code = getattr(exc, "code", type(exc).__name__)
