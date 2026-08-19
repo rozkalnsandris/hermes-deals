@@ -13,12 +13,16 @@ _Last updated: 2026-08-19 (Europe/Berlin)_
 
 ## Current remediation sequence
 
-1. **Progress / roadmap alignment — PR #723** — make the V2-vs-current-scope boundary explicit without changing historical V2 weights; refresh against current `main` after each preceding merge.
-2. **Kaufland K0-K1 — COMPLETE IN SOURCE** — PR #718 squash-merged as `44e2ae511f3ead4c5720f550d0718faf29eca551` after fresh live probe #7 and CI #1515 passed. K2 immutable overlapping-campaign evidence remains the next Kaufland evidence gate under #701.
-3. **Security child remediation** — merge only under explicit owner authorization and in the reviewed order **#599 → #598 → #725**; after they land, refresh scanner PR #581 on the combined current `main` and require the mutable-action inventory to reach zero before #581 can become Ready.
-4. **ALDI runtime alignment — HOLD** — do not reuse the older exact-SHA RPi5 authorization after `main` moved. Any checkout/registration/root/host action requires a new separately explicit authorization bound to the then-current reviewed SHA.
+Current exact repository baseline after the Kaufland K2 preflight merge: `f47d91778b272210124d050fef4f5a1e25d8071f`.
 
-Production deploys, production DB/Review/publication writes, source apply, scheduler/systemd activation and host/root changes remain separate explicit-authorization gates.
+1. **Progress / roadmap alignment — COMPLETE** — PR #723 squash-merged as `9143a2f41c4885f3f211821542aaa369dea3803c`. V2 remains the historical four-store weighted model; Kaufland remains unweighted until an explicit V3 rebaseline.
+2. **Security self-hosted action remediation — COMPLETE** — child PRs #599 → #598 → #725 were merged, then scanner PR #581 was refreshed on the combined `main` and squash-merged as `c2d105969ae793ffeb8d9fc78540362135f510c3`. Final scanner result: `PUBLIC_SELF_HOSTED_MUTABLE_ACTION_COUNT=0` with full CI PASS.
+3. **Kaufland K0-K1 — COMPLETE IN SOURCE** — PR #718 squash-merged as `44e2ae511f3ead4c5720f550d0718faf29eca551` after the exact-store live probe passed for Dortmund-Aplerbeck / store `1503`.
+4. **Kaufland K2 source/freeze-identity preflight — COMPLETE IN SOURCE** — PR #726 squash-merged as `f47d91778b272210124d050fef4f5a1e25d8071f`. The dedicated live preflight proved 4 exact-store validity families and deterministic freeze identities while keeping retained evidence, raw material, corpus, production DB/Review/publication/deploy, scheduler and systemd writes disabled.
+5. **Kaufland K2 retained immutable evidence freeze — NEXT OWNER-ONLY GATE** — issue #701 acceptance still requires retaining the exact evidence bytes/manifest in an explicitly reviewed safe retained location with create-once semantics. This is a write boundary and must not run from generic `turpini`; it requires separate explicit owner authorization bound to the then-current reviewed `main` and approved freeze scope.
+6. **ALDI runtime alignment — HOLD** — do not reuse the older exact-SHA RPi5 authorization after `main` moved. Any checkout/registration/root/host action requires a new separately explicit authorization bound to the then-current reviewed SHA.
+
+Production deploys, production DB/Review/publication writes, source apply, retained evidence/corpus writes, scheduler/systemd activation and host/root changes remain separate explicit-authorization gates.
 
 ## Delivery roadmap
 
@@ -29,7 +33,8 @@ Production deploys, production DB/Review/publication writes, source apply, sched
 - Phase 2B42: controlled fifth Lidl offer (Penne Rigate) with corrected-price/name provenance — done
 - Phase 2C: ALDI Nord structured collector + persistence — done; scheduled-run acceptance remains an operational audit
 - Phase 2D: EDEKA Patzer store-aware collector + persistence — done; scheduled-run acceptance remains an operational audit
-- Phase 2K0–K1: Kaufland Dortmund-Aplerbeck source feasibility and live-source probe — source step merged in PR #718 as `44e2ae511f3ead4c5720f550d0718faf29eca551`; fresh live probe #7 and CI #1515 passed; K2 immutable overlapping-campaign evidence remains next under #701
+- Phase 2K0–K1: Kaufland Dortmund-Aplerbeck source feasibility and exact-store live-source binding — done in source via #718
+- Phase 2K2-preflight: Kaufland exact-store overlapping-campaign identity, validity separation, stable manifest/freeze identity and create-once collision semantics — done in source via #726; actual retained immutable evidence freeze remains the next owner-only #701 gate
 - Phase 3A: production data / price-history / cross-store matching design audit — done
 - Phase 3B0: product-identity truth sync + GTIN/identifier evidence + schema ADR — done
 - Phase 3B: versioned offer normalization + canonical products + match-candidate history + confirmed-link schema — done

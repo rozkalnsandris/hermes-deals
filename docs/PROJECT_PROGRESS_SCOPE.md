@@ -1,6 +1,6 @@
 # Project Progress scope contract
 
-Status: remediation contract proposed on 2026-08-19. This document does **not** reweight Project Progress V2 and does not authorize a merge or any production action.
+Status: current remediation contract as of 2026-08-19. This document does **not** reweight Project Progress V2 and does not authorize a merge or any production/runtime action.
 
 ## Why this contract exists
 
@@ -31,7 +31,12 @@ The current Hermes Deals retailer scope is:
 
 Kaufland is an active project workstream but is **unweighted in Project Progress V2**. Therefore V2's overall percentage is not a five-store project-completion percentage.
 
-At the initial remediation base SHA `0ff4348508471a430ff1ab1cf8791fa952c71508`, Kaufland PR #718 was open. It was subsequently squash-merged as `44e2ae511f3ead4c5720f550d0718faf29eca551` after fresh K0-K1 live probe #7 and full CI #1515 both passed on the reviewed exact head. This completes the K0-K1 source-binding/probe source step; it does **not** add Kaufland weighting to Project Progress V2. Kaufland K2 immutable overlapping-campaign evidence remains a separate next gate under #701.
+Kaufland source progress now has two merged source milestones:
+
+- PR #718 squash-merged as `44e2ae511f3ead4c5720f550d0718faf29eca551`, proving the K0-K1 exact-store source binding and live probe for Dortmund-Aplerbeck / store `1503`;
+- PR #726 squash-merged as `f47d91778b272210124d050fef4f5a1e25d8071f`, adding and live-validating the K2 source/freeze-identity preflight for four exact-store overlapping validity families with deterministic create-once/collision semantics.
+
+These milestones advance the Kaufland workstream but **do not add Kaufland weighting to Project Progress V2**. Issue #701 still has a separate retained immutable evidence acceptance gate: actual raw retained evidence/corpus creation must occur only in an explicitly reviewed safe retained location and only after separate owner authorization. Until that write boundary is completed, K2 retained-evidence acceptance is not claimed.
 
 ## V3 rebaseline gate
 
@@ -54,6 +59,7 @@ This scope remediation is repository/documentation-only. It does not authorize:
 - production deploys;
 - production database, Review or publication writes;
 - source apply / collector execution against production state;
+- retained evidence or corpus writes;
 - scheduler or systemd activation;
 - RPi5 host/root changes.
 
