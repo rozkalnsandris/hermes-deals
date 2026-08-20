@@ -41,7 +41,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Overall:** **77.0%** `███████████████░░░░░` — weighted project completion
 
-**Weighted roadmap progress during 18.08.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
+**Weighted roadmap progress during 19.08.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
 
 **Store catalogues**
 - **Netto:** **78.6%** `████████░░`
@@ -51,18 +51,18 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **57/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **196 total** · **1 during the previous day** (18.08.2026)
+**Development activity:** **Issues fixed:** **204 total** · **8 during the previous day** (19.08.2026)
 
 <details>
-<summary>Show 1 issues fixed on 18.08.2026</summary>
+<summary>Show 8 issues fixed on 19.08.2026</summary>
 
-[#715](https://github.com/rozkalnsandris/hermes-deals/issues/715)
+[#579](https://github.com/rozkalnsandris/hermes-deals/issues/579) · [#584](https://github.com/rozkalnsandris/hermes-deals/issues/584) · [#585](https://github.com/rozkalnsandris/hermes-deals/issues/585) · [#700](https://github.com/rozkalnsandris/hermes-deals/issues/700) · [#724](https://github.com/rozkalnsandris/hermes-deals/issues/724) · [#729](https://github.com/rozkalnsandris/hermes-deals/issues/729) · [#730](https://github.com/rozkalnsandris/hermes-deals/issues/730) · [#735](https://github.com/rozkalnsandris/hermes-deals/issues/735)
 
 </details>
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 19.08.2026 06:49 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 20.08.2026 06:51 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers

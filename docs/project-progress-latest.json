@@ -560,22 +560,64 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 196,
+  "completed_issue_count": 204,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-08-19T04:49:57.799270Z",
-  "generated_at_local": "2026-08-19T06:49:57.799270+02:00",
+  "generated_at": "2026-08-20T04:51:44.190142Z",
+  "generated_at_local": "2026-08-20T06:51:44.190142+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-08-18",
+  "previous_day": "2026-08-19",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 1,
+  "previous_day_completed_issue_count": 8,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-18T20:08:02Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/715",
-      "number": 715,
-      "title": "CHAT AUDIT / ALDI continuity: #714 merged, exact-carrier live verification next"
+      "closed_at": "2026-08-19T11:10:32Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/579",
+      "number": 579,
+      "title": "CI: audit immutable external action refs on self-hosted workflows"
+    },
+    {
+      "closed_at": "2026-08-19T08:45:18Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/584",
+      "number": 584,
+      "title": "Security: pin origin and ingress self-hosted audit actions"
+    },
+    {
+      "closed_at": "2026-08-19T08:51:52Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/585",
+      "number": 585,
+      "title": "Security: pin generic RPi5 audit command artifact action"
+    },
+    {
+      "closed_at": "2026-08-19T10:04:58Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/700",
+      "number": 700,
+      "title": "P1 Kaufland K0-K1: prove store 1503 binding and read-only source discovery"
+    },
+    {
+      "closed_at": "2026-08-19T08:58:46Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/724",
+      "number": 724,
+      "title": "Security: pin EDEKA weekly monitor control artifact action"
+    },
+    {
+      "closed_at": "2026-08-19T11:20:43Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/729",
+      "number": 729,
+      "title": "P0 Netto: freeze hz34 held-out ownership v2 before truth exposure"
+    },
+    {
+      "closed_at": "2026-08-19T11:52:25Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/730",
+      "number": 730,
+      "title": "P0 Netto hz34: prepare blind source-only truth pack from frozen v2 artifact"
+    },
+    {
+      "closed_at": "2026-08-19T16:31:27Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/735",
+      "number": 735,
+      "title": "P0 production deploy-main: tolerate stale env only with running-image provenance"
     }
   ],
   "previous_day_progress_units": 0,
