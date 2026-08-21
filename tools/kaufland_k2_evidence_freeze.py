@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ from app.kaufland_evidence_freeze import (  # noqa: E402
     apply_freeze,
     inspect_occupancy,
     validate_retained_root,
+    verify_retained_bundle,
 )
 from app.kaufland_evidence_preflight import (  # noqa: E402
     MAX_LEAFLET_BYTES,
@@ -39,6 +41,7 @@ from app.kaufland_source_discovery import (  # noqa: E402
 )
 
 AUTHORIZATION_TOKEN = "I_AUTHORIZE_KAUFLAND_K2_RETAINED_FREEZE"
+REPLAY_AUTHORIZATION_CONTRACT_VERSION = "kaufland-k2-retained-replay-authorization-v1"
 STORE_COOKIE_NAME = "storeName"
 STORE_COOKIE_VALUE = f"DE{STORE_ID}"
 STORE_COOKIE_DOMAIN = "filiale.kaufland.de"
@@ -265,15 +268,15 @@ def _result_payload(
     decision,
     *,
     apply: bool,
-    authorization_identity: str,
+    authorization_identity: str | None = None,
+    replay_authorization_identity: str | None = None,
 ) -> dict[str, object]:
     created = apply and decision.action == "CREATE"
-    return {
+    payload: dict[str, object] = {
         "schema_version": 1,
         "mode": "APPLY" if apply else "PLAN",
         "action": decision.action if apply else f"PLAN_{decision.action}",
         "bundle_key": decision.bundle_key,
-        "authorization_identity_sha256": authorization_identity,
         "bundle_identity_sha256": decision.bundle_identity_sha256,
         "artifact_count": decision.artifact_count,
         "family_count": decision.family_count,
@@ -287,22 +290,127 @@ def _result_payload(
         "scheduler_change": False,
         "systemd_change": False,
     }
+    if authorization_identity is not None:
+        payload["authorization_identity_sha256"] = authorization_identity
+    if replay_authorization_identity is not None:
+        payload["replay_authorization_identity_sha256"] = replay_authorization_identity
+    return payload
+
+
+def _validate_sha256(value: str | None, *, code: str, label: str, required: bool) -> str | None:
+    if value is None:
+        if required:
+            raise KauflandSourceDiscoveryError(code, f"{label} is required")
+        return None
+    if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+        raise KauflandSourceDiscoveryError(code, f"{label} must be exactly 64 lowercase hexadecimal characters")
+    return value
 
 
 def _validate_expected_authorization_identity(value: str | None, *, apply: bool) -> str | None:
-    if value is None:
-        if apply:
-            raise KauflandSourceDiscoveryError(
-                "FREEZE_AUTHORIZATION_IDENTITY_REQUIRED",
-                "APPLY requires the exact PLAN authorization identity SHA-256",
-            )
-        return None
-    if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+    return _validate_sha256(
+        value,
+        code="FREEZE_AUTHORIZATION_IDENTITY_REQUIRED" if value is None else "FREEZE_AUTHORIZATION_IDENTITY_INVALID",
+        label="Expected authorization identity",
+        required=apply,
+    )
+
+
+def _stable_sha(payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _replay_authorization_identity_sha256(
+    *,
+    executor_revision: str,
+    retained_root: Path,
+    decision,
+    retained_git_revision: str,
+    parser_input_contract_version: str,
+) -> str:
+    return _stable_sha(
+        {
+            "schema_version": 1,
+            "contract_version": REPLAY_AUTHORIZATION_CONTRACT_VERSION,
+            "executor_git_revision": executor_revision,
+            "store_id": STORE_ID,
+            "retained_root": str(retained_root),
+            "bundle_key": decision.bundle_key,
+            "bundle_identity_sha256": decision.bundle_identity_sha256,
+            "retained_git_revision": retained_git_revision,
+            "parser_input_contract_version": parser_input_contract_version,
+            "artifact_count": decision.artifact_count,
+            "family_count": decision.family_count,
+        }
+    )
+
+
+def _replay_requested(args: argparse.Namespace) -> bool:
+    values = (
+        args.replay_existing_bundle_key,
+        args.expected_retained_bundle_identity_sha256,
+        args.expected_retained_git_revision,
+        args.expected_retained_parser_input_contract_version,
+        args.expected_replay_authorization_identity_sha256,
+    )
+    return any(value is not None for value in values)
+
+
+def _run_existing_replay(args: argparse.Namespace, *, retained_root: Path):
+    required = {
+        "--replay-existing-bundle-key": args.replay_existing_bundle_key,
+        "--expected-retained-bundle-identity-sha256": args.expected_retained_bundle_identity_sha256,
+        "--expected-retained-git-revision": args.expected_retained_git_revision,
+        "--expected-retained-parser-input-contract-version": args.expected_retained_parser_input_contract_version,
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
         raise KauflandSourceDiscoveryError(
-            "FREEZE_AUTHORIZATION_IDENTITY_INVALID",
-            "Expected authorization identity must be exactly 64 lowercase hexadecimal characters",
+            "REPLAY_ARGUMENTS_INCOMPLETE",
+            f"Existing-bundle replay requires: {', '.join(missing)}",
         )
-    return value
+    if args.expected_authorization_identity_sha256 is not None:
+        raise KauflandSourceDiscoveryError(
+            "REPLAY_AUTHORIZATION_AMBIGUOUS",
+            "Existing-bundle replay uses replay authorization identity, not live CREATE authorization identity",
+        )
+    expected_bundle_identity = _validate_sha256(
+        args.expected_retained_bundle_identity_sha256,
+        code="REPLAY_BUNDLE_IDENTITY_INVALID",
+        label="Expected retained bundle identity",
+        required=True,
+    )
+    decision = verify_retained_bundle(
+        retained_root,
+        expected_bundle_key=args.replay_existing_bundle_key,
+        expected_git_revision=args.expected_retained_git_revision,
+        expected_parser_input_contract_version=args.expected_retained_parser_input_contract_version,
+        expected_bundle_identity_sha256=expected_bundle_identity,
+    )
+    replay_identity = _replay_authorization_identity_sha256(
+        executor_revision=args.expected_revision,
+        retained_root=retained_root,
+        decision=decision,
+        retained_git_revision=args.expected_retained_git_revision,
+        parser_input_contract_version=args.expected_retained_parser_input_contract_version,
+    )
+    expected_replay_identity = _validate_sha256(
+        args.expected_replay_authorization_identity_sha256,
+        code=(
+            "REPLAY_AUTHORIZATION_IDENTITY_REQUIRED"
+            if args.expected_replay_authorization_identity_sha256 is None
+            else "REPLAY_AUTHORIZATION_IDENTITY_INVALID"
+        ),
+        label="Expected replay authorization identity",
+        required=args.apply,
+    )
+    if expected_replay_identity is not None and expected_replay_identity != replay_identity:
+        raise KauflandSourceDiscoveryError(
+            "REPLAY_AUTHORIZATION_IDENTITY_MISMATCH",
+            "Existing retained bundle replay does not match the owner-authorized replay identity",
+        )
+    return decision, replay_identity
 
 
 def parse_args() -> argparse.Namespace:
@@ -311,6 +419,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-revision", required=True)
     parser.add_argument("--expected-authorization-identity-sha256")
     parser.add_argument("--expected-bundle-identity-sha256", help=argparse.SUPPRESS)
+    parser.add_argument("--replay-existing-bundle-key")
+    parser.add_argument("--expected-retained-bundle-identity-sha256")
+    parser.add_argument("--expected-retained-git-revision")
+    parser.add_argument("--expected-retained-parser-input-contract-version")
+    parser.add_argument("--expected-replay-authorization-identity-sha256")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--authorization-token")
     return parser.parse_args()
@@ -327,21 +440,36 @@ def main() -> int:
         if args.expected_bundle_identity_sha256 is not None:
             raise KauflandSourceDiscoveryError(
                 "FREEZE_BUNDLE_AUTHORIZATION_DEPRECATED",
-                "Bundle identity is retained-evidence identity, not the owner "
-                "authorization identity; run a fresh PLAN",
+                "Bundle identity is retained-evidence identity, not the owner authorization identity; run a fresh PLAN",
             )
         if args.apply and args.authorization_token != AUTHORIZATION_TOKEN:
             raise KauflandSourceDiscoveryError(
                 "FREEZE_AUTHORIZATION_REQUIRED",
                 "APPLY requires the exact Kaufland K2 retained-freeze authorization token",
             )
+
+        _verify_checkout(args.expected_revision)
+        retained_root = validate_retained_root(args.retained_root, repository_root=ROOT)
+
+        if _replay_requested(args):
+            decision, replay_identity = _run_existing_replay(args, retained_root=retained_root)
+            print(
+                json.dumps(
+                    _result_payload(
+                        decision,
+                        apply=args.apply,
+                        replay_authorization_identity=replay_identity,
+                    ),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+
         expected_authorization_identity = _validate_expected_authorization_identity(
             args.expected_authorization_identity_sha256,
             apply=args.apply,
         )
-
-        _verify_checkout(args.expected_revision)
-        retained_root = validate_retained_root(args.retained_root, repository_root=ROOT)
         headers = {
             "User-Agent": "HermesDeals-KauflandK2Freeze/1.0",
             "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
