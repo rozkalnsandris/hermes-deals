@@ -48,7 +48,20 @@ Put disposable browser output under `.codex/evidence/` and never save secrets/au
 
 Never report success from source inspection alone when runtime verification is required.
 
-## 5. Report compactly
+## 5. FAST-LANE v2.1 execution
+
+When an explicit owner FAST authorization is present:
+
+- resolve the exact related work and keep it to one coherent risk/subsystem boundary;
+- batch up to five closely related same-risk work items when that reduces duplicate PR/CI cycles without hiding review scope;
+- proceed from fresh GitHub state through source changes, focused validation, branch/commit/push, Draft PR, CI and Ready without inserting artificial STOPs between those source-only steps;
+- after initial publication, make at most two scope-preserving corrective commits for CI/review findings inside the original scope;
+- STOP before a third corrective commit, material scope expansion, merge, runtime execution, retained write, migration, deploy or another STRICT action;
+- prepare one complete Ready receipt rather than repeating the same mutable state after every micro-step.
+
+Plain `turpini` does not grant this GitHub-write authority in Hermes Deals; it keeps the repository-local safe/read-only/source-level meaning.
+
+## 6. Report compactly
 
 Return:
 

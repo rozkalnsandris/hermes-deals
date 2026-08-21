@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   push:
     branches:
       - main
@@ -16,8 +17,62 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  classify:
+    name: FAST-LANE classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+
+          if os.environ['EVENT_NAME'] != 'pull_request':
+              docs_only = False
+          else:
+              base = os.environ['BASE_SHA']
+              head = os.environ['HEAD_SHA']
+              if not base or not head:
+                  raise SystemExit('missing pull request base/head SHA')
+              changed = subprocess.check_output(
+                  ['git', 'diff', '--name-only', '--diff-filter=ACMR', base, head],
+                  text=True,
+              ).splitlines()
+              if not changed:
+                  raise SystemExit('empty pull request diff')
+
+              def is_docs(path: str) -> bool:
+                  p = pathlib.PurePosixPath(path)
+                  return p.suffix.lower() in {'.md', '.txt'} or p.parts[:1] == ('docs',)
+
+              docs_only = all(is_docs(path) for path in changed)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f"docs_only={'true' if docs_only else 'false'}\n")
+          print(f'FAST_LANE_DOCS_ONLY={str(docs_only).lower()}')
+          PY
+
   frontend-build:
     name: Frontend W3 deterministic build
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -61,6 +116,8 @@ jobs:
 
   release-image:
     name: W3 immutable release image
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -160,6 +217,8 @@ jobs:
 
   backend-tests:
     name: Backend tests
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -211,6 +270,8 @@ jobs:
 
   postgres-current-deals:
     name: PostgreSQL 18 current-deals contract
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -267,3 +328,35 @@ jobs:
             tests/test_current_deals_sql_postgresql_runtime.py \
             tests/test_current_deals_postgresql_materialization_benchmark.py \
             tests/test_lidl_v631_c3_readonly_preflight.py
+
+  fast-lane-merge-gate:
+    name: FAST-LANE Merge Gate
+    needs: [classify, frontend-build, release-image, backend-tests, postgres-current-deals]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required validation results
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          FRONTEND_RESULT: ${{ needs.frontend-build.result }}
+          RELEASE_RESULT: ${{ needs.release-image.result }}
+          BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          POSTGRES_RESULT: ${{ needs.postgres-current-deals.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CLASSIFY_RESULT" == success ]]
+          if [[ "$DOCS_ONLY" == true ]]; then
+            [[ "$FRONTEND_RESULT" == skipped ]]
+            [[ "$RELEASE_RESULT" == skipped ]]
+            [[ "$BACKEND_RESULT" == skipped ]]
+            [[ "$POSTGRES_RESULT" == skipped ]]
+          else
+            [[ "$FRONTEND_RESULT" == success ]]
+            [[ "$RELEASE_RESULT" == success ]]
+            [[ "$BACKEND_RESULT" == success ]]
+            [[ "$POSTGRES_RESULT" == success ]]
+          fi
+          echo "FAST_LANE_MERGE_GATE=PASS"
