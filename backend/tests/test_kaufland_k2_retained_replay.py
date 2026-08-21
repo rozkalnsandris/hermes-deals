@@ -248,6 +248,7 @@ def _load_cli_module():
 
 
 def test_existing_bundle_apply_no_op_is_offline(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     module = _load_cli_module()
     retained_root = (tmp_path / "retained").resolve()
     decision = FreezeDecision(
@@ -315,6 +316,7 @@ def test_existing_bundle_apply_no_op_is_offline(monkeypatch, tmp_path: Path, cap
 
 
 def test_create_plan_still_requires_live_client(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     module = _load_cli_module()
     args = SimpleNamespace(
         retained_root=tmp_path / "retained",
