@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import base64
-from hashlib import sha256
 from pathlib import Path
 import struct
 
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.ui_contract import ORIGINAL_INDEX_SHA256, ui_response_contract
+from tests.ui_contract import read_family_ui_contract, ui_response_contract
 
 
 client = TestClient(app)
@@ -41,11 +40,10 @@ def test_main_ui_uses_versioned_project_logo_and_favicons() -> None:
     assert "<style id=\"hermes-deals-branding\"" not in response.text
 
 
-def test_main_ui_branding_overlay_preserves_exact_legacy_contract() -> None:
+def test_main_ui_branding_overlay_preserves_current_ui_contract() -> None:
     response = client.get("/ui")
 
-    contract = ui_response_contract(response)
-    assert sha256(contract.encode("utf-8")).hexdigest() == ORIGINAL_INDEX_SHA256
+    assert ui_response_contract(response) == read_family_ui_contract()
 
 
 def test_review_ui_references_png_and_ico_favicons() -> None:

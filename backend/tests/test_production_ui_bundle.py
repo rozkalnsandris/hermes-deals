@@ -26,8 +26,9 @@ const bootstrap = "w3-behavior-preserving-bootstrap-v1";
 const weekly = "normalized_unique_deals_by_id_v1";
 const current = "/api/v1/deals/current";
 const daily = "/api/v1/deals/daily-specials";
+const dailyContract = "explicit_immutable_retailer_evidence_only";
 const catalog = "/api/v1/catalog";
-void [identity, bootstrap, weekly, current, daily, catalog];
+void [identity, bootstrap, weekly, current, daily, dailyContract, catalog];
 """
 
 
@@ -85,9 +86,12 @@ def test_production_bundle_is_self_contained_and_deterministic(
     assert SCRIPT_MARKER in text
     assert "--accent:#246b45" in text
     assert "/api/v1/deals/current" in text
+    assert "/api/v1/deals/daily-specials" in text
+    assert "explicit_immutable_retailer_evidence_only" in text
     assert "w3-behavior-preserving-bootstrap-v1" in text
     assert "normalized_unique_deals_by_id_v1" in text
     assert 'class="ui2-shell reference-app"' in text
+    assert "hermes-ui-fix" not in text
     assert (first / "styles.css").read_bytes() == source_css
     assert (first / "app.js").read_bytes() == source_js
 
@@ -138,6 +142,22 @@ def test_production_bundle_rejects_unsafe_inline_closing_sequence(
     )
 
     with pytest.raises(UiBundleError, match="unsafe </script sequence"):
+        build_production_ui_bundle(ui_dir)
+
+
+def test_production_bundle_rejects_historical_fix_metadata(tmp_path: Path) -> None:
+    ui_dir = _copy_ui(tmp_path)
+    index_path = ui_dir / "index.html"
+    index_path.write_text(
+        index_path.read_text(encoding="utf-8").replace(
+            "</head>",
+            '<meta name="hermes-ui-fix" content="should-not-return">\n</head>',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UiBundleError, match="historical hermes-ui-fix metadata"):
         build_production_ui_bundle(ui_dir)
 
 

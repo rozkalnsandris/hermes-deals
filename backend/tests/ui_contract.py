@@ -11,7 +11,6 @@ UI_INDEX_PATH = UI_DIR / "index.html"
 UI_STYLE_PATH = UI_DIR / "styles.css"
 UI_APP_PATH = UI_DIR / "app.js"
 UI_WEEKLY_BRIDGE_PATH = UI_DIR / "weekly-payload-bridge.js"
-ORIGINAL_INDEX_SHA256 = "6212cc9c923650c1f6fa4ed25adb3a3dcc37dde1faab7e3bc48e45de8de93164"
 CSS_TRAILING_WS_PATCHES = [(19626, 'ICA=')]
 JS_TRAILING_WS_PATCHES = []
 
