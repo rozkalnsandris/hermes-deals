@@ -22,6 +22,24 @@ FAMILY_RELATIONS = (
     "preview_main",
     "preview_overlap",
 )
+ACCEPTED_FAMILIES = {
+    "current_main": (
+        "DE_de_KDZ1_1503_D33",
+        "a9baae4b5f702f59cbc3d9eba98eb12bdd31d91aaac5e49e2ac83ecb7fbb1db1",
+    ),
+    "current_short": (
+        "DE_de_KDZ2_1503_D34-MoMi",
+        "f8da4ff71615141aaf97ade1b91c3b63259a41b2436e09f65c5b4e4db6898e69",
+    ),
+    "preview_main": (
+        "DE_de_KDZ1_1503_D34",
+        "20f1b8f998e361399b9e1fec74f700712e1a62d7048fb92e40b5e9bbe8241c9a",
+    ),
+    "preview_overlap": (
+        "DE_de_leaflet2_1503_D34-EL-Schule",
+        "ab338f5fd1aca216380a1cbd0a0a7fea6f86a70a9bf656b1ed99d29dbcc4a6e3",
+    ),
+}
 FAMILY_ASSOCIATION_BOUND = "BOUND"
 FAMILY_ASSOCIATION_UNBOUND = "UNBOUND"
 UNBOUND_FAMILY_REASONS = (
@@ -550,6 +568,12 @@ def build_bound_family_association(
         family_identity_sha256,
         label="family_identity_sha256",
     )
+    expected_identifier, expected_family_sha = ACCEPTED_FAMILIES[family_relation]
+    if family_identifier != expected_identifier or family_sha != expected_family_sha:
+        _fail(
+            "FAMILY_IDENTITY_MISMATCH",
+            "BOUND family relation/source identifier/identity must match one exact accepted K2 family",
+        )
     family_locator = _require_locator(
         family_binding_locator,
         label="family_binding_locator",

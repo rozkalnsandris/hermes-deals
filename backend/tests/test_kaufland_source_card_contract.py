@@ -114,7 +114,7 @@ def _bound(semantic=None, **overrides):
         "semantic_receipt": semantic,
         "family_relation": "current_main",
         "family_source_identifier": "DE_de_KDZ1_1503_D33",
-        "family_identity_sha256": SHA_B,
+        "family_identity_sha256": "a9baae4b5f702f59cbc3d9eba98eb12bdd31d91aaac5e49e2ac83ecb7fbb1db1",
         "family_binding_locator": "rawpath:card[17]/campaign",
         "family_binding_evidence_sha256": SHA_4,
         "family_binding_owner_card_locator": semantic.card_locator,
@@ -339,6 +339,17 @@ def test_bound_family_association_binds_same_semantic_card():
 )
 def test_bound_family_association_is_explicit_and_unique(field, value, code):
     _assert_code(code, lambda: _bound(**{field: value}))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("family_source_identifier", "DE_de_KDZ1_1503_D34"),
+        ("family_identity_sha256", SHA_B),
+    ],
+)
+def test_bound_family_requires_exact_accepted_relation_identity_tuple(field, value):
+    _assert_code("FAMILY_IDENTITY_MISMATCH", lambda: _bound(**{field: value}))
 
 
 def test_bound_family_evidence_must_belong_to_same_card():
