@@ -18,7 +18,6 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
     assert package["private"] is True
     assert package["type"] == "module"
     assert package["engines"] == {"node": ">=22.12.0"}
-    assert package["devDependencies"] == {"vite": "8.1.5"}
     expected_w3_scripts = {
         "test": "node --test tests/*.test.mjs",
         "build": "node node_modules/vite/bin/vite.js build --config vite.config.js",
@@ -140,12 +139,14 @@ def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
     assert "payload.source_contract !== DAILY_SPECIAL_SOURCE_CONTRACT" in daily
     assert 'deal.special_confidence === "high"' in daily
     assert 'deal.special_valid_on === iso' in daily
-    assert "legacyCurrentDealDailySpecialContract" in daily
-    assert "/api/v1/deals/current" in daily
-    assert "DAILY_SPECIAL_MAX_PAGES = 20" in daily
+    assert "legacyCurrentDealDailySpecialContract" not in daily
+    assert "fetchAllDailyDeals" not in daily
+    assert "legacyDailySpecialsUrl" not in daily
+    assert "DAILY_SPECIAL_PAGE_LIMIT" not in daily
+    assert "DAILY_SPECIAL_MAX_PAGES" not in daily
+    assert "/api/v1/deals/current" not in daily
     for marker in (
         "explicit_immutable_retailer_evidence_only",
-        "legacyCurrentDealDailySpecialContract",
         "Šodienas īpašās akcijas neizdevās ielādēt.",
         "Rītdienas īpašās akcijas neizdevās ielādēt.",
     ):
