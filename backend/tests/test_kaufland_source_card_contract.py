@@ -270,6 +270,20 @@ def test_decimal_input_canonicalizes_without_float_semantics():
     assert receipt.price_evidence[0].amount == "1.90"
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 2),
+        ("contract_version", "kaufland-k3-source-card-v2"),
+    ],
+)
+def test_receipt_verification_rejects_schema_or_contract_tampering(field, value):
+    receipt = _receipt()
+    tampered = replace(receipt, **{field: value})
+
+    _assert_code("RECEIPT_CONTRACT_MISMATCH", lambda: verify_source_card_receipt(tampered))
+
+
 def test_receipt_identity_verification_detects_tampering():
     receipt = _receipt()
     tampered = replace(receipt, receipt_identity_sha256=SHA_6)

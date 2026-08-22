@@ -429,6 +429,11 @@ def build_source_card_receipt(
 
 
 def verify_source_card_receipt(receipt: SourceCardReceipt) -> None:
+    if receipt.schema_version != SCHEMA_VERSION or receipt.contract_version != CONTRACT_VERSION:
+        _fail(
+            "RECEIPT_CONTRACT_MISMATCH",
+            "source-card receipt schema/contract version does not match the K3A contract",
+        )
     rebuilt = build_source_card_receipt(
         k2_bundle_identity_sha256=receipt.k2_bundle_identity_sha256,
         k2_git_revision=receipt.k2_git_revision,
