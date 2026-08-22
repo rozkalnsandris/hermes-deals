@@ -41,7 +41,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Overall:** **77.0%** `███████████████░░░░░` — weighted project completion
 
-**Weighted roadmap progress during 20.08.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
+**Weighted roadmap progress during 21.08.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
 
 **Store catalogues**
 - **Netto:** **78.6%** `████████░░`
@@ -51,11 +51,11 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **57/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **204 total** · **0 during the previous day** (20.08.2026)
+**Development activity:** **Issues fixed:** **203 total** · **0 during the previous day** (21.08.2026)
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 21.08.2026 06:52 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 22.08.2026 06:47 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
