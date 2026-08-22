@@ -510,7 +510,14 @@ def _target_path(retained_root: Path) -> Path:
 
 def target_scoped_fingerprint(target: Path) -> str:
     target = target.expanduser()
-    if target.is_symlink() or not target.exists() or not target.is_dir():
+    try:
+        unavailable = target.is_symlink() or not target.exists() or not target.is_dir()
+    except OSError as exc:
+        raise K3CDerivationError(
+            "TARGET_FINGERPRINT_READ_FAILED",
+            "exact retained target metadata could not be read safely",
+        ) from exc
+    if unavailable:
         _fail(
             "TARGET_FINGERPRINT_UNAVAILABLE",
             "exact retained target is missing, symlinked or not a directory",
@@ -555,7 +562,13 @@ def target_scoped_fingerprint(target: Path) -> str:
             )
             visit(child, child_relative)
 
-    visit(target, ".")
+    try:
+        visit(target, ".")
+    except OSError as exc:
+        raise K3CDerivationError(
+            "TARGET_FINGERPRINT_READ_FAILED",
+            "exact retained target could not be fingerprinted safely",
+        ) from exc
     return _json_sha(rows)
 
 
@@ -600,12 +613,19 @@ def _load_verified_overview(retained_root: Path) -> bytes:
                 f"offer-overview {field} differs from accepted K2 evidence",
             )
     path = target / EXPECTED_OVERVIEW_RELATIVE_PATH
-    if path.is_symlink() or not path.is_file():
-        _fail(
-            "OFFER_OVERVIEW_IDENTITY_MISMATCH",
-            "offer-overview path is not a regular retained file",
-        )
-    data = path.read_bytes()
+    try:
+        invalid_path = path.is_symlink() or not path.is_file()
+        if invalid_path:
+            _fail(
+                "OFFER_OVERVIEW_IDENTITY_MISMATCH",
+                "offer-overview path is not a regular retained file",
+            )
+        data = path.read_bytes()
+    except OSError as exc:
+        raise K3CDerivationError(
+            "OFFER_OVERVIEW_READ_FAILED",
+            "offer-overview bytes could not be read safely",
+        ) from exc
     if (
         len(data) != EXPECTED_OVERVIEW_BYTES
         or _sha256_bytes(data) != EXPECTED_OVERVIEW_SHA256

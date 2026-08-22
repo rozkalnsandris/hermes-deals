@@ -226,3 +226,53 @@ def test_blocked_payload_carries_no_raw_error_message():
     assert payload["reason_code"] == "OFFER_OVERVIEW_IDENTITY_MISMATCH"
     assert "/home/" not in encoded
     assert "Traceback" not in encoded
+
+
+def test_target_fingerprint_oserror_is_sanitized(monkeypatch, tmp_path: Path):
+    target = tmp_path / "packet"
+    target.mkdir()
+    original_lstat = Path.lstat
+
+    def fail_lstat(self):
+        if self == target:
+            raise OSError("secret /home/andris/path")
+        return original_lstat(self)
+
+    monkeypatch.setattr(Path, "lstat", fail_lstat)
+    with pytest.raises(k3c.K3CDerivationError) as exc_info:
+        k3c.target_scoped_fingerprint(target)
+    assert exc_info.value.code == "TARGET_FINGERPRINT_READ_FAILED"
+    assert "/home/andris" not in str(exc_info.value)
+
+
+def test_overview_read_oserror_is_sanitized(monkeypatch, tmp_path: Path):
+    target = tmp_path.joinpath(*k3c.EXPECTED_K2_BUNDLE_KEY.split("/"))
+    target.mkdir(parents=True)
+    manifest = {
+        "common_sources": [
+            {
+                "role": k3c.SOURCE_ARTIFACT_ROLE,
+                "relative_path": k3c.EXPECTED_OVERVIEW_RELATIVE_PATH,
+                "sha256": k3c.EXPECTED_OVERVIEW_SHA256,
+                "byte_count": k3c.EXPECTED_OVERVIEW_BYTES,
+                "content_type": k3c.EXPECTED_OVERVIEW_CONTENT_TYPE,
+            }
+        ]
+    }
+    (target / k3c.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+    overview = target / k3c.EXPECTED_OVERVIEW_RELATIVE_PATH
+    overview.parent.mkdir(parents=True, exist_ok=True)
+    overview.write_bytes(b"x")
+
+    original_read_bytes = Path.read_bytes
+
+    def fail_read_bytes(self):
+        if self == overview:
+            raise OSError("secret /home/andris/path")
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+    with pytest.raises(k3c.K3CDerivationError) as exc_info:
+        k3c._load_verified_overview(tmp_path)
+    assert exc_info.value.code == "OFFER_OVERVIEW_READ_FAILED"
+    assert "/home/andris" not in str(exc_info.value)
