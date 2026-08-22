@@ -69,6 +69,24 @@ jobs:
           print(f'FAST_LANE_DOCS_ONLY={str(docs_only).lower()}')
           PY
 
+  policy-safety:
+    name: Public repository safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout complete repository history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Scan complete Git history for credentials
+        run: |
+          bash scripts/run-gitleaks.sh "$GITHUB_WORKSPACE"
+
+      - name: Audit public-repository workflow safety
+        run: |
+          python3 scripts/audit-public-workflow-safety.py
+
   frontend-build:
     name: Frontend W3 deterministic build
     needs: classify
@@ -227,20 +245,8 @@ jobs:
         working-directory: backend
 
     steps:
-      - name: Checkout complete repository history
+      - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Scan complete Git history for credentials
-        working-directory: ${{ github.workspace }}
-        run: |
-          bash scripts/run-gitleaks.sh "$GITHUB_WORKSPACE"
-
-      - name: Audit public-repository workflow safety
-        working-directory: ${{ github.workspace }}
-        run: |
-          python3 scripts/audit-public-workflow-safety.py
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -331,7 +337,7 @@ jobs:
 
   fast-lane-merge-gate:
     name: FAST-LANE Merge Gate
-    needs: [classify, frontend-build, release-image, backend-tests, postgres-current-deals]
+    needs: [classify, policy-safety, frontend-build, release-image, backend-tests, postgres-current-deals]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -339,6 +345,7 @@ jobs:
       - name: Verify required validation results
         env:
           CLASSIFY_RESULT: ${{ needs.classify.result }}
+          POLICY_RESULT: ${{ needs.policy-safety.result }}
           DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
           FRONTEND_RESULT: ${{ needs.frontend-build.result }}
           RELEASE_RESULT: ${{ needs.release-image.result }}
@@ -348,6 +355,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CLASSIFY_RESULT" == success ]]
+          [[ "$POLICY_RESULT" == success ]]
           if [[ "$DOCS_ONLY" == true ]]; then
             [[ "$FRONTEND_RESULT" == skipped ]]
             [[ "$RELEASE_RESULT" == skipped ]]
