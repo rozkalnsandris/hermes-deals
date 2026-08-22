@@ -4,31 +4,33 @@ Refs: #699, #701, #702, #747, #749, #750, #751, #752.
 
 ## Purpose
 
-This runbook defines the reviewed repository-native procedure for deriving sanitized Kaufland K3 source-card v2 evidence from the already accepted immutable K2 packet.
+K3C provides one reviewed repo-native command for deterministic, fail-closed inspection of the accepted immutable Kaufland K2 retained packet.
 
-Implementation:
+It is deliberately **not** the Kaufland parser. It does not create `backend/app/parsers/kaufland.py`, write database/Review/publication state, collect live Kaufland data, mutate retained evidence, or deploy anything.
+
+The implementation is:
 
 `backend/app/kaufland_real_k2_v2_derivation.py`
 
-The tool is **offline and read-only**. It does not collect live Kaufland data, does not run the K2 replay executor, does not write retained evidence, does not write DB/Review/publication state, and does not implement `backend/app/parsers/kaufland.py`.
+Current derivation contract:
 
-The source-card contract remains `kaufland-k3-source-card-v2` from #749/#750.
+`kaufland-k3c-real-k2-v2-derivation-v1`
 
-## FAST-LANE v2.2 policy alignment
+The semantic receipt contract remains:
 
-FAST-LANE v2.2 Composite is authoritative from #751.
+`kaufland-k3-source-card-v2`
 
-Under v2.2:
+## FAST-LANE v2.2 classification
 
-- read-only preflight, evidence refresh, candidate verification and reconciliation are automation steps, not separate owner gates;
-- merge remains an explicit owner gate;
-- retained-evidence **mutation**, runtime/replay executor invocation, live collection with write effects, production DB/migration, deploy, scheduler/systemd/host/container, secrets and Cloudflare mutation remain Composite STRICT/live authority;
-- a read-only K3C derivation does not itself authorize any later mutation;
-- drift or ambiguity fails closed; no guessed role/family semantics are introduced to obtain PASS.
+FAST-LANE v2.2 makes read-only checkpoints, preflight, evidence refresh, candidate verification and reconciliation automation steps rather than separate owner gates.
 
-This file supersedes only the old procedural statement that a read-only REAL-K2 v2 evidence refresh itself requires a separate owner approval. It does **not** relax any provenance, immutability, parser, merge or live-mutation boundary in `docs/KAUFLAND_K3A_SOURCE_CARD_CONTRACT_RUNBOOK.md`.
+Therefore a later execution of this harness is **not** a Composite Live mutation merely because it reads already-retained evidence. The live gate remains required for retained mutation, runtime/replay executor invocation, production DB write/migration, deploy, scheduler/systemd/host/container mutation, secrets/credentials, Cloudflare mutation, or other live authority changes.
 
-## Accepted immutable K2 boundary
+This #752 source PR itself performs no owner-retained read. It only reviews the code/tests/runbook that a later read-only execution may use.
+
+Merge of this source PR never authorizes #702 parser implementation or any live mutation.
+
+## Exact accepted K2 boundary
 
 | Field | Accepted value |
 | --- | --- |
@@ -39,205 +41,253 @@ This file supersedes only the old procedural statement that a read-only REAL-K2 
 | K2 parser-input contract | `kaufland-k2-v1` |
 | Artifact count | `6` |
 | Family count | `4` |
-| Source role | `offer-overview` |
-| Source path | `common/offer-overview.bin` |
-| Source SHA-256 | `b95e735a707c9da023876ef280c6cbccfa1d7bf25d1638926eea035c27625e34` |
-| Source bytes | `4440080` |
-| Source content type | `text/html; charset=UTF-8` |
+| `offer-overview` relative path | `common/offer-overview.bin` |
+| `offer-overview` SHA-256 | `b95e735a707c9da023876ef280c6cbccfa1d7bf25d1638926eea035c27625e34` |
+| `offer-overview` bytes | `4440080` |
+| `offer-overview` content type | `text/html; charset=UTF-8` |
+| BeautifulSoup | `4.15.0` |
+| HTML backend | `html.parser` |
 
-Accepted families remain the exact relation/source-identifier/identity tuples in `backend/app/kaufland_source_card_contract.py`. The K3C tool imports that mapping instead of maintaining a second family truth table.
+The K2 verifier must return exact `NO_OP` with the expected bundle identity/counts before semantic inspection.
 
-## Reviewed invocation
+## Retained target scope
 
-Run from a reviewed checkout containing the K3C tool and current dependency lock. The retained root is explicit; there is no production-path default:
+The harness receives only an explicit retained root:
 
 ```bash
-cd backend
 python -m app.kaufland_real_k2_v2_derivation \
   --retained-root /home/andris/hermes-deals-retained-evidence
 ```
 
-The command writes sanitized JSON to stdout only. It does not create an output file.
+It derives the exact target from the pinned bundle key. It does not enumerate sibling retained packets for semantics.
 
-## Pre-semantic gates
+Target-scoped fingerprinting recursively hashes only that exact target. A sibling-packet change must not alter the target fingerprint.
 
-Before semantic inspection, the tool:
+## Network boundary
 
-1. requires BeautifulSoup `4.15.0` and explicitly selects parser backend `html.parser`;
-2. computes a fingerprint only for the exact K2 target packet, not the whole retained root;
-3. runs `verify_retained_bundle()` with the exact bundle key, frozen K2 revision, upstream contract and bundle identity;
-4. requires verifier result `NO_OP`, `artifact_count=6`, `family_count=4`;
-5. reloads the verified manifest and requires exactly one `offer-overview` record at `common/offer-overview.bin`;
-6. requires the accepted SHA-256, byte count and content type;
-7. reads only that exact overview artifact for semantic inspection;
-8. decodes strict UTF-8;
-9. keeps a process-local socket guard active so accidental network I/O fails as `NETWORK_FORBIDDEN`.
+The harness imports no collector and makes no HTTP request.
 
-The verifier itself reads the exact packet to prove immutable identity. Semantic HTML inspection is limited to the accepted `offer-overview` artifact.
+During execution it additionally installs a process-local socket guard over:
 
-## Source-card ownership
+- `socket.socket.connect`;
+- `socket.socket.connect_ex`;
+- `socket.create_connection`;
+- `socket.getaddrinfo`.
 
-Card discovery is conservative:
+Any attempted network use fails closed as `NETWORK_FORBIDDEN`.
 
-- candidate anchors must carry exactly one safe `kloffer-articleID` query value;
-- `articleID` is evidence only and is **not** promoted to durable identity (#704 remains authoritative);
-- the anchor must resolve to a bounded card-like ancestor;
-- a candidate card must contain exactly one distinct `articleID` value;
-- the receipt locator is a deterministic structural rawpath;
-- `card_fragment_sha256` hashes the deterministic `html.parser` serialization of that exact card, while the accepted source artifact SHA binds the underlying immutable retained bytes.
+This is defense in depth, not permission to add network-capable code later.
 
-Cards that do not satisfy these conditions are not silently promoted.
+## Exact verification order
 
-## Explicit price-role evidence
+The run is deterministic and read-only:
 
-The tool never assigns roles by numeric ordering.
+1. verify exact BeautifulSoup version;
+2. calculate exact target-scoped fingerprint;
+3. call existing `verify_retained_bundle()` with the pinned K2 bundle/revision/contract/identity;
+4. require `NO_OP`, 6 artifacts and 4 families;
+5. re-read the verified manifest;
+6. require exactly one common `offer-overview` record with the pinned relative path/SHA/bytes/content type;
+7. require the artifact path to be a regular non-symlink file;
+8. independently read/hash/count the overview bytes;
+9. decode strict UTF-8;
+10. derive a bounded sanitized projection;
+11. derive the same projection again with changed construction order;
+12. require byte/semantic equality;
+13. run `verify_retained_bundle()` again;
+14. recalculate the exact target fingerprint;
+15. require before/after verifier equality and fingerprint equality;
+16. emit only sanitized JSON;
+17. STOP.
 
-### Public promo
+Any failure returns a bounded `BLOCKED` payload with a stable reason code and no raw exception text.
 
-A promo candidate requires the explicit German marker `nur` within a bounded card-local scope containing exactly one defensible price amount. XTRA and old/reference scopes do not satisfy promo.
+## Source-card ownership boundary
+
+K3C must not invent a retailer card CSS selector.
+
+For each exact `kloffer-articleID` link, the harness walks upward only a bounded number of ancestors and selects the **smallest** DOM scope that:
+
+- contains exactly one distinct source article ID; and
+- contains at least one price-role clue (`k-price-tag__old-price`, `k-price-tag--xtra`, or the observed text marker `nur`).
+
+If a candidate ancestor contains more than one distinct article ID, that ownership path fails closed.
+
+`articleID` is used only as source-local ownership evidence. It is not promoted to global/timeless product identity; #704 remains the identity gate.
+
+## Price-role policy
+
+Precision overrides completeness.
 
 ### Reference
 
-Reference evidence requires exact structural marker class:
+`reference` may be emitted only from an exact same-scope element carrying:
 
 `k-price-tag__old-price`
 
-An unlabelled larger number is never reference evidence.
+The element must contain exactly one canonical price amount.
+
+A larger unlabelled number is never a reference price.
 
 ### XTRA
 
-XTRA evidence requires exact structural marker class:
+`xtra` may be emitted only from an exact same-scope element carrying:
 
 `k-price-tag--xtra`
 
+The element must contain exactly one canonical price amount.
+
 XTRA never satisfies public promo.
 
-### Ambiguity
+### Public promo — intentionally still blocked
 
-For each role:
+The previous REAL-K2 sanitized evidence observed text `nur`, but that result explicitly classified it only as a **promo-like marker clue**, not accepted retailer role semantics.
 
-- zero candidates => role remains absent;
-- exactly one candidate => eligible for `PriceEvidence`;
-- multiple candidates => that role fails closed with a stable `*_ROLE_AMBIGUOUS` blocker.
+Therefore K3C must **not** convert `nur` alone into a `promo` receipt.
 
-The v2 contract independently validates role ownership, locators, hashes, Decimal representation and cross-role separation.
+Instead the harness records only bounded sanitized promo-marker observations:
+
+- owning bounded card locator;
+- marker kind `text:nur`;
+- marker locator;
+- marker fragment SHA-256;
+- canonical amount count;
+- booleans for the known generic/XTRA/old-price classes.
+
+It emits:
+
+`promo_role_policy=BLOCKED_UNTIL_EXPLICIT_SOURCE_ROLE_EVIDENCE`
+
+and `promo_receipt_count=0`.
+
+A future reviewed source change may promote a public-promo selector only after sanitized real-K2 evidence defensibly proves an explicit role rule. No numeric order, nearby text, page-level context, or guessed class semantics may be used.
+
+Because promo remains unproven, the current K3C evidence gate is expected to remain `BLOCKED`. That is a valid precision-oriented result.
 
 ## Family association
 
-Family association is attempted only **after** a valid `SourceCardSemanticReceipt` exists.
+Family association remains separate from semantic price receipts.
 
-`BOUND` requires an exact accepted K2 `source_identifier` occurrence within the same serialized card and the exact relation/source-identifier/family-identity tuple from the contract mapping.
+For each valid semantic receipt:
 
-If no accepted identifier is card-local, emit:
+- scan only the exact bounded owner scope for one of the four accepted K2 source identifiers;
+- zero matches -> deterministic `UNBOUND / FAMILY_BINDING_MISSING`;
+- multiple accepted matches -> deterministic `UNBOUND / FAMILY_BINDING_AMBIGUOUS`;
+- one exact accepted identifier -> `BOUND` through the existing v2 family-association contract.
 
-`UNBOUND / FAMILY_BINDING_MISSING`
+No page-level dates, nearest section, campaign order, current week, preview timing or default family may create `BOUND`.
 
-If multiple accepted families appear card-local, emit:
-
-`UNBOUND / FAMILY_BINDING_AMBIGUOUS`
-
-No page-level date, publication window, nearby section, default family, closest-week or numeric inference may convert `UNBOUND` to `BOUND`.
-
-`UNBOUND` carries no family relation, family identity, validity, current or preview semantics.
+An UNBOUND association carries no family/current/preview/validity semantics.
 
 ## Deliberate ambiguity probe
 
-The derivation also runs one intentionally broad card-like selector. It is **not** used for semantic ownership. The probe must resolve to multiple nodes and is recorded as:
+The sanitized result includes one intentionally broad structural selector count.
+
+If that selector resolves to more than one owner candidate, the probe records:
 
 `AMBIGUOUS_CARD_OWNERSHIP`
 
-If the real packet does not demonstrate that ambiguity control, the evidence gate remains BLOCKED.
+This proves the broad ownership strategy is rejected; it is not used to create semantic receipts.
 
 ## Determinism
 
-The semantic projection is derived twice:
+The harness derives twice:
 
-1. normal card/role construction order;
-2. reversed card/role construction order.
+- normal card/role construction order;
+- reversed card/role construction order.
 
-Receipts are canonicalized by their contract identities. The full sanitized projections must be byte-equivalent as Python data structures; otherwise the run fails as `DERIVATION_NONDETERMINISTIC`.
+Before comparison it canonicalizes:
 
-## Target-scoped retained invariance
+- semantic receipts by receipt identity;
+- family associations by association identity;
+- promo-marker observations by sanitized locator/hash tuple;
+- blocker counts by reason code.
 
-The fingerprint covers only:
+Any output difference is `DERIVATION_NONDETERMINISTIC`.
 
-`<retained-root>/kaufland/1503/k2/2026-08-13_2026-09-02`
+## Sanitization
 
-For each exact target entry it binds path, type, mode, size, inode, `mtime_ns`, `ctime_ns`, and file-content SHA-256 (or symlink-target SHA where applicable). `atime` is intentionally excluded because a read may update access time.
+Allowed output is bounded structured metadata only.
 
-After semantic derivation the tool:
+Never emit:
 
-1. reruns the exact K2 verifier;
-2. recomputes the exact target-scoped fingerprint;
-3. requires verifier decision equality;
-4. requires `TARGET_FINGERPRINT_AFTER == TARGET_FINGERPRINT_BEFORE`.
+- full retained HTML;
+- full product/card HTML;
+- product title/brand text;
+- cookies;
+- credentials;
+- filesystem exception text;
+- uncontrolled raw attributes;
+- binaries.
 
-Sibling or unrelated retained packets are never scanned by the fingerprint helper.
+Receipt locators, evidence hashes, accepted K2 identifiers and bounded counts are allowed provenance.
 
-## Sanitized output contract
+## Expected result interpretation
 
-Output may contain only bounded structured data such as:
+### `BLOCKED`
 
-- accepted immutable identities;
-- counts;
-- stable reason codes;
-- structural locators;
-- SHA-256 evidence identities;
-- canonical Decimal amounts from accepted semantic receipts;
-- at most 12 semantic receipt samples;
-- at most 12 family-association samples;
-- target fingerprints;
-- explicit all-false mutation/network flags.
+`BLOCKED` is normal when real source evidence is insufficient.
 
-It must not emit:
+For the corrected K3C v1 harness, public promo is intentionally unproven, so a real run should remain BLOCKED even if reference/XTRA semantic receipts are established.
 
-- full raw HTML;
-- full card HTML;
-- product titles/descriptions solely for diagnostics;
-- cookies/session values;
-- binaries;
-- secrets;
-- uncontrolled exception tracebacks or local path dumps.
+Useful BLOCKED evidence may include:
 
-## Evidence gate result
+- candidate scope count;
+- reference/XTRA receipt counts;
+- promo marker observations;
+- BOUND/UNBOUND family counts;
+- ambiguity-probe result;
+- blocker counts;
+- deterministic second derivation;
+- unchanged target fingerprint.
 
-`PASS` requires all of the following in one deterministic projection:
+Do not turn BLOCKED into PASS by weakening role or ownership rules.
 
-- at least one semantic receipt;
-- at least one explicit promo receipt;
-- at least one explicit reference receipt;
-- at least one explicit XTRA receipt;
-- at least one card proving promo and XTRA as distinct roles;
-- deliberate broad ambiguity probe -> `AMBIGUOUS_CARD_OWNERSHIP`;
-- second derivation identical;
-- post-verifier identical;
-- retained target fingerprint unchanged.
+### Future `PASS`
 
-Family association may legitimately remain `UNBOUND`; that does not erase independently proven card-local price semantics. However an UNBOUND card provides no validity/current/preview authority.
+PASS is not available until a later reviewed source change adds defensible explicit public-promo role evidence and the real retained packet proves all required K3 role gates.
 
-If any evidence is insufficient, the correct result is `BLOCKED`. Do not widen selectors or infer semantics merely to obtain PASS.
+That later source change must be separately reviewed through normal FAST source workflow.
 
-## #702 boundary
+## #702 parser gate
 
-A K3C source merge does not start #702.
+#702 remains separate.
 
-A later read-only K3C execution can establish reviewed real-K2 price-role evidence. #702 may consume only semantics actually proven by that evidence. Campaign validity/current/preview semantics additionally require reviewed `BOUND` family association evidence for the relevant card.
+K3C source merge does not authorize parser implementation.
 
-If the evidence remains insufficient, keep the affected parser semantics blocked or Review-only rather than guessing.
+Before #702 may consume a role:
 
-## Mutation classification
+- `reference` must have reviewed real-K2 same-card evidence;
+- `xtra` must have reviewed real-K2 same-card evidence;
+- `promo` must have reviewed real-K2 explicit public-promo evidence;
+- family validity/current/preview semantics require a reviewed `BOUND` family association.
 
-For this K3C source batch:
+UNBOUND provides no campaign validity.
 
-- Kaufland live network: **NO**
-- retained evidence read: **NO**
-- retained evidence write: **NO**
-- K2 replay/runtime executor: **NO**
-- #702 parser implementation: **NO**
-- production DB write: **NO**
-- Review/publication write: **NO**
-- production deploy: **NO**
-- scheduler/systemd/host/container mutation: **NO**
-- secrets/Cloudflare mutation: **NO**
+If real K2 evidence remains insufficient, keep the affected semantics blocked or route them to Review later. Never guess to satisfy parser acceptance.
 
-For a later K3C derivation execution, retained evidence **read** becomes YES, while all mutation/runtime/network flags above remain NO.
+## Failure handling
+
+Read-only derivation itself is not a mutation gate under FAST-LANE v2.2.
+
+If the harness observes identity drift, ambiguity, nondeterminism, unexpected bytes, unexpected parser version or any other contract failure:
+
+- preserve the sanitized result;
+- STOP semantic promotion;
+- do not alter retained evidence;
+- do not fall back to live Kaufland network;
+- do not start #702 parser implementation from the failed assumption.
+
+If a later operation crosses into a Composite Live mutation category, the separate v2.2 live authorization and post-mutation STOP rules apply.
+
+## Production classification
+
+Network: **NO**  
+Retained evidence read: **YES only when the later read-only harness is executed**  
+Retained evidence write: **NO**  
+Runtime/replay executor: **NO**  
+Parser implementation: **NO**  
+Production DB/Review/publication write: **NO**  
+Scheduler/systemd/host/container mutation: **NO**  
+Secrets/Cloudflare mutation: **NO**  
+Production deploy: **NO**

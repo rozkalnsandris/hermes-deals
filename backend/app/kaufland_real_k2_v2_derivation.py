@@ -50,6 +50,7 @@ EXPECTED_OVERVIEW_SHA256 = "b95e735a707c9da023876ef280c6cbccfa1d7bf25d1638926eea
 EXPECTED_OVERVIEW_BYTES = 4_440_080
 EXPECTED_OVERVIEW_CONTENT_TYPE = "text/html; charset=UTF-8"
 MAX_RECEIPT_SAMPLES = 12
+MAX_PROMO_MARKER_SAMPLES = 12
 MAX_BLOCKER_CODES = 32
 MAX_LOCATOR_LENGTH = 512
 
@@ -57,8 +58,6 @@ _PRICE_RE = re.compile(r"(?<!\d)(?P<whole>\d{1,5})\s*[,.]\s*(?P<cents>\d{2})(?!\
 _NUR_RE = re.compile(r"(?<![A-Za-zÄÖÜäöüß])nur(?![A-Za-zÄÖÜäöüß])", re.IGNORECASE)
 _SAFE_ARTICLE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,160}$")
 _IDENTIFIER_BOUNDARY_CLASS = r"A-Za-z0-9._-"
-_CARD_CLASS_HINTS = ("offer", "product", "card", "tile")
-_BROAD_SELECTOR = "article, [class*='offer'], [class*='product'], [class*='card'], [class*='tile']"
 
 
 class K3CDerivationError(RuntimeError):
@@ -108,20 +107,13 @@ def _has_class(tag: Tag, token: str) -> bool:
     return token in _classes(tag)
 
 
-def _is_cardish(tag: Tag) -> bool:
-    if tag.name in {"article", "li"}:
-        return True
-    folded = " ".join(_classes(tag)).casefold()
-    return any(hint in folded for hint in _CARD_CLASS_HINTS)
-
-
 def _rawpath(tag: Tag) -> str:
     parts: list[str] = []
     current: Tag | None = tag
     while current is not None and current.name not in {"[document]", None}:
         parent = current.parent
         if not isinstance(parent, Tag):
-            parts.append(current.name)
+            parts.append(str(current.name))
             break
         same_name = [
             item
@@ -132,7 +124,7 @@ def _rawpath(tag: Tag) -> str:
             index = same_name.index(current) + 1
             parts.append(f"{current.name}[{index}]")
         else:
-            parts.append(current.name)
+            parts.append(str(current.name))
         current = parent
     locator = "rawpath:/" + "/".join(reversed(parts))
     if len(locator) > MAX_LOCATOR_LENGTH:
@@ -143,23 +135,11 @@ def _rawpath(tag: Tag) -> str:
     return locator
 
 
-def _cardish_ancestor(anchor: Tag) -> Tag | None:
-    current: Tag | None = anchor
-    depth = 0
-    while current is not None and depth <= 8:
-        if _is_cardish(current):
-            return current
-        parent = current.parent
-        current = parent if isinstance(parent, Tag) else None
-        depth += 1
-    return None
-
-
 def _article_ids_from_anchor(anchor: Tag) -> tuple[str, ...]:
     href = str(anchor.get("href", "")).strip()
     if not href:
         return ()
-    values = []
+    values: list[str] = []
     for value in parse_qs(urlsplit(href).query).get("kloffer-articleID", []):
         decoded = unquote(value).strip()
         if _SAFE_ARTICLE_ID_RE.fullmatch(decoded):
@@ -167,24 +147,58 @@ def _article_ids_from_anchor(anchor: Tag) -> tuple[str, ...]:
     return tuple(sorted(set(values)))
 
 
+def _article_ids_in_scope(scope: Tag) -> tuple[str, ...]:
+    values: set[str] = set()
+    if scope.name == "a":
+        values.update(_article_ids_from_anchor(scope))
+    for anchor in scope.find_all("a", href=True):
+        values.update(_article_ids_from_anchor(anchor))
+    return tuple(sorted(values))
+
+
+def _scope_has_marker(scope: Tag) -> bool:
+    if any(
+        _has_class(tag, "k-price-tag__old-price")
+        or _has_class(tag, "k-price-tag--xtra")
+        for tag in scope.find_all(True)
+    ):
+        return True
+    return scope.find(string=_NUR_RE) is not None
+
+
 def _candidate_cards(soup: BeautifulSoup) -> tuple[Tag, ...]:
-    seen: set[int] = set()
+    """Find the smallest bounded DOM scope joining one article ID to price-role clues.
+
+    No retailer card class is guessed here. A scope is accepted only when it contains
+    exactly one distinct source article ID and at least one explicit/observed price
+    marker. The first qualifying ancestor is the deterministic minimal owner scope.
+    """
+
+    seen: set[str] = set()
     cards: list[Tag] = []
     for anchor in soup.find_all("a", href=True):
         if len(_article_ids_from_anchor(anchor)) != 1:
             continue
-        card = _cardish_ancestor(anchor)
-        if card is None or id(card) in seen:
+        current = anchor.parent if isinstance(anchor.parent, Tag) else None
+        depth = 0
+        chosen: Tag | None = None
+        while current is not None and depth <= 8:
+            article_ids = _article_ids_in_scope(current)
+            if len(article_ids) > 1:
+                break
+            if len(article_ids) == 1 and _scope_has_marker(current):
+                chosen = current
+                break
+            parent = current.parent
+            current = parent if isinstance(parent, Tag) else None
+            depth += 1
+        if chosen is None:
             continue
-        article_ids: set[str] = (
-            set(_article_ids_from_anchor(card)) if card.name == "a" else set()
-        )
-        for descendant in card.find_all("a", href=True):
-            article_ids.update(_article_ids_from_anchor(descendant))
-        if len(article_ids) != 1:
+        locator = _rawpath(chosen)
+        if locator in seen:
             continue
-        seen.add(id(card))
-        cards.append(card)
+        seen.add(locator)
+        cards.append(chosen)
     return tuple(cards)
 
 
@@ -264,30 +278,35 @@ def _xtra_candidates(card: Tag) -> Iterator[tuple[Tag, str, str]]:
             yield tag, amount, "class:k-price-tag--xtra"
 
 
-def _promo_candidates(card: Tag) -> Iterator[tuple[Tag, str, str]]:
-    seen: set[int] = set()
+def _promo_marker_observations(card: Tag) -> list[dict[str, object]]:
+    """Return bounded sanitized clues without promoting `nur` to promo semantics."""
+
+    observations: list[dict[str, object]] = []
+    seen: set[str] = set()
     for text_node in card.find_all(string=_NUR_RE):
         if not isinstance(text_node, NavigableString):
             continue
-        current = text_node.parent if isinstance(text_node.parent, Tag) else None
-        depth = 0
-        while current is not None and current is not card.parent and depth <= 4:
-            if any(
-                _has_class(current, token)
-                for token in ("k-price-tag--xtra", "k-price-tag__old-price")
-            ):
-                break
-            amount = _scope_price(current)
-            if amount is not None:
-                if id(current) not in seen:
-                    seen.add(id(current))
-                    yield current, amount, "text-marker:nur"
-                break
-            if current is card:
-                break
-            parent = current.parent
-            current = parent if isinstance(parent, Tag) else None
-            depth += 1
+        parent = text_node.parent if isinstance(text_node.parent, Tag) else None
+        if parent is None:
+            continue
+        locator = _rawpath(parent)
+        if locator in seen:
+            continue
+        seen.add(locator)
+        amounts = _canonical_amounts(parent.get_text(" ", strip=True))
+        observations.append(
+            {
+                "owner_card_locator": _rawpath(card),
+                "marker": "text:nur",
+                "marker_locator": locator,
+                "marker_fragment_sha256": _sha256_text(str(parent)),
+                "amount_count": len(amounts),
+                "generic_price_tag_class_present": _has_class(parent, "k-price-tag"),
+                "xtra_class_present": _has_class(parent, "k-price-tag--xtra"),
+                "old_price_class_present": _has_class(parent, "k-price-tag__old-price"),
+            }
+        )
+    return observations
 
 
 def _family_matches(card: Tag) -> list[tuple[str, str]]:
@@ -329,9 +348,7 @@ def _family_association(semantic_receipt, card: Tag, blockers: Counter[str]):
             "FAMILY_IDENTITY_INTERNAL_MISMATCH",
             "accepted family mapping changed during derivation",
         )
-    locator = (
-        f"{semantic_receipt.card_locator}::family_source_identifier[{relation}]"
-    )
+    locator = f"{semantic_receipt.card_locator}::family_source_identifier[{relation}]"
     if len(locator) > MAX_LOCATOR_LENGTH:
         blockers["FAMILY_BINDING_NOT_CARD_LOCAL"] += 1
         receipt = build_unbound_family_association(
@@ -366,10 +383,15 @@ def derive_html_projection(
     if reverse_construction_order:
         cards.reverse()
 
-    broad_owner_count = len(soup.select(_BROAD_SELECTOR))
+    broad_owner_count = len(
+        soup.select(
+            "article, [class*='offer'], [class*='product'], [class*='card'], [class*='tile']"
+        )
+    )
     blockers: Counter[str] = Counter()
     semantics = []
     associations = []
+    promo_markers: list[dict[str, object]] = []
 
     for card in cards:
         try:
@@ -378,9 +400,9 @@ def derive_html_projection(
             blockers[exc.code] += 1
             continue
         card_sha = _sha256_text(str(card))
-        evidence = []
+        promo_markers.extend(_promo_marker_observations(card))
+        evidence: list[PriceEvidence] = []
         role_builders = (
-            ("promo", _promo_candidates),
             ("reference", _reference_candidates),
             ("xtra", _xtra_candidates),
         )
@@ -424,17 +446,23 @@ def derive_html_projection(
 
     semantics.sort(key=lambda item: item.receipt_identity_sha256)
     associations.sort(key=lambda item: item.association_identity_sha256)
+    promo_markers.sort(
+        key=lambda item: (
+            str(item["owner_card_locator"]),
+            str(item["marker_locator"]),
+            str(item["marker_fragment_sha256"]),
+        )
+    )
     role_counts = Counter(
         evidence.role
         for receipt in semantics
         for evidence in receipt.price_evidence
     )
-    promo_xtra_count = sum(
-        {item.role for item in receipt.price_evidence} >= {"promo", "xtra"}
-        for receipt in semantics
-    )
     bound_count = sum(item.status == "BOUND" for item in associations)
     unbound_count = sum(item.status == "UNBOUND" for item in associations)
+
+    if promo_markers:
+        blockers["PROMO_MARKER_OBSERVED_ROLE_UNPROVEN"] += len(promo_markers)
 
     broad_probe = {
         "selector_id": "cardish-class-broad-probe-v1",
@@ -448,40 +476,30 @@ def derive_html_projection(
     if broad_owner_count <= 1:
         blockers["AMBIGUITY_PROBE_NOT_PROVEN"] += 1
 
-    blocker_counts = dict(sorted(blockers.items())[:MAX_BLOCKER_CODES])
     projection: dict[str, object] = {
         "schema_version": DERIVATION_SCHEMA_VERSION,
         "contract_version": DERIVATION_CONTRACT_VERSION,
         "parser_backend": PARSER_BACKEND,
         "candidate_card_count": len(cards),
         "semantic_receipt_count": len(semantics),
-        "promo_receipt_count": role_counts.get("promo", 0),
+        "promo_receipt_count": 0,
         "reference_receipt_count": role_counts.get("reference", 0),
         "xtra_receipt_count": role_counts.get("xtra", 0),
-        "dual_promo_xtra_receipt_count": promo_xtra_count,
+        "promo_marker_observation_count": len(promo_markers),
+        "promo_role_policy": "BLOCKED_UNTIL_EXPLICIT_SOURCE_ROLE_EVIDENCE",
         "bound_family_count": bound_count,
         "unbound_family_count": unbound_count,
         "broad_ambiguity_probe": broad_probe,
-        "blocker_counts": blocker_counts,
+        "blocker_counts": dict(sorted(blockers.items())[:MAX_BLOCKER_CODES]),
+        "promo_marker_samples": promo_markers[:MAX_PROMO_MARKER_SAMPLES],
         "semantic_receipt_samples": [
             item.as_public_dict() for item in semantics[:MAX_RECEIPT_SAMPLES]
         ],
         "family_association_samples": [
             item.as_public_dict() for item in associations[:MAX_RECEIPT_SAMPLES]
         ],
+        "evidence_gate_status": "BLOCKED",
     }
-    required_roles_proven = all(
-        role_counts.get(role, 0) > 0
-        for role in ("promo", "reference", "xtra")
-    )
-    projection["evidence_gate_status"] = (
-        "PASS"
-        if semantics
-        and required_roles_proven
-        and promo_xtra_count > 0
-        and broad_owner_count > 1
-        else "BLOCKED"
-    )
     projection["projection_identity_sha256"] = _json_sha(projection)
     return projection
 

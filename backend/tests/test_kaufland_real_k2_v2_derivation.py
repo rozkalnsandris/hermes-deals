@@ -12,21 +12,21 @@ from app import kaufland_real_k2_v2_derivation as k3c
 SYNTHETIC_HTML = """
 <!doctype html>
 <html><body><main>
-  <div class="offer-card" data-family="DE_de_KDZ1_1503_D33">
+  <section data-family="DE_de_KDZ1_1503_D33">
     <a href="/angebote/detail.html?kloffer-articleID=A100">Secret Product Name Alpha</a>
-    <div class="promo">nur <span>1,99 €</span></div>
+    <div>nur <span>1,99 €</span></div>
     <span class="k-price-tag__old-price">2,79 €</span>
     <div class="k-price-tag--xtra">Mit Kaufland Card XTRA ** <span>1,49 €</span></div>
-  </div>
-  <div class="offer-card">
+  </section>
+  <section>
     <a href="/angebote/detail.html?kloffer-articleID=A200">Secret Product Name Beta</a>
-    <div class="promo">nur <span>3,49 €</span></div>
-  </div>
+    <div>nur <span>3,49 €</span></div>
+  </section>
 </main></body></html>
 """
 
 
-def test_projection_is_deterministic_and_proves_separate_roles():
+def test_projection_is_deterministic_but_promo_marker_stays_unproven():
     first = k3c.derive_html_projection(SYNTHETIC_HTML)
     second = k3c.derive_html_projection(
         SYNTHETIC_HTML,
@@ -34,55 +34,71 @@ def test_projection_is_deterministic_and_proves_separate_roles():
     )
 
     assert first == second
-    assert first["evidence_gate_status"] == "PASS"
+    assert first["evidence_gate_status"] == "BLOCKED"
     assert first["candidate_card_count"] == 2
-    assert first["promo_receipt_count"] == 2
+    assert first["semantic_receipt_count"] == 1
+    assert first["promo_receipt_count"] == 0
     assert first["reference_receipt_count"] == 1
     assert first["xtra_receipt_count"] == 1
-    assert first["dual_promo_xtra_receipt_count"] == 1
+    assert first["promo_marker_observation_count"] == 2
     assert first["bound_family_count"] == 1
-    assert first["unbound_family_count"] == 1
-    assert (
-        first["broad_ambiguity_probe"]["reason_code"]
-        == "AMBIGUOUS_CARD_OWNERSHIP"
-    )
+    assert first["unbound_family_count"] == 0
+    assert first["promo_role_policy"] == "BLOCKED_UNTIL_EXPLICIT_SOURCE_ROLE_EVIDENCE"
+    assert first["blocker_counts"]["PROMO_MARKER_OBSERVED_ROLE_UNPROVEN"] == 2
 
 
-def test_projection_is_sanitized_and_does_not_emit_product_text():
+def test_nur_with_one_price_never_becomes_public_promo():
+    html = """
+    <html><body>
+      <div>
+        <a href="/x?kloffer-articleID=A300">Hidden</a>
+        <div>nur <span>1,99 €</span></div>
+      </div>
+      <div class="other">control</div>
+    </body></html>
+    """
+    payload = k3c.derive_html_projection(html)
+    assert payload["candidate_card_count"] == 1
+    assert payload["promo_marker_observation_count"] == 1
+    assert payload["promo_receipt_count"] == 0
+    assert payload["semantic_receipt_count"] == 0
+    assert payload["evidence_gate_status"] == "BLOCKED"
+
+
+def test_projection_is_sanitized_and_does_not_emit_product_text_or_article_id():
     payload = k3c.derive_html_projection(SYNTHETIC_HTML)
     encoded = json.dumps(payload, sort_keys=True)
 
     assert "Secret Product Name Alpha" not in encoded
     assert "Secret Product Name Beta" not in encoded
-    assert "<div" not in encoded
     assert "kloffer-articleID=A100" not in encoded
+    assert "<section" not in encoded
 
 
-def test_reference_is_not_inferred_from_larger_unlabelled_number():
+def test_reference_requires_explicit_old_price_class():
     html = """
     <html><body>
-      <div class="offer-card">
-        <a href="/x?kloffer-articleID=A300">Hidden</a>
-        <div class="promo">nur <span>1,99 €</span></div>
+      <div>
+        <a href="/x?kloffer-articleID=A400">Hidden</a>
+        <div>nur 1,99 €</div>
         <div class="generic-number">9,99 €</div>
+        <div class="k-price-tag--xtra">XTRA 1,49 €</div>
       </div>
-      <div class="offer-card"><a href="/x?kloffer-articleID=A301">Control</a></div>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
-    assert payload["promo_receipt_count"] == 1
     assert payload["reference_receipt_count"] == 0
-    assert payload["evidence_gate_status"] == "BLOCKED"
+    assert payload["xtra_receipt_count"] == 1
+    assert payload["promo_receipt_count"] == 0
 
 
 def test_xtra_does_not_satisfy_public_promo():
     html = """
     <html><body>
-      <div class="offer-card">
-        <a href="/x?kloffer-articleID=A400">Hidden</a>
+      <div>
+        <a href="/x?kloffer-articleID=A500">Hidden</a>
         <div class="k-price-tag--xtra">Kaufland Card XTRA 1,49 €</div>
       </div>
-      <div class="offer-card"><a href="/x?kloffer-articleID=A401">Control</a></div>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
@@ -91,42 +107,74 @@ def test_xtra_does_not_satisfy_public_promo():
     assert payload["evidence_gate_status"] == "BLOCKED"
 
 
-def test_multiple_same_role_candidates_fail_closed_for_that_role():
+def test_multiple_reference_candidates_fail_closed_for_that_role():
     html = """
     <html><body>
-      <div class="offer-card">
-        <a href="/x?kloffer-articleID=A500">Hidden</a>
+      <div>
+        <a href="/x?kloffer-articleID=A600">Hidden</a>
         <span class="k-price-tag__old-price">2,79 €</span>
         <span class="k-price-tag__old-price">2,99 €</span>
-        <div class="promo">nur 1,99 €</div>
+        <div class="k-price-tag--xtra">XTRA 1,49 €</div>
       </div>
-      <div class="offer-card"><a href="/x?kloffer-articleID=A501">Control</a></div>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
     assert payload["reference_receipt_count"] == 0
+    assert payload["xtra_receipt_count"] == 1
     assert payload["blocker_counts"]["REFERENCE_ROLE_AMBIGUOUS"] == 1
+
+
+def test_minimal_owner_scope_rejects_multiple_distinct_article_ids():
+    html = """
+    <html><body>
+      <div>
+        <a href="/x?kloffer-articleID=A700">One</a>
+        <a href="/x?kloffer-articleID=A701">Two</a>
+        <span class="k-price-tag__old-price">2,79 €</span>
+      </div>
+    </body></html>
+    """
+    payload = k3c.derive_html_projection(html)
+    assert payload["candidate_card_count"] == 0
+    assert payload["semantic_receipt_count"] == 0
+
+
+def test_family_binding_requires_exact_card_local_accepted_identifier():
+    html = """
+    <html><body>
+      <div data-family="DE_de_KDZ1_1503_D33">
+        <a href="/x?kloffer-articleID=A800">Hidden</a>
+        <span class="k-price-tag__old-price">2,79 €</span>
+      </div>
+      <div>
+        <a href="/x?kloffer-articleID=A801">Hidden</a>
+        <span class="k-price-tag__old-price">3,79 €</span>
+      </div>
+    </body></html>
+    """
+    payload = k3c.derive_html_projection(html)
+    assert payload["bound_family_count"] == 1
+    assert payload["unbound_family_count"] == 1
+    statuses = {item["status"] for item in payload["family_association_samples"]}
+    assert statuses == {"BOUND", "UNBOUND"}
 
 
 def test_multiple_family_relations_become_unbound_ambiguous():
     html = """
     <html><body>
-      <div class="offer-card" data-a="DE_de_KDZ1_1503_D33" data-b="DE_de_KDZ1_1503_D34">
-        <a href="/x?kloffer-articleID=A600">Hidden</a>
-        <div class="promo">nur 1,99 €</div>
+      <div data-a="DE_de_KDZ1_1503_D33" data-b="DE_de_KDZ1_1503_D34">
+        <a href="/x?kloffer-articleID=A900">Hidden</a>
+        <span class="k-price-tag__old-price">2,79 €</span>
       </div>
-      <div class="offer-card"><a href="/x?kloffer-articleID=A601">Control</a></div>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
     assert payload["bound_family_count"] == 0
     assert payload["unbound_family_count"] == 1
     assert payload["blocker_counts"]["FAMILY_BINDING_AMBIGUOUS"] == 1
-    assert (
-        payload["family_association_samples"][0]["blocker_reason"]
-        == "FAMILY_BINDING_AMBIGUOUS"
-    )
-    assert payload["family_association_samples"][0]["family_relation"] is None
+    association = payload["family_association_samples"][0]
+    assert association["blocker_reason"] == "FAMILY_BINDING_AMBIGUOUS"
+    assert association["family_relation"] is None
 
 
 def test_target_scoped_fingerprint_is_stable_and_content_bound(tmp_path: Path):
