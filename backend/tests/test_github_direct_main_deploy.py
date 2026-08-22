@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 from pathlib import Path
 import sys
@@ -150,7 +149,7 @@ class GitHubDirectMainDeployTest(unittest.TestCase):
                 get_json=get_json,
             )
 
-    def test_dispatch_is_fixed_to_existing_main_deploy_workflow(self) -> None:
+    def test_legacy_dispatch_helper_remains_fixed_to_manual_main_deploy_workflow(self) -> None:
         captured = {}
 
         def opener(request, timeout=0):
@@ -191,25 +190,57 @@ class GitHubDirectMainDeployTest(unittest.TestCase):
         )
         self.assertEqual(result["workflow_run_id"], 123456)
 
-    def test_workflow_is_github_hosted_and_cannot_execute_comment_text(self) -> None:
+    def test_workflow_authorizes_on_github_hosted_then_uses_guarded_release_runner(self) -> None:
         workflow = (ROOT / ".github/workflows/hermes-direct-main-deploy.yml").read_text(encoding="utf-8")
         self.assertIn("issue_comment:", workflow)
         self.assertIn("github.event.issue.number == 553", workflow)
-        self.assertIn("actions: write", workflow)
-        self.assertIn("contents: read", workflow)
-        self.assertIn("issues: write", workflow)
         self.assertIn("runs-on: ubuntu-latest", workflow)
-        self.assertNotIn("self-hosted", workflow)
-        self.assertNotIn("sudo ", workflow)
-        self.assertNotIn("docker ", workflow)
-        self.assertNotIn("github.event.comment.body }}", workflow)
+        self.assertIn("actions: read", workflow)
+        self.assertNotIn("actions: write", workflow)
+        self.assertIn("contents: read", workflow)
         self.assertIn(
             "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0",
             workflow,
         )
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("ref: main", workflow)
-        self.assertIn("python3 tools/github_direct_main_deploy.py", workflow)
+        self.assertIn("from tools.github_direct_main_deploy import authorize_event", workflow)
+        self.assertNotIn("python3 tools/github_direct_main_deploy.py", workflow)
+        self.assertNotIn("github.event.comment.body }}", workflow)
+
+        deploy = workflow.split("\n  deploy:\n", 1)[1].split("\n  report:\n", 1)[0]
+        self.assertIn("- self-hosted", deploy)
+        self.assertIn("- hermes-deals-release", deploy)
+        self.assertIn(
+            "sudo --non-interactive /usr/local/sbin/hermes-deals-deploy-main",
+            deploy,
+        )
+        self.assertNotIn("GH_TOKEN:", deploy)
+        self.assertNotIn("github.event.comment", deploy)
+        self.assertNotIn("docker ", deploy)
+        self.assertIn("weekly-retailer-trust-smoke.json", deploy)
+        for state in (
+            "offers",
+            "no_offers",
+            "not_published_yet",
+            "source_unavailable",
+            "stale_data",
+            "not_supported",
+        ):
+            self.assertIn(f'"{state}"', deploy)
+        for retailer in ("lidl", "aldi_nord", "netto", "edeka"):
+            self.assertIn(f'"{retailer}"', deploy)
+        self.assertIn("https://deals.rozkalns.net/api/health", deploy)
+        self.assertIn("https://deals.rozkalns.net/ui", deploy)
+        self.assertIn(
+            "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0",
+            deploy,
+        )
+
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("issues: write", report)
+        self.assertIn("database writes/migrations authorized: **false**", report)
+        self.assertIn("/issues/553/comments", report)
 
 
 if __name__ == "__main__":
