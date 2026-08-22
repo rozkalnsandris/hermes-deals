@@ -1,62 +1,33 @@
-# FAST-LANE v2.1 Hybrid — Hermes Deals
+# FAST-LANE v2.2 Composite — Hermes Deals
 
-Hermes Deals adopts the shared FAST-LANE v2.1 Hybrid delivery model while retaining its evidence-first retailer/runtime safety rules.
+> Compatibility path: `AGENTS.md` already points to this v2.1 filename; the contents here are the authoritative v2.2 rules.
 
-## FAST
+## Core rule
 
-Typical FAST work includes:
+**The human approves the RISK / DECISION. Automation executes the TECHNICAL STEPS.** STRICT describes mutation risk, not the number of approval prompts. Read-only checkpoints do not create owner gates.
 
-- documentation and roadmap alignment;
-- parser/source code and deterministic fixtures/tests that do not perform live writes;
-- UI/API source changes without production activation;
-- test-only and behavior-preserving refactors;
-- source code for a future gated runtime operation, provided the operation itself is not invoked.
+## FAST source envelope
 
-An explicit owner command such as `FAST #702 līdz Ready` may authorize one coherent source-only batch from fresh GitHub state through Ready. FAST may combine 2-5 closely related same-risk work items when they share one subsystem and acceptance story.
+`START`, `turpini`, or an equivalent continuation instruction may carry safe source work from fresh canonical GitHub state through Ready: branch, implementation, focused tests, commit/push, Draft PR, CI/review and up to two scope-preserving corrective commits. Batch 2-5 closely related same-risk items when they form one acceptance story. Merge remains explicit.
 
-Plain `turpini` keeps its existing narrower meaning: safe/read-only/source-level work only, with no GitHub write authority.
+## Human gate budget
 
-## STRICT
+Normal delivery has at most two owner gates: **MERGE**, then **COMPOSITE LIVE** only if live work is actually required. CI polling, diff inspection, GET/preflight, evidence refresh, checkout discovery, build preparation, candidate verification and reconciliation are automation steps.
 
-Always separately authorized:
+## Composite STRICT
 
-- merge;
-- production deploy;
-- production DB write or migration apply;
-- retained-evidence mutation;
-- scraper/runtime activation or live collection with write effects;
-- replay/APPLY/runtime executor invocation when separately gated;
-- scheduler/systemd/host/container mutation;
-- secrets/credentials;
-- Cloudflare mutation.
+One live authorization may cover the tightly coupled operations required for one bounded rollout when it binds the exact Git SHA, exact target, allowed mutation categories, hard limits, explicit exclusions and expected baseline. All obtainable read-only evidence is collected before asking. Preflight is the first part of the same fail-closed one-shot, not a separate owner session.
 
-If a STRICT mutation starts and fails or becomes ambiguous, preserve evidence and STOP without retry/rollback/cleanup unless the exact operation contract pre-authorized it.
+Revalidate approved SHA/target/baseline immediately before the first live write and again where drift matters. If another actor changed the target, STOP. Where artifacts/versions apply: pin tooling, build once, verify the exact candidate and deploy that exact artifact/version.
 
-## Batching and corrections
+## Local STRICT boundaries
 
-- FAST may batch 2-5 related same-risk work items.
-- Prefer one coherent PR and one CI cycle instead of splitting the same acceptance story into micro-PRs.
-- After first publication, at most two scope-preserving corrective commits may address CI/review findings.
-- A third correction, a new schema/persistence boundary, or any runtime/production authority expansion requires STOP and new authorization.
+Separate live authorization is required for production deploy, production DB write/migration, retained-evidence mutation, scraper/runtime activation or live collection with write effects, replay/APPLY/runtime executor invocation, scheduler/systemd/host/container mutation, secrets/credentials, Cloudflare mutation or another live authority change.
 
-## CI
+## Failure and evidence
 
-The workflow always starts. Pull-request changed files are classified inside CI.
+Authorization is consumed at the first authorized mutation. Any later error/ambiguity requires evidence preservation and STOP; no automatic retry, rollback, cleanup, reset, rebase or alternate mutation path unless explicitly pre-authorized.
 
-Phase 1 optimization is deliberately conservative:
+Use one Ready receipt and one final live receipt. Put any remaining owner decision at the **end** under one visible `ACTION REQUIRED` section; when the owner must enter/run something, provide the exact copyable instruction in a fenced `bash` block.
 
-- docs-only PR: skip frontend build, release image, backend suite and PostgreSQL contract; run classifier + stable merge gate;
-- any source/workflow/config/test change: retain the existing full four-job CI;
-- every push to `main`: retain the existing full four-job CI.
-
-Full `main` push CI is intentionally preserved because `deploy-main.yml` currently requires a successful exact-main `push` CI run for the deploy target SHA.
-
-The stable aggregate status is `FAST-LANE Merge Gate`.
-
-## Evidence and continuity
-
-Create one Ready receipt with lane, related work, base/current main, exact head SHA, reviewed scope, CI, unresolved review threads, runtime/deploy/migration classification and exact next gate.
-
-At merge time refresh only mutable evidence. After an explicitly authorized merge, exact-main verification and a compact CURRENT continuity refresh may be performed as part of the merge receipt; merge still does not authorize deploy/runtime/migration.
-
-For the active Kaufland stream, issue #741 is the current continuity location until the roadmap establishes a replacement. Detailed evidence stays in the relevant issues/PRs/CI rather than being duplicated after every micro-step.
+Merge never authorizes deploy/runtime/DB/retained mutation.
