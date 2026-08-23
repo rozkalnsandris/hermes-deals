@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 30
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'dispatcher must run as root through sudo'
+[[ $# -eq 2 ]] || fail 'usage: hermes-deals-rpi-source-sync-dispatch <target-sha> <artifact-dir>'
+
+TARGET_SHA="$1"
+RAW_EXPORT_DIR="$2"
+REPO='/home/andris/hermes-deals'
+CONFIG='/etc/hermes-deals-audits.d/rpi-source-sync.conf'
+DISPATCHER='/usr/local/sbin/hermes-deals-rpi-source-sync-dispatch'
+FIXED_FETCH_URL='https://github.com/rozkalnsandris/hermes-deals.git'
+
+[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'target SHA is invalid'
+for command in git id python3 readlink runuser sha256sum stat; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+EXPORT_DIR="$(readlink -f -- "$RAW_EXPORT_DIR")"
+[[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail 'artifact directory is missing or unsafe'
+[[ "$EXPORT_DIR" == /home/github-runner/_work/_temp/hermes-deals-rpi-source-sync-* ]] || fail 'artifact directory outside runner temp allowlist'
+[[ "$(stat -c '%U:%G %a' "$EXPORT_DIR")" == 'github-runner:github-runner 700' ]] || fail 'artifact directory metadata invalid'
+RUN_KEY="$(basename -- "$EXPORT_DIR")"
+[[ "$RUN_KEY" =~ ^hermes-deals-rpi-source-sync-[1-9][0-9]*-[1-9][0-9]*$ ]] || fail 'unexpected runner artifact directory name'
+SUMMARY="$EXPORT_DIR/rpi-source-sync-summary.json"
+[[ ! -e "$SUMMARY" ]] || fail 'source-sync summary already exists'
+
+[[ -f "$CONFIG" && ! -L "$CONFIG" ]] || fail 'source-sync bridge is not registered'
+[[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 644' ]] || fail 'source-sync config metadata invalid'
+# shellcheck disable=SC1090
+source "$CONFIG"
+[[ "${bridge_contract_version:-}" == 'hermes-deals-rpi-source-sync-v1' ]] || fail 'source-sync contract mismatch'
+[[ "${repo_path:-}" == "$REPO" ]] || fail 'registered repo path mismatch'
+[[ "${dispatcher_path:-}" == "$DISPATCHER" ]] || fail 'registered dispatcher path mismatch'
+[[ "${registered_bridge_sha:-}" =~ ^[0-9a-f]{40}$ ]] || fail 'registered bridge SHA is invalid'
+[[ "${dispatcher_sha256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'registered dispatcher SHA-256 is invalid'
+[[ -f "$DISPATCHER" && ! -L "$DISPATCHER" ]] || fail 'installed dispatcher is missing or unsafe'
+[[ "$(stat -c '%U:%G %a' "$DISPATCHER")" == 'root:root 755' ]] || fail 'installed dispatcher metadata invalid'
+[[ "$(sha256sum "$DISPATCHER" | awk '{print $1}')" == "$dispatcher_sha256" ]] || fail 'installed dispatcher content drift'
+
+write_summary() {
+  local bridge_status="$1"
+  local reason_code="$2"
+  local head_before="$3"
+  local remote_main_sha="$4"
+  local head_after="$5"
+  local mutation_started="$6"
+  local fetch_attempted="$7"
+  local head_changed="$8"
+
+  /usr/bin/python3 - "$EXPORT_DIR" "$bridge_status" "$reason_code" "$registered_bridge_sha" "$head_before" "$TARGET_SHA" "$remote_main_sha" "$head_after" "$mutation_started" "$fetch_attempted" "$head_changed" <<'PY'
+import json
+import os
+import pwd
+import re
+import stat
+import sys
+
+(
+    export_dir_raw,
+    bridge_status,
+    reason_raw,
+    registered_bridge_sha,
+    head_before,
+    target_sha,
+    remote_main_raw,
+    head_after_raw,
+    mutation_started_raw,
+    fetch_attempted_raw,
+    head_changed_raw,
+) = sys.argv[1:]
+
+sha_re = re.compile(r"[0-9a-f]{40}")
+reason = None if reason_raw == "none" else reason_raw
+if bridge_status not in {"PASS", "BLOCKED"}:
+    raise SystemExit("invalid bridge status")
+if reason is not None and re.fullmatch(r"[A-Z0-9_]{1,96}", reason) is None:
+    raise SystemExit("invalid reason code")
+for value in (registered_bridge_sha, target_sha):
+    if sha_re.fullmatch(value) is None:
+        raise SystemExit("invalid required SHA")
+for value in (head_before, remote_main_raw, head_after_raw):
+    if value != "none" and sha_re.fullmatch(value) is None:
+        raise SystemExit("invalid optional SHA")
+
+def parse_bool(raw: str) -> bool:
+    if raw == "true":
+        return True
+    if raw == "false":
+        return False
+    raise SystemExit("invalid boolean")
+
+payload = {
+    "bridge_schema_version": 1,
+    "bridge_contract_version": "hermes-deals-rpi-source-sync-v1",
+    "bridge_execution_status": bridge_status,
+    "reason_code": reason,
+    "registered_bridge_sha": registered_bridge_sha,
+    "source_checkout_path": "/home/andris/hermes-deals",
+    "head_before": None if head_before == "none" else head_before,
+    "target_sha": target_sha,
+    "remote_main_sha": None if remote_main_raw == "none" else remote_main_raw,
+    "head_after": None if head_after_raw == "none" else head_after_raw,
+    "host_mutation_started": parse_bool(mutation_started_raw),
+    "network_fetch_attempted": parse_bool(fetch_attempted_raw),
+    "source_checkout_head_changed": parse_bool(head_changed_raw),
+    "production_deploy_performed": False,
+    "database_write_performed": False,
+    "review_write_performed": False,
+    "publication_write_performed": False,
+    "retained_evidence_read_performed": False,
+    "retained_evidence_write_performed": False,
+    "diagnostic_execution_performed": False,
+    "scheduler_change_performed": False,
+    "systemd_change_performed": False,
+    "cloudflare_mutation_performed": False,
+    "container_mutation_performed": False,
+    "package_install_performed": False,
+}
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+dir_fd = os.open(export_dir_raw, flags)
+try:
+    info = os.fstat(dir_fd)
+    runner = pwd.getpwnam("github-runner")
+    if info.st_uid != runner.pw_uid or info.st_gid != runner.pw_gid:
+        raise SystemExit("artifact directory owner drift")
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        raise SystemExit("artifact directory mode drift")
+    fd = os.open(
+        "rpi-source-sync-summary.json",
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+        dir_fd=dir_fd,
+    )
+    try:
+        body = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        with os.fdopen(fd, "wb", closefd=False) as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.fchown(fd, runner.pw_uid, runner.pw_gid)
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+finally:
+    os.close(dir_fd)
+PY
+}
+
+block() {
+  local reason="$1"
+  local head_after='none'
+  if [[ -d "$REPO/.git" ]]; then
+    head_after="$(git_as_andris -C "$REPO" rev-parse HEAD 2>/dev/null || printf 'none')"
+  fi
+  write_summary 'BLOCKED' "$reason" "$HEAD_BEFORE" "$REMOTE_MAIN_SHA" "$head_after" "$MUTATION_STARTED" "$FETCH_ATTEMPTED" "$HEAD_CHANGED"
+  printf 'SOURCE_SYNC_STATUS=BLOCKED\nREASON_CODE=%s\nTARGET_SHA=%s\n' "$reason" "$TARGET_SHA"
+  exit 30
+}
+
+git_as_andris() {
+  runuser -u andris -- /usr/bin/env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    /usr/bin/git "$@"
+}
+
+HEAD_BEFORE='none'
+REMOTE_MAIN_SHA='none'
+MUTATION_STARTED='false'
+FETCH_ATTEMPTED='false'
+HEAD_CHANGED='false'
+
+id andris >/dev/null 2>&1 || block 'ANDRIS_USER_MISSING'
+id github-runner >/dev/null 2>&1 || block 'RUNNER_USER_MISSING'
+[[ -d "$REPO" && ! -L "$REPO" ]] || block 'SOURCE_CHECKOUT_PATH_UNSAFE'
+[[ "$(readlink -f -- "$REPO")" == "$REPO" ]] || block 'SOURCE_CHECKOUT_PATH_DRIFT'
+[[ "$(stat -c '%U:%G' "$REPO")" == 'andris:andris' ]] || block 'SOURCE_CHECKOUT_OWNER_DRIFT'
+[[ -d "$REPO/.git" && ! -L "$REPO/.git" ]] || block 'SOURCE_GIT_DIR_UNSAFE'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-inside-work-tree)" == 'true' ]] || block 'SOURCE_NOT_GIT_WORKTREE'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-shallow-repository)" == 'false' ]] || block 'SHALLOW_CHECKOUT_UNSUPPORTED'
+[[ "$(git_as_andris -C "$REPO" branch --show-current)" == 'main' ]] || block 'SOURCE_BRANCH_NOT_MAIN'
+HEAD_BEFORE="$(git_as_andris -C "$REPO" rev-parse HEAD)"
+[[ "$HEAD_BEFORE" =~ ^[0-9a-f]{40}$ ]] || block 'SOURCE_HEAD_INVALID'
+[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || block 'SOURCE_CHECKOUT_DIRTY'
+ORIGIN_URL="$(git_as_andris -C "$REPO" remote get-url origin)"
+case "$ORIGIN_URL" in
+  https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git)
+    ;;
+  *)
+    block 'SOURCE_ORIGIN_MISMATCH'
+    ;;
+esac
+
+# First live mutation. It is intentionally one exact public GitHub fetch into only origin/main.
+MUTATION_STARTED='true'
+FETCH_ATTEMPTED='true'
+set +e
+git_as_andris -C "$REPO" -c credential.helper= fetch \
+  --no-tags --no-write-fetch-head --quiet \
+  "$FIXED_FETCH_URL" \
+  'refs/heads/main:refs/remotes/origin/main'
+FETCH_RC=$?
+set -e
+[[ $FETCH_RC -eq 0 ]] || block 'GIT_FETCH_FAILED'
+
+REMOTE_MAIN_SHA="$(git_as_andris -C "$REPO" rev-parse refs/remotes/origin/main)"
+[[ "$REMOTE_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || block 'REMOTE_MAIN_INVALID'
+[[ "$(git_as_andris -C "$REPO" cat-file -t "$TARGET_SHA" 2>/dev/null || true)" == 'commit' ]] || block 'TARGET_COMMIT_UNAVAILABLE'
+git_as_andris -C "$REPO" merge-base --is-ancestor "$HEAD_BEFORE" "$TARGET_SHA" || block 'TARGET_NOT_FAST_FORWARD'
+git_as_andris -C "$REPO" merge-base --is-ancestor "$TARGET_SHA" "$REMOTE_MAIN_SHA" || block 'TARGET_NOT_REACHABLE_FROM_REMOTE_MAIN'
+[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || block 'SOURCE_DIRTY_AFTER_FETCH'
+[[ "$(git_as_andris -C "$REPO" branch --show-current)" == 'main' ]] || block 'SOURCE_BRANCH_DRIFT_AFTER_FETCH'
+
+if [[ "$HEAD_BEFORE" != "$TARGET_SHA" ]]; then
+  set +e
+  git_as_andris -C "$REPO" -c core.hooksPath=/dev/null merge --ff-only --quiet "$TARGET_SHA"
+  MERGE_RC=$?
+  set -e
+  [[ $MERGE_RC -eq 0 ]] || block 'FAST_FORWARD_FAILED'
+  HEAD_CHANGED='true'
+fi
+
+HEAD_AFTER="$(git_as_andris -C "$REPO" rev-parse HEAD)"
+[[ "$HEAD_AFTER" == "$TARGET_SHA" ]] || block 'POST_SYNC_HEAD_MISMATCH'
+[[ "$(git_as_andris -C "$REPO" branch --show-current)" == 'main' ]] || block 'POST_SYNC_BRANCH_MISMATCH'
+[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || block 'POST_SYNC_CHECKOUT_DIRTY'
+[[ "$(git_as_andris -C "$REPO" remote get-url origin)" == "$ORIGIN_URL" ]] || block 'POST_SYNC_ORIGIN_DRIFT'
+[[ "$(git_as_andris -C "$REPO" rev-parse refs/remotes/origin/main)" == "$REMOTE_MAIN_SHA" ]] || block 'POST_SYNC_REMOTE_MAIN_DRIFT'
+
+write_summary 'PASS' 'none' "$HEAD_BEFORE" "$REMOTE_MAIN_SHA" "$HEAD_AFTER" "$MUTATION_STARTED" "$FETCH_ATTEMPTED" "$HEAD_CHANGED"
+printf 'SOURCE_SYNC_STATUS=PASS\nHEAD_BEFORE=%s\nTARGET_SHA=%s\nHEAD_AFTER=%s\nREMOTE_MAIN_SHA=%s\nPRODUCTION_DEPLOY_PERFORMED=false\n' \
+  "$HEAD_BEFORE" "$TARGET_SHA" "$HEAD_AFTER" "$REMOTE_MAIN_SHA"
