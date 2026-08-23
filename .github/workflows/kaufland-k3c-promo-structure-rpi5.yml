@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Merged bridge pull request number
+        description: Merged K3C bridge registration pull request number
         required: true
         type: string
 
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 concurrency:
   group: hermes-deals-kaufland-k3c-promo-structure-rpi5
@@ -18,16 +19,18 @@ concurrency:
 
 jobs:
   authorize:
-    name: Authorize exact merged-main diagnostic source
+    name: Authorize reviewed bridge and exact descendant main
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      sha: ${{ steps.gate.outputs.sha }}
+      registration_sha: ${{ steps.gate.outputs.registration_sha }}
+      execution_sha: ${{ steps.gate.outputs.execution_sha }}
       pr_number: ${{ steps.gate.outputs.pr_number }}
-      ci_mode: ${{ steps.gate.outputs.ci_mode }}
+      registration_ci_mode: ${{ steps.gate.outputs.registration_ci_mode }}
+      execution_ci_mode: ${{ steps.gate.outputs.execution_ci_mode }}
 
     steps:
-      - name: Validate owner, merged PR, reachability and exact CI
+      - name: Validate owner, bridge revision, descendant main and exact CI
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,76 +83,122 @@ jobs:
               with urllib.request.urlopen(request, timeout=20) as response:
                   return json.load(response)
 
+          def workflow_runs(sha: str, event_name: str):
+              query = urllib.parse.urlencode(
+                  {"head_sha": sha, "event": event_name, "status": "completed", "per_page": 20}
+              )
+              return get(
+                  f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}"
+              ).get("workflow_runs") or []
+
+          def successful_ci(runs, *, sha: str, event_name: str, require_main: bool) -> bool:
+              return any(
+                  run.get("head_sha") == sha
+                  and run.get("event") == event_name
+                  and run.get("conclusion") == "success"
+                  and run.get("name") == "Hermes Deals CI checks"
+                  and (not require_main or run.get("head_branch") == "main")
+                  for run in runs
+              )
+
+          def content_blob(path: str, sha: str) -> str:
+              quoted = urllib.parse.quote(path, safe="/")
+              payload = get(f"https://api.github.com/repos/{repo}/contents/{quoted}?ref={sha}")
+              blob = str(payload.get("sha") or "")
+              if not re.fullmatch(r"[0-9a-f]{40}", blob):
+                  raise SystemExit(f"invalid blob identity for {path} at {sha}")
+              return blob
+
           pr = get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
           if not pr.get("merged") or not pr.get("merged_at"):
               raise SystemExit("bridge execution requires a merged pull request")
           if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
-              raise SystemExit("pull request was not merged into repository main")
+              raise SystemExit("bridge registration PR was not merged into repository main")
           if (pr.get("head", {}).get("repo") or {}).get("full_name") != repo:
-              raise SystemExit("bridge execution requires a same-repository PR head")
+              raise SystemExit("bridge registration requires a same-repository PR head")
 
-          sha = str(pr.get("merge_commit_sha") or "")
+          registration_sha = str(pr.get("merge_commit_sha") or "")
           head_sha = str((pr.get("head") or {}).get("sha") or "")
-          if not re.fullmatch(r"[0-9a-f]{40}", sha):
-              raise SystemExit("merged pull request does not expose a valid merge SHA")
+          if not re.fullmatch(r"[0-9a-f]{40}", registration_sha):
+              raise SystemExit("bridge registration PR does not expose a valid merge SHA")
           if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
-              raise SystemExit("pull request does not expose a valid head SHA")
+              raise SystemExit("bridge registration PR does not expose a valid head SHA")
 
-          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          registration_commit = get(
+              f"https://api.github.com/repos/{repo}/git/commits/{registration_sha}"
+          )
+          parents = registration_commit.get("parents") or []
+          if len(parents) != 1:
+              raise SystemExit("bridge registration SHA must be a single-parent reviewed merge")
+          registration_parent = str((parents[0] or {}).get("sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", registration_parent):
+              raise SystemExit("bridge registration parent SHA is invalid")
+
+          workflow_path = ".github/workflows/kaufland-k3c-promo-structure-rpi5.yml"
+          installer_path = "tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh"
+          if content_blob(workflow_path, registration_sha) == content_blob(workflow_path, registration_parent):
+              raise SystemExit("selected PR did not introduce or update the K3C bridge workflow")
+          if content_blob(installer_path, registration_sha) == content_blob(installer_path, registration_parent):
+              raise SystemExit("selected PR did not introduce or update the K3C bridge installer")
+
+          main_branch = get(f"https://api.github.com/repos/{repo}/branches/main")
+          execution_sha = str((main_branch.get("commit") or {}).get("sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", execution_sha):
+              raise SystemExit("current main does not expose a valid execution SHA")
+
+          comparison = get(
+              f"https://api.github.com/repos/{repo}/compare/{registration_sha}...{execution_sha}"
+          )
           if comparison.get("status") not in {"ahead", "identical"}:
               raise SystemExit("merged bridge commit is not reachable from current main")
 
-          merge_query = urllib.parse.urlencode(
-              {"head_sha": sha, "event": "push", "status": "completed", "per_page": 20}
+          merge_runs = workflow_runs(registration_sha, "push")
+          merge_ci_ok = successful_ci(
+              merge_runs, sha=registration_sha, event_name="push", require_main=True
           )
-          merge_runs = get(
-              f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{merge_query}"
-          ).get("workflow_runs") or []
-          merge_ci_ok = any(
-              run.get("head_sha") == sha
-              and run.get("head_branch") == "main"
-              and run.get("event") == "push"
-              and run.get("conclusion") == "success"
-              and run.get("name") == "Hermes Deals CI checks"
-              for run in merge_runs
-          )
-
-          ci_mode = "merge_push_ci"
+          registration_ci_mode = "merge_push_ci"
           if not merge_ci_ok:
-              head_query = urllib.parse.urlencode(
-                  {
-                      "head_sha": head_sha,
-                      "event": "pull_request",
-                      "status": "completed",
-                      "per_page": 20,
-                  }
-              )
-              head_runs = get(
-                  f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{head_query}"
-              ).get("workflow_runs") or []
-              head_ci_ok = any(
-                  run.get("head_sha") == head_sha
-                  and run.get("event") == "pull_request"
-                  and run.get("conclusion") == "success"
-                  and run.get("name") == "Hermes Deals CI checks"
-                  for run in head_runs
+              head_runs = workflow_runs(head_sha, "pull_request")
+              head_ci_ok = successful_ci(
+                  head_runs, sha=head_sha, event_name="pull_request", require_main=False
               )
               if not head_ci_ok:
-                  raise SystemExit("neither merge SHA nor exact PR head has successful CI")
-
-              merge_commit = get(f"https://api.github.com/repos/{repo}/git/commits/{sha}")
+                  raise SystemExit("neither registration merge SHA nor exact PR head has successful CI")
               head_commit = get(f"https://api.github.com/repos/{repo}/git/commits/{head_sha}")
-              merge_tree = str((merge_commit.get("tree") or {}).get("sha") or "")
+              registration_tree = str((registration_commit.get("tree") or {}).get("sha") or "")
               head_tree = str((head_commit.get("tree") or {}).get("sha") or "")
-              if not re.fullmatch(r"[0-9a-f]{40}", merge_tree) or merge_tree != head_tree:
+              if not re.fullmatch(r"[0-9a-f]{40}", registration_tree) or registration_tree != head_tree:
                   raise SystemExit("tested PR head tree differs from squash merge tree")
-              ci_mode = "tree_equivalent_pr_head_ci"
+              registration_ci_mode = "tree_equivalent_pr_head_ci"
+
+          execution_runs = workflow_runs(execution_sha, "push")
+          if not successful_ci(
+              execution_runs, sha=execution_sha, event_name="push", require_main=True
+          ):
+              raise SystemExit("exact execution main does not have successful push CI")
+          execution_ci_mode = "exact_main_push_ci"
+
+          critical_paths = (
+              workflow_path,
+              installer_path,
+              "tools/runner/kaufland_k3c_promo_structure_bridge_validator.py",
+              "backend/app/kaufland_k3c_promo_structure_diagnostic.py",
+              "backend/app/kaufland_real_k2_v2_derivation.py",
+              "backend/app/kaufland_evidence_freeze.py",
+              "backend/app/kaufland_source_card_contract.py",
+              "backend/app/kaufland_source_discovery.py",
+          )
+          for path in critical_paths:
+              if content_blob(path, registration_sha) != content_blob(path, execution_sha):
+                  raise SystemExit(f"trusted K3C source drift after registration: {path}")
 
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
-              handle.write(f"sha={sha}\n")
+              handle.write(f"registration_sha={registration_sha}\n")
+              handle.write(f"execution_sha={execution_sha}\n")
               handle.write(f"pr_number={pr_number}\n")
-              handle.write(f"ci_mode={ci_mode}\n")
+              handle.write(f"registration_ci_mode={registration_ci_mode}\n")
+              handle.write(f"execution_ci_mode={execution_ci_mode}\n")
           PY
 
   rpi5-diagnostic:
@@ -172,7 +221,8 @@ jobs:
       - name: Run fixed root-owned dispatcher
         id: dispatch
         env:
-          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+          REGISTRATION_SHA: ${{ needs.authorize.outputs.registration_sha }}
+          EXECUTION_SHA: ${{ needs.authorize.outputs.execution_sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -182,7 +232,8 @@ jobs:
 
           set +e
           sudo --non-interactive /usr/local/sbin/hermes-deals-kaufland-k3c-promo-structure-dispatch \
-            "$APPROVED_SHA" \
+            "$REGISTRATION_SHA" \
+            "$EXECUTION_SHA" \
             "$export_dir"
           runner_rc=$?
           set -e
@@ -193,7 +244,8 @@ jobs:
         if: always()
         env:
           ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
-          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          REGISTRATION_SHA: ${{ needs.authorize.outputs.registration_sha }}
+          EXECUTION_SHA: ${{ needs.authorize.outputs.execution_sha }}
           RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
         shell: bash
         run: |
@@ -214,12 +266,14 @@ jobs:
           reason_code = "SANITIZED_SUMMARY_MISSING"
           if summary_path.is_file() and not summary_path.is_symlink():
               payload = json.loads(summary_path.read_text(encoding="utf-8"))
-              if payload.get("bridge_schema_version") != 1:
+              if payload.get("bridge_schema_version") != 2:
                   raise SystemExit("bridge summary schema mismatch")
-              if payload.get("bridge_contract_version") != "kaufland-k3c-promo-structure-rpi5-bridge-v1":
+              if payload.get("bridge_contract_version") != "kaufland-k3c-promo-structure-rpi5-bridge-v2":
                   raise SystemExit("bridge summary contract mismatch")
-              if payload.get("registered_commit_sha") != os.environ["EXPECTED_SHA"]:
-                  raise SystemExit("bridge summary commit mismatch")
+              if payload.get("registered_commit_sha") != os.environ["REGISTRATION_SHA"]:
+                  raise SystemExit("bridge summary registration mismatch")
+              if payload.get("execution_checkout_sha") != os.environ["EXECUTION_SHA"]:
+                  raise SystemExit("bridge summary execution mismatch")
               if payload.get("evidence_only") is not True:
                   raise SystemExit("bridge summary is not evidence-only")
               if payload.get("promo_role_promoted") is not False:
@@ -256,7 +310,7 @@ jobs:
         if: always() && steps.dispatch.outputs.artifact_dir != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: kaufland-k3c-promo-structure-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          name: kaufland-k3c-promo-structure-${{ needs.authorize.outputs.registration_sha }}-${{ needs.authorize.outputs.execution_sha }}-run-${{ github.run_id }}
           path: ${{ steps.dispatch.outputs.artifact_dir }}
           if-no-files-found: warn
           retention-days: 30
@@ -265,6 +319,8 @@ jobs:
       - name: Record read-only safety boundary
         if: always()
         env:
+          REGISTRATION_SHA: ${{ needs.authorize.outputs.registration_sha }}
+          EXECUTION_SHA: ${{ needs.authorize.outputs.execution_sha }}
           BRIDGE_STATUS: ${{ steps.inspect.outputs.bridge_status }}
           DIAGNOSTIC_STATUS: ${{ steps.inspect.outputs.diagnostic_status }}
           REASON_CODE: ${{ steps.inspect.outputs.reason_code }}
@@ -273,6 +329,8 @@ jobs:
         run: |
           {
             echo '## Kaufland K3C promo-structure RPi5 diagnostic'
+            echo "- Registered bridge revision: \`${REGISTRATION_SHA}\`"
+            echo "- Exact execution checkout: \`${EXECUTION_SHA}\`"
             echo "- Bridge execution: \`${BRIDGE_STATUS:-UNAVAILABLE}\`"
             echo "- Diagnostic status: \`${DIAGNOSTIC_STATUS:-UNAVAILABLE}\`"
             echo "- Reason code: \`${REASON_CODE:-none}\`"
