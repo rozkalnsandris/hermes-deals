@@ -73,8 +73,11 @@ esac
 git_as_andris -C "$REPO" cat-file -e "${REGISTRATION_SHA}^{commit}" || fail "registration SHA is not available as a commit"
 git_as_andris -C "$REPO" merge-base --is-ancestor "$REGISTRATION_SHA" "$CURRENT_HEAD" || fail "registration SHA is not an ancestor of current main"
 REGISTRATION_LINE="$(git_as_andris -C "$REPO" rev-list --parents -n 1 "$REGISTRATION_SHA")"
-read -r REGISTRATION_COMMIT REGISTRATION_PARENT REGISTRATION_EXTRA <<<"$REGISTRATION_LINE"
-[[ "$REGISTRATION_COMMIT" == "$REGISTRATION_SHA" && -n "${REGISTRATION_PARENT:-}" && -z "${REGISTRATION_EXTRA:-}" ]] || fail "registration SHA must be a single-parent reviewed merge"
+REGISTRATION_PARENT_RE='^([0-9a-f]{40}) ([0-9a-f]{40})$'
+[[ "$REGISTRATION_LINE" =~ $REGISTRATION_PARENT_RE ]] || fail "registration SHA must be a single-parent reviewed merge"
+REGISTRATION_COMMIT="${BASH_REMATCH[1]}"
+REGISTRATION_PARENT="${BASH_REMATCH[2]}"
+[[ "$REGISTRATION_COMMIT" == "$REGISTRATION_SHA" ]] || fail "registration SHA must be a single-parent reviewed merge"
 REGISTRATION_INSTALLER_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_SHA}:${INSTALLER_REL}")" || fail "registration SHA does not contain bridge installer"
 REGISTRATION_WORKFLOW_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_SHA}:${WORKFLOW_REL}")" || fail "registration SHA does not contain bridge workflow"
 PARENT_INSTALLER_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_PARENT}:${INSTALLER_REL}" 2>/dev/null || printf MISSING)"
