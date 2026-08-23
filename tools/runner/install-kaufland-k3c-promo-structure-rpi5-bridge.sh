@@ -40,7 +40,7 @@ for command in bash git grep id install mktemp python3 readlink runuser sha256su
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
-  fail "github-runner must not be a member of the docker group"
+  fail "github-runner must not hold container-engine group membership"
 fi
 
 git_as_andris() {
