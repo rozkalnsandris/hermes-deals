@@ -13,7 +13,6 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, Iterator
 from unittest.mock import patch
-from urllib.parse import parse_qs, unquote, urlsplit
 
 import bs4
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -40,7 +39,7 @@ DERIVATION_CONTRACT_VERSION = "kaufland-k3c-real-k2-v2-derivation-v1"
 PARSER_BACKEND = "html.parser"
 EXPECTED_BS4_VERSION = "4.15.0"
 EXPECTED_STORE_ID = "1503"
-EXPECTED_K2_BUNDLE_KEY = "kaufland/1503/k2/2026-08-13_2026-09-02"
+EXPECTED_K2_BUNDLE_KEY = "kaufland/1503/k2/2026-08-13_2026-09_02"
 EXPECTED_K2_BUNDLE_IDENTITY = "afdd992c547165259e760e05f41687793c56abc0af9869c8aa70f39d6f41dbbf"
 EXPECTED_K2_GIT_REVISION = "c451fb9027e87b62685557ad3c2c66701e912d57"
 EXPECTED_ARTIFACT_COUNT = 6
@@ -56,8 +55,9 @@ MAX_LOCATOR_LENGTH = 512
 
 _PRICE_RE = re.compile(r"(?<!\d)(?P<whole>\d{1,5})\s*[,.]\s*(?P<cents>\d{2})(?!\d)")
 _NUR_RE = re.compile(r"(?<![A-Za-zÄÖÜäöüß])nur(?![A-Za-zÄÖÜäöüß])", re.IGNORECASE)
-_SAFE_ARTICLE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,160}$")
 _IDENTIFIER_BOUNDARY_CLASS = r"A-Za-z0-9._-"
+_PRODUCT_TILE_CLASS = "k-product-tile"
+_PRODUCT_TILE_ATTRIBUTE_NAMES = ("class", "href", "tabindex")
 
 
 class K3CDerivationError(RuntimeError):
@@ -121,7 +121,15 @@ def _rawpath(tag: Tag) -> str:
             if isinstance(item, Tag) and item.name == current.name
         ]
         if len(same_name) > 1:
-            index = same_name.index(current) + 1
+            identity_indexes = [
+                index for index, item in enumerate(same_name) if item is current
+            ]
+            if len(identity_indexes) != 1:
+                _fail(
+                    "LOCATOR_IDENTITY_RESOLUTION_FAILED",
+                    "DOM sibling identity did not resolve to exactly one position",
+                )
+            index = identity_indexes[0] + 1
             parts.append(f"{current.name}[{index}]")
         else:
             parts.append(str(current.name))
@@ -135,27 +143,6 @@ def _rawpath(tag: Tag) -> str:
     return locator
 
 
-def _article_ids_from_anchor(anchor: Tag) -> tuple[str, ...]:
-    href = str(anchor.get("href", "")).strip()
-    if not href:
-        return ()
-    values: list[str] = []
-    for value in parse_qs(urlsplit(href).query).get("kloffer-articleID", []):
-        decoded = unquote(value).strip()
-        if _SAFE_ARTICLE_ID_RE.fullmatch(decoded):
-            values.append(decoded)
-    return tuple(sorted(set(values)))
-
-
-def _article_ids_in_scope(scope: Tag) -> tuple[str, ...]:
-    values: set[str] = set()
-    if scope.name == "a":
-        values.update(_article_ids_from_anchor(scope))
-    for anchor in scope.find_all("a", href=True):
-        values.update(_article_ids_from_anchor(anchor))
-    return tuple(sorted(values))
-
-
 def _scope_has_marker(scope: Tag) -> bool:
     if any(
         _has_class(tag, "k-price-tag__old-price")
@@ -166,39 +153,37 @@ def _scope_has_marker(scope: Tag) -> bool:
     return scope.find(string=_NUR_RE) is not None
 
 
-def _candidate_cards(soup: BeautifulSoup) -> tuple[Tag, ...]:
-    """Find the smallest bounded DOM scope joining one article ID to price-role clues.
+def _is_exact_product_tile(tag: Tag) -> bool:
+    return (
+        tag.name == "a"
+        and tuple(sorted(_classes(tag))) == (_PRODUCT_TILE_CLASS,)
+        and tuple(sorted(str(name).lower() for name in tag.attrs))
+        == _PRODUCT_TILE_ATTRIBUTE_NAMES
+    )
 
-    No retailer card class is guessed here. A scope is accepted only when it contains
-    exactly one distinct source article ID and at least one explicit/observed price
-    marker. The first qualifying ancestor is the deterministic minimal owner scope.
+
+def _candidate_cards(soup: BeautifulSoup) -> tuple[Tag, ...]:
+    """Return reviewed marker-bearing Kaufland product-tile owner scopes.
+
+    Sanitized REAL-K2 evidence proved the exact `k-product-tile` anchor shape as the
+    reproducible card-owner boundary. The accepted overview contains no articleID
+    carrier, and the common fragment href is not identity. Markerless tiles are not
+    candidates. Locator collisions fail closed instead of being silently deduplicated.
     """
 
     seen: set[str] = set()
     cards: list[Tag] = []
-    for anchor in soup.find_all("a", href=True):
-        if len(_article_ids_from_anchor(anchor)) != 1:
+    for tag in soup.find_all("a"):
+        if not _is_exact_product_tile(tag) or not _scope_has_marker(tag):
             continue
-        current = anchor.parent if isinstance(anchor.parent, Tag) else None
-        depth = 0
-        chosen: Tag | None = None
-        while current is not None and depth <= 8:
-            article_ids = _article_ids_in_scope(current)
-            if len(article_ids) > 1:
-                break
-            if len(article_ids) == 1 and _scope_has_marker(current):
-                chosen = current
-                break
-            parent = current.parent
-            current = parent if isinstance(parent, Tag) else None
-            depth += 1
-        if chosen is None:
-            continue
-        locator = _rawpath(chosen)
+        locator = _rawpath(tag)
         if locator in seen:
-            continue
+            _fail(
+                "CARD_LOCATOR_COLLISION",
+                "reviewed product-tile owner locator is not unique",
+            )
         seen.add(locator)
-        cards.append(chosen)
+        cards.append(tag)
     return tuple(cards)
 
 

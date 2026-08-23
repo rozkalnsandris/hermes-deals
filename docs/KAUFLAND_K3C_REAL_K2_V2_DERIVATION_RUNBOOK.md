@@ -35,7 +35,7 @@ Merge of this source PR never authorizes #702 parser implementation or any live 
 | Field | Accepted value |
 | --- | --- |
 | Store | `1503` / Kaufland Dortmund-Aplerbeck |
-| Bundle key | `kaufland/1503/k2/2026-08-13_2026-09-02` |
+| Bundle key | `kaufland/1503/k2/2026-08-13_2026-09_02` |
 | Bundle identity | `afdd992c547165259e760e05f41687793c56abc0af9869c8aa70f39d6f41dbbf` |
 | Frozen K2 revision | `c451fb9027e87b62685557ad3c2c66701e912d57` |
 | K2 parser-input contract | `kaufland-k2-v1` |
@@ -49,6 +49,45 @@ Merge of this source PR never authorizes #702 parser implementation or any live 
 | HTML backend | `html.parser` |
 
 The K2 verifier must return exact `NO_OP` with the expected bundle identity/counts before semantic inspection.
+
+## Reviewed REAL-K2 carrier / owner evidence
+
+The accepted overview was re-inspected only through bounded read-only diagnostics recorded on #749. The retained verifier returned exact `NO_OP`, 6 artifacts / 4 families and unchanged accepted overview SHA before and after every diagnostic.
+
+The reviewed results supersede the original article-ID ownership assumption:
+
+- the accepted overview contains zero `articleID` / `kloffer-articleID` tokens;
+- URL query inspection therefore yields zero article-ID carriers;
+- `data-jp-id` was observed but its semantics were not proven and it is not used as card or product identity;
+- the exact repeated owner shape is an `<a>` with the sole class token `k-product-tile` and attribute names `class`, `href`, `tabindex`;
+- 981 exact product tiles are present;
+- 970 are marker-bearing owner tiles;
+- all old-price and XTRA markers resolve to one such tile; four observed `nur` markers are outside such a tile and remain orphan observations;
+- all 981 product-tile hrefs share one fragment value, so href is not card identity;
+- article ID and href are therefore not prerequisites for source-card ownership.
+
+The previous historical `1212` and `1099` counts are retained as old sanitized diagnostics only. They must not be reinterpreted as article-ID owner counts. New acceptance uses the reviewed exact product-tile boundary above.
+
+## Locator invariant
+
+`card_locator` uses deterministic DOM rawpath coordinates. A locator must uniquely address exactly one parsed Tag.
+
+REAL-K2 locator diagnostics found a bounded defect in the original implementation: BeautifulSoup `Tag` equality is structural, so `same_name.index(current)` can return the position of an earlier structurally equal sibling rather than the exact current object.
+
+On the accepted overview:
+
+- 981 product tiles produced only 979 distinct equality-indexed rawpaths;
+- there were exactly two collision groups, both size two;
+- exactly two tiles showed equality-index versus object-identity-index divergence;
+- no non-collision tile showed such a divergence;
+- in every divergent step the equality-selected sibling was structurally equal but not the same object;
+- object-identity sibling indexing produced 981/981 distinct rawpaths and 981/981 exact reverse resolutions;
+- all 970 marker-bearing product tiles also had 970 distinct identity-indexed rawpaths;
+- maximum observed corrected locator length was 83, below the 512-character contract bound.
+
+Therefore sibling position is computed by DOM object identity (`is`) within the ordered same-name sibling list, never by `Tag.__eq__`. This does not use a process object ID as evidence; it only selects the exact object position in the deterministic parsed sibling order.
+
+Any failure to resolve exactly one identity position, or any duplicate candidate card locator after correction, fails closed.
 
 ## Retained target scope
 
@@ -104,16 +143,23 @@ Any failure returns a bounded `BLOCKED` payload with a stable reason code and no
 
 ## Source-card ownership boundary
 
-K3C must not invent a retailer card CSS selector.
+K3C uses only the exact reviewed REAL-K2 owner shape. It does not infer a product identity from nearby values or IDs.
 
-For each exact `kloffer-articleID` link, the harness walks upward only a bounded number of ancestors and selects the **smallest** DOM scope that:
+A candidate card must be an exact `<a>` where:
 
-- contains exactly one distinct source article ID; and
-- contains at least one price-role clue (`k-price-tag__old-price`, `k-price-tag--xtra`, or the observed text marker `nur`).
+- the only class token is `k-product-tile`;
+- the attribute-name set is exactly `class`, `href`, `tabindex`;
+- the tile contains at least one observed price-role clue: `k-price-tag__old-price`, `k-price-tag--xtra`, or text marker `nur`.
 
-If a candidate ancestor contains more than one distinct article ID, that ownership path fails closed.
+Markerless product tiles are excluded. Extra class tokens or attributes are not silently accepted; source-shape drift therefore fails closed by producing no candidate for the changed shape until reviewed evidence updates the contract.
 
-`articleID` is used only as source-local ownership evidence. It is not promoted to global/timeless product identity; #704 remains the identity gate.
+Each accepted candidate receives:
+
+- one deterministic identity-indexed rawpath locator;
+- one card-fragment SHA-256;
+- `card_owner_match_count=1`.
+
+Duplicate card locators are a hard `CARD_LOCATOR_COLLISION` failure. Article ID is not required and is not used as product identity. #704 remains the separate product identity/dedup gate.
 
 ## Price-role policy
 
