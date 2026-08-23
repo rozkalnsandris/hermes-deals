@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import importlib.util
 import json
 import subprocess
@@ -231,6 +230,7 @@ def test_installer_is_fixed_fail_closed_and_source_read_only() -> None:
     assert "status --porcelain=v1 --untracked-files=all" in text
     assert "/home/andris/hermes-deals-retained-evidence" in text
     assert "PYTHONDONTWRITEBYTECODE=1" in text
+    assert "PYTHONNOUSERSITE=1" in text
     assert "app.kaufland_k3c_promo_structure_diagnostic" in text
     assert "diagnostic-stderr.private" in text
     assert 'rm -f -- "$RAW" "$STDERR_PRIVATE"' in text
