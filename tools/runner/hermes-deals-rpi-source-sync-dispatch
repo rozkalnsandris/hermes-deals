@@ -26,6 +26,7 @@ for command in git id python3 readlink runuser sha256sum stat; do
 done
 
 EXPORT_DIR="$(readlink -f -- "$RAW_EXPORT_DIR")"
+[[ "$EXPORT_DIR" == "$RAW_EXPORT_DIR" ]] || fail 'artifact directory symlink or alias rejected'
 [[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail 'artifact directory is missing or unsafe'
 [[ "$EXPORT_DIR" == /home/github-runner/_work/_temp/hermes-deals-rpi-source-sync-* ]] || fail 'artifact directory outside runner temp allowlist'
 [[ "$(stat -c '%U:%G %a' "$EXPORT_DIR")" == 'github-runner:github-runner 700' ]] || fail 'artifact directory metadata invalid'
