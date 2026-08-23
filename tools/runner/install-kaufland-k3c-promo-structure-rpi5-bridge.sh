@@ -290,7 +290,7 @@ set +e
 runuser -u andris -- /usr/bin/env -i \
   HOME=/home/andris USER=andris LOGNAME=andris \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 \
+  LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTHONHASHSEED=0 \
   /bin/bash --noprofile --norc -c \
   'cd /home/andris/hermes-deals/backend && exec /usr/bin/python3 -m app.kaufland_k3c_promo_structure_diagnostic --retained-root /home/andris/hermes-deals-retained-evidence' \
   >"$RAW" 2>"$STDERR_PRIVATE"
