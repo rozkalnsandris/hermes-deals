@@ -123,4 +123,4 @@ def test_runbook_documents_bootstrap_stop_and_separate_kaufland_gates():
     assert "no retry" in runbook.lower()
     assert "#758" in runbook
     assert "Kaufland K3C" in runbook
-    assert "Production deploy: **NO**" in runbook
+    assert "**Production deploy: NO.**" in runbook
