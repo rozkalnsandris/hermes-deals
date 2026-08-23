@@ -14,7 +14,7 @@ SYNTHETIC_HTML = """
 <!doctype html>
 <html><body><main>
   <a class="k-product-tile" href="#" tabindex="0">
-    <div data-family="DE_de_KDZ1_1503_D33">family</div>
+    <div data-family="DE_de_KDZ1_1503_D33">Hidden Family Carrier</div>
     <div>nur <span>1,99 €</span></div>
     <span class="k-price-tag__old-price">2,79 €</span>
     <div class="k-price-tag--xtra">Mit Kaufland Card XTRA ** <span>1,49 €</span></div>
@@ -68,7 +68,7 @@ def test_projection_is_sanitized_and_does_not_emit_product_text_or_html():
     payload = k3c.derive_html_projection(SYNTHETIC_HTML)
     encoded = json.dumps(payload, sort_keys=True)
 
-    assert "family" not in encoded
+    assert "Hidden Family Carrier" not in encoded
     assert "Mit Kaufland Card XTRA" not in encoded
     assert "<a class" not in encoded
 
@@ -219,6 +219,13 @@ def test_multiple_family_relations_become_unbound_ambiguous():
     association = payload["family_association_samples"][0]
     assert association["blocker_reason"] == "FAMILY_BINDING_AMBIGUOUS"
     assert association["family_relation"] is None
+
+
+def test_expected_bundle_key_matches_repaired_canonical_target():
+    assert (
+        k3c.EXPECTED_K2_BUNDLE_KEY
+        == "kaufland/1503/k2/2026-08-13_2026-09_02"
+    )
 
 
 def test_target_scoped_fingerprint_is_stable_and_content_bound(tmp_path: Path):
