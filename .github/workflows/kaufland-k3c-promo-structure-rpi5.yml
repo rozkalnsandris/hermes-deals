@@ -136,10 +136,14 @@ jobs:
 
           workflow_path = ".github/workflows/kaufland-k3c-promo-structure-rpi5.yml"
           installer_path = "tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh"
-          if content_blob(workflow_path, registration_sha) == content_blob(workflow_path, registration_parent):
-              raise SystemExit("selected PR did not introduce or update the K3C bridge workflow")
-          if content_blob(installer_path, registration_sha) == content_blob(installer_path, registration_parent):
-              raise SystemExit("selected PR did not introduce or update the K3C bridge installer")
+          workflow_changed = content_blob(workflow_path, registration_sha) != content_blob(
+              workflow_path, registration_parent
+          )
+          installer_changed = content_blob(installer_path, registration_sha) != content_blob(
+              installer_path, registration_parent
+          )
+          if not (workflow_changed or installer_changed):
+              raise SystemExit("selected PR did not introduce or update the K3C bridge control plane")
 
           main_branch = get(f"https://api.github.com/repos/{repo}/branches/main")
           execution_sha = str((main_branch.get("commit") or {}).get("sha") or "")

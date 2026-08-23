@@ -1,6 +1,6 @@
 # Kaufland K3C promo-structure RPi5 bridge
 
-Refs: #702, #749, #758, #760, #761.
+Refs: #702, #749, #758, #760, #761, #764, #765.
 
 ## Purpose
 
@@ -26,17 +26,17 @@ v2 is explicitly non-rewind. It separates the reviewed bridge-control-plane revi
 
 Two SHA identities are mandatory:
 
-1. **registration SHA** — the exact squash merge that introduces or updates the v2 K3C bridge workflow **and** installer;
+1. **registration SHA** — the exact squash merge that introduces or updates at least one v2 K3C control-plane anchor: the workflow or installer;
 2. **execution checkout SHA** — the exact current `main` commit present on the RPi when a diagnostic is run.
 
 The execution checkout SHA may equal the registration SHA or be a descendant of it. The bridge must **never rewind** the primary checkout.
 
-The selected registration PR is not an arbitrary selector. Its merge commit must be single-parent and both of these blobs must differ from its parent:
+The selected registration PR is not an arbitrary selector. Its merge commit must be single-parent and at least one of these two blobs must differ from its parent:
 
 - `.github/workflows/kaufland-k3c-promo-structure-rpi5.yml`;
 - `tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh`.
 
-That rule prevents an unrelated later merged PR from being treated as the bridge revision.
+A workflow-only maintenance revision, an installer-only maintenance revision, or a revision changing both anchors is valid. A merge changing neither anchor is rejected. This preserves the anti-substitution property while allowing a reviewed maintenance fix to touch only the control-plane component that actually needs repair.
 
 ## Trusted source set
 
@@ -64,7 +64,7 @@ Before a self-hosted job can start, the GitHub-hosted authorizer requires:
 3. actor login `rozkalnsandris` and numeric owner ID `277435981`;
 4. a positive same-repository PR merged into `main`;
 5. a valid single-parent registration merge SHA;
-6. proof that the registration commit changes both the K3C workflow and installer relative to its parent;
+6. proof that the registration commit changes at least one K3C control-plane anchor — workflow or installer — relative to its parent;
 7. current GitHub `main` resolved independently as the execution checkout SHA;
 8. registration SHA is an ancestor of or identical to execution SHA;
 9. registration revision CI is successful — exact merge-SHA push CI, or exact PR-head pull-request CI with squash-tree equivalence;
@@ -114,7 +114,7 @@ The installer requires the primary checkout `/home/andris/hermes-deals` to be:
 Before persistent writes, the installer also:
 
 - proves the registration merge is single-parent;
-- proves the registration merge changed both bridge-control-plane files;
+- proves the registration merge changed at least one bridge-control-plane anchor — workflow or installer;
 - proves every trusted source blob at current HEAD equals its registration-SHA blob;
 - computes and validates trusted SHA-256 identities;
 - checks `github-runner` is not in the Docker group;

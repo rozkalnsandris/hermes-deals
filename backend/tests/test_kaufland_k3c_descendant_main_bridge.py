@@ -30,6 +30,10 @@ printf '%s\n' "$REGISTRATION_PARENT"
     )
 
 
+def _registration_anchor_allowed(*, workflow_changed: bool, installer_changed: bool) -> bool:
+    return workflow_changed or installer_changed
+
+
 def test_installer_binds_registration_anchor_and_descendant_execution() -> None:
     text = INSTALLER.read_text(encoding="utf-8")
     subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
@@ -44,8 +48,12 @@ def test_installer_binds_registration_anchor_and_descendant_execution() -> None:
     assert 'REGISTRATION_PARENT="${BASH_REMATCH[2]}"' in text
     assert "read -r REGISTRATION_COMMIT REGISTRATION_PARENT REGISTRATION_EXTRA" not in text
     assert "registration SHA must be a single-parent reviewed merge" in text
-    assert "registration SHA did not introduce or update the bridge installer" in text
-    assert "registration SHA did not introduce or update the bridge workflow" in text
+    assert "REGISTRATION_INSTALLER_CHANGED=false" in text
+    assert "REGISTRATION_WORKFLOW_CHANGED=false" in text
+    assert 'if [[ "$REGISTRATION_INSTALLER_CHANGED" != true && "$REGISTRATION_WORKFLOW_CHANGED" != true ]]; then' in text
+    assert "registration SHA did not introduce or update the K3C bridge control plane" in text
+    assert "registration SHA did not introduce or update the bridge installer" not in text
+    assert "registration SHA did not introduce or update the bridge workflow" not in text
     assert "trusted source changed after registration SHA" in text
     assert "registration_checkout_sha" in text
     assert "kaufland-k3c-promo-structure-rpi5-bridge-v2" in text
@@ -93,6 +101,13 @@ def test_registration_parent_parse_is_strict_ifs_safe_and_fail_closed() -> None:
         assert result.returncode != 0
 
 
+def test_registration_anchor_accepts_reviewed_maintenance_truth_table() -> None:
+    assert _registration_anchor_allowed(workflow_changed=True, installer_changed=False) is True
+    assert _registration_anchor_allowed(workflow_changed=False, installer_changed=True) is True
+    assert _registration_anchor_allowed(workflow_changed=True, installer_changed=True) is True
+    assert _registration_anchor_allowed(workflow_changed=False, installer_changed=False) is False
+
+
 def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
@@ -101,8 +116,12 @@ def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately()
     assert "execution_sha:" in text
     assert "/branches/main" in text
     assert "bridge registration SHA must be a single-parent reviewed merge" in text
-    assert "selected PR did not introduce or update the K3C bridge workflow" in text
-    assert "selected PR did not introduce or update the K3C bridge installer" in text
+    assert "workflow_changed = content_blob(workflow_path, registration_sha) != content_blob(" in text
+    assert "installer_changed = content_blob(installer_path, registration_sha) != content_blob(" in text
+    assert "if not (workflow_changed or installer_changed):" in text
+    assert "selected PR did not introduce or update the K3C bridge control plane" in text
+    assert "selected PR did not introduce or update the K3C bridge workflow" not in text
+    assert "selected PR did not introduce or update the K3C bridge installer" not in text
     assert "merged bridge commit is not reachable from current main" in text
     assert "exact execution main does not have successful push CI" in text
     assert "trusted K3C source drift after registration" in text
@@ -135,6 +154,8 @@ def test_runbook_documents_non_rewind_descendant_contract_and_separate_live_gate
     assert "descendant" in text
     assert "never rewind" in text.lower()
     assert "trusted" in text.lower()
+    assert "at least one" in text.lower()
+    assert "workflow or installer" in text.lower()
     assert "exact execution-main push CI" in text
     assert "source-sync bridge" in text
     assert "root registration" in text
