@@ -82,8 +82,17 @@ REGISTRATION_INSTALLER_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATIO
 REGISTRATION_WORKFLOW_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_SHA}:${WORKFLOW_REL}")" || fail "registration SHA does not contain bridge workflow"
 PARENT_INSTALLER_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_PARENT}:${INSTALLER_REL}" 2>/dev/null || printf MISSING)"
 PARENT_WORKFLOW_BLOB="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_PARENT}:${WORKFLOW_REL}" 2>/dev/null || printf MISSING)"
-[[ "$REGISTRATION_INSTALLER_BLOB" != "$PARENT_INSTALLER_BLOB" ]] || fail "registration SHA did not introduce or update the bridge installer"
-[[ "$REGISTRATION_WORKFLOW_BLOB" != "$PARENT_WORKFLOW_BLOB" ]] || fail "registration SHA did not introduce or update the bridge workflow"
+REGISTRATION_INSTALLER_CHANGED=false
+REGISTRATION_WORKFLOW_CHANGED=false
+if [[ "$REGISTRATION_INSTALLER_BLOB" != "$PARENT_INSTALLER_BLOB" ]]; then
+  REGISTRATION_INSTALLER_CHANGED=true
+fi
+if [[ "$REGISTRATION_WORKFLOW_BLOB" != "$PARENT_WORKFLOW_BLOB" ]]; then
+  REGISTRATION_WORKFLOW_CHANGED=true
+fi
+if [[ "$REGISTRATION_INSTALLER_CHANGED" != true && "$REGISTRATION_WORKFLOW_CHANGED" != true ]]; then
+  fail "registration SHA did not introduce or update the K3C bridge control plane"
+fi
 
 trusted_source_matches_registration() {
   local relative="$1"
