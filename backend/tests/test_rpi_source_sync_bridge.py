@@ -50,6 +50,8 @@ def test_dispatcher_has_exact_checkout_and_fast_forward_contract():
     dispatcher = _text(DISPATCHER)
     assert "REPO='/home/andris/hermes-deals'" in dispatcher
     assert "FIXED_FETCH_URL='https://github.com/rozkalnsandris/hermes-deals.git'" in dispatcher
+    assert '[[ "$EXPORT_DIR" == "$RAW_EXPORT_DIR" ]]' in dispatcher
+    assert "artifact directory symlink or alias rejected" in dispatcher
     assert "status --porcelain=v1 --untracked-files=all" in dispatcher
     assert "branch --show-current" in dispatcher
     assert "rev-parse --is-shallow-repository" in dispatcher
