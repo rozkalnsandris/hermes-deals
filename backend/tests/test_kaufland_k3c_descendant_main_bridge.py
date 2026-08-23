@@ -9,6 +9,27 @@ WORKFLOW = ROOT / ".github/workflows/kaufland-k3c-promo-structure-rpi5.yml"
 RUNBOOK = ROOT / "docs/KAUFLAND_K3C_PROMO_STRUCTURE_RPI5_BRIDGE_RUNBOOK.md"
 
 
+def _parse_registration_line(line: str, expected_sha: str) -> subprocess.CompletedProcess[str]:
+    script = r"""
+set -Eeuo pipefail
+IFS=$'\n\t'
+REGISTRATION_LINE="$1"
+REGISTRATION_SHA="$2"
+REGISTRATION_PARENT_RE='^([0-9a-f]{40}) ([0-9a-f]{40})$'
+[[ "$REGISTRATION_LINE" =~ $REGISTRATION_PARENT_RE ]] || exit 20
+REGISTRATION_COMMIT="${BASH_REMATCH[1]}"
+REGISTRATION_PARENT="${BASH_REMATCH[2]}"
+[[ "$REGISTRATION_COMMIT" == "$REGISTRATION_SHA" ]] || exit 21
+printf '%s\n' "$REGISTRATION_PARENT"
+"""
+    return subprocess.run(
+        ["bash", "-c", script, "--", line, expected_sha],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def test_installer_binds_registration_anchor_and_descendant_execution() -> None:
     text = INSTALLER.read_text(encoding="utf-8")
     subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
@@ -17,6 +38,11 @@ def test_installer_binds_registration_anchor_and_descendant_execution() -> None:
     assert "CURRENT_HEAD" in text
     assert "rev-parse --is-shallow-repository" in text
     assert 'merge-base --is-ancestor "$REGISTRATION_SHA" "$CURRENT_HEAD"' in text
+    assert "REGISTRATION_PARENT_RE='^([0-9a-f]{40}) ([0-9a-f]{40})$'" in text
+    assert '[[ "$REGISTRATION_LINE" =~ $REGISTRATION_PARENT_RE ]]' in text
+    assert 'REGISTRATION_COMMIT="${BASH_REMATCH[1]}"' in text
+    assert 'REGISTRATION_PARENT="${BASH_REMATCH[2]}"' in text
+    assert "read -r REGISTRATION_COMMIT REGISTRATION_PARENT REGISTRATION_EXTRA" not in text
     assert "registration SHA must be a single-parent reviewed merge" in text
     assert "registration SHA did not introduce or update the bridge installer" in text
     assert "registration SHA did not introduce or update the bridge workflow" in text
@@ -44,6 +70,27 @@ def test_installer_binds_registration_anchor_and_descendant_execution() -> None:
         "wget ",
     ):
         assert forbidden not in text
+
+
+def test_registration_parent_parse_is_strict_ifs_safe_and_fail_closed() -> None:
+    commit = "1" * 40
+    parent = "2" * 40
+    other_parent = "3" * 40
+
+    valid = _parse_registration_line(f"{commit} {parent}", commit)
+    assert valid.returncode == 0
+    assert valid.stdout == f"{parent}\n"
+
+    for line, expected in (
+        (commit, commit),
+        (f"{commit} {parent} {other_parent}", commit),
+        (f"{commit}\t{parent}", commit),
+        (f"{commit}  {parent}", commit),
+        (f"{commit} {'z' * 40}", commit),
+        (f"{commit} {parent}", "4" * 40),
+    ):
+        result = _parse_registration_line(line, expected)
+        assert result.returncode != 0
 
 
 def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately() -> None:
