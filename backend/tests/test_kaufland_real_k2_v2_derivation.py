@@ -5,6 +5,7 @@ import socket
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app import kaufland_real_k2_v2_derivation as k3c
 
@@ -12,16 +13,15 @@ from app import kaufland_real_k2_v2_derivation as k3c
 SYNTHETIC_HTML = """
 <!doctype html>
 <html><body><main>
-  <section data-family="DE_de_KDZ1_1503_D33">
-    <a href="/angebote/detail.html?kloffer-articleID=A100">Secret Product Name Alpha</a>
+  <a class="k-product-tile" href="#" tabindex="0">
+    <div data-family="DE_de_KDZ1_1503_D33">family</div>
     <div>nur <span>1,99 €</span></div>
     <span class="k-price-tag__old-price">2,79 €</span>
     <div class="k-price-tag--xtra">Mit Kaufland Card XTRA ** <span>1,49 €</span></div>
-  </section>
-  <section>
-    <a href="/angebote/detail.html?kloffer-articleID=A200">Secret Product Name Beta</a>
+  </a>
+  <a class="k-product-tile" href="#" tabindex="0">
     <div>nur <span>3,49 €</span></div>
-  </section>
+  </a>
 </main></body></html>
 """
 
@@ -50,10 +50,9 @@ def test_projection_is_deterministic_but_promo_marker_stays_unproven():
 def test_nur_with_one_price_never_becomes_public_promo():
     html = """
     <html><body>
-      <div>
-        <a href="/x?kloffer-articleID=A300">Hidden</a>
+      <a class="k-product-tile" href="#" tabindex="0">
         <div>nur <span>1,99 €</span></div>
-      </div>
+      </a>
       <div class="other">control</div>
     </body></html>
     """
@@ -65,25 +64,23 @@ def test_nur_with_one_price_never_becomes_public_promo():
     assert payload["evidence_gate_status"] == "BLOCKED"
 
 
-def test_projection_is_sanitized_and_does_not_emit_product_text_or_article_id():
+def test_projection_is_sanitized_and_does_not_emit_product_text_or_html():
     payload = k3c.derive_html_projection(SYNTHETIC_HTML)
     encoded = json.dumps(payload, sort_keys=True)
 
-    assert "Secret Product Name Alpha" not in encoded
-    assert "Secret Product Name Beta" not in encoded
-    assert "kloffer-articleID=A100" not in encoded
-    assert "<section" not in encoded
+    assert "family" not in encoded
+    assert "Mit Kaufland Card XTRA" not in encoded
+    assert "<a class" not in encoded
 
 
 def test_reference_requires_explicit_old_price_class():
     html = """
     <html><body>
-      <div>
-        <a href="/x?kloffer-articleID=A400">Hidden</a>
+      <a class="k-product-tile" href="#" tabindex="0">
         <div>nur 1,99 €</div>
         <div class="generic-number">9,99 €</div>
         <div class="k-price-tag--xtra">XTRA 1,49 €</div>
-      </div>
+      </a>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
@@ -95,10 +92,9 @@ def test_reference_requires_explicit_old_price_class():
 def test_xtra_does_not_satisfy_public_promo():
     html = """
     <html><body>
-      <div>
-        <a href="/x?kloffer-articleID=A500">Hidden</a>
+      <a class="k-product-tile" href="#" tabindex="0">
         <div class="k-price-tag--xtra">Kaufland Card XTRA 1,49 €</div>
-      </div>
+      </a>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
@@ -110,12 +106,11 @@ def test_xtra_does_not_satisfy_public_promo():
 def test_multiple_reference_candidates_fail_closed_for_that_role():
     html = """
     <html><body>
-      <div>
-        <a href="/x?kloffer-articleID=A600">Hidden</a>
+      <a class="k-product-tile" href="#" tabindex="0">
         <span class="k-price-tag__old-price">2,79 €</span>
         <span class="k-price-tag__old-price">2,99 €</span>
         <div class="k-price-tag--xtra">XTRA 1,49 €</div>
-      </div>
+      </a>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
@@ -124,14 +119,26 @@ def test_multiple_reference_candidates_fail_closed_for_that_role():
     assert payload["blocker_counts"]["REFERENCE_ROLE_AMBIGUOUS"] == 1
 
 
-def test_minimal_owner_scope_rejects_multiple_distinct_article_ids():
+def test_candidate_card_does_not_require_article_id():
     html = """
     <html><body>
-      <div>
-        <a href="/x?kloffer-articleID=A700">One</a>
-        <a href="/x?kloffer-articleID=A701">Two</a>
+      <a class="k-product-tile" href="#" tabindex="0">
         <span class="k-price-tag__old-price">2,79 €</span>
-      </div>
+      </a>
+    </body></html>
+    """
+    payload = k3c.derive_html_projection(html)
+    assert payload["candidate_card_count"] == 1
+    assert payload["semantic_receipt_count"] == 1
+    assert payload["reference_receipt_count"] == 1
+
+
+def test_markerless_product_tile_is_not_a_candidate():
+    html = """
+    <html><body>
+      <a class="k-product-tile" href="#" tabindex="0">
+        <span>plain content</span>
+      </a>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
@@ -139,17 +146,54 @@ def test_minimal_owner_scope_rejects_multiple_distinct_article_ids():
     assert payload["semantic_receipt_count"] == 0
 
 
+def test_non_exact_product_tile_shape_is_not_a_candidate():
+    html = """
+    <html><body>
+      <a class="k-product-tile extra" href="#" tabindex="0">
+        <span class="k-price-tag__old-price">2,79 €</span>
+      </a>
+      <a class="k-product-tile" href="#" tabindex="0" data-extra="x">
+        <span class="k-price-tag__old-price">3,79 €</span>
+      </a>
+    </body></html>
+    """
+    payload = k3c.derive_html_projection(html)
+    assert payload["candidate_card_count"] == 0
+    assert payload["semantic_receipt_count"] == 0
+
+
+def test_rawpath_distinguishes_structurally_equal_siblings():
+    soup = BeautifulSoup(
+        """
+        <html><body><main>
+          <a class="k-product-tile" href="#" tabindex="0">
+            <span class="k-price-tag__old-price">2,79 €</span>
+          </a>
+          <a class="k-product-tile" href="#" tabindex="0">
+            <span class="k-price-tag__old-price">2,79 €</span>
+          </a>
+        </main></body></html>
+        """,
+        k3c.PARSER_BACKEND,
+    )
+    cards = list(k3c._candidate_cards(soup))
+
+    assert len(cards) == 2
+    assert cards[0] == cards[1]
+    assert cards[0] is not cards[1]
+    assert k3c._rawpath(cards[0]) != k3c._rawpath(cards[1])
+
+
 def test_family_binding_requires_exact_card_local_accepted_identifier():
     html = """
     <html><body>
-      <div data-family="DE_de_KDZ1_1503_D33">
-        <a href="/x?kloffer-articleID=A800">Hidden</a>
+      <a class="k-product-tile" href="#" tabindex="0">
+        <div data-family="DE_de_KDZ1_1503_D33">family</div>
         <span class="k-price-tag__old-price">2,79 €</span>
-      </div>
-      <div>
-        <a href="/x?kloffer-articleID=A801">Hidden</a>
+      </a>
+      <a class="k-product-tile" href="#" tabindex="0">
         <span class="k-price-tag__old-price">3,79 €</span>
-      </div>
+      </a>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
@@ -162,10 +206,10 @@ def test_family_binding_requires_exact_card_local_accepted_identifier():
 def test_multiple_family_relations_become_unbound_ambiguous():
     html = """
     <html><body>
-      <div data-a="DE_de_KDZ1_1503_D33" data-b="DE_de_KDZ1_1503_D34">
-        <a href="/x?kloffer-articleID=A900">Hidden</a>
+      <a class="k-product-tile" href="#" tabindex="0">
+        <div data-a="DE_de_KDZ1_1503_D33" data-b="DE_de_KDZ1_1503_D34">family</div>
         <span class="k-price-tag__old-price">2,79 €</span>
-      </div>
+      </a>
     </body></html>
     """
     payload = k3c.derive_html_projection(html)
