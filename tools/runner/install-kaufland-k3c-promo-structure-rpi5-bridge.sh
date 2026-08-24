@@ -90,7 +90,7 @@ fi
 if [[ "$REGISTRATION_WORKFLOW_BLOB" != "$PARENT_WORKFLOW_BLOB" ]]; then
   REGISTRATION_WORKFLOW_CHANGED=true
 fi
-if [[ "$REGISTRATION_INSTALLER_CHANGED" != true && "$REGISTRATION_WORKFLOW_CHANGED" != true ]]; then
+if [[ "$REGISTRATION_INSTALLER_CHANGED" != true && "$REGISTRATION_WORKFLOW_CHANGED != true" ]]; then
   fail "registration SHA did not introduce or update the K3C bridge control plane"
 fi
 
@@ -378,13 +378,15 @@ probe_python_import() {
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTHONHASHSEED=0 \
     /bin/bash --noprofile --norc -c \
-    "cd /home/andris/hermes-deals/backend && exec /usr/bin/python3 -c \"import importlib; importlib.import_module('$module')\"" \
+    "cd /home/andris/hermes-deals/backend || exit 21; /usr/bin/python3 -c \"import importlib; importlib.import_module('$module')\"; rc=\$?; [[ \$rc -eq 0 ]] && exit 0; exit 20" \
     >/dev/null 2>"$IMPORT_STDERR_PRIVATE"
   import_rc=$?
   set -e
-  if [[ "$import_rc" -ne 0 ]]; then
-    bridge_block "$reason"
-  fi
+  case "$import_rc" in
+    0) ;;
+    20) bridge_block "$reason" ;;
+    *) bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED" ;;
+  esac
 }
 
 probe_python_import 'bs4' 'DIAGNOSTIC_IMPORT_BS4_FAILED'
