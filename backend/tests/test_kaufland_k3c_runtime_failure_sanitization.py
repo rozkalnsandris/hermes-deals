@@ -107,11 +107,13 @@ def test_dispatcher_preflights_exact_isolated_import_stages_before_execution():
         "PYTHONNOUSERSITE=1",
         "PYTHONDONTWRITEBYTECODE=1",
         "PYTHONHASHSEED=0",
-        "cd /home/andris/hermes-deals/backend",
+        "cd /home/andris/hermes-deals/backend || exit 21",
         "/usr/bin/python3",
         "importlib.import_module('$module')",
+        "exit 20",
         '2>"$IMPORT_STDERR_PRIVATE"',
-        'bridge_block "$reason"',
+        '20) bridge_block "$reason" ;;',
+        '*) bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED" ;;',
     ):
         assert required in function_region
 
@@ -146,7 +148,8 @@ def test_import_preflight_exports_no_private_stderr_or_dynamic_exception_detail(
     assert "exception" not in probe_region.casefold()
     assert "ImportError" not in probe_region
     assert "ModuleNotFoundError" not in probe_region
-    assert 'bridge_block "$reason"' in probe_region
+    assert '20) bridge_block "$reason" ;;' in probe_region
+    assert '*) bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED" ;;' in probe_region
 
     for _module, reason in IMPORT_STAGES:
         assert reason.isascii()
