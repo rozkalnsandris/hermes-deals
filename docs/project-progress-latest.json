@@ -560,28 +560,40 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 205,
+  "completed_issue_count": 209,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-08-23T04:50:48.064637Z",
-  "generated_at_local": "2026-08-23T06:50:48.064637+02:00",
+  "generated_at": "2026-08-24T04:59:26.352257Z",
+  "generated_at_local": "2026-08-24T06:59:26.352257+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-08-22",
+  "previous_day": "2026-08-23",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 2,
+  "previous_day_completed_issue_count": 4,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-08-22T13:27:51Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/701",
-      "number": 701,
-      "title": "P1 Kaufland K2: freeze immutable overlapping campaign evidence for store 1503"
+      "closed_at": "2026-08-23T12:36:34Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/759",
+      "number": 759,
+      "title": "P1 infra: add fail-closed owner-gated RPi source-sync bridge"
     },
     {
-      "closed_at": "2026-08-22T19:12:31Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/752",
-      "number": 752,
-      "title": "P1 Kaufland K3C: repo-native real-K2 v2 read-only derivation harness"
+      "closed_at": "2026-08-23T14:09:59Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/761",
+      "number": 761,
+      "title": "P1 infra: make #758 K3C bridge descendant-main safe without rewind"
+    },
+    {
+      "closed_at": "2026-08-23T16:00:33Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/763",
+      "number": 763,
+      "title": "P1 infra: fix K3C root installer single-parent parsing under strict IFS"
+    },
+    {
+      "closed_at": "2026-08-23T20:47:33Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/765",
+      "number": 765,
+      "title": "P1 infra: make K3C registration anchor maintenance-safe"
     }
   ],
   "previous_day_progress_units": 0,
