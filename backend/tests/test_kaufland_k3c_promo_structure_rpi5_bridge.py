@@ -262,8 +262,14 @@ def test_workflow_is_manual_owner_only_and_self_hosted_job_is_tokenless() -> Non
     assert "EXPECTED_OWNER_LOGIN: rozkalnsandris" in text
     assert 'EXPECTED_OWNER_ID: "277435981"' in text
     assert "bridge execution requires a merged pull request" in text
-    assert "merged bridge commit is not reachable from current main" in text
+    assert "REQUESTED_EXECUTION_SHA: ${{ inputs.execution_sha }}" in text
+    assert "requested execution checkout is not a registration descendant" in text
+    assert "requested execution checkout is not reachable from current main" in text
     assert "tree_equivalent_pr_head_ci" in text
+    assert "registration_ci_reuse" in text
+    assert "exact execution checkout does not have successful main push CI" in text
+    assert "trusted K3C source drift at execution checkout" in text
+    assert "trusted K3C source drift on current main" in text
     assert "permissions: {}" in text
     assert "hermes-deals-audit" in text
     assert "/usr/local/sbin/hermes-deals-kaufland-k3c-promo-structure-dispatch" in text
