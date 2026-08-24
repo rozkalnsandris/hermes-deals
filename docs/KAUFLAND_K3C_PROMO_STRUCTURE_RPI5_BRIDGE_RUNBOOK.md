@@ -1,6 +1,6 @@
 # Kaufland K3C promo-structure RPi5 bridge
 
-Refs: #702, #749, #758, #760, #761, #764, #765.
+Refs: #702, #749, #758, #760, #761, #764, #765, #768.
 
 ## Purpose
 
@@ -24,12 +24,14 @@ v2 is explicitly non-rewind. It separates the reviewed bridge-control-plane revi
 
 ## Identity model
 
-Two SHA identities are mandatory:
+Two execution-bound SHA identities are mandatory:
 
 1. **registration SHA** — the exact squash merge that introduces or updates at least one v2 K3C control-plane anchor: the workflow or installer;
-2. **execution checkout SHA** — the exact current `main` commit present on the RPi when a diagnostic is run.
+2. **execution checkout SHA** — the exact clean `main` commit already present on the RPi and explicitly selected by the owner for the diagnostic.
 
 The execution checkout SHA may equal the registration SHA or be a descendant of it. The bridge must **never rewind** the primary checkout.
+
+GitHub-hosted authorization additionally resolves a **current-main witness SHA** from canonical GitHub `main`. This witness is an upper-bound and trusted-source-drift check; it is not automatically the execution checkout. Therefore an unrelated docs/progress commit on current GitHub `main` does not by itself require an RPi source sync.
 
 The selected registration PR is not an arbitrary selector. Its merge commit must be single-parent and at least one of these two blobs must differ from its parent:
 
@@ -51,11 +53,14 @@ The following files are trusted as one reviewed execution boundary:
 - `backend/app/kaufland_source_card_contract.py`;
 - `backend/app/kaufland_source_discovery.py`.
 
-A descendant checkout is acceptable only while every trusted Git blob remains byte-identical to the registration SHA. Any trusted-source drift blocks registration or execution. A changed K3C control plane therefore requires a new reviewed registration PR; it is never inherited silently.
+A descendant execution checkout is acceptable only while every trusted Git blob remains byte-identical to the registration SHA. The hosted authorizer also requires the same trusted blobs on current GitHub `main` to remain byte-identical to the registration SHA. Trusted-source drift at either boundary blocks execution. A changed K3C control plane therefore requires a new reviewed registration PR; it is never inherited silently.
 
 ## GitHub-hosted authorization
 
-The workflow remains `workflow_dispatch` only and accepts one input: the merged K3C bridge **registration PR number**.
+The workflow remains `workflow_dispatch` only and accepts exactly two bounded inputs:
+
+1. the merged K3C bridge **registration PR number**;
+2. the exact lowercase 40-hex **execution SHA** already present as the clean RPi `main` checkout.
 
 Before a self-hosted job can start, the GitHub-hosted authorizer requires:
 
@@ -65,13 +70,17 @@ Before a self-hosted job can start, the GitHub-hosted authorizer requires:
 4. a positive same-repository PR merged into `main`;
 5. a valid single-parent registration merge SHA;
 6. proof that the registration commit changes at least one K3C control-plane anchor — workflow or installer — relative to its parent;
-7. current GitHub `main` resolved independently as the execution checkout SHA;
-8. registration SHA is an ancestor of or identical to execution SHA;
-9. registration revision CI is successful — exact merge-SHA push CI, or exact PR-head pull-request CI with squash-tree equivalence;
-10. **exact execution-main push CI** is successful;
-11. every trusted-source blob is identical between registration and execution SHAs.
+7. an exact 40-hex owner-supplied execution SHA;
+8. current GitHub `main` resolved independently as the current-main witness SHA;
+9. ancestry `registration SHA <= execution SHA <= current GitHub main`;
+10. registration CI is successful — exact merge-SHA push CI, or exact PR-head pull-request CI with squash-tree equivalence;
+11. if execution SHA equals registration SHA, the already-proven registration CI is reused; otherwise the exact execution SHA must have successful `main` push CI;
+12. every trusted-source blob is identical between registration and execution SHAs;
+13. every trusted-source blob is also identical between registration SHA and current GitHub `main`.
 
-No path, shell fragment, command, retained root, Python module, or diagnostic option is accepted from the workflow event.
+Current GitHub `main` does not require separate CI merely to serve as the upper-bound witness because it is not executed. If it changes any trusted K3C blob, step 13 blocks before the self-hosted job.
+
+No path, shell fragment, command, retained root, Python module, diagnostic option, or arbitrary ref is accepted from the workflow event. The only execution selector is the exact 40-hex SHA, and GitHub ancestry, CI and trusted-source evidence must independently validate it.
 
 ## Self-hosted boundary
 
@@ -89,7 +98,7 @@ The dispatcher interface is exactly:
   <registration-sha> <execution-checkout-sha> <runner-artifact-dir>
 ```
 
-The runner supplies only the two hosted-authorized SHAs and its private fixed-shape artifact directory.
+The runner supplies only the two hosted-authorized SHAs and its private fixed-shape artifact directory. It does not discover, fetch, switch or mutate the source checkout.
 
 ## Root registration boundary
 
@@ -169,7 +178,7 @@ The existing reviewed validator continues to validate the diagnostic payload und
 The v2 sanitized diagnostic/summary must include both:
 
 - `registered_commit_sha` — the exact bridge registration SHA;
-- `execution_checkout_sha` — the exact current-main checkout used by the diagnostic.
+- `execution_checkout_sha` — the exact RPi checkout used by the diagnostic.
 
 The outer receipt uses bridge schema version `2` and contract `kaufland-k3c-promo-structure-rpi5-bridge-v2`.
 
@@ -195,11 +204,11 @@ Infrastructure, source identity, ancestry, CI, trusted-source, registration or s
 Each step begins with fresh canonical GitHub/runtime evidence.
 
 1. Verify current GitHub `main`, the exact v2 registration PR/merge SHA, CI, reviews and trusted-source state.
-2. If RPi source is behind, obtain separate owner authorization to use the **source-sync bridge** to fast-forward the primary checkout to the exact approved registration SHA or later approved descendant. No rewind.
+2. If the intended execution checkout is not already present on RPi, obtain separate owner authorization to use the **source-sync bridge** to fast-forward the primary checkout to an exact approved registration SHA or later approved descendant. Unrelated docs-only current-main drift does not itself require sync. No rewind.
 3. Obtain separate owner authorization for K3C **root registration** with the exact v2 registration merge SHA.
 4. Inspect the registration receipt. On failure/ambiguity, preserve evidence and STOP; no automatic retry.
-5. Before retained evidence is read, obtain the separately required owner authorization for K3C **diagnostic execution**.
-6. Dispatch the K3C workflow using the exact v2 registration PR number. The workflow independently binds exact current `main` as execution SHA.
+5. Before retained evidence is read, obtain the separately required owner authorization for K3C **diagnostic execution**, binding the registration PR and exact execution SHA.
+6. Dispatch the K3C workflow using both the exact v2 registration PR number and exact execution SHA already present on RPi. The workflow independently validates `registration <= execution <= current GitHub main`, registration/execution CI, and trusted-source identity at execution and current-main witness boundaries.
 7. Review the sanitized structural artifact before any public-promo acceptance or #702 parser change.
 
 Source-sync registration, K3C root registration and diagnostic execution remain distinct authority boundaries. Merge authorization never implies any of them.
