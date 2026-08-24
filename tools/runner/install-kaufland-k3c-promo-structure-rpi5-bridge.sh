@@ -368,19 +368,35 @@ STATUS_BEFORE="$(git_as_andris -C "$repo" status --porcelain=v1 --untracked-file
 [[ "$HEAD_BEFORE" == "$EXECUTION_SHA" && -z "$STATUS_BEFORE" ]] || bridge_block "SOURCE_PRECONDITION_DRIFT"
 
 IMPORT_STDERR_PRIVATE="$STAGING_DIR/diagnostic-import-stderr.private"
-set +e
-runuser -u andris -- /usr/bin/env -i \
-  HOME=/home/andris USER=andris LOGNAME=andris \
-  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTHONHASHSEED=0 \
-  /bin/bash --noprofile --norc -c \
-  "cd /home/andris/hermes-deals/backend && exec /usr/bin/python3 -c 'import app.kaufland_k3c_promo_structure_diagnostic'" \
-  >/dev/null 2>"$IMPORT_STDERR_PRIVATE"
-IMPORT_RC=$?
-set -e
-if [[ "$IMPORT_RC" -ne 0 ]]; then
-  bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED"
-fi
+probe_python_import() {
+  local module="$1"
+  local reason="$2"
+  local import_rc
+  set +e
+  runuser -u andris -- /usr/bin/env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTHONHASHSEED=0 \
+    /bin/bash --noprofile --norc -c \
+    "cd /home/andris/hermes-deals/backend || exit 21; /usr/bin/python3 -c \"import importlib; importlib.import_module('$module')\"; rc=\$?; [[ \$rc -eq 0 ]] && exit 0; exit 20" \
+    >/dev/null 2>"$IMPORT_STDERR_PRIVATE"
+  import_rc=$?
+  set -e
+  case "$import_rc" in
+    0) ;;
+    20) bridge_block "$reason" ;;
+    *) bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED" ;;
+  esac
+}
+
+probe_python_import 'bs4' 'DIAGNOSTIC_IMPORT_BS4_FAILED'
+probe_python_import 'httpx' 'DIAGNOSTIC_IMPORT_HTTPX_FAILED'
+probe_python_import 'app.kaufland_source_card_contract' 'DIAGNOSTIC_IMPORT_SOURCE_CARD_CONTRACT_FAILED'
+probe_python_import 'app.kaufland_source_discovery' 'DIAGNOSTIC_IMPORT_SOURCE_DISCOVERY_FAILED'
+probe_python_import 'app.kaufland_evidence_preflight' 'DIAGNOSTIC_IMPORT_EVIDENCE_PREFLIGHT_FAILED'
+probe_python_import 'app.kaufland_evidence_freeze' 'DIAGNOSTIC_IMPORT_EVIDENCE_FREEZE_FAILED'
+probe_python_import 'app.kaufland_real_k2_v2_derivation' 'DIAGNOSTIC_IMPORT_K2_DERIVATION_FAILED'
+probe_python_import 'app.kaufland_k3c_promo_structure_diagnostic' 'DIAGNOSTIC_IMPORT_PROMO_MODULE_FAILED'
 rm -f -- "$IMPORT_STDERR_PRIVATE"
 
 RAW="$STAGING_DIR/diagnostic-raw.json"
