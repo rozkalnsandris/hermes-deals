@@ -34,6 +34,33 @@ def _registration_anchor_allowed(*, workflow_changed: bool, installer_changed: b
     return workflow_changed or installer_changed
 
 
+def _execution_anchor_allowed(
+    *,
+    registration_is_ancestor: bool,
+    execution_is_reachable_from_current_main: bool,
+    trusted_execution_matches_registration: bool,
+    trusted_current_main_matches_registration: bool,
+) -> bool:
+    return all(
+        (
+            registration_is_ancestor,
+            execution_is_reachable_from_current_main,
+            trusted_execution_matches_registration,
+            trusted_current_main_matches_registration,
+        )
+    )
+
+
+def _execution_ci_mode(
+    *, execution_equals_registration: bool, exact_execution_push_ci: bool
+) -> str | None:
+    if execution_equals_registration:
+        return "registration_ci_reuse"
+    if exact_execution_push_ci:
+        return "exact_execution_push_ci"
+    return None
+
+
 def test_installer_binds_registration_anchor_and_descendant_execution() -> None:
     text = INSTALLER.read_text(encoding="utf-8")
     subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
@@ -108,12 +135,67 @@ def test_registration_anchor_accepts_reviewed_maintenance_truth_table() -> None:
     assert _registration_anchor_allowed(workflow_changed=False, installer_changed=False) is False
 
 
-def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately() -> None:
+def test_execution_anchor_truth_table_keeps_current_main_as_upper_bound_witness() -> None:
+    assert _execution_anchor_allowed(
+        registration_is_ancestor=True,
+        execution_is_reachable_from_current_main=True,
+        trusted_execution_matches_registration=True,
+        trusted_current_main_matches_registration=True,
+    )
+
+    for rejected in (
+        {
+            "registration_is_ancestor": False,
+            "execution_is_reachable_from_current_main": True,
+            "trusted_execution_matches_registration": True,
+            "trusted_current_main_matches_registration": True,
+        },
+        {
+            "registration_is_ancestor": True,
+            "execution_is_reachable_from_current_main": False,
+            "trusted_execution_matches_registration": True,
+            "trusted_current_main_matches_registration": True,
+        },
+        {
+            "registration_is_ancestor": True,
+            "execution_is_reachable_from_current_main": True,
+            "trusted_execution_matches_registration": False,
+            "trusted_current_main_matches_registration": True,
+        },
+        {
+            "registration_is_ancestor": True,
+            "execution_is_reachable_from_current_main": True,
+            "trusted_execution_matches_registration": True,
+            "trusted_current_main_matches_registration": False,
+        },
+    ):
+        assert not _execution_anchor_allowed(**rejected)
+
+
+def test_execution_ci_reuses_registration_only_for_identical_checkout() -> None:
+    assert (
+        _execution_ci_mode(execution_equals_registration=True, exact_execution_push_ci=False)
+        == "registration_ci_reuse"
+    )
+    assert (
+        _execution_ci_mode(execution_equals_registration=False, exact_execution_push_ci=True)
+        == "exact_execution_push_ci"
+    )
+    assert _execution_ci_mode(
+        execution_equals_registration=False, exact_execution_push_ci=False
+    ) is None
+
+
+def test_workflow_authorizes_bridge_revision_and_bounded_execution_checkout() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
     assert "actions: read" in text
     assert "registration_sha:" in text
     assert "execution_sha:" in text
+    assert "current_main_sha:" in text
+    assert "REQUESTED_EXECUTION_SHA: ${{ inputs.execution_sha }}" in text
+    assert 'execution_sha = os.environ["REQUESTED_EXECUTION_SHA"].strip()' in text
+    assert 're.fullmatch(r"[0-9a-f]{40}", execution_sha)' in text
     assert "/branches/main" in text
     assert "bridge registration SHA must be a single-parent reviewed merge" in text
     assert "workflow_changed = content_blob(workflow_path, registration_sha) != content_blob(" in text
@@ -122,9 +204,17 @@ def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately()
     assert "selected PR did not introduce or update the K3C bridge control plane" in text
     assert "selected PR did not introduce or update the K3C bridge workflow" not in text
     assert "selected PR did not introduce or update the K3C bridge installer" not in text
-    assert "merged bridge commit is not reachable from current main" in text
-    assert "exact execution main does not have successful push CI" in text
-    assert "trusted K3C source drift after registration" in text
+    assert "requested execution checkout is not a registration descendant" in text
+    assert "requested execution checkout is not reachable from current main" in text
+    assert "if execution_sha == registration_sha:" in text
+    assert 'execution_ci_mode = "registration_ci_reuse"' in text
+    assert 'execution_ci_mode = "exact_execution_push_ci"' in text
+    assert "exact execution checkout does not have successful main push CI" in text
+    assert "trusted K3C source drift at execution checkout" in text
+    assert "trusted K3C source drift on current main" in text
+    assert 'execution_sha = str((main_branch.get("commit") or {}).get("sha") or "")' not in text
+    assert "exact execution main does not have successful push CI" not in text
+    assert "workflow_runs(current_main_sha" not in text
     assert '"$REGISTRATION_SHA"' in text
     assert '"$EXECUTION_SHA"' in text
     assert "bridge_schema_version\") != 2" in text
@@ -132,6 +222,7 @@ def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately()
     assert "execution_checkout_sha" in text
     assert "Registered bridge revision" in text
     assert "Exact execution checkout" in text
+    assert "Current-main witness" in text
 
     for forbidden in (
         "pull_request_target:",
@@ -145,7 +236,7 @@ def test_workflow_authorizes_bridge_revision_and_exact_current_main_separately()
         assert forbidden not in text
 
 
-def test_runbook_documents_non_rewind_descendant_contract_and_separate_live_gates() -> None:
+def test_runbook_documents_non_rewind_bounded_execution_contract_and_separate_live_gates() -> None:
     text = RUNBOOK.read_text(encoding="utf-8")
 
     assert "bridge-v2" in text
@@ -156,7 +247,10 @@ def test_runbook_documents_non_rewind_descendant_contract_and_separate_live_gate
     assert "trusted" in text.lower()
     assert "at least one" in text.lower()
     assert "workflow or installer" in text.lower()
-    assert "exact execution-main push CI" in text
+    assert "exact execution SHA" in text
+    assert "current GitHub `main`" in text
+    assert "upper-bound" in text
+    assert "registration CI" in text
     assert "source-sync bridge" in text
     assert "root registration" in text
     assert "diagnostic execution" in text
