@@ -367,6 +367,22 @@ HEAD_BEFORE="$(git_as_andris -C "$repo" rev-parse HEAD)"
 STATUS_BEFORE="$(git_as_andris -C "$repo" status --porcelain=v1 --untracked-files=all)"
 [[ "$HEAD_BEFORE" == "$EXECUTION_SHA" && -z "$STATUS_BEFORE" ]] || bridge_block "SOURCE_PRECONDITION_DRIFT"
 
+IMPORT_STDERR_PRIVATE="$STAGING_DIR/diagnostic-import-stderr.private"
+set +e
+runuser -u andris -- /usr/bin/env -i \
+  HOME=/home/andris USER=andris LOGNAME=andris \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTHONHASHSEED=0 \
+  /bin/bash --noprofile --norc -c \
+  "cd /home/andris/hermes-deals/backend && exec /usr/bin/python3 -c 'import app.kaufland_k3c_promo_structure_diagnostic'" \
+  >/dev/null 2>"$IMPORT_STDERR_PRIVATE"
+IMPORT_RC=$?
+set -e
+if [[ "$IMPORT_RC" -ne 0 ]]; then
+  bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED"
+fi
+rm -f -- "$IMPORT_STDERR_PRIVATE"
+
 RAW="$STAGING_DIR/diagnostic-raw.json"
 STDERR_PRIVATE="$STAGING_DIR/diagnostic-stderr.private"
 set +e

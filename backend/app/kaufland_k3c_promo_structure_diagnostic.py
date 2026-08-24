@@ -375,6 +375,10 @@ def main(argv: list[str] | None = None) -> int:
         payload = _blocked_payload(getattr(exc, "code", "PROMO_STRUCTURE_BLOCKED"))
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 20
+    except Exception:
+        payload = _blocked_payload("UNEXPECTED_DIAGNOSTIC_EXCEPTION")
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 20
 
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0
