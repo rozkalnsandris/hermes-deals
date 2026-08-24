@@ -7,6 +7,10 @@ on:
         description: Merged K3C bridge registration pull request number
         required: true
         type: string
+      execution_sha:
+        description: Exact clean RPi5 main checkout SHA to execute
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -19,18 +23,19 @@ concurrency:
 
 jobs:
   authorize:
-    name: Authorize reviewed bridge and exact descendant main
+    name: Authorize reviewed bridge and bounded execution checkout
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       registration_sha: ${{ steps.gate.outputs.registration_sha }}
       execution_sha: ${{ steps.gate.outputs.execution_sha }}
+      current_main_sha: ${{ steps.gate.outputs.current_main_sha }}
       pr_number: ${{ steps.gate.outputs.pr_number }}
       registration_ci_mode: ${{ steps.gate.outputs.registration_ci_mode }}
       execution_ci_mode: ${{ steps.gate.outputs.execution_ci_mode }}
 
     steps:
-      - name: Validate owner, bridge revision, descendant main and exact CI
+      - name: Validate owner, bridge revision, execution checkout and current-main witness
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,6 +44,7 @@ jobs:
           EXPECTED_OWNER_LOGIN: rozkalnsandris
           EXPECTED_OWNER_ID: "277435981"
           REQUESTED_PR: ${{ inputs.pr_number }}
+          REQUESTED_EXECUTION_SHA: ${{ inputs.execution_sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -70,6 +76,10 @@ jobs:
           if not raw_pr.isdigit() or int(raw_pr) <= 0:
               raise SystemExit("pr_number must be a positive integer")
           pr_number = int(raw_pr)
+
+          execution_sha = os.environ["REQUESTED_EXECUTION_SHA"].strip()
+          if not re.fullmatch(r"[0-9a-f]{40}", execution_sha):
+              raise SystemExit("execution_sha must be an exact lowercase 40-hex commit")
 
           headers = {
               "Accept": "application/vnd.github+json",
@@ -109,6 +119,11 @@ jobs:
                   raise SystemExit(f"invalid blob identity for {path} at {sha}")
               return blob
 
+          def require_ancestor(base: str, head: str, message: str) -> None:
+              comparison = get(f"https://api.github.com/repos/{repo}/compare/{base}...{head}")
+              if comparison.get("status") not in {"ahead", "identical"}:
+                  raise SystemExit(message)
+
           pr = get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
           if not pr.get("merged") or not pr.get("merged_at"):
               raise SystemExit("bridge execution requires a merged pull request")
@@ -146,15 +161,20 @@ jobs:
               raise SystemExit("selected PR did not introduce or update the K3C bridge control plane")
 
           main_branch = get(f"https://api.github.com/repos/{repo}/branches/main")
-          execution_sha = str((main_branch.get("commit") or {}).get("sha") or "")
-          if not re.fullmatch(r"[0-9a-f]{40}", execution_sha):
-              raise SystemExit("current main does not expose a valid execution SHA")
+          current_main_sha = str((main_branch.get("commit") or {}).get("sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", current_main_sha):
+              raise SystemExit("current main does not expose a valid SHA")
 
-          comparison = get(
-              f"https://api.github.com/repos/{repo}/compare/{registration_sha}...{execution_sha}"
+          require_ancestor(
+              registration_sha,
+              execution_sha,
+              "requested execution checkout is not a registration descendant",
           )
-          if comparison.get("status") not in {"ahead", "identical"}:
-              raise SystemExit("merged bridge commit is not reachable from current main")
+          require_ancestor(
+              execution_sha,
+              current_main_sha,
+              "requested execution checkout is not reachable from current main",
+          )
 
           merge_runs = workflow_runs(registration_sha, "push")
           merge_ci_ok = successful_ci(
@@ -175,12 +195,15 @@ jobs:
                   raise SystemExit("tested PR head tree differs from squash merge tree")
               registration_ci_mode = "tree_equivalent_pr_head_ci"
 
-          execution_runs = workflow_runs(execution_sha, "push")
-          if not successful_ci(
-              execution_runs, sha=execution_sha, event_name="push", require_main=True
-          ):
-              raise SystemExit("exact execution main does not have successful push CI")
-          execution_ci_mode = "exact_main_push_ci"
+          if execution_sha == registration_sha:
+              execution_ci_mode = "registration_ci_reuse"
+          else:
+              execution_runs = workflow_runs(execution_sha, "push")
+              if not successful_ci(
+                  execution_runs, sha=execution_sha, event_name="push", require_main=True
+              ):
+                  raise SystemExit("exact execution checkout does not have successful main push CI")
+              execution_ci_mode = "exact_execution_push_ci"
 
           critical_paths = (
               workflow_path,
@@ -193,13 +216,17 @@ jobs:
               "backend/app/kaufland_source_discovery.py",
           )
           for path in critical_paths:
-              if content_blob(path, registration_sha) != content_blob(path, execution_sha):
-                  raise SystemExit(f"trusted K3C source drift after registration: {path}")
+              registration_blob = content_blob(path, registration_sha)
+              if registration_blob != content_blob(path, execution_sha):
+                  raise SystemExit(f"trusted K3C source drift at execution checkout: {path}")
+              if registration_blob != content_blob(path, current_main_sha):
+                  raise SystemExit(f"trusted K3C source drift on current main: {path}")
 
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
               handle.write(f"registration_sha={registration_sha}\n")
               handle.write(f"execution_sha={execution_sha}\n")
+              handle.write(f"current_main_sha={current_main_sha}\n")
               handle.write(f"pr_number={pr_number}\n")
               handle.write(f"registration_ci_mode={registration_ci_mode}\n")
               handle.write(f"execution_ci_mode={execution_ci_mode}\n")
@@ -325,6 +352,7 @@ jobs:
         env:
           REGISTRATION_SHA: ${{ needs.authorize.outputs.registration_sha }}
           EXECUTION_SHA: ${{ needs.authorize.outputs.execution_sha }}
+          CURRENT_MAIN_SHA: ${{ needs.authorize.outputs.current_main_sha }}
           BRIDGE_STATUS: ${{ steps.inspect.outputs.bridge_status }}
           DIAGNOSTIC_STATUS: ${{ steps.inspect.outputs.diagnostic_status }}
           REASON_CODE: ${{ steps.inspect.outputs.reason_code }}
@@ -335,6 +363,7 @@ jobs:
             echo '## Kaufland K3C promo-structure RPi5 diagnostic'
             echo "- Registered bridge revision: \`${REGISTRATION_SHA}\`"
             echo "- Exact execution checkout: \`${EXECUTION_SHA}\`"
+            echo "- Current-main witness: \`${CURRENT_MAIN_SHA}\`"
             echo "- Bridge execution: \`${BRIDGE_STATUS:-UNAVAILABLE}\`"
             echo "- Diagnostic status: \`${DIAGNOSTIC_STATUS:-UNAVAILABLE}\`"
             echo "- Reason code: \`${REASON_CODE:-none}\`"
