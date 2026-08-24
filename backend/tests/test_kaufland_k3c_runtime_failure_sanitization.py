@@ -10,6 +10,17 @@ ROOT = Path(__file__).resolve().parents[2]
 INSTALLER_PATH = ROOT / "tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh"
 VALIDATOR_PATH = ROOT / "tools/runner/kaufland_k3c_promo_structure_bridge_validator.py"
 
+IMPORT_STAGES = (
+    ("bs4", "DIAGNOSTIC_IMPORT_BS4_FAILED"),
+    ("httpx", "DIAGNOSTIC_IMPORT_HTTPX_FAILED"),
+    ("app.kaufland_source_card_contract", "DIAGNOSTIC_IMPORT_SOURCE_CARD_CONTRACT_FAILED"),
+    ("app.kaufland_source_discovery", "DIAGNOSTIC_IMPORT_SOURCE_DISCOVERY_FAILED"),
+    ("app.kaufland_evidence_preflight", "DIAGNOSTIC_IMPORT_EVIDENCE_PREFLIGHT_FAILED"),
+    ("app.kaufland_evidence_freeze", "DIAGNOSTIC_IMPORT_EVIDENCE_FREEZE_FAILED"),
+    ("app.kaufland_real_k2_v2_derivation", "DIAGNOSTIC_IMPORT_K2_DERIVATION_FAILED"),
+    ("app.kaufland_k3c_promo_structure_diagnostic", "DIAGNOSTIC_IMPORT_PROMO_MODULE_FAILED"),
+)
+
 _spec = importlib.util.spec_from_file_location("kaufland_k3c_bridge_validator", VALIDATOR_PATH)
 assert _spec is not None and _spec.loader is not None
 validator = importlib.util.module_from_spec(_spec)
@@ -73,22 +84,72 @@ def test_known_k3c_error_keeps_exact_reason_without_message(monkeypatch, capsys)
     assert secret not in json.dumps(payload, sort_keys=True)
 
 
-def test_dispatcher_preflights_exact_isolated_diagnostic_import_before_execution():
+def test_dispatcher_preflights_exact_isolated_import_stages_before_execution():
     text = INSTALLER_PATH.read_text(encoding="utf-8")
-    import_marker = "exec /usr/bin/python3 -c 'import app.kaufland_k3c_promo_structure_diagnostic'"
+    function_marker = "probe_python_import() {"
     diagnostic_marker = (
         "exec /usr/bin/python3 -m app.kaufland_k3c_promo_structure_diagnostic "
         "--retained-root /home/andris/hermes-deals-retained-evidence"
     )
 
-    assert "DIAGNOSTIC_RUNTIME_IMPORT_FAILED" in text
-    assert import_marker in text
+    assert function_marker in text
     assert diagnostic_marker in text
-    assert text.index(import_marker) < text.index(diagnostic_marker)
+    function_start = text.index(function_marker)
+    function_end = text.index("\n}\n", function_start) + 3
+    function_region = text[function_start:function_end]
 
-    preflight_region = text[text.index(import_marker) - 500 : text.index(import_marker) + 500]
-    assert "runuser -u andris" in preflight_region
-    assert "/usr/bin/env -i" in preflight_region
-    assert "PYTHONNOUSERSITE=1" in preflight_region
-    assert "PYTHONDONTWRITEBYTECODE=1" in preflight_region
-    assert "PYTHONHASHSEED=0" in preflight_region
+    for required in (
+        "runuser -u andris",
+        "/usr/bin/env -i",
+        "HOME=/home/andris USER=andris LOGNAME=andris",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "LANG=C.UTF-8",
+        "PYTHONNOUSERSITE=1",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "PYTHONHASHSEED=0",
+        "cd /home/andris/hermes-deals/backend",
+        "/usr/bin/python3",
+        "importlib.import_module('$module')",
+        '2>"$IMPORT_STDERR_PRIVATE"',
+        'bridge_block "$reason"',
+    ):
+        assert required in function_region
+
+    stage_positions: list[int] = []
+    for module, reason in IMPORT_STAGES:
+        marker = f"probe_python_import '{module}' '{reason}'"
+        assert marker in text
+        stage_positions.append(text.index(marker))
+
+    assert stage_positions == sorted(stage_positions)
+    assert len(set(stage_positions)) == len(IMPORT_STAGES)
+    assert function_end < stage_positions[0]
+    assert stage_positions[-1] < text.index(diagnostic_marker)
+
+    private_stderr_marker = 'IMPORT_STDERR_PRIVATE="$STAGING_DIR/diagnostic-import-stderr.private"'
+    cleanup_marker = 'rm -f -- "$IMPORT_STDERR_PRIVATE"'
+    assert text.index(private_stderr_marker) < function_start
+    assert stage_positions[-1] < text.index(cleanup_marker) < text.index(diagnostic_marker)
+
+
+def test_import_preflight_exports_no_private_stderr_or_dynamic_exception_detail():
+    text = INSTALLER_PATH.read_text(encoding="utf-8")
+    copy_start = text.index("copy_exports() {")
+    copy_end = text.index("\n}\n", copy_start) + 3
+    copy_region = text[copy_start:copy_end]
+    probe_start = text.index("probe_python_import() {")
+    probe_end = text.index("\n}\n", probe_start) + 3
+    probe_region = text[probe_start:probe_end]
+
+    assert "diagnostic-import-stderr.private" not in copy_region
+    assert "traceback" not in probe_region.casefold()
+    assert "exception" not in probe_region.casefold()
+    assert "ImportError" not in probe_region
+    assert "ModuleNotFoundError" not in probe_region
+    assert 'bridge_block "$reason"' in probe_region
+
+    for _module, reason in IMPORT_STAGES:
+        assert reason.isascii()
+        assert reason.replace("_", "").isalnum()
+        assert reason == reason.upper()
+        assert len(reason) <= 96
