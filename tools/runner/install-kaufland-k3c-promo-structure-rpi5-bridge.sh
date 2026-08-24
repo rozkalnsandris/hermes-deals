@@ -90,7 +90,7 @@ fi
 if [[ "$REGISTRATION_WORKFLOW_BLOB" != "$PARENT_WORKFLOW_BLOB" ]]; then
   REGISTRATION_WORKFLOW_CHANGED=true
 fi
-if [[ "$REGISTRATION_INSTALLER_CHANGED" != true && "$REGISTRATION_WORKFLOW_CHANGED != true" ]]; then
+if [[ "$REGISTRATION_INSTALLER_CHANGED" != true && "$REGISTRATION_WORKFLOW_CHANGED" != true ]]; then
   fail "registration SHA did not introduce or update the K3C bridge control plane"
 fi
 
