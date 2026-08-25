@@ -242,6 +242,15 @@ def test_installer_is_fixed_fail_closed_and_source_read_only() -> None:
     assert "github-runner ALL=(root) NOPASSWD:" in text
     assert "/bin/bash --noprofile --norc -c" in text
 
+    assert "RUNTIME_PY313_REL='backend/locks/runtime-py313.txt'" in text
+    assert "[[ \"$RUNTIME_PYTHON_LINE\" == '3.13' ]]" in text
+    assert "[[ \"$RUNTIME_LOCK_REL\" == 'backend/locks/runtime-py313.txt' ]]" in text
+    assert "[[ \"${runtime_python_line:-}\" == '3.13' ]]" in text
+    assert "[[ \"${runtime_lock_relative:-}\" == 'backend/locks/runtime-py313.txt' ]]" in text
+    assert "RUNTIME_PY311_REL" not in text
+    assert "runtime_py311_" not in text
+    assert "3.11:backend/locks/runtime-py311.txt" not in text
+
     forbidden = (
         "docker ",
         "systemctl ",
