@@ -37,7 +37,6 @@ PROVISIONER_REL='tools/runner/build-kaufland-k3c-python-runtime.sh'
 RUNTIME_CONTRACT_REL='tools/runner/kaufland_k3c_python_runtime_contract.py'
 LOCK_MANIFEST_REL='backend/locks/manifest.json'
 LOCK_VERIFIER_REL='scripts/verify-python-lock-environment.py'
-RUNTIME_PY311_REL='backend/locks/runtime-py311.txt'
 RUNTIME_PY313_REL='backend/locks/runtime-py313.txt'
 
 [[ "$REGISTRATION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "registration SHA is invalid"
@@ -130,7 +129,7 @@ for relative in \
   "$WORKFLOW_REL" "$INSTALLER_REL" "$VALIDATOR_REL" "$DIAGNOSTIC_REL" \
   "$HELPER_REL" "$FREEZE_REL" "$CARD_REL" "$DISCOVERY_REL" \
   "$PROVISIONER_REL" "$RUNTIME_CONTRACT_REL" "$LOCK_MANIFEST_REL" "$LOCK_VERIFIER_REL" \
-  "$RUNTIME_PY311_REL" "$RUNTIME_PY313_REL"; do
+  "$RUNTIME_PY313_REL"; do
   trusted_source_matches_registration "$relative"
 done
 [[ -d "$RETAINED_ROOT" && ! -L "$RETAINED_ROOT" ]] || fail "retained evidence root is unavailable or unsafe"
@@ -147,13 +146,12 @@ PROVISIONER_SHA="$(sha256sum "$REPO/$PROVISIONER_REL" | awk '{print $1}')"
 RUNTIME_CONTRACT_SHA="$(sha256sum "$REPO/$RUNTIME_CONTRACT_REL" | awk '{print $1}')"
 LOCK_MANIFEST_SHA="$(sha256sum "$REPO/$LOCK_MANIFEST_REL" | awk '{print $1}')"
 LOCK_VERIFIER_SHA="$(sha256sum "$REPO/$LOCK_VERIFIER_REL" | awk '{print $1}')"
-RUNTIME_PY311_SHA="$(sha256sum "$REPO/$RUNTIME_PY311_REL" | awk '{print $1}')"
 RUNTIME_PY313_SHA="$(sha256sum "$REPO/$RUNTIME_PY313_REL" | awk '{print $1}')"
 for digest in \
   "$WORKFLOW_SHA" "$INSTALLER_SHA" "$VALIDATOR_SHA" "$DIAGNOSTIC_SHA" \
   "$HELPER_SHA" "$FREEZE_SHA" "$CARD_SHA" "$DISCOVERY_SHA" \
   "$PROVISIONER_SHA" "$RUNTIME_CONTRACT_SHA" "$LOCK_MANIFEST_SHA" "$LOCK_VERIFIER_SHA" \
-  "$RUNTIME_PY311_SHA" "$RUNTIME_PY313_SHA"; do
+  "$RUNTIME_PY313_SHA"; do
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "trusted source SHA-256 is invalid"
 done
 /usr/bin/bash -n "$REPO/$INSTALLER_REL" || fail "installer source syntax check failed"
@@ -177,11 +175,8 @@ RUNTIME_PYTHON_BINARY_SHA="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == 
 for digest in "$RUNTIME_IDENTITY_SHA" "$RUNTIME_TREE_SHA" "$RUNTIME_INVENTORY_SHA" "$RUNTIME_LOCK_SHA" "$RUNTIME_PYTHON_BINARY_SHA"; do
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "runtime candidate receipt digest is invalid"
 done
-[[ "$RUNTIME_PYTHON_LINE" == '3.11' || "$RUNTIME_PYTHON_LINE" == '3.13' ]] || fail "runtime candidate Python line is unsupported"
-case "$RUNTIME_PYTHON_LINE:$RUNTIME_LOCK_REL" in
-  3.11:backend/locks/runtime-py311.txt|3.13:backend/locks/runtime-py313.txt) ;;
-  *) fail "runtime candidate lock/Python binding mismatch" ;;
-esac
+[[ "$RUNTIME_PYTHON_LINE" == '3.13' ]] || fail "runtime candidate Python line must be 3.13"
+[[ "$RUNTIME_LOCK_REL" == 'backend/locks/runtime-py313.txt' ]] || fail "runtime candidate lock/Python binding mismatch"
 [[ "$(basename -- "$RUNTIME_CANDIDATE")" == "candidate-$RUNTIME_IDENTITY_SHA" ]] || fail "runtime candidate path/identity mismatch"
 REGISTERED_RUNTIME_DIR="$REGISTERED_RUNTIME_PARENT/runtime-$RUNTIME_IDENTITY_SHA"
 [[ ! -e "$REGISTERED_RUNTIME_DIR" ]] || fail "registered K3C runtime identity already exists"
@@ -229,8 +224,6 @@ lock_manifest_relative='$LOCK_MANIFEST_REL'
 lock_manifest_sha256='$LOCK_MANIFEST_SHA'
 lock_verifier_relative='$LOCK_VERIFIER_REL'
 lock_verifier_sha256='$LOCK_VERIFIER_SHA'
-runtime_py311_relative='$RUNTIME_PY311_REL'
-runtime_py311_sha256='$RUNTIME_PY311_SHA'
 runtime_py313_relative='$RUNTIME_PY313_REL'
 runtime_py313_sha256='$RUNTIME_PY313_SHA'
 runtime_registered_dir='$REGISTERED_RUNTIME_DIR'
@@ -284,21 +277,17 @@ source "$CONFIG"
 [[ "${runtime_contract_relative:-}" == 'tools/runner/kaufland_k3c_python_runtime_contract.py' ]] || fail "registered runtime contract path mismatch"
 [[ "${lock_manifest_relative:-}" == 'backend/locks/manifest.json' ]] || fail "registered lock manifest path mismatch"
 [[ "${lock_verifier_relative:-}" == 'scripts/verify-python-lock-environment.py' ]] || fail "registered lock verifier path mismatch"
-[[ "${runtime_py311_relative:-}" == 'backend/locks/runtime-py311.txt' ]] || fail "registered Python 3.11 lock path mismatch"
 [[ "${runtime_py313_relative:-}" == 'backend/locks/runtime-py313.txt' ]] || fail "registered Python 3.13 lock path mismatch"
 [[ "${runtime_identity_sha256:-}" =~ ^[0-9a-f]{64}$ ]] || fail "registered runtime identity invalid"
 [[ "${runtime_registered_dir:-}" == "/usr/local/libexec/hermes-deals-audits/kaufland-k3c-promo-structure/python-runtimes/runtime-${runtime_identity_sha256}" ]] || fail "registered runtime path mismatch"
-[[ "${runtime_python_line:-}" == '3.11' || "${runtime_python_line:-}" == '3.13' ]] || fail "registered runtime Python line unsupported"
-case "${runtime_python_line}:${runtime_lock_relative:-}" in
-  3.11:backend/locks/runtime-py311.txt|3.13:backend/locks/runtime-py313.txt) ;;
-  *) fail "registered runtime lock/Python binding mismatch" ;;
-esac
+[[ "${runtime_python_line:-}" == '3.13' ]] || fail "registered runtime Python line must be 3.13"
+[[ "${runtime_lock_relative:-}" == 'backend/locks/runtime-py313.txt' ]] || fail "registered runtime lock/Python binding mismatch"
 
 for digest in \
   "$workflow_sha256" "$installer_sha256" "$validator_sha256" "$diagnostic_sha256" \
   "$helper_sha256" "$freeze_sha256" "$card_sha256" "$discovery_sha256" \
   "$provisioner_sha256" "$runtime_contract_sha256" "$lock_manifest_sha256" "$lock_verifier_sha256" \
-  "$runtime_py311_sha256" "$runtime_py313_sha256" \
+  "$runtime_py313_sha256" \
   "$runtime_identity_sha256" "$runtime_tree_sha256" "$runtime_inventory_sha256" \
   "$runtime_lock_sha256" "$runtime_python_binary_sha256"; do
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "registered source/runtime SHA-256 is invalid"
@@ -356,7 +345,6 @@ verify_source "$provisioner_relative" "$provisioner_sha256"
 verify_source "$runtime_contract_relative" "$runtime_contract_sha256"
 verify_source "$lock_manifest_relative" "$lock_manifest_sha256"
 verify_source "$lock_verifier_relative" "$lock_verifier_sha256"
-verify_source "$runtime_py311_relative" "$runtime_py311_sha256"
 verify_source "$runtime_py313_relative" "$runtime_py313_sha256"
 
 [[ -d "$retained_root" && ! -L "$retained_root" ]] || fail "retained evidence root is unavailable or unsafe"
@@ -557,7 +545,6 @@ runuser -u andris -- /usr/bin/env -i \
   >"$RAW" 2>"$STDERR_PRIVATE"
 DIAGNOSTIC_RC=$?
 set -e
-
 if [[ "$DIAGNOSTIC_RC" -ne 0 && "$DIAGNOSTIC_RC" -ne 20 ]]; then
   bridge_block "DIAGNOSTIC_PROCESS_EXIT_UNEXPECTED" "$DIAGNOSTIC_RC"
 fi
