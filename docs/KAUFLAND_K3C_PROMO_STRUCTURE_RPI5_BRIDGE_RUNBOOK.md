@@ -1,6 +1,6 @@
 # Kaufland K3C promo-structure RPi5 bridge
 
-Refs: #702, #741, #749, #758, #769, #772, #774, #775.
+Refs: #702, #741, #749, #758, #769, #772, #774, #775, #777, #780.
 
 Runtime provisioning and verification details are authoritative in `docs/KAUFLAND_K3C_HASH_LOCKED_RUNTIME_RUNBOOK.md`.
 
@@ -16,19 +16,32 @@ Diagnostic contract: `kaufland-k3c-promo-structure-diagnostic-v1`.
 
 ## Identity model
 
-Three identities are now distinct and mandatory:
+Three identities are distinct and mandatory:
 
 1. **registration SHA** — exact single-parent squash merge that introduces or updates **at least one** reviewed K3C bridge control-plane anchor: the workflow or installer;
 2. **execution checkout SHA** — exact clean `main` commit already present on the RPi and explicitly selected for diagnostic execution;
-3. **runtime identity SHA-256** — exact hash-locked K3C Python runtime built for the registration SHA and then registered root-owned.
+3. **runtime identity SHA-256** — exact hash-locked K3C Python 3.13 runtime built for the registration SHA and then registered root-owned.
 
 The execution SHA may equal the registration SHA or be a descendant. The bridge never rewinds the primary checkout.
 
 GitHub-hosted authorization also resolves current canonical `main` as an upper-bound/trusted-source witness. An unrelated docs-only descendant does not by itself require source sync, but any trusted K3C/runtime source drift blocks execution.
 
+## Python runtime contract after #780
+
+#780 made CPython 3.13 the single active Hermes backend/CI/K3C runtime line. The bridge installer therefore accepts only:
+
+- `RUNTIME_PYTHON_LINE=3.13`;
+- `RUNTIME_LOCK_RELATIVE=backend/locks/runtime-py313.txt`.
+
+The installer config and generated dispatcher no longer carry a Python 3.11 runtime selector or Python 3.11 runtime-lock identity. A candidate reporting Python 3.11 fails closed before persistent host registration begins.
+
+`backend/locks/runtime-py311.txt` remains repository history/provenance material only. The existing GitHub-hosted authorizer may still compare that legacy file as a conservative provenance witness until a future reviewed workflow revision removes that historical witness; this does **not** make it selectable or executable by the K3C builder, runtime contract, installer or dispatcher.
+
+Because #780 changed K3C trusted runtime source after #777, the #777 registration SHA and any runtime candidate bound to it must not be reused. A post-#780 reviewed registration PR is required before any new K3C runtime build/root registration/diagnostic sequence.
+
 ## Trusted source set
 
-The following files form one reviewed execution boundary:
+The active execution boundary includes:
 
 - `.github/workflows/kaufland-k3c-promo-structure-rpi5.yml`;
 - `tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh`;
@@ -42,8 +55,9 @@ The following files form one reviewed execution boundary:
 - `tools/runner/kaufland_k3c_python_runtime_contract.py`;
 - `backend/locks/manifest.json`;
 - `scripts/verify-python-lock-environment.py`;
-- `backend/locks/runtime-py311.txt`;
 - `backend/locks/runtime-py313.txt`.
+
+The hosted authorizer currently also compares the historical `backend/locks/runtime-py311.txt` blob as a conservative provenance witness. It is not an active runtime option.
 
 A descendant execution checkout is accepted only while every trusted Git blob remains byte-identical to the registration SHA. The hosted authorizer additionally requires the same blobs on current GitHub `main` to remain byte-identical to registration. A changed trusted source therefore requires a new reviewed registration PR.
 
@@ -89,14 +103,14 @@ The dispatcher does not fetch, switch, reset or mutate the source checkout.
 
 ## Runtime build is separate from root registration
 
-The K3C Python runtime is no longer assumed to exist in host `/usr/bin/python3` application packages. Before root registration, an owner-authorized runtime-build step must create and verify a dedicated candidate:
+The K3C Python runtime is not assumed to exist with application packages in host `/usr/bin/python3`. Before root registration, an owner-authorized runtime-build step must create and verify a dedicated candidate:
 
 ```bash
 bash tools/runner/build-kaufland-k3c-python-runtime.sh \
   <exact-registration-merge-sha>
 ```
 
-This is a separate host/network package-install mutation. It uses only the repository-supported CPython 3.11/3.13 hash locks, `--require-hashes`, binary-only wheels, `pip check` and exact lock-inventory verification. It does not read retained evidence and does not execute the diagnostic.
+This is a separate host/network package-install mutation. The active contract is CPython 3.13 only and uses `backend/locks/runtime-py313.txt`, `--require-hashes`, binary-only wheels, `pip check` and exact lock-inventory verification. It does not read retained evidence and does not execute the diagnostic.
 
 See `docs/KAUFLAND_K3C_HASH_LOCKED_RUNTIME_RUNBOOK.md` for the full contract and failure semantics.
 
@@ -118,12 +132,13 @@ Before the first persistent write, the installer:
 
 - verifies canonical clean `main`, origin, non-shallow state and registration ancestry;
 - proves the registration SHA is single-parent and changed a bridge anchor;
-- proves every trusted source at current HEAD equals registration;
+- proves every active installer-trusted source at current HEAD equals registration;
 - validates all trusted SHA-256 values;
 - proves `github-runner` is not in the Docker group;
 - validates the generated dispatcher and sudoers;
 - runs the K3C runtime contract as unprivileged `andris` against the exact candidate;
-- binds runtime identity, venv tree SHA, installed inventory SHA, Python line, selected lock SHA and Python binary SHA;
+- requires Python line exactly `3.13` and selected lock exactly `backend/locks/runtime-py313.txt`;
+- binds runtime identity, venv tree SHA, installed inventory SHA, selected lock SHA and Python binary SHA;
 - requires candidate basename/identity equality and an unused destination identity.
 
 Persistent registration then copies the exact preverified candidate into a unique root-owned runtime path under:
@@ -144,7 +159,8 @@ Before any application import, the dispatcher requires:
 - exact local clean `main` HEAD equals supplied execution SHA;
 - canonical origin and non-shallow checkout;
 - registration SHA is an ancestor of execution SHA;
-- every trusted source hash/blob equals the registered value;
+- every registered active source hash/blob equals the registered value;
+- registered Python line is exactly 3.13 and registered lock is exactly `runtime-py313.txt`;
 - fixed retained root and runner artifact directory satisfy their allowlists;
 - registered runtime path, receipt and Python metadata are root-owned and safe;
 - full hash-locked runtime contract passes again as unprivileged `andris`;
@@ -183,25 +199,29 @@ Raw diagnostic stdout, diagnostic stderr, import stderr and runtime-contract std
 
 `bridge_execution_status=PASS` means only that the fixed control plane and sanitizer completed. Nested `diagnostic_status=PASS` means deterministic structural inspection completed; `diagnostic_status=BLOCKED` is valid fail-closed semantic/evidence output. Neither status promotes `nur`.
 
-## Required sequence after a future merge
+## Required sequence after this registration PR is merged
 
 Each mutation starts only after fresh canonical GitHub/runtime preflight and exact owner authorization:
 
-1. source sync through the reviewed **source-sync bridge** to the exact reviewed merge SHA if required;
+1. source sync through the reviewed **source-sync bridge** to the exact registration merge SHA if required;
 2. inspect source-sync receipt; failure/ambiguity -> STOP;
-3. build the hash-locked K3C runtime candidate as `andris` for that exact merge SHA;
-4. inspect exact candidate receipt/path; failure -> STOP, no cleanup/retry;
-5. root-register the bridge with the same merge SHA **and exact candidate path**;
-6. inspect registration receipt; failure -> STOP, no rollback/retry/cleanup;
-7. separately authorize one-shot K3C diagnostic execution binding the merged registration PR and exact execution SHA;
-8. review sanitized structural evidence against #702/#749 before any parser or promo-role change.
+3. perform a read-only host Python preflight; if the required Python 3.13 interpreter is unavailable, STOP and obtain a separate host/package-install authorization before changing the host;
+4. build the hash-locked K3C Python 3.13 runtime candidate as `andris` for that exact registration merge SHA;
+5. inspect exact candidate receipt/path; failure -> STOP, no cleanup/retry;
+6. root-register the bridge with the same registration merge SHA **and exact candidate path**;
+7. inspect registration receipt; failure -> STOP, no rollback/retry/cleanup;
+8. separately authorize one-shot K3C diagnostic execution binding the merged registration PR and exact execution SHA;
+9. review sanitized structural evidence against #702/#749 before any parser or promo-role change.
 
-Source sync, runtime build, root registration and diagnostic execution are distinct live authority boundaries. Merge authorization implies none of them.
+The pre-#780 queue/runtime-build instruction bound to #777 SHA `64167d2a5b76695e27be0e2d0cc88c865fde1186` is obsolete and must not be executed.
+
+Source sync, any required host Python provisioning, runtime build, root registration and diagnostic execution are distinct live authority boundaries. Merge authorization implies none of them.
 
 ## Safety classification
 
 - live Kaufland network fetch by diagnostic: **NO**
 - runtime package download/install during separately authorized runtime build: **YES**
+- system/host Python install: **NO in this PR; separately gated if required later**
 - package install during root registration: **NO**
 - package install during diagnostic: **NO**
 - retained evidence read during source/CI: **NO**
