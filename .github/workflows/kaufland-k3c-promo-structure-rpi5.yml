@@ -214,6 +214,12 @@ jobs:
               "backend/app/kaufland_evidence_freeze.py",
               "backend/app/kaufland_source_card_contract.py",
               "backend/app/kaufland_source_discovery.py",
+              "tools/runner/build-kaufland-k3c-python-runtime.sh",
+              "tools/runner/kaufland_k3c_python_runtime_contract.py",
+              "backend/locks/manifest.json",
+              "scripts/verify-python-lock-environment.py",
+              "backend/locks/runtime-py311.txt",
+              "backend/locks/runtime-py313.txt",
           )
           for path in critical_paths:
               registration_blob = content_blob(path, registration_sha)
