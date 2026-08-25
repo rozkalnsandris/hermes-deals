@@ -13,7 +13,7 @@ import sys
 from typing import Any
 
 CONTRACT_VERSION = "kaufland-k3c-hash-locked-python-runtime-v1"
-SUPPORTED_PYTHON_LINES = {"3.11", "3.13"}
+SUPPORTED_PYTHON_LINES = {"3.13"}
 RECEIPT_KEYS = {
     "schema_version",
     "contract_version",
@@ -221,10 +221,7 @@ def verify_runtime(
 
     runtime_lock_relative = receipt["runtime_lock_relative"]
     _require(isinstance(runtime_lock_relative, str), "runtime lock path is invalid")
-    expected_lock_relative = {
-        "3.11": "backend/locks/runtime-py311.txt",
-        "3.13": "backend/locks/runtime-py313.txt",
-    }[python_line]
+    expected_lock_relative = "backend/locks/runtime-py313.txt"
     _require(runtime_lock_relative == expected_lock_relative, "runtime lock path mismatch")
 
     manifest_path = repo / "backend/locks/manifest.json"

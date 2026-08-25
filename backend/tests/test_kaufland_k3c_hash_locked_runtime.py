@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 
@@ -11,6 +12,11 @@ BUILDER = ROOT / "tools/runner/build-kaufland-k3c-python-runtime.sh"
 CONTRACT = ROOT / "tools/runner/kaufland_k3c_python_runtime_contract.py"
 INSTALLER = ROOT / "tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh"
 WORKFLOW = ROOT / ".github/workflows/kaufland-k3c-promo-structure-rpi5.yml"
+CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+LOCK_WORKFLOW = ROOT / ".github/workflows/python-dependency-locks.yml"
+LOCK_COMPILER = ROOT / "scripts/compile-python-locks.sh"
+LOCK_MANIFEST = ROOT / "backend/locks/manifest.json"
+DOCKERFILE = ROOT / "backend/Dockerfile"
 
 _spec = importlib.util.spec_from_file_location("kaufland_k3c_python_runtime_contract", CONTRACT)
 assert _spec is not None and _spec.loader is not None
@@ -62,11 +68,12 @@ def test_runtime_tree_cli_turns_unsafe_path_into_controlled_rc20(tmp_path: Path,
     assert "Traceback" not in captured.err
 
 
-def test_builder_uses_only_repo_hash_locks_and_never_executes_diagnostic() -> None:
+def test_builder_uses_canonical_py313_hash_lock_and_never_executes_diagnostic() -> None:
     source = _text(BUILDER)
     for marker in (
-        "3.11) RUNTIME_LOCK_REL=\"$RUNTIME_PY311_REL\"",
-        "3.13) RUNTIME_LOCK_REL=\"$RUNTIME_PY313_REL\"",
+        "EXPECTED_PYTHON_LINE='3.13'",
+        "RUNTIME_LOCK_REL='backend/locks/runtime-py313.txt'",
+        '[[ "$PYTHON_LINE" == "$EXPECTED_PYTHON_LINE" ]]',
         "backend/locks/manifest.json",
         "scripts/verify-python-lock-environment.py",
         "--require-hashes",
@@ -82,10 +89,47 @@ def test_builder_uses_only_repo_hash_locks_and_never_executes_diagnostic() -> No
     ):
         assert marker in source
 
+    assert "RUNTIME_PY311_REL" not in source
+    assert "MANIFEST_RECORD" not in source
+    assert "read -r MANIFEST_PYTHON_LINE RUNTIME_LOCK_SHA" not in source
     assert "kaufland_k3c_promo_structure_diagnostic" not in source
     assert "/home/andris/hermes-deals-retained-evidence" not in source
     assert "apt install" not in source
     assert "apt-get install" not in source
+
+
+def test_active_python_surfaces_are_unified_on_313() -> None:
+    ci = _text(CI_WORKFLOW)
+    lock_workflow = _text(LOCK_WORKFLOW)
+    compiler = _text(LOCK_COMPILER)
+    dockerfile = _text(DOCKERFILE)
+    manifest = json.loads(_text(LOCK_MANIFEST))
+
+    assert 'python-version: "3.13"' in ci
+    assert "backend/locks/ci-py313.txt" in ci
+    assert "locks/ci-py313.txt" in ci
+    assert 'python-version: "3.11"' not in ci
+    assert "ci-py311.txt" not in ci
+
+    assert "Verify Python 3.13 locks" in lock_workflow
+    assert "bash scripts/compile-python-locks.sh 3.13" in lock_workflow
+    assert "backend/locks/runtime-py313.txt" in lock_workflow
+    assert "backend/locks/ci-py313.txt" in lock_workflow
+    assert '"3.11"' not in lock_workflow
+    assert "py311" not in lock_workflow
+
+    assert 'echo "usage: $0 3.13"' in compiler
+    assert 'compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"' in compiler
+    assert 'compile_lock "$CI_INPUT" "backend/locks/ci-py313.txt"' in compiler
+    assert "3.11" not in compiler
+
+    assert "FROM python:3.13.14-slim-bookworm@sha256:" in dockerfile
+    assert "locks/runtime-py313.txt" in dockerfile
+
+    locks = manifest["locks"]
+    assert set(locks) == {"runtime-py313.txt", "ci-py313.txt"}
+    assert {entry["python"] for entry in locks.values()} == {"3.13"}
+    assert runtime_contract.SUPPORTED_PYTHON_LINES == {"3.13"}
 
 
 def test_root_registration_preverifies_candidate_and_does_not_install_packages() -> None:
