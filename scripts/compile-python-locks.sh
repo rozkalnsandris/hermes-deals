@@ -3,9 +3,9 @@ set -Eeuo pipefail
 
 PYTHON_LINE="${1:-}"
 case "$PYTHON_LINE" in
-  3.11|3.13) ;;
+  3.13) ;;
   *)
-    echo "usage: $0 {3.11|3.13}" >&2
+    echo "usage: $0 3.13" >&2
     exit 64
     ;;
 esac
@@ -46,15 +46,8 @@ compile_lock() {
       "$input"
 }
 
-case "$PYTHON_LINE" in
-  3.11)
-    compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py311.txt"
-    compile_lock "$CI_INPUT" "backend/locks/ci-py311.txt"
-    ;;
-  3.13)
-    compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"
-    ;;
-esac
+compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"
+compile_lock "$CI_INPUT" "backend/locks/ci-py313.txt"
 
 for lock in backend/locks/*.txt; do
   [[ -f "$lock" ]] || continue
