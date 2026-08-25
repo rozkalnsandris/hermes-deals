@@ -38,3 +38,19 @@ Read `docs/FAST_LANE_V2_2.md` as the active local startup contract.
 
 Hermes Deals local safety semantics remain stricter where stated.
 <!-- END FAST-LANE-V2.2-MANAGED -->
+
+<!-- BEGIN GITHUB-ONLY-LIVE-ALL-V1-MANAGED -->
+## GITHUB-ONLY / LIVE-ALL v1
+
+Canonical shared contract: `rozkalnsandris/ops-workflows/docs/GITHUB_ONLY_LIVE_ALL.md` with machine invariants in `policy/github-only-live-all-v1.json`.
+
+- `GITHUB-ONLY` (including `git hub only`) means fresh canonical GitHub state, safe source/test/docs work, and rollout preparation up to but not including the first production/runtime/live mutation.
+- Persist deferred rollout state as public-safe `[DEPLOY-QUEUE]` issues in `rozkalnsandris/ops-workflows`; chat or memory is never the queue.
+- Merge remains separately explicit. Neither `GITHUB-ONLY` nor `LIVE-ALL` authorizes merge.
+- A GitHub write whose deterministic side effect runs a production/runtime mutation counts as live work and must not run under `GITHUB-ONLY`.
+- Queue `READY` requires the final exact deployable SHA, exact target/entrypoint/preflight/verification/allowed mutations and no outstanding separate prerequisite owner gate.
+- `LIVE-ALL` snapshots only open `READY` items present at command start, freshly revalidates exact SHA/target/baseline and may execute only ordinary predeclared rollout mutations that this repository already permits inside the exact authorization envelope.
+- Runtime/replay execution, retained-evidence writes, production DB writes/migrations, scheduler/systemd, host/container mutation beyond the exact reviewed rollout, secrets/credentials, Cloudflare infrastructure mutation and scraper/runtime activation remain separately gated where the repository-local contract requires it.
+- After any selected live mutation starts, error/ambiguity requires public-safe evidence preservation and STOP of the remaining batch; no automatic retry/rollback/cleanup/reset/rebase/alternate mutation path unless explicitly pre-authorized.
+- Hermes Deals local persistence/runtime/production safety semantics remain authoritative and stricter where applicable.
+<!-- END GITHUB-ONLY-LIVE-ALL-V1-MANAGED -->
