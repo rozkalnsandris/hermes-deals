@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import platform
 import re
 import stat
 import subprocess
@@ -193,10 +192,10 @@ def verify_runtime(
     ):
         _require(HEX64_RE.fullmatch(value) is not None, f"expected {label} SHA-256 is invalid")
 
-    repo = repo.resolve()
-    runtime_root = runtime_root.resolve()
     _require(repo.is_dir() and not repo.is_symlink(), "repository root is missing or unsafe")
     _require(runtime_root.is_dir() and not runtime_root.is_symlink(), "runtime root is missing or unsafe")
+    repo = repo.resolve()
+    runtime_root = runtime_root.resolve()
 
     receipt = _load_json(runtime_root / "candidate-receipt.json")
     _require(set(receipt) == RECEIPT_KEYS, "runtime receipt schema keys mismatch")
@@ -217,10 +216,11 @@ def verify_runtime(
     python_line = receipt["python_line"]
     _require(python_implementation == "CPython", "runtime is not CPython")
     _require(isinstance(python_version, str) and PYTHON_VERSION_RE.fullmatch(python_version) is not None, "runtime Python version is invalid")
-    _require(python_line in SUPPORTED_PYTHON_LINES, "runtime Python line is unsupported")
+    _require(isinstance(python_line, str) and python_line in SUPPORTED_PYTHON_LINES, "runtime Python line is unsupported")
     _require(python_version.startswith(python_line + "."), "runtime Python version/line mismatch")
 
     runtime_lock_relative = receipt["runtime_lock_relative"]
+    _require(isinstance(runtime_lock_relative, str), "runtime lock path is invalid")
     expected_lock_relative = {
         "3.11": "backend/locks/runtime-py311.txt",
         "3.13": "backend/locks/runtime-py313.txt",
@@ -242,7 +242,9 @@ def verify_runtime(
     _require(receipt["runtime_contract_sha256"] == expected_runtime_contract_sha, "runtime receipt contract SHA mismatch")
 
     manifest = _load_json(manifest_path)
-    manifest_entry = (manifest.get("locks") or {}).get(Path(runtime_lock_relative).name)
+    locks = manifest.get("locks")
+    _require(isinstance(locks, dict), "runtime lock manifest locks object is invalid")
+    manifest_entry = locks.get(Path(runtime_lock_relative).name)
     _require(isinstance(manifest_entry, dict), "runtime lock is absent from manifest")
     manifest_python_line = manifest_entry.get("python")
     manifest_lock_sha = manifest_entry.get("sha256")
@@ -379,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
-    except (RuntimeContractError, json.JSONDecodeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+    except (RuntimeContractError, json.JSONDecodeError, OSError, TypeError, ValueError, subprocess.SubprocessError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 20
 
