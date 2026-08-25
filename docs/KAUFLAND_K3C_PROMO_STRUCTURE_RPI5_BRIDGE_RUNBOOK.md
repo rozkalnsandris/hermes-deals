@@ -1,48 +1,34 @@
 # Kaufland K3C promo-structure RPi5 bridge
 
-Refs: #702, #749, #758, #760, #761, #764, #765, #768.
+Refs: #702, #741, #749, #758, #769, #772, #774, #775.
+
+Runtime provisioning and verification details are authoritative in `docs/KAUFLAND_K3C_HASH_LOCKED_RUNTIME_RUNBOOK.md`.
 
 ## Purpose
 
-This bridge exposes one owner-gated RPi5 execution path for the reviewed read-only Kaufland K3C promo-structure diagnostic. It exists only to inspect the accepted retained K2 packet and export bounded sanitized structural evidence.
+This bridge exposes one owner-gated RPi5 execution path for the reviewed read-only Kaufland K3C promo-structure diagnostic. It inspects only the accepted retained K2 packet and exports bounded sanitized structural evidence.
 
 It does **not** add a parser selector, promote `nur` to a public-promo role, fetch Kaufland over the network, write retained evidence, mutate production data, or deploy production.
 
-Bridge contract:
+Bridge contract: `kaufland-k3c-promo-structure-rpi5-bridge-v2`.
 
-`kaufland-k3c-promo-structure-rpi5-bridge-v2`
-
-The diagnostic contract remains:
-
-`kaufland-k3c-promo-structure-diagnostic-v1`
-
-## Why v2 exists
-
-The v1 bridge used one SHA for both the reviewed bridge revision and the RPi checkout HEAD. After #760 the primary RPi checkout correctly moved forward to newer `main`, so v1 would require a rewind to the old #758 merge before registration or execution. A later unrelated PR also could not safely substitute for #758 merely because it was a reachable merged-main SHA.
-
-v2 is explicitly non-rewind. It separates the reviewed bridge-control-plane revision from the exact checkout used for later execution.
+Diagnostic contract: `kaufland-k3c-promo-structure-diagnostic-v1`.
 
 ## Identity model
 
-Two execution-bound SHA identities are mandatory:
+Three identities are now distinct and mandatory:
 
-1. **registration SHA** — the exact squash merge that introduces or updates at least one v2 K3C control-plane anchor: the workflow or installer;
-2. **execution checkout SHA** — the exact clean `main` commit already present on the RPi and explicitly selected by the owner for the diagnostic.
+1. **registration SHA** — exact single-parent squash merge that introduces or updates the reviewed K3C bridge control plane;
+2. **execution checkout SHA** — exact clean `main` commit already present on the RPi and explicitly selected for diagnostic execution;
+3. **runtime identity SHA-256** — exact hash-locked K3C Python runtime built for the registration SHA and then registered root-owned.
 
-The execution checkout SHA may equal the registration SHA or be a descendant of it. The bridge must **never rewind** the primary checkout.
+The execution SHA may equal the registration SHA or be a descendant. The bridge never rewinds the primary checkout.
 
-GitHub-hosted authorization additionally resolves a **current-main witness SHA** from canonical GitHub `main`. This witness is an upper-bound and trusted-source-drift check; it is not automatically the execution checkout. Therefore an unrelated docs/progress commit on current GitHub `main` does not by itself require an RPi source sync.
-
-The selected registration PR is not an arbitrary selector. Its merge commit must be single-parent and at least one of these two blobs must differ from its parent:
-
-- `.github/workflows/kaufland-k3c-promo-structure-rpi5.yml`;
-- `tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh`.
-
-A workflow-only maintenance revision, an installer-only maintenance revision, or a revision changing both anchors is valid. A merge changing neither anchor is rejected. This preserves the anti-substitution property while allowing a reviewed maintenance fix to touch only the control-plane component that actually needs repair.
+GitHub-hosted authorization also resolves current canonical `main` as an upper-bound/trusted-source witness. An unrelated docs-only descendant does not by itself require source sync, but any trusted K3C/runtime source drift blocks execution.
 
 ## Trusted source set
 
-The following files are trusted as one reviewed execution boundary:
+The following files form one reviewed execution boundary:
 
 - `.github/workflows/kaufland-k3c-promo-structure-rpi5.yml`;
 - `tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh`;
@@ -51,184 +37,181 @@ The following files are trusted as one reviewed execution boundary:
 - `backend/app/kaufland_real_k2_v2_derivation.py`;
 - `backend/app/kaufland_evidence_freeze.py`;
 - `backend/app/kaufland_source_card_contract.py`;
-- `backend/app/kaufland_source_discovery.py`.
+- `backend/app/kaufland_source_discovery.py`;
+- `tools/runner/build-kaufland-k3c-python-runtime.sh`;
+- `tools/runner/kaufland_k3c_python_runtime_contract.py`;
+- `backend/locks/manifest.json`;
+- `scripts/verify-python-lock-environment.py`;
+- `backend/locks/runtime-py311.txt`;
+- `backend/locks/runtime-py313.txt`.
 
-A descendant execution checkout is acceptable only while every trusted Git blob remains byte-identical to the registration SHA. The hosted authorizer also requires the same trusted blobs on current GitHub `main` to remain byte-identical to the registration SHA. Trusted-source drift at either boundary blocks execution. A changed K3C control plane therefore requires a new reviewed registration PR; it is never inherited silently.
+A descendant execution checkout is accepted only while every trusted Git blob remains byte-identical to the registration SHA. The hosted authorizer additionally requires the same blobs on current GitHub `main` to remain byte-identical to registration. A changed trusted source therefore requires a new reviewed registration PR.
 
 ## GitHub-hosted authorization
 
-The workflow remains `workflow_dispatch` only and accepts exactly two bounded inputs:
+The workflow remains `workflow_dispatch` only and accepts exactly:
 
-1. the merged K3C bridge **registration PR number**;
-2. the exact lowercase 40-hex **execution SHA** already present as the clean RPi `main` checkout.
+1. merged K3C bridge registration PR number;
+2. exact lowercase 40-hex execution SHA already present as clean RPi `main`.
 
-Before a self-hosted job can start, the GitHub-hosted authorizer requires:
+Before a self-hosted job can start, the hosted authorizer requires:
 
-1. repository exactly `rozkalnsandris/hermes-deals`;
-2. workflow ref exactly `refs/heads/main`;
-3. actor login `rozkalnsandris` and numeric owner ID `277435981`;
-4. a positive same-repository PR merged into `main`;
-5. a valid single-parent registration merge SHA;
-6. proof that the registration commit changes at least one K3C control-plane anchor — workflow or installer — relative to its parent;
-7. an exact 40-hex owner-supplied execution SHA;
-8. current GitHub `main` resolved independently as the current-main witness SHA;
-9. ancestry `registration SHA <= execution SHA <= current GitHub main`;
-10. registration CI is successful — exact merge-SHA push CI, or exact PR-head pull-request CI with squash-tree equivalence;
-11. if execution SHA equals registration SHA, the already-proven registration CI is reused; otherwise the exact execution SHA must have successful `main` push CI;
-12. every trusted-source blob is identical between registration and execution SHAs;
-13. every trusted-source blob is also identical between registration SHA and current GitHub `main`.
+- repository exactly `rozkalnsandris/hermes-deals`;
+- workflow ref exactly `refs/heads/main`;
+- allowlisted owner login and immutable numeric owner ID;
+- same-repository PR merged into `main`;
+- valid single-parent registration merge SHA;
+- registration merge changed the workflow or installer relative to its parent;
+- ancestry `registration <= execution <= current GitHub main`;
+- successful registration CI, either exact merge push CI or exact PR-head PR CI with squash-tree equivalence;
+- successful exact execution `main` push CI when execution differs from registration;
+- all trusted-source blobs equal between registration, execution and current-main witness.
 
-Current GitHub `main` does not require separate CI merely to serve as the upper-bound witness because it is not executed. If it changes any trusted K3C blob, step 13 blocks before the self-hosted job.
+No arbitrary path, command, module, retained root, shell fragment or ref is accepted from workflow input.
 
-No path, shell fragment, command, retained root, Python module, diagnostic option, or arbitrary ref is accepted from the workflow event. The only execution selector is the exact 40-hex SHA, and GitHub ancestry, CI and trusted-source evidence must independently validate it.
-
-## Self-hosted boundary
+## Self-hosted diagnostic boundary
 
 The RPi job retains:
 
 - labels `self-hosted`, `Linux`, `ARM64`, `hermes-deals-audit`;
 - `permissions: {}`;
 - no `actions/checkout`;
-- one fixed root-owned dispatcher only.
+- one fixed root-owned dispatcher.
 
-The dispatcher interface is exactly:
+Dispatcher interface:
 
 ```text
 /usr/local/sbin/hermes-deals-kaufland-k3c-promo-structure-dispatch \
   <registration-sha> <execution-checkout-sha> <runner-artifact-dir>
 ```
 
-The runner supplies only the two hosted-authorized SHAs and its private fixed-shape artifact directory. It does not discover, fetch, switch or mutate the source checkout.
+The dispatcher does not fetch, switch, reset or mutate the source checkout.
+
+## Runtime build is separate from root registration
+
+The K3C Python runtime is no longer assumed to exist in host `/usr/bin/python3` application packages. Before root registration, an owner-authorized runtime-build step must create and verify a dedicated candidate:
+
+```bash
+bash tools/runner/build-kaufland-k3c-python-runtime.sh \
+  <exact-registration-merge-sha>
+```
+
+This is a separate host/network package-install mutation. It uses only the repository-supported CPython 3.11/3.13 hash locks, `--require-hashes`, binary-only wheels, `pip check` and exact lock-inventory verification. It does not read retained evidence and does not execute the diagnostic.
+
+See `docs/KAUFLAND_K3C_HASH_LOCKED_RUNTIME_RUNBOOK.md` for the full contract and failure semantics.
 
 ## Root registration boundary
 
-The installer is inert source until separately owner-authorized on RPi5. Registration is a **host mutation**. Source merge does not authorize it.
-
-After the v2 registration PR is merged and the RPi source checkout has separately reached that merge or a later approved descendant through the dedicated source-sync bridge, the registration command is:
+Root registration remains a separate host mutation and requires separate exact owner authorization. Its current interface is **two arguments**:
 
 ```bash
 sudo bash tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh \
-  <exact-v2-registration-merge-sha>
+  <exact-registration-merge-sha> \
+  <exact-runtime-candidate-dir>
 ```
 
-The installer requires the primary checkout `/home/andris/hermes-deals` to be:
+The runtime candidate must resolve inside the fixed K3C cache allowlist:
 
-- the canonical non-symlink path owned by `andris`;
-- a non-shallow Git worktree;
-- branch `main`;
-- completely clean including untracked files;
-- bound to the canonical Hermes Deals GitHub origin;
-- at the registration SHA or a descendant of it.
+`/home/andris/.cache/hermes-deals-kaufland-k3c-python-runtime/candidate-<runtime-identity-sha256>`
 
-Before persistent writes, the installer also:
+Before the first persistent write, the installer:
 
-- proves the registration merge is single-parent;
-- proves the registration merge changed at least one bridge-control-plane anchor — workflow or installer;
-- proves every trusted source blob at current HEAD equals its registration-SHA blob;
-- computes and validates trusted SHA-256 identities;
-- checks `github-runner` is not in the Docker group;
-- validates generated shell and sudoers configuration.
+- verifies canonical clean `main`, origin, non-shallow state and registration ancestry;
+- proves the registration SHA is single-parent and changed a bridge anchor;
+- proves every trusted source at current HEAD equals registration;
+- validates all trusted SHA-256 values;
+- proves `github-runner` is not in the Docker group;
+- validates the generated dispatcher and sudoers;
+- runs the K3C runtime contract as unprivileged `andris` against the exact candidate;
+- binds runtime identity, venv tree SHA, installed inventory SHA, Python line, selected lock SHA and Python binary SHA;
+- requires candidate basename/identity equality and an unused destination identity.
 
-Only after those gates does persistent registration begin. It installs:
+Persistent registration then copies the exact preverified candidate into a unique root-owned runtime path under:
 
-- one root-owned validator;
-- one root-owned config;
-- one fixed root-owned dispatcher;
-- one sudoers rule allowing `github-runner` to invoke that dispatcher only.
+`/usr/local/libexec/hermes-deals-audits/kaufland-k3c-promo-structure/python-runtimes/`
 
-The config records the registration SHA, the checkout SHA present at registration, and all trusted source hashes separately.
+The installer changes ownership to `root:root`, verifies consumer metadata, and reruns the complete runtime contract as `andris` against the installed copy **before** installing the bridge validator/config/dispatcher/sudoers.
 
-Registration performs no Git fetch, checkout, reset, switch, pull or source sync; it does not execute the diagnostic and does not read the retained packet beyond checking that the fixed retained root exists as a safe directory.
+Root registration performs no package installation, no Git fetch/source sync and no diagnostic execution. It checks only that the fixed retained root exists as a safe directory; it does not read the retained packet.
 
-If registration fails after persistent writes begin, preserve the staging path/evidence and STOP. No retry, rollback, cleanup, or alternate mutation path is authorized automatically.
+If registration fails after persistent writes begin, preserve evidence and STOP. No automatic retry, rollback, cleanup or alternate mutation path.
 
-## Runtime fail-closed checks
+## Runtime fail-closed checks before every diagnostic
 
-Before every diagnostic run, the dispatcher requires:
+Before any application import, the dispatcher requires:
 
-- its supplied registration SHA equals the root-owned registered identity;
-- exact local clean `main` HEAD equals the supplied execution checkout SHA;
+- supplied registration SHA equals the root-owned registered identity;
+- exact local clean `main` HEAD equals supplied execution SHA;
 - canonical origin and non-shallow checkout;
 - registration SHA is an ancestor of execution SHA;
-- every trusted current source SHA-256 equals the registered value;
-- every trusted Git blob at execution SHA equals the registration-SHA blob;
-- fixed retained root exists and is not a symlink;
-- runner artifact directory matches the exact private allowlist and metadata contract.
+- every trusted source hash/blob equals the registered value;
+- fixed retained root and runner artifact directory satisfy their allowlists;
+- registered runtime path, receipt and Python metadata are root-owned and safe;
+- full hash-locked runtime contract passes again as unprivileged `andris`;
+- runtime identity/tree/inventory/Python/lock/binary values equal the root-owned config.
 
-Any mismatch blocks before the diagnostic.
+A missing runtime blocks as `DIAGNOSTIC_RUNTIME_UNAVAILABLE`. Any runtime identity/tree/inventory/interpreter/lock mismatch blocks as `DIAGNOSTIC_RUNTIME_IDENTITY_FAILED`.
+
+Private runtime-verifier stderr never enters the exported artifact allowlist.
 
 ## Fixed diagnostic execution
 
-The dispatcher hardcodes:
+Only after runtime verification succeeds does the dispatcher use the verified runtime `venv/bin/python` for all eight ordered import probes and the actual diagnostic.
 
-- source checkout `/home/andris/hermes-deals`;
-- retained root `/home/andris/hermes-deals-retained-evidence`;
-- module `app.kaufland_k3c_promo_structure_diagnostic`.
+The fixed import-stage reason codes remain:
 
-The diagnostic runs as unprivileged `andris` with a clean environment, `PYTHONDONTWRITEBYTECODE=1`, `PYTHONNOUSERSITE=1`, and `PYTHONHASHSEED=0`.
+1. `DIAGNOSTIC_IMPORT_BS4_FAILED`;
+2. `DIAGNOSTIC_IMPORT_HTTPX_FAILED`;
+3. `DIAGNOSTIC_IMPORT_SOURCE_CARD_CONTRACT_FAILED`;
+4. `DIAGNOSTIC_IMPORT_SOURCE_DISCOVERY_FAILED`;
+5. `DIAGNOSTIC_IMPORT_EVIDENCE_PREFLIGHT_FAILED`;
+6. `DIAGNOSTIC_IMPORT_EVIDENCE_FREEZE_FAILED`;
+7. `DIAGNOSTIC_IMPORT_K2_DERIVATION_FAILED`;
+8. `DIAGNOSTIC_IMPORT_PROMO_MODULE_FAILED`.
 
-The diagnostic continues to enforce exact retained bundle identity, K2 verifier `NO_OP`, BeautifulSoup `4.15.0`, `html.parser`, process-local network guard, target fingerprint invariance, deterministic second derivation, and all no-write/no-deploy flags.
+Wrapper/cwd/runuser failures remain generic `DIAGNOSTIC_RUNTIME_IMPORT_FAILED`.
 
-The source checkout must remain on the exact execution checkout SHA and clean after execution.
+The application Python runs as unprivileged `andris` under a clean environment with `PYTHONDONTWRITEBYTECODE=1`, `PYTHONNOUSERSITE=1` and `PYTHONHASHSEED=0`.
 
-## Sanitization and v2 receipt
+The diagnostic dispatcher itself performs no package installation, venv creation, source mutation, host mutation or network fetch.
 
-The existing reviewed validator continues to validate the diagnostic payload under its v1 sanitizer contract. Only after that validation succeeds does the dispatcher stamp the outer bridge envelope to v2.
+## Sanitization and receipt
 
-The v2 sanitized diagnostic/summary must include both:
+The existing validator continues to validate the diagnostic under its reviewed v1 sanitizer contract. The outer dispatcher stamps bridge schema `2` and contract `kaufland-k3c-promo-structure-rpi5-bridge-v2` with both registration and execution SHA identities.
 
-- `registered_commit_sha` — the exact bridge registration SHA;
-- `execution_checkout_sha` — the exact RPi checkout used by the diagnostic.
+Raw diagnostic stdout, diagnostic stderr, import stderr and runtime-contract stderr remain private. Only validated diagnostic JSON, summary JSON and artifact manifest may be copied to the runner artifact directory.
 
-The outer receipt uses bridge schema version `2` and contract `kaufland-k3c-promo-structure-rpi5-bridge-v2`.
+`bridge_execution_status=PASS` means only that the fixed control plane and sanitizer completed. Nested `diagnostic_status=PASS` means deterministic structural inspection completed; `diagnostic_status=BLOCKED` is valid fail-closed semantic/evidence output. Neither status promotes `nur`.
 
-Raw diagnostic stdout and private stderr stay in the private staging directory and are removed before successful export. The validator still rejects extra diagnostic fields, amount-value injection, promo promotion, unsafe exit/status pairings, identity drift and bound violations.
+## Required sequence after a future merge
 
-Only the validated diagnostic JSON, summary JSON, and artifact manifest may reach the runner artifact directory. The manifest also binds registration and execution SHAs.
+Each mutation starts only after fresh canonical GitHub/runtime preflight and exact owner authorization:
 
-## PASS / BLOCKED semantics
+1. source sync to the exact reviewed merge SHA if required;
+2. inspect source-sync receipt; failure/ambiguity -> STOP;
+3. build the hash-locked K3C runtime candidate as `andris` for that exact merge SHA;
+4. inspect exact candidate receipt/path; failure -> STOP, no cleanup/retry;
+5. root-register the bridge with the same merge SHA **and exact candidate path**;
+6. inspect registration receipt; failure -> STOP, no rollback/retry/cleanup;
+7. separately authorize one-shot K3C diagnostic execution binding the merged registration PR and exact execution SHA;
+8. review sanitized structural evidence against #702/#749 before any parser or promo-role change.
 
-`bridge_execution_status=PASS` means only that the fixed control plane and sanitization contract completed successfully.
-
-The nested diagnostic may be:
-
-- `diagnostic_status=PASS` — deterministic read-only structural inspection completed;
-- `diagnostic_status=BLOCKED` — the diagnostic reached an expected fail-closed semantic/evidence condition.
-
-A validated semantic BLOCKED remains evidence. It never promotes `nur` or creates public-promo semantics.
-
-Infrastructure, source identity, ancestry, CI, trusted-source, registration or sanitization failures are bridge BLOCKED.
-
-## Required sequence after a future v2 merge
-
-Each step begins with fresh canonical GitHub/runtime evidence.
-
-1. Verify current GitHub `main`, the exact v2 registration PR/merge SHA, CI, reviews and trusted-source state.
-2. If the intended execution checkout is not already present on RPi, obtain separate owner authorization to use the **source-sync bridge** to fast-forward the primary checkout to an exact approved registration SHA or later approved descendant. Unrelated docs-only current-main drift does not itself require sync. No rewind.
-3. Obtain separate owner authorization for K3C **root registration** with the exact v2 registration merge SHA.
-4. Inspect the registration receipt. On failure/ambiguity, preserve evidence and STOP; no automatic retry.
-5. Before retained evidence is read, obtain the separately required owner authorization for K3C **diagnostic execution**, binding the registration PR and exact execution SHA.
-6. Dispatch the K3C workflow using both the exact v2 registration PR number and exact execution SHA already present on RPi. The workflow independently validates `registration <= execution <= current GitHub main`, registration/execution CI, and trusted-source identity at execution and current-main witness boundaries.
-7. Review the sanitized structural artifact before any public-promo acceptance or #702 parser change.
-
-Source-sync registration, K3C root registration and diagnostic execution remain distinct authority boundaries. Merge authorization never implies any of them.
+Source sync, runtime build, root registration and diagnostic execution are distinct live authority boundaries. Merge authorization implies none of them.
 
 ## Safety classification
 
-- live Kaufland network fetch: **NO**
+- live Kaufland network fetch by diagnostic: **NO**
+- runtime package download/install during separately authorized runtime build: **YES**
+- package install during root registration: **NO**
+- package install during diagnostic: **NO**
 - retained evidence read during source/CI: **NO**
 - retained evidence read during later authorized diagnostic: **YES**
 - retained evidence write: **NO**
 - parser #702 implementation: **NO**
 - public-promo promotion: **NO**
-- production DB write: **NO**
-- Review/publication write: **NO**
-- production deploy: **NO**
+- production DB/Review/publication write: **NO**
 - scraper/runtime activation: **NO**
-- Cloudflare mutation: **NO**
-- scheduler/systemd change by diagnostic: **NO**
-- source checkout mutation during this source batch: **NO**
-- root registration during this source batch: **NO**
-- diagnostic execution during this source batch: **NO**
+- Cloudflare/scheduler/systemd mutation: **NO**
+- production deploy: **NO**
 
 **Production deploy: NO.**
