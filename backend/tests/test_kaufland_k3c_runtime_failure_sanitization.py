@@ -84,16 +84,20 @@ def test_known_k3c_error_keeps_exact_reason_without_message(monkeypatch, capsys)
     assert secret not in json.dumps(payload, sort_keys=True)
 
 
-def test_dispatcher_preflights_exact_isolated_import_stages_before_execution():
+def test_dispatcher_verifies_registered_runtime_before_exact_import_stages_and_execution():
     text = INSTALLER_PATH.read_text(encoding="utf-8")
+    runtime_verify_marker = 'RUNTIME_VERIFY_REPORT="$(runuser -u andris'
     function_marker = "probe_python_import() {"
     diagnostic_marker = (
-        "exec /usr/bin/python3 -m app.kaufland_k3c_promo_structure_diagnostic "
-        "--retained-root /home/andris/hermes-deals-retained-evidence"
+        "exec \"$2\" -m app.kaufland_k3c_promo_structure_diagnostic "
+        "--retained-root \"$3\""
     )
 
+    assert runtime_verify_marker in text
     assert function_marker in text
     assert diagnostic_marker in text
+    assert text.index(runtime_verify_marker) < text.index(function_marker)
+
     function_start = text.index(function_marker)
     function_end = text.index("\n}\n", function_start) + 3
     function_region = text[function_start:function_end]
@@ -107,15 +111,16 @@ def test_dispatcher_preflights_exact_isolated_import_stages_before_execution():
         "PYTHONNOUSERSITE=1",
         "PYTHONDONTWRITEBYTECODE=1",
         "PYTHONHASHSEED=0",
-        "cd /home/andris/hermes-deals/backend || exit 21",
-        "/usr/bin/python3",
-        "importlib.import_module('$module')",
+        '"$repo/backend" "$RUNTIME_PYTHON" "$module"',
+        "importlib.import_module(sys.argv[1])",
         "exit 20",
         '2>"$IMPORT_STDERR_PRIVATE"',
         '20) bridge_block "$reason" ;;',
         '*) bridge_block "DIAGNOSTIC_RUNTIME_IMPORT_FAILED" ;;',
     ):
         assert required in function_region
+
+    assert "/usr/bin/python3 -c" not in function_region
 
     stage_positions: list[int] = []
     for module, reason in IMPORT_STAGES:
@@ -144,6 +149,7 @@ def test_import_preflight_exports_no_private_stderr_or_dynamic_exception_detail(
     probe_region = text[probe_start:probe_end]
 
     assert "diagnostic-import-stderr.private" not in copy_region
+    assert "runtime-contract-stderr.private" not in copy_region
     assert "traceback" not in probe_region.casefold()
     assert "exception" not in probe_region.casefold()
     assert "ImportError" not in probe_region

@@ -224,13 +224,16 @@ def test_installer_is_fixed_fail_closed_and_source_read_only() -> None:
     text = INSTALLER_PATH.read_text(encoding="utf-8")
     subprocess.run(["bash", "-n", str(INSTALLER_PATH)], check=True)
 
-    assert "[[ $# -eq 1 ]]" in text
+    assert "[[ $# -eq 2 ]]" in text
+    assert "<registration-merge-sha> <runtime-candidate-dir>" in text
     assert "EXPECTED_SHA" in text
     assert "branch --show-current" in text
     assert "status --porcelain=v1 --untracked-files=all" in text
     assert "/home/andris/hermes-deals-retained-evidence" in text
     assert "PYTHONDONTWRITEBYTECODE=1" in text
     assert "PYTHONNOUSERSITE=1" in text
+    assert "run_contract_as_andris verify" in text
+    assert "RUNTIME_PACKAGE_INSTALL_PERFORMED=false" in text
     assert "app.kaufland_k3c_promo_structure_diagnostic" in text
     assert "diagnostic-stderr.private" in text
     assert 'rm -f -- "$RAW" "$STDERR_PRIVATE"' in text
