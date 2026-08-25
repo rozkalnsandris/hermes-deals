@@ -25,7 +25,7 @@ RUNTIME_PY311_REL='backend/locks/runtime-py311.txt'
 RUNTIME_PY313_REL='backend/locks/runtime-py313.txt'
 
 [[ "$REGISTRATION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "registration SHA is invalid"
-for command in awk basename git grep id mkdir mv python3 readlink sha256sum stat; do
+for command in awk basename chmod find git grep id mkdir mv python3 readlink sha256sum stat; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 [[ -d "$REPO" && ! -L "$REPO" && -d "$REPO/.git" && ! -L "$REPO/.git" ]] || fail "source checkout is missing or unsafe"
@@ -159,6 +159,11 @@ RUNTIME_INVENTORY_SHA="$(printf '%s\n' "$RUNTIME_ENVIRONMENT_REPORT" | awk -F= '
   "$STAGING_PYTHON" -c 'import bs4, httpx' >/dev/null 2>&1 || fail "staged runtime third-party import verification failed"
 RUNTIME_PYTHON_BINARY_SHA="$(sha256sum "$STAGING_PYTHON" | awk '{print $1}')"
 [[ "$RUNTIME_PYTHON_BINARY_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "runtime Python binary SHA-256 is invalid"
+
+# Normalize consumer permissions before the immutable venv tree fingerprint is taken.
+find "$STAGING_DIR/venv" -type d -exec chmod 0755 {} +
+find "$STAGING_DIR/venv" -type f -exec chmod 0644 {} +
+find "$STAGING_DIR/venv/bin" -maxdepth 1 -type f -exec chmod 0755 {} +
 RUNTIME_TREE_SHA="$(/usr/bin/python3 "$REPO/$RUNTIME_CONTRACT_REL" tree-sha --root "$STAGING_DIR/venv")" || fail "cannot fingerprint staged runtime tree"
 [[ "$RUNTIME_TREE_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "runtime tree SHA-256 is invalid"
 
