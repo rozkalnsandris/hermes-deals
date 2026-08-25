@@ -25,7 +25,7 @@ RUNTIME_PY311_REL='backend/locks/runtime-py311.txt'
 RUNTIME_PY313_REL='backend/locks/runtime-py313.txt'
 
 [[ "$REGISTRATION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "registration SHA is invalid"
-for command in awk basename chmod find git grep id mkdir mv python3 readlink sha256sum stat; do
+for command in awk basename chmod find flock git grep id mkdir mv python3 readlink sha256sum stat; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
 [[ -d "$REPO" && ! -L "$REPO" && -d "$REPO/.git" && ! -L "$REPO/.git" ]] || fail "source checkout is missing or unsafe"
@@ -125,6 +125,11 @@ trap build_exit EXIT
 # Host/network mutation is bounded to this K3C-specific candidate directory.
 MUTATION_STARTED=true
 mkdir -p -m 0700 "$CACHE_ROOT"
+[[ "$(stat -c '%U:%G %a' "$CACHE_ROOT")" == 'andris:andris 700' ]] || fail "K3C runtime cache metadata drift"
+exec 9>"$CACHE_ROOT/.build.lock"
+flock -n 9 || fail "another K3C runtime build is already active"
+[[ ! -e "$FINAL_DIR" ]] || fail "K3C audit runtime candidate appeared while acquiring build lock"
+[[ ! -e "$STAGING_DIR" ]] || fail "K3C runtime staging path already exists"
 mkdir -m 0700 "$STAGING_DIR"
 /usr/bin/python3 -m venv --copies "$STAGING_DIR/venv"
 STAGING_PYTHON="$STAGING_DIR/venv/bin/python"
