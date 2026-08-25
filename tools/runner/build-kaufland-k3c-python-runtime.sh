@@ -21,8 +21,8 @@ PROVISIONER_REL='tools/runner/build-kaufland-k3c-python-runtime.sh'
 RUNTIME_CONTRACT_REL='tools/runner/kaufland_k3c_python_runtime_contract.py'
 LOCK_MANIFEST_REL='backend/locks/manifest.json'
 LOCK_VERIFIER_REL='scripts/verify-python-lock-environment.py'
-RUNTIME_PY311_REL='backend/locks/runtime-py311.txt'
-RUNTIME_PY313_REL='backend/locks/runtime-py313.txt'
+EXPECTED_PYTHON_LINE='3.13'
+RUNTIME_LOCK_REL='backend/locks/runtime-py313.txt'
 
 [[ "$REGISTRATION_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "registration SHA is invalid"
 for command in awk basename chmod find flock git grep id mkdir mv python3 readlink sha256sum stat; do
@@ -57,7 +57,7 @@ source_matches_registration() {
 
 for relative in \
   "$PROVISIONER_REL" "$RUNTIME_CONTRACT_REL" "$LOCK_MANIFEST_REL" "$LOCK_VERIFIER_REL" \
-  "$RUNTIME_PY311_REL" "$RUNTIME_PY313_REL"; do
+  "$RUNTIME_LOCK_REL"; do
   source_matches_registration "$relative"
 done
 
@@ -73,14 +73,10 @@ PYTHON_IMPLEMENTATION="$(/usr/bin/python3 -c 'import platform; print(platform.py
 PYTHON_VERSION="$(/usr/bin/python3 -c 'import platform; print(platform.python_version())')"
 PYTHON_LINE="$(/usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 [[ "$PYTHON_IMPLEMENTATION" == 'CPython' ]] || fail "K3C audit runtime requires CPython"
-case "$PYTHON_LINE" in
-  3.11) RUNTIME_LOCK_REL="$RUNTIME_PY311_REL" ;;
-  3.13) RUNTIME_LOCK_REL="$RUNTIME_PY313_REL" ;;
-  *) fail "unsupported K3C audit CPython line: $PYTHON_LINE" ;;
-esac
+[[ "$PYTHON_LINE" == "$EXPECTED_PYTHON_LINE" ]] || fail "K3C audit runtime requires CPython $EXPECTED_PYTHON_LINE, got $PYTHON_LINE"
 RUNTIME_LOCK="$REPO/$RUNTIME_LOCK_REL"
 
-MANIFEST_RECORD="$(/usr/bin/python3 - "$REPO/$LOCK_MANIFEST_REL" "$(basename "$RUNTIME_LOCK_REL")" <<'PY'
+RUNTIME_LOCK_SHA="$(/usr/bin/python3 - "$REPO/$LOCK_MANIFEST_REL" "$(basename "$RUNTIME_LOCK_REL")" "$EXPECTED_PYTHON_LINE" <<'PY'
 import json
 import pathlib
 import re
@@ -89,17 +85,15 @@ manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 entry = (manifest.get("locks") or {}).get(sys.argv[2])
 if not isinstance(entry, dict):
     raise SystemExit("selected runtime lock is absent from manifest")
-python_line = entry.get("python")
+if entry.get("python") != sys.argv[3]:
+    raise SystemExit("runtime lock manifest Python identity mismatch")
 sha256 = entry.get("sha256")
-if not isinstance(python_line, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", python_line):
-    raise SystemExit("runtime lock manifest python identity is invalid")
 if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
     raise SystemExit("runtime lock manifest SHA-256 is invalid")
-print(f"{python_line} {sha256}")
+print(sha256)
 PY
 )" || fail "cannot resolve selected runtime lock from manifest"
-read -r MANIFEST_PYTHON_LINE RUNTIME_LOCK_SHA <<<"$MANIFEST_RECORD"
-[[ "$MANIFEST_PYTHON_LINE" == "$PYTHON_LINE" ]] || fail "selected runtime lock Python line mismatch"
+[[ "$RUNTIME_LOCK_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "selected runtime lock manifest SHA-256 is invalid"
 [[ "$(sha256sum "$RUNTIME_LOCK" | awk '{print $1}')" == "$RUNTIME_LOCK_SHA" ]] || fail "selected runtime lock content drift"
 /usr/bin/python3 -m venv --help >/dev/null 2>&1 || fail "system Python venv module is unavailable"
 

@@ -31,12 +31,12 @@ esac
 
 PYTHON_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
 PYTHON_LINE="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-if [[ "$PYTHON_LINE" != "3.11" ]]; then
-  echo "runtime-py311 lock requires Python 3.11, got $PYTHON_VERSION" >&2
+if [[ "$PYTHON_LINE" != "3.13" ]]; then
+  echo "runtime-py313 lock requires Python 3.13, got $PYTHON_VERSION" >&2
   exit 68
 fi
 
-LOCK_REL="backend/locks/runtime-py311.txt"
+LOCK_REL="backend/locks/runtime-py313.txt"
 MANIFEST_REL="backend/locks/manifest.json"
 VERIFIER_REL="scripts/verify-python-lock-environment.py"
 EXPECTED_LOCK_SHA="$(python3 - "$MANIFEST_REL" <<'PY'
@@ -44,15 +44,15 @@ import json
 import pathlib
 import sys
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-identity = manifest["locks"]["runtime-py311.txt"]
-if identity["python"] != "3.11":
+identity = manifest["locks"]["runtime-py313.txt"]
+if identity["python"] != "3.13":
     raise SystemExit("manifest Python identity mismatch")
 print(identity["sha256"])
 PY
 )"
 ACTUAL_LOCK_SHA="$(sha256sum "$LOCK_REL" | awk '{print $1}')"
 if [[ "$ACTUAL_LOCK_SHA" != "$EXPECTED_LOCK_SHA" ]]; then
-  echo "runtime-py311 lock SHA256 does not match manifest" >&2
+  echo "runtime-py313 lock SHA256 does not match manifest" >&2
   exit 69
 fi
 if [[ ! -f "$VERIFIER_REL" || -L "$VERIFIER_REL" ]]; then

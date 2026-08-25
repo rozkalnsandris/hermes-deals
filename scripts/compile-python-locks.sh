@@ -3,9 +3,9 @@ set -Eeuo pipefail
 
 PYTHON_LINE="${1:-}"
 case "$PYTHON_LINE" in
-  3.11|3.13) ;;
+  3.13) ;;
   *)
-    echo "usage: $0 {3.11|3.13}" >&2
+    echo "usage: $0 3.13" >&2
     exit 64
     ;;
 esac
@@ -46,15 +46,17 @@ compile_lock() {
       "$input"
 }
 
-case "$PYTHON_LINE" in
-  3.11)
-    compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py311.txt"
-    compile_lock "$CI_INPUT" "backend/locks/ci-py311.txt"
-    ;;
-  3.13)
-    compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"
-    ;;
-esac
+compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"
+
+CI_OVERLAY_TMP="$(mktemp backend/locks/.ci-py313-overlay.XXXXXX)"
+trap 'rm -f -- "$CI_OVERLAY_TMP"' EXIT
+compile_lock "$CI_INPUT" "$CI_OVERLAY_TMP"
+{
+  printf '%s\n' '-r runtime-py313.txt'
+  cat "$CI_OVERLAY_TMP"
+} > backend/locks/ci-py313.txt
+rm -f -- "$CI_OVERLAY_TMP"
+trap - EXIT
 
 for lock in backend/locks/*.txt; do
   [[ -f "$lock" ]] || continue

@@ -8,17 +8,13 @@
     "generate_hashes": true
   },
   "locks": {
-    "runtime-py311.txt": {
-      "python": "3.11",
-      "sha256": "c099bb83a7f1b6b36e32d33d8da4f09bf1ad5ad47f3dfd294517eabe7adeab7f"
-    },
-    "ci-py311.txt": {
-      "python": "3.11",
-      "sha256": "ce4a9eba76cd942977bc4389d2ed94b9978aefa5ff588a57cc964f85e067a2fb"
-    },
     "runtime-py313.txt": {
       "python": "3.13",
       "sha256": "4883e62179069afc662e4846c5cc1a67d3954c56f0846aeb5a650a63267935d7"
+    },
+    "ci-py313.txt": {
+      "python": "3.13",
+      "sha256": "92ed7070eaf8a5a67b55f26c87670d4d9d7a323f25290c1e273a425c268f2d47"
     }
   }
 }

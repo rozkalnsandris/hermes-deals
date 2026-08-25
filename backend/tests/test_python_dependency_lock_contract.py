@@ -58,14 +58,13 @@ def _load_environment_verifier():
     return module
 
 
-def test_runtime_direct_intent_matches_legacy_rpi5_input() -> None:
+def test_runtime_and_ci_direct_intent_are_separated() -> None:
     assert _direct_requirements(BACKEND / "requirements.in") == _direct_requirements(
         BACKEND / "requirements.txt"
     )
-    assert _direct_requirements(BACKEND / "requirements-ci.in") == [
-        "-r requirements.in",
-        "pytest==8.4.1",
-    ]
+    assert _direct_requirements(BACKEND / "requirements-ci.in") == ["pytest==8.4.1"]
+    ci_lock = (LOCKS / "ci-py313.txt").read_text(encoding="utf-8")
+    assert "-r runtime-py313.txt" in ci_lock
 
 
 def test_lock_manifest_binds_reviewed_bytes_and_toolchain() -> None:
@@ -78,20 +77,22 @@ def test_lock_manifest_binds_reviewed_bytes_and_toolchain() -> None:
         "wheel_only": True,
         "generate_hashes": True,
     }
-    assert set(manifest["locks"]) == {
-        "runtime-py311.txt",
-        "ci-py311.txt",
-        "runtime-py313.txt",
-    }
+    assert set(manifest["locks"]) == {"runtime-py313.txt", "ci-py313.txt"}
     for filename, identity in manifest["locks"].items():
-        assert identity["python"] in {"3.11", "3.13"}
+        assert identity["python"] == "3.13"
         assert re.fullmatch(r"[0-9a-f]{64}", identity["sha256"])
         assert _sha256(LOCKS / filename) == identity["sha256"]
 
 
-def test_every_lock_is_wheel_only_exact_and_hash_bound_including_extras() -> None:
-    for filename in ("runtime-py311.txt", "ci-py311.txt", "runtime-py313.txt"):
-        text = (LOCKS / filename).read_text(encoding="utf-8")
+def test_active_locks_are_wheel_only_exact_and_hash_bound() -> None:
+    runtime_text = (LOCKS / "runtime-py313.txt").read_text(encoding="utf-8")
+    ci_text = (LOCKS / "ci-py313.txt").read_text(encoding="utf-8")
+    assert "-r runtime-py313.txt" in ci_text
+    assert any(
+        block.startswith("psycopg[binary]==3.3.4")
+        for block in _requirement_blocks(runtime_text)
+    )
+    for text in (runtime_text, ci_text):
         assert "--only-binary :all:" in text
         assert "--index-url" not in text
         assert "--extra-index-url" not in text
@@ -99,7 +100,6 @@ def test_every_lock_is_wheel_only_exact_and_hash_bound_including_extras() -> Non
         assert " @ " not in text
         blocks = _requirement_blocks(text)
         assert blocks
-        assert any(block.startswith("psycopg[binary]==3.3.4") for block in blocks)
         for block in blocks:
             first_line = block.splitlines()[0]
             assert REQUIREMENT_LINE_RE.match(first_line)
@@ -108,7 +108,7 @@ def test_every_lock_is_wheel_only_exact_and_hash_bound_including_extras() -> Non
 
 def test_environment_verifier_parses_extras_and_rejects_unreviewed_extras() -> None:
     module = _load_environment_verifier()
-    expected = module.expected_distributions(LOCKS / "runtime-py311.txt")
+    expected = module.expected_distributions(LOCKS / "runtime-py313.txt")
     assert expected["psycopg"] == "3.3.4"
     assert expected["psycopg-binary"] == "3.3.4"
     assert module.BOOTSTRAP_ALLOWLIST == {"pip", "setuptools"}
@@ -133,8 +133,12 @@ def test_compiler_pins_toolchain_and_fails_closed_to_wheels() -> None:
         "--no-emit-index-url",
         "--no-emit-trusted-host",
         '--pip-args="--only-binary=:all:"',
+        'compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"',
+        'compile_lock "$CI_INPUT" "$CI_OVERLAY_TMP"',
+        "'-r runtime-py313.txt'",
     ):
         assert marker in text
+    assert "3.11" not in text
     assert "pip install --upgrade pip" not in text
 
 
@@ -149,13 +153,16 @@ def test_lock_verification_workflow_is_read_only() -> None:
 
 def test_python_ci_jobs_install_only_from_hash_lock() -> None:
     text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert text.count("cache-dependency-path: backend/locks/ci-py311.txt") == 2
+    assert text.count('python-version: "3.13"') == 2
+    assert text.count("cache-dependency-path: backend/locks/ci-py313.txt") == 2
     assert text.count("- name: Install hash-locked dependencies") == 2
     assert text.count("--require-hashes") == 2
     assert text.count("--only-binary=:all:") == 2
-    assert text.count("-r locks/ci-py311.txt") == 2
+    assert text.count("-r locks/ci-py313.txt") == 2
     assert text.count("python -m pip check") == 2
     for forbidden in (
+        'python-version: "3.11"',
+        "ci-py311.txt",
         "cache-dependency-path: backend/requirements.txt",
         "python -m pip install --upgrade pip",
         "python -m pip install -r requirements.txt",
@@ -166,6 +173,7 @@ def test_python_ci_jobs_install_only_from_hash_lock() -> None:
 
 def test_production_image_installs_only_from_python313_hash_lock() -> None:
     text = DOCKERFILE.read_text(encoding="utf-8")
+    assert "FROM python:3.13.14-slim-bookworm@sha256:" in text
     assert "COPY locks/runtime-py313.txt ./locks/runtime-py313.txt" in text
     assert "--require-hashes" in text
     assert "--only-binary=:all:" in text
@@ -182,8 +190,10 @@ def test_arm64_preflight_is_exact_commit_clean_capacity_guarded_and_production_s
         'ACTUAL_SHA="$(git rev-parse HEAD)"',
         "git status --porcelain --untracked-files=all",
         "aarch64|arm64",
-        '[[ "$PYTHON_LINE" != "3.11" ]]',
-        'LOCK_REL="backend/locks/runtime-py311.txt"',
+        '[[ "$PYTHON_LINE" != "3.13" ]]',
+        'LOCK_REL="backend/locks/runtime-py313.txt"',
+        'identity = manifest["locks"]["runtime-py313.txt"]',
+        'identity["python"] != "3.13"',
         'VERIFIER_REL="scripts/verify-python-lock-environment.py"',
         'TMP_BASE="${HERMES_LOCK_TMPDIR:-/var/tmp}"',
         "MIN_TMP_KIB=$((1024 * 1024))",
@@ -204,6 +214,7 @@ def test_arm64_preflight_is_exact_commit_clean_capacity_guarded_and_production_s
         "DOCKER_MUTATION=false",
     ):
         assert marker in text
+    assert "runtime-py311" not in text
     assert '${TMPDIR:-/tmp}/hermes-python-lock-arm64' not in text
     for forbidden in (
         "sudo ",

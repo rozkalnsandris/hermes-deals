@@ -9,7 +9,7 @@ REGISTER = ROOT / "tools/runner/release/hermes-deals-release-register"
 DOCKERFILE = ROOT / "backend/Dockerfile"
 REQUIREMENTS = ROOT / "backend/requirements.txt"
 RUNTIME_LOCK = ROOT / "backend/locks/runtime-py313.txt"
-CI_LOCK = ROOT / "backend/locks/ci-py311.txt"
+CI_LOCK = ROOT / "backend/locks/ci-py313.txt"
 CI = ROOT / ".github/workflows/ci.yml"
 
 
@@ -47,6 +47,8 @@ def test_production_image_excludes_tests_and_pytest() -> None:
     assert "COPY tests ./tests" not in dockerfile
     assert "pytest" not in requirements
     assert "pytest==" not in runtime_lock
+    assert "-r runtime-py313.txt" in ci_lock
     assert "pytest==8.4.1" in ci_lock
-    assert "-r locks/ci-py311.txt" in ci
+    assert "-r locks/ci-py313.txt" in ci
+    assert "ci-py311.txt" not in ci
     assert "python -m pytest -q" in ci

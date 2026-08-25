@@ -253,9 +253,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/locks/ci-py311.txt
+          cache-dependency-path: backend/locks/ci-py313.txt
 
       - name: Install hash-locked dependencies
         run: |
@@ -263,7 +263,7 @@ jobs:
             --disable-pip-version-check \
             --require-hashes \
             --only-binary=:all: \
-            -r locks/ci-py311.txt
+            -r locks/ci-py313.txt
           python -m pip check
 
       - name: Compile Python sources
@@ -312,9 +312,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/locks/ci-py311.txt
+          cache-dependency-path: backend/locks/ci-py313.txt
 
       - name: Install hash-locked dependencies
         run: |
@@ -322,7 +322,7 @@ jobs:
             --disable-pip-version-check \
             --require-hashes \
             --only-binary=:all: \
-            -r locks/ci-py311.txt
+            -r locks/ci-py313.txt
           python -m pip check
 
       - name: Apply database migrations
