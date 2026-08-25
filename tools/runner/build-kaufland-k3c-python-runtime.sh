@@ -18,6 +18,7 @@ REGISTRATION_SHA="$1"
 REPO='/home/andris/hermes-deals'
 CACHE_ROOT='/home/andris/.cache/hermes-deals-kaufland-k3c-python-runtime'
 PROVISIONER_REL='tools/runner/build-kaufland-k3c-python-runtime.sh'
+RUNTIME_CONTRACT_REL='tools/runner/kaufland_k3c_python_runtime_contract.py'
 LOCK_MANIFEST_REL='backend/locks/manifest.json'
 LOCK_VERIFIER_REL='scripts/verify-python-lock-environment.py'
 RUNTIME_PY311_REL='backend/locks/runtime-py311.txt'
@@ -55,15 +56,16 @@ source_matches_registration() {
 }
 
 for relative in \
-  "$PROVISIONER_REL" "$LOCK_MANIFEST_REL" "$LOCK_VERIFIER_REL" \
+  "$PROVISIONER_REL" "$RUNTIME_CONTRACT_REL" "$LOCK_MANIFEST_REL" "$LOCK_VERIFIER_REL" \
   "$RUNTIME_PY311_REL" "$RUNTIME_PY313_REL"; do
   source_matches_registration "$relative"
 done
 
 PROVISIONER_SHA="$(sha256sum "$REPO/$PROVISIONER_REL" | awk '{print $1}')"
+RUNTIME_CONTRACT_SHA="$(sha256sum "$REPO/$RUNTIME_CONTRACT_REL" | awk '{print $1}')"
 LOCK_MANIFEST_SHA="$(sha256sum "$REPO/$LOCK_MANIFEST_REL" | awk '{print $1}')"
 LOCK_VERIFIER_SHA="$(sha256sum "$REPO/$LOCK_VERIFIER_REL" | awk '{print $1}')"
-for digest in "$PROVISIONER_SHA" "$LOCK_MANIFEST_SHA" "$LOCK_VERIFIER_SHA"; do
+for digest in "$PROVISIONER_SHA" "$RUNTIME_CONTRACT_SHA" "$LOCK_MANIFEST_SHA" "$LOCK_VERIFIER_SHA"; do
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "runtime source SHA-256 is invalid"
 done
 
@@ -105,7 +107,7 @@ RUNTIME_IDENTITY_SHA="$(printf '%s\n' \
   'kaufland-k3c-hash-locked-python-runtime-v1' \
   "$REGISTRATION_SHA" "$PYTHON_IMPLEMENTATION" "$PYTHON_VERSION" "$PYTHON_LINE" \
   "$RUNTIME_LOCK_REL" "$RUNTIME_LOCK_SHA" "$LOCK_MANIFEST_SHA" \
-  "$LOCK_VERIFIER_SHA" "$PROVISIONER_SHA" | sha256sum | awk '{print $1}')"
+  "$LOCK_VERIFIER_SHA" "$PROVISIONER_SHA" "$RUNTIME_CONTRACT_SHA" | sha256sum | awk '{print $1}')"
 [[ "$RUNTIME_IDENTITY_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "runtime identity SHA-256 is invalid"
 FINAL_DIR="$CACHE_ROOT/candidate-$RUNTIME_IDENTITY_SHA"
 [[ ! -e "$FINAL_DIR" ]] || fail "K3C audit runtime candidate already exists"
@@ -157,6 +159,8 @@ RUNTIME_INVENTORY_SHA="$(printf '%s\n' "$RUNTIME_ENVIRONMENT_REPORT" | awk -F= '
   "$STAGING_PYTHON" -c 'import bs4, httpx' >/dev/null 2>&1 || fail "staged runtime third-party import verification failed"
 RUNTIME_PYTHON_BINARY_SHA="$(sha256sum "$STAGING_PYTHON" | awk '{print $1}')"
 [[ "$RUNTIME_PYTHON_BINARY_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "runtime Python binary SHA-256 is invalid"
+RUNTIME_TREE_SHA="$(/usr/bin/python3 "$REPO/$RUNTIME_CONTRACT_REL" tree-sha --root "$STAGING_DIR/venv")" || fail "cannot fingerprint staged runtime tree"
+[[ "$RUNTIME_TREE_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "runtime tree SHA-256 is invalid"
 
 cat > "$STAGING_DIR/candidate-receipt.json" <<EOF_RECEIPT
 {
@@ -171,9 +175,11 @@ cat > "$STAGING_DIR/candidate-receipt.json" <<EOF_RECEIPT
   "runtime_lock_relative": "$RUNTIME_LOCK_REL",
   "runtime_lock_sha256": "$RUNTIME_LOCK_SHA",
   "runtime_inventory_sha256": "$RUNTIME_INVENTORY_SHA",
+  "runtime_tree_sha256": "$RUNTIME_TREE_SHA",
   "lock_manifest_sha256": "$LOCK_MANIFEST_SHA",
   "lock_verifier_sha256": "$LOCK_VERIFIER_SHA",
   "provisioner_sha256": "$PROVISIONER_SHA",
+  "runtime_contract_sha256": "$RUNTIME_CONTRACT_SHA",
   "diagnostic_executed": false,
   "retained_evidence_read_performed": false,
   "retained_evidence_write_performed": false,
@@ -184,12 +190,22 @@ EOF_RECEIPT
 
 mv -- "$STAGING_DIR" "$FINAL_DIR"
 PRESERVED_PATH="$FINAL_DIR"
+FINAL_VERIFICATION="$(/usr/bin/python3 "$REPO/$RUNTIME_CONTRACT_REL" verify \
+  --runtime-root "$FINAL_DIR" \
+  --repo "$REPO" \
+  --registration-sha "$REGISTRATION_SHA" \
+  --expected-provisioner-sha "$PROVISIONER_SHA" \
+  --expected-runtime-contract-sha "$RUNTIME_CONTRACT_SHA" \
+  --expected-lock-manifest-sha "$LOCK_MANIFEST_SHA" \
+  --expected-lock-verifier-sha "$LOCK_VERIFIER_SHA")" || fail "final runtime candidate verification failed"
+printf '%s\n' "$FINAL_VERIFICATION" | grep -Fxq 'RUNTIME_CONTRACT=PASS' || fail "final runtime contract did not report PASS"
 MUTATION_STARTED=false
 trap - EXIT
 printf 'RUNTIME_BUILD_RESULT=PASS\n'
 printf 'REGISTERED_BRIDGE_SHA=%s\n' "$REGISTRATION_SHA"
 printf 'RUNTIME_CANDIDATE_DIR=%s\n' "$FINAL_DIR"
 printf 'RUNTIME_IDENTITY_SHA256=%s\n' "$RUNTIME_IDENTITY_SHA"
+printf 'RUNTIME_TREE_SHA256=%s\n' "$RUNTIME_TREE_SHA"
 printf 'RUNTIME_PYTHON_IMPLEMENTATION=%s\n' "$PYTHON_IMPLEMENTATION"
 printf 'RUNTIME_PYTHON_VERSION=%s\n' "$PYTHON_VERSION"
 printf 'RUNTIME_LOCK_RELATIVE=%s\n' "$RUNTIME_LOCK_REL"
