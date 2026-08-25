@@ -120,7 +120,9 @@ def test_active_python_surfaces_are_unified_on_313() -> None:
 
     assert 'echo "usage: $0 3.13"' in compiler
     assert 'compile_lock "$EXPECTED_INPUT" "backend/locks/runtime-py313.txt"' in compiler
-    assert 'compile_lock "$CI_INPUT" "backend/locks/ci-py313.txt"' in compiler
+    assert 'compile_lock "$CI_INPUT" "$CI_OVERLAY_TMP"' in compiler
+    assert "'-r runtime-py313.txt'" in compiler
+    assert 'cat "$CI_OVERLAY_TMP"' in compiler
     assert "3.11" not in compiler
 
     assert "FROM python:3.13.14-slim-bookworm@sha256:" in dockerfile
