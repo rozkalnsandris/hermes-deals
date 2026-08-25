@@ -100,7 +100,8 @@ def test_root_registration_preverifies_candidate_and_does_not_install_packages()
     registered_verify = 'REGISTERED_RUNTIME_REPORT="$(run_contract_as_andris verify'
 
     assert usage in source
-    assert "/home/andris/.cache/hermes-deals-kaufland-k3c-python-runtime/candidate-" in source
+    assert "hermes-deals-kaufland-k3c-python-runtime/candidate-" in source
+    assert "candidate-[0-9a-f]{64}" in source
     assert source.index(preverify) < source.index(mutation) < source.index(copy_runtime)
     assert source.index(copy_runtime) < source.index(registered_verify)
     assert 'chown -hR root:root "$REGISTERED_RUNTIME_DIR"' in source

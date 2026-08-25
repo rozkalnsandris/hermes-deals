@@ -18,7 +18,7 @@ Diagnostic contract: `kaufland-k3c-promo-structure-diagnostic-v1`.
 
 Three identities are now distinct and mandatory:
 
-1. **registration SHA** — exact single-parent squash merge that introduces or updates the reviewed K3C bridge control plane;
+1. **registration SHA** — exact single-parent squash merge that introduces or updates **at least one** reviewed K3C bridge control-plane anchor: the workflow or installer;
 2. **execution checkout SHA** — exact clean `main` commit already present on the RPi and explicitly selected for diagnostic execution;
 3. **runtime identity SHA-256** — exact hash-locked K3C Python runtime built for the registration SHA and then registered root-owned.
 
@@ -61,7 +61,7 @@ Before a self-hosted job can start, the hosted authorizer requires:
 - allowlisted owner login and immutable numeric owner ID;
 - same-repository PR merged into `main`;
 - valid single-parent registration merge SHA;
-- registration merge changed the workflow or installer relative to its parent;
+- registration merge changed at least one reviewed K3C bridge control-plane anchor — workflow or installer — relative to its parent;
 - ancestry `registration <= execution <= current GitHub main`;
 - successful registration CI, either exact merge push CI or exact PR-head PR CI with squash-tree equivalence;
 - successful exact execution `main` push CI when execution differs from registration;
@@ -187,7 +187,7 @@ Raw diagnostic stdout, diagnostic stderr, import stderr and runtime-contract std
 
 Each mutation starts only after fresh canonical GitHub/runtime preflight and exact owner authorization:
 
-1. source sync to the exact reviewed merge SHA if required;
+1. source sync through the reviewed **source-sync bridge** to the exact reviewed merge SHA if required;
 2. inspect source-sync receipt; failure/ambiguity -> STOP;
 3. build the hash-locked K3C runtime candidate as `andris` for that exact merge SHA;
 4. inspect exact candidate receipt/path; failure -> STOP, no cleanup/retry;
