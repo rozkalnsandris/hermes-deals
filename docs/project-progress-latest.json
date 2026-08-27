@@ -562,28 +562,15 @@
   ],
   "completed_issue_count": 214,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-08-26T04:54:12.517590Z",
-  "generated_at_local": "2026-08-26T06:54:12.517590+02:00",
+  "generated_at": "2026-08-27T15:13:23.942436Z",
+  "generated_at_local": "2026-08-27T17:13:23.942436+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-08-25",
+  "previous_day": "2026-08-26",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 2,
-  "previous_day_completed_issues": [
-    {
-      "closed_at": "2026-08-25T06:55:41Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/775",
-      "number": 775,
-      "title": "P1 Kaufland K3C: bind diagnostic to hash-locked audit Python runtime"
-    },
-    {
-      "closed_at": "2026-08-25T07:27:51Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/778",
-      "number": 778,
-      "title": "[POLICY] Adopt GITHUB-ONLY / LIVE-ALL deferred deploy mode"
-    }
-  ],
+  "previous_day_completed_issue_count": 0,
+  "previous_day_completed_issues": [],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
