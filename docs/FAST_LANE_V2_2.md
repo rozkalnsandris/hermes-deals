@@ -6,6 +6,14 @@ This is the active local FAST-LANE startup contract. The older versioned filenam
 
 **The human approves the RISK / DECISION. Automation executes the TECHNICAL STEPS.** STRICT describes mutation risk, not the number of approval prompts. Read-only checkpoints do not create owner gates.
 
+## Command routing invariant
+
+Bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation selects normal **FAST-LANE v2.2** operation. It does **not** select `GITHUB-ONLY`.
+
+`GITHUB-ONLY` is active only when the owner explicitly includes `GITHUB-ONLY` in the current command, including the documented `git hub only` spelling. `LIVE-ALL` likewise requires an explicit current-command `LIVE-ALL` token.
+
+Never infer either explicit mode from `.github/start-github-only.json`, deploy-queue state, handoff/issue continuity, executor availability, historical chat state, or a prior authorization receipt. Those are state/evidence inputs after command mode has been selected; they are not mode selectors. The machine-readable local dispatcher contract is `.github/start-mode-routing.json`.
+
 ## FAST source envelope
 
 `START`, `turpini`, or an equivalent continuation instruction may carry safe source work from fresh canonical GitHub state through Ready: branch, implementation, focused tests, commit/push, Draft PR, CI/review and up to two scope-preserving corrective commits. Batch 2-5 closely related same-risk items when they form one acceptance story. Merge remains explicit.
