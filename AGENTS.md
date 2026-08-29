@@ -18,6 +18,16 @@
 - Use the `hermes-deals` skill for retailer-source audits, parser changes, persistence changes, production gates, and B15/B15B Lidl work.
 <!-- END HERMES-DEALS-CODEX-MANAGED -->
 
+## Startup command routing
+
+Read `.github/start-mode-routing.json` before selecting a startup/continuation mode.
+
+- Bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation means normal **FAST-LANE v2.2**. It is not `GITHUB-ONLY`.
+- Activate `GITHUB-ONLY` only when the owner explicitly includes `GITHUB-ONLY` (or the documented `git hub only` spelling) in the current command.
+- Activate `LIVE-ALL` only when the owner explicitly includes `LIVE-ALL` in the current command.
+- Never infer either explicit mode from `.github/start-github-only.json`, deploy-queue state, handoff/issue continuity, executor availability, historical chat mode, or a prior authorization receipt.
+- Continuity evidence may affect lane selection only after command mode has been selected; it must never rewrite the command mode itself.
+
 <!-- BEGIN FAST-LANE-V2.2-MANAGED -->
 ## FAST-LANE v2.2 Composite
 

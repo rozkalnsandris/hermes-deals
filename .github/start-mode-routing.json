@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "repository": "rozkalnsandris/hermes-deals",
+  "default_continuation_mode": "FAST-LANE v2.2",
+  "explicit_modes": {
+    "GITHUB-ONLY": {
+      "requires_explicit_current_command_token": true,
+      "accepted_tokens": ["GITHUB-ONLY", "git hub only"],
+      "may_be_inferred_from_context": false
+    },
+    "LIVE-ALL": {
+      "requires_explicit_current_command_token": true,
+      "accepted_tokens": ["LIVE-ALL"],
+      "may_be_inferred_from_context": false
+    }
+  },
+  "bare_continuation_commands": ["START", "START hermes-deals", "turpini"],
+  "bare_continuation_result": "FAST-LANE v2.2",
+  "forbidden_mode_inference_sources": [
+    ".github/start-github-only.json existence",
+    "deploy-queue state",
+    "handoff or issue continuity",
+    "executor availability or unavailability",
+    "historical chat mode",
+    "prior authorization receipt"
+  ],
+  "examples": {
+    "START hermes-deals": "FAST-LANE v2.2",
+    "turpini": "FAST-LANE v2.2",
+    "START hermes-deals GITHUB-ONLY": "GITHUB-ONLY",
+    "GITHUB-ONLY": "GITHUB-ONLY",
+    "LIVE-ALL": "LIVE-ALL"
+  }
+}
