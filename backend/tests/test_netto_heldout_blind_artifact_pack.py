@@ -61,6 +61,7 @@ def _build_artifact(
     *,
     extra_members: list[tuple[zipfile.ZipInfo, bytes]] | None = None,
     corrupt_checksum_for: str | None = None,
+    checksum_prefix: str = "",
 ) -> dict[str, object]:
     pdf = _pdf_bytes(tmp_path)
     pdf_sha = sha256(pdf).hexdigest()
@@ -136,7 +137,7 @@ def _build_artifact(
         digest = sha256(payload).hexdigest()
         if name == corrupt_checksum_for:
             digest = "0" * 64
-        checksum_rows.append(f"{digest}  {name}")
+        checksum_rows.append(f"{digest}  {checksum_prefix}{name}")
     members["SHA256SUMS"] = ("\n".join(checksum_rows) + "\n").encode("utf-8")
 
     artifact = tmp_path / "artifact.zip"
@@ -223,6 +224,19 @@ def test_artifact_adapter_emits_only_blind_source_pack(tmp_path: Path) -> None:
         "DO_NOT_EXPOSE",
     ):
         assert sentinel not in text
+
+
+def test_checksum_manifest_accepts_single_dot_slash_prefix(tmp_path: Path) -> None:
+    artifact = _build_artifact(tmp_path, checksum_prefix="./")
+    payload = _generate(tmp_path, artifact)
+    assert payload["artifact_zip_sha256"] == artifact["sha"]
+    assert (tmp_path / "review-pack" / "artifact-source-receipt.json").is_file()
+
+
+def test_checksum_manifest_rejects_double_dot_slash_prefix(tmp_path: Path) -> None:
+    artifact = _build_artifact(tmp_path, checksum_prefix="././")
+    with pytest.raises(MODULE.BlindArtifactPackError, match="not canonical"):
+        _generate(tmp_path, artifact)
 
 
 def test_same_artifact_produces_identical_pack(tmp_path: Path) -> None:
