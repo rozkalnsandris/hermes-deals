@@ -105,6 +105,7 @@ def test_safe_bootstrap_extract_accepts_python_tree(tmp_path: Path) -> None:
     archive = tmp_path / "runtime.tar.gz"
     directory = tarfile.TarInfo("python")
     directory.type = tarfile.DIRTYPE
+    directory.mode = 0o755
     file_member = tarfile.TarInfo("python/bin/python3.13")
     file_member.mode = 0o755
     _tar(archive, [directory, file_member])
