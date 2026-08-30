@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_version": "kaufland-k3c-python-bootstrap-v1",
+  "provider": "astral-sh/python-build-standalone",
+  "release": {
+    "tag": "20260805",
+    "release_id": 365709887,
+    "target_commit": "76b41240bc8dfe753a54b2e32c8941e536568be8",
+    "immutable": true
+  },
+  "asset": {
+    "asset_id": 502923386,
+    "name": "cpython-3.13.14+20260805-aarch64-unknown-linux-gnu-install_only.tar.gz",
+    "target": "aarch64-unknown-linux-gnu",
+    "size": 89958991,
+    "sha256": "4777d7df2edb47b96e53abad5e1b9df1b2a1a9b2f7bdba12b5c0122163b3fed9",
+    "download_url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260805/cpython-3.13.14%2B20260805-aarch64-unknown-linux-gnu-install_only.tar.gz"
+  },
+  "python": {
+    "implementation": "CPython",
+    "version": "3.13.14",
+    "line": "3.13",
+    "executable": "python/bin/python3.13"
+  },
+  "platform": {
+    "os": "linux",
+    "architecture": "aarch64"
+  }
+}

@@ -216,6 +216,7 @@ jobs:
               "backend/app/kaufland_source_discovery.py",
               "tools/runner/build-kaufland-k3c-python-runtime.sh",
               "tools/runner/kaufland_k3c_python_runtime_contract.py",
+              "tools/runner/kaufland-k3c-python-bootstrap.json",
               "backend/locks/manifest.json",
               "scripts/verify-python-lock-environment.py",
               "backend/locks/runtime-py311.txt",
