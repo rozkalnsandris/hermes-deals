@@ -93,6 +93,28 @@ def test_hz34_review_pack_workflow_uploads_only_safe_pack_and_keeps_truth_blocke
     assert "deployment_performed" in text
 
 
+def test_hz34_review_pack_report_preserves_run_and_job_identity() -> None:
+    text = _text()
+    for token in (
+        "RUN_ID: ${{ github.run_id }}",
+        "RUN_ATTEMPT: ${{ github.run_attempt }}",
+        "SERVER_URL: ${{ github.server_url }}",
+        "AUTHORIZE_RESULT: ${{ needs.authorize.result }}",
+        "PACK_RESULT: ${{ needs.pack.result }}",
+        "actions/runs/{os.environ['RUN_ID']}",
+        "workflow run ID:",
+        "workflow run attempt:",
+        "Actions run:",
+        "authorize job result:",
+        "pack job result:",
+        "runtime merge SHA:",
+    ):
+        assert token in text
+    assert "identity = (" in text
+    assert '"## Netto hz34 blind reviewer-pack retry — PASS\\n\\n"\n                  + identity' in text
+    assert '"## Netto hz34 blind reviewer-pack retry — BLOCKED/FAIL\\n\\n"\n                  + identity' in text
+
+
 def test_hz34_review_pack_authorizer_accepts_only_two_file_runtime_pr() -> None:
     text = _text()
     assert "expected_files = {" in text

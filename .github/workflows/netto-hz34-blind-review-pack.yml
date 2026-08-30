@@ -509,6 +509,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
           RUNTIME_SHA: ${{ needs.authorize.outputs.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+          AUTHORIZE_RESULT: ${{ needs.authorize.result }}
           PACK_RESULT: ${{ needs.pack.result }}
           MANIFEST_SHA: ${{ needs.pack.outputs.manifest_sha256 }}
           LEDGER_SHA: ${{ needs.pack.outputs.ledger_sha256 }}
@@ -526,6 +530,15 @@ jobs:
           repo = os.environ["REPOSITORY"]
           token = os.environ["GH_TOKEN"]
           pr = int(os.environ["PR_NUMBER"])
+          actions_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['RUN_ID']}"
+          identity = (
+              f"- workflow run ID: `{os.environ['RUN_ID']}`\n"
+              f"- workflow run attempt: `{os.environ['RUN_ATTEMPT']}`\n"
+              f"- Actions run: {actions_url}\n"
+              f"- authorize job result: `{os.environ['AUTHORIZE_RESULT']}`\n"
+              f"- pack job result: `{os.environ['PACK_RESULT']}`\n"
+              f"- runtime merge SHA: `{os.environ['RUNTIME_SHA']}`\n"
+          )
           headers = {
               "Accept": "application/vnd.github+json",
               "Authorization": f"Bearer {token}",
@@ -536,8 +549,8 @@ jobs:
           if os.environ["PACK_RESULT"] == "success":
               body = (
                   "## Netto hz34 blind reviewer-pack retry — PASS\n\n"
-                  f"- runtime merge SHA: `{os.environ['RUNTIME_SHA']}`\n"
-                  "- upstream artifact: `9362894718`\n"
+                  + identity
+                  + "- upstream artifact: `9362894718`\n"
                   "- upstream ZIP SHA256: `d99d955ca678e9ffc4b40566bf2e8bdd32b1994e43460ba470472bcbe356d651`\n"
                   f"- reviewer-pack artifact: `{os.environ['OUTPUT_ARTIFACT_NAME']}` / ID `{os.environ['OUTPUT_ARTIFACT_ID']}`\n"
                   f"- reviewer-pack artifact digest: `{os.environ['OUTPUT_ARTIFACT_DIGEST']}`\n"
@@ -556,8 +569,8 @@ jobs:
           else:
               body = (
                   "## Netto hz34 blind reviewer-pack retry — BLOCKED/FAIL\n\n"
-                  f"- runtime merge SHA: `{os.environ['RUNTIME_SHA']}`\n"
-                  "- pack job did not complete successfully.\n"
+                  + identity
+                  + "- pack job did not complete successfully.\n"
                   "- no success claim is made; truth/adjudication remains blocked.\n"
                   "- DB/Review/publication/deploy/root/scheduler/systemd mutation: `false`."
               )
