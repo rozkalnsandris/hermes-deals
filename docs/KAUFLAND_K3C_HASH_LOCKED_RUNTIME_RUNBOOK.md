@@ -60,17 +60,20 @@ Any drift between the reviewed registration SHA and current source for an active
 
 ## Safe extraction contract
 
-The archive is inspected in full before extraction. The runtime contract accepts only a bounded `python/` tree and fails closed on:
+The archive is inspected in full before extraction. The runtime contract accepts only a bounded, previously absent `python/` tree and fails closed on:
 
 - absolute paths;
 - `..` path traversal;
 - non-canonical paths;
 - unexpected top-level paths outside `python/`;
+- duplicate member paths;
+- a pre-existing destination `python/` tree;
 - device entries and FIFOs;
 - hardlinks;
 - unsupported member types;
 - absolute symlinks;
-- symlinks that resolve outside the extracted `python/` tree.
+- symlinks that resolve outside the extracted `python/` tree;
+- any archive member nested below another archive member that is a symlink, independent of tar member order.
 
 The builder extracts a self-contained runtime tree. It does **not** create a PEP 405 venv from the host interpreter or from a temporary prefix.
 
