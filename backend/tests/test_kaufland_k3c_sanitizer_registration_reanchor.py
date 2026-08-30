@@ -13,12 +13,15 @@ def test_k3c_workflow_binds_reviewed_sanitizer_reason_taxonomy() -> None:
         "SANITIZER_LOCATOR_REJECTED",
         "SANITIZER_IDENTITY_REJECTED",
         "SANITIZER_SCHEMA_REJECTED",
-        "SANITIZER_BOUND_REJECTED",
+        "SANITIZER_COLLECTION_BOUND_REJECTED",
+        "SANITIZER_SAMPLE_CONSISTENCY_REJECTED",
+        "SANITIZER_EXACT_CARDINALITY_REJECTED",
         "SANITIZER_INPUT_READ_REJECTED",
         "SANITIZER_OUTPUT_REJECTED",
     ):
         assert f'"{reason}"' in text
 
+    assert '"SANITIZER_BOUND_REJECTED"' not in text
     assert 'reason_code.startswith("SANITIZER_")' in text
     assert 'reason_code not in sanitizer_reason_codes' in text
     assert 'raise SystemExit("unreviewed sanitizer reason code")' in text
