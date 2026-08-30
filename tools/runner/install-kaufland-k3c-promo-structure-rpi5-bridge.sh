@@ -123,7 +123,7 @@ trusted_source_matches_registration() {
   [[ -f "$REPO/$relative" && ! -L "$REPO/$relative" ]] || fail "required source is missing or unsafe: $relative"
   registration_blob="$(git_as_andris -C "$REPO" rev-parse "${REGISTRATION_SHA}:${relative}")" || fail "required source missing at registration SHA: $relative"
   current_blob="$(git_as_andris -C "$REPO" rev-parse "HEAD:${relative}")" || fail "required source missing at current HEAD: $relative"
-  [[ "$registration_blob" == "$current_blob" ]] || fail "trusted source changed after registration SHA: $relative"
+  [[ "$registration_blob" == "$current_blob" ]] || fail "trusted source changed after registration SHA; create and merge a new reviewed K3C registration anchor before runtime build/root registration/diagnostic continuation: $relative"
 }
 
 for relative in \
