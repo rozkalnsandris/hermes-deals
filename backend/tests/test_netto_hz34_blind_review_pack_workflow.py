@@ -115,9 +115,23 @@ def test_hz34_review_pack_report_preserves_run_and_job_identity() -> None:
     assert '"## Netto hz34 blind reviewer-pack retry — BLOCKED/FAIL\\n\\n"\n                  + identity' in text
 
 
-def test_hz34_review_pack_authorizer_accepts_only_two_file_runtime_pr() -> None:
+def test_hz34_review_pack_authorizer_accepts_only_four_file_remediation_pr() -> None:
     text = _text()
     assert "expected_files = {" in text
-    assert '".github/workflows/netto-hz34-blind-review-pack.yml"' in text
-    assert '"backend/tests/test_netto_hz34_blind_review_pack_workflow.py"' in text
+    for path in (
+        ".github/workflows/netto-hz34-blind-review-pack.yml",
+        "backend/tests/test_netto_hz34_blind_review_pack_workflow.py",
+        "tools/netto_heldout_blind_artifact_pack.py",
+        "backend/tests/test_netto_heldout_blind_artifact_pack.py",
+    ):
+        assert f'"{path}"' in text
     assert "if set(files) != expected_files:" in text
+
+
+def test_hz34_review_pack_report_can_clear_label_from_merged_pr() -> None:
+    text = _text()
+    report = text.split("\n  report:\n", 1)[1]
+    assert "issues: write" in report
+    assert "pull-requests: write" in report
+    assert 'method="DELETE"' in report
+    assert "/labels/{encoded}" in report
