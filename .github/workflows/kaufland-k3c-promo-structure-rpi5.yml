@@ -66,17 +66,13 @@ jobs:
           if event.get("event_name") not in {None, "workflow_dispatch"}:
               raise SystemExit("unexpected event metadata")
           sender = event.get("sender") or {}
-          if (
-              sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"]
-              or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"])
-          ):
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"]):
               raise SystemExit("workflow_dispatch actor is not allowlisted owner")
 
           raw_pr = os.environ["REQUESTED_PR"].strip()
           if not raw_pr.isdigit() or int(raw_pr) <= 0:
               raise SystemExit("pr_number must be a positive integer")
           pr_number = int(raw_pr)
-
           execution_sha = os.environ["REQUESTED_EXECUTION_SHA"].strip()
           if not re.fullmatch(r"[0-9a-f]{40}", execution_sha):
               raise SystemExit("execution_sha must be an exact lowercase 40-hex commit")
@@ -94,12 +90,8 @@ jobs:
                   return json.load(response)
 
           def workflow_runs(sha: str, event_name: str):
-              query = urllib.parse.urlencode(
-                  {"head_sha": sha, "event": event_name, "status": "completed", "per_page": 20}
-              )
-              return get(
-                  f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}"
-              ).get("workflow_runs") or []
+              query = urllib.parse.urlencode({"head_sha": sha, "event": event_name, "status": "completed", "per_page": 20})
+              return get(f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}").get("workflow_runs") or []
 
           def successful_ci(runs, *, sha: str, event_name: str, require_main: bool) -> bool:
               return any(
@@ -139,9 +131,7 @@ jobs:
           if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
               raise SystemExit("bridge registration PR does not expose a valid head SHA")
 
-          registration_commit = get(
-              f"https://api.github.com/repos/{repo}/git/commits/{registration_sha}"
-          )
+          registration_commit = get(f"https://api.github.com/repos/{repo}/git/commits/{registration_sha}")
           parents = registration_commit.get("parents") or []
           if len(parents) != 1:
               raise SystemExit("bridge registration SHA must be a single-parent reviewed merge")
@@ -151,12 +141,8 @@ jobs:
 
           workflow_path = ".github/workflows/kaufland-k3c-promo-structure-rpi5.yml"
           installer_path = "tools/runner/install-kaufland-k3c-promo-structure-rpi5-bridge.sh"
-          workflow_changed = content_blob(workflow_path, registration_sha) != content_blob(
-              workflow_path, registration_parent
-          )
-          installer_changed = content_blob(installer_path, registration_sha) != content_blob(
-              installer_path, registration_parent
-          )
+          workflow_changed = content_blob(workflow_path, registration_sha) != content_blob(workflow_path, registration_parent)
+          installer_changed = content_blob(installer_path, registration_sha) != content_blob(installer_path, registration_parent)
           if not (workflow_changed or installer_changed):
               raise SystemExit("selected PR did not introduce or update the K3C bridge control plane")
 
@@ -165,27 +151,15 @@ jobs:
           if not re.fullmatch(r"[0-9a-f]{40}", current_main_sha):
               raise SystemExit("current main does not expose a valid SHA")
 
-          require_ancestor(
-              registration_sha,
-              execution_sha,
-              "requested execution checkout is not a registration descendant",
-          )
-          require_ancestor(
-              execution_sha,
-              current_main_sha,
-              "requested execution checkout is not reachable from current main",
-          )
+          require_ancestor(registration_sha, execution_sha, "requested execution checkout is not a registration descendant")
+          require_ancestor(execution_sha, current_main_sha, "requested execution checkout is not reachable from current main")
 
           merge_runs = workflow_runs(registration_sha, "push")
-          merge_ci_ok = successful_ci(
-              merge_runs, sha=registration_sha, event_name="push", require_main=True
-          )
+          merge_ci_ok = successful_ci(merge_runs, sha=registration_sha, event_name="push", require_main=True)
           registration_ci_mode = "merge_push_ci"
           if not merge_ci_ok:
               head_runs = workflow_runs(head_sha, "pull_request")
-              head_ci_ok = successful_ci(
-                  head_runs, sha=head_sha, event_name="pull_request", require_main=False
-              )
+              head_ci_ok = successful_ci(head_runs, sha=head_sha, event_name="pull_request", require_main=False)
               if not head_ci_ok:
                   raise SystemExit("neither registration merge SHA nor exact PR head has successful CI")
               head_commit = get(f"https://api.github.com/repos/{repo}/git/commits/{head_sha}")
@@ -199,9 +173,7 @@ jobs:
               execution_ci_mode = "registration_ci_reuse"
           else:
               execution_runs = workflow_runs(execution_sha, "push")
-              if not successful_ci(
-                  execution_runs, sha=execution_sha, event_name="push", require_main=True
-              ):
+              if not successful_ci(execution_runs, sha=execution_sha, event_name="push", require_main=True):
                   raise SystemExit("exact execution checkout does not have successful main push CI")
               execution_ci_mode = "exact_execution_push_ci"
 
@@ -216,6 +188,7 @@ jobs:
               "backend/app/kaufland_source_discovery.py",
               "tools/runner/build-kaufland-k3c-python-runtime.sh",
               "tools/runner/kaufland_k3c_python_runtime_contract.py",
+              "tools/runner/kaufland-k3c-python-bootstrap.json",
               "backend/locks/manifest.json",
               "scripts/verify-python-lock-environment.py",
               "backend/locks/runtime-py311.txt",
