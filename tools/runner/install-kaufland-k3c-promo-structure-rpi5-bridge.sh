@@ -35,6 +35,7 @@ CARD_REL='backend/app/kaufland_source_card_contract.py'
 DISCOVERY_REL='backend/app/kaufland_source_discovery.py'
 PROVISIONER_REL='tools/runner/build-kaufland-k3c-python-runtime.sh'
 RUNTIME_CONTRACT_REL='tools/runner/kaufland_k3c_python_runtime_contract.py'
+BOOTSTRAP_REL='tools/runner/kaufland-k3c-python-bootstrap.json'
 LOCK_MANIFEST_REL='backend/locks/manifest.json'
 LOCK_VERIFIER_REL='scripts/verify-python-lock-environment.py'
 RUNTIME_PY313_REL='backend/locks/runtime-py313.txt'
@@ -128,7 +129,7 @@ trusted_source_matches_registration() {
 for relative in \
   "$WORKFLOW_REL" "$INSTALLER_REL" "$VALIDATOR_REL" "$DIAGNOSTIC_REL" \
   "$HELPER_REL" "$FREEZE_REL" "$CARD_REL" "$DISCOVERY_REL" \
-  "$PROVISIONER_REL" "$RUNTIME_CONTRACT_REL" "$LOCK_MANIFEST_REL" "$LOCK_VERIFIER_REL" \
+  "$PROVISIONER_REL" "$RUNTIME_CONTRACT_REL" "$BOOTSTRAP_REL" "$LOCK_MANIFEST_REL" "$LOCK_VERIFIER_REL" \
   "$RUNTIME_PY313_REL"; do
   trusted_source_matches_registration "$relative"
 done
@@ -144,13 +145,14 @@ CARD_SHA="$(sha256sum "$REPO/$CARD_REL" | awk '{print $1}')"
 DISCOVERY_SHA="$(sha256sum "$REPO/$DISCOVERY_REL" | awk '{print $1}')"
 PROVISIONER_SHA="$(sha256sum "$REPO/$PROVISIONER_REL" | awk '{print $1}')"
 RUNTIME_CONTRACT_SHA="$(sha256sum "$REPO/$RUNTIME_CONTRACT_REL" | awk '{print $1}')"
+BOOTSTRAP_SHA="$(sha256sum "$REPO/$BOOTSTRAP_REL" | awk '{print $1}')"
 LOCK_MANIFEST_SHA="$(sha256sum "$REPO/$LOCK_MANIFEST_REL" | awk '{print $1}')"
 LOCK_VERIFIER_SHA="$(sha256sum "$REPO/$LOCK_VERIFIER_REL" | awk '{print $1}')"
 RUNTIME_PY313_SHA="$(sha256sum "$REPO/$RUNTIME_PY313_REL" | awk '{print $1}')"
 for digest in \
   "$WORKFLOW_SHA" "$INSTALLER_SHA" "$VALIDATOR_SHA" "$DIAGNOSTIC_SHA" \
   "$HELPER_SHA" "$FREEZE_SHA" "$CARD_SHA" "$DISCOVERY_SHA" \
-  "$PROVISIONER_SHA" "$RUNTIME_CONTRACT_SHA" "$LOCK_MANIFEST_SHA" "$LOCK_VERIFIER_SHA" \
+  "$PROVISIONER_SHA" "$RUNTIME_CONTRACT_SHA" "$BOOTSTRAP_SHA" "$LOCK_MANIFEST_SHA" "$LOCK_VERIFIER_SHA" \
   "$RUNTIME_PY313_SHA"; do
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "trusted source SHA-256 is invalid"
 done
@@ -172,9 +174,12 @@ RUNTIME_PYTHON_LINE="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == "RUNTI
 RUNTIME_LOCK_REL="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == "RUNTIME_LOCK_RELATIVE" { print $2 }')"
 RUNTIME_LOCK_SHA="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == "RUNTIME_LOCK_SHA256" { print $2 }')"
 RUNTIME_PYTHON_BINARY_SHA="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == "RUNTIME_PYTHON_BINARY_SHA256" { print $2 }')"
-for digest in "$RUNTIME_IDENTITY_SHA" "$RUNTIME_TREE_SHA" "$RUNTIME_INVENTORY_SHA" "$RUNTIME_LOCK_SHA" "$RUNTIME_PYTHON_BINARY_SHA"; do
+RUNTIME_BOOTSTRAP_SHA="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == "BOOTSTRAP_MANIFEST_SHA256" { print $2 }')"
+RUNTIME_BOOTSTRAP_ASSET_SHA="$(printf '%s\n' "$CANDIDATE_REPORT" | awk -F= '$1 == "BOOTSTRAP_ASSET_SHA256" { print $2 }')"
+for digest in "$RUNTIME_IDENTITY_SHA" "$RUNTIME_TREE_SHA" "$RUNTIME_INVENTORY_SHA" "$RUNTIME_LOCK_SHA" "$RUNTIME_PYTHON_BINARY_SHA" "$RUNTIME_BOOTSTRAP_SHA" "$RUNTIME_BOOTSTRAP_ASSET_SHA"; do
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "runtime candidate receipt digest is invalid"
 done
+[[ "$RUNTIME_BOOTSTRAP_SHA" == "$BOOTSTRAP_SHA" ]] || fail "runtime candidate bootstrap manifest mismatch"
 [[ "$RUNTIME_PYTHON_LINE" == '3.13' ]] || fail "runtime candidate Python line must be 3.13"
 [[ "$RUNTIME_LOCK_REL" == 'backend/locks/runtime-py313.txt' ]] || fail "runtime candidate lock/Python binding mismatch"
 [[ "$(basename -- "$RUNTIME_CANDIDATE")" == "candidate-$RUNTIME_IDENTITY_SHA" ]] || fail "runtime candidate path/identity mismatch"
@@ -220,6 +225,9 @@ provisioner_relative='$PROVISIONER_REL'
 provisioner_sha256='$PROVISIONER_SHA'
 runtime_contract_relative='$RUNTIME_CONTRACT_REL'
 runtime_contract_sha256='$RUNTIME_CONTRACT_SHA'
+bootstrap_relative='$BOOTSTRAP_REL'
+bootstrap_sha256='$BOOTSTRAP_SHA'
+bootstrap_asset_sha256='$RUNTIME_BOOTSTRAP_ASSET_SHA'
 lock_manifest_relative='$LOCK_MANIFEST_REL'
 lock_manifest_sha256='$LOCK_MANIFEST_SHA'
 lock_verifier_relative='$LOCK_VERIFIER_REL'
@@ -275,6 +283,7 @@ source "$CONFIG"
 [[ "${validator:-}" == '/usr/local/libexec/hermes-deals-audits/kaufland-k3c-promo-structure/validator.py' ]] || fail "registered validator path mismatch"
 [[ "${provisioner_relative:-}" == 'tools/runner/build-kaufland-k3c-python-runtime.sh' ]] || fail "registered runtime provisioner path mismatch"
 [[ "${runtime_contract_relative:-}" == 'tools/runner/kaufland_k3c_python_runtime_contract.py' ]] || fail "registered runtime contract path mismatch"
+[[ "${bootstrap_relative:-}" == 'tools/runner/kaufland-k3c-python-bootstrap.json' ]] || fail "registered bootstrap manifest path mismatch"
 [[ "${lock_manifest_relative:-}" == 'backend/locks/manifest.json' ]] || fail "registered lock manifest path mismatch"
 [[ "${lock_verifier_relative:-}" == 'scripts/verify-python-lock-environment.py' ]] || fail "registered lock verifier path mismatch"
 [[ "${runtime_py313_relative:-}" == 'backend/locks/runtime-py313.txt' ]] || fail "registered Python 3.13 lock path mismatch"
@@ -286,7 +295,7 @@ source "$CONFIG"
 for digest in \
   "$workflow_sha256" "$installer_sha256" "$validator_sha256" "$diagnostic_sha256" \
   "$helper_sha256" "$freeze_sha256" "$card_sha256" "$discovery_sha256" \
-  "$provisioner_sha256" "$runtime_contract_sha256" "$lock_manifest_sha256" "$lock_verifier_sha256" \
+  "$provisioner_sha256" "$runtime_contract_sha256" "$bootstrap_sha256" "$bootstrap_asset_sha256" "$lock_manifest_sha256" "$lock_verifier_sha256" \
   "$runtime_py313_sha256" \
   "$runtime_identity_sha256" "$runtime_tree_sha256" "$runtime_inventory_sha256" \
   "$runtime_lock_sha256" "$runtime_python_binary_sha256"; do
@@ -343,6 +352,7 @@ verify_source "$card_relative" "$card_sha256"
 verify_source "$discovery_relative" "$discovery_sha256"
 verify_source "$provisioner_relative" "$provisioner_sha256"
 verify_source "$runtime_contract_relative" "$runtime_contract_sha256"
+verify_source "$bootstrap_relative" "$bootstrap_sha256"
 verify_source "$lock_manifest_relative" "$lock_manifest_sha256"
 verify_source "$lock_verifier_relative" "$lock_verifier_sha256"
 verify_source "$runtime_py313_relative" "$runtime_py313_sha256"
@@ -460,7 +470,7 @@ HEAD_BEFORE="$(git_as_andris -C "$repo" rev-parse HEAD)"
 STATUS_BEFORE="$(git_as_andris -C "$repo" status --porcelain=v1 --untracked-files=all)"
 [[ "$HEAD_BEFORE" == "$EXECUTION_SHA" && -z "$STATUS_BEFORE" ]] || bridge_block "SOURCE_PRECONDITION_DRIFT"
 
-RUNTIME_PYTHON="$runtime_registered_dir/venv/bin/python"
+RUNTIME_PYTHON="$runtime_registered_dir/python/bin/python3.13"
 [[ -d "$runtime_registered_dir" && ! -L "$runtime_registered_dir" ]] || bridge_block "DIAGNOSTIC_RUNTIME_UNAVAILABLE"
 [[ "$(stat -c '%U:%G %a' "$runtime_registered_dir")" == 'root:root 755' ]] || bridge_block "DIAGNOSTIC_RUNTIME_IDENTITY_FAILED"
 [[ -f "$runtime_registered_dir/candidate-receipt.json" && ! -L "$runtime_registered_dir/candidate-receipt.json" ]] || bridge_block "DIAGNOSTIC_RUNTIME_IDENTITY_FAILED"
@@ -494,7 +504,9 @@ for expected_line in \
   "RUNTIME_PYTHON_LINE=$runtime_python_line" \
   "RUNTIME_LOCK_RELATIVE=$runtime_lock_relative" \
   "RUNTIME_LOCK_SHA256=$runtime_lock_sha256" \
-  "RUNTIME_PYTHON_BINARY_SHA256=$runtime_python_binary_sha256"; do
+  "RUNTIME_PYTHON_BINARY_SHA256=$runtime_python_binary_sha256" \
+  "BOOTSTRAP_MANIFEST_SHA256=$bootstrap_sha256" \
+  "BOOTSTRAP_ASSET_SHA256=$bootstrap_asset_sha256"; do
   printf '%s\n' "$RUNTIME_VERIFY_REPORT" | grep -Fxq "$expected_line" || bridge_block "DIAGNOSTIC_RUNTIME_IDENTITY_FAILED"
 done
 rm -f -- "$RUNTIME_VERIFY_STDERR_PRIVATE"
@@ -636,7 +648,7 @@ chmod 0755 "$REGISTERED_RUNTIME_DIR"
 chmod 0644 "$REGISTERED_RUNTIME_DIR/candidate-receipt.json"
 [[ "$(stat -c '%U:%G %a' "$REGISTERED_RUNTIME_DIR")" == 'root:root 755' ]] || fail "installed runtime root metadata mismatch"
 [[ "$(stat -c '%U:%G %a' "$REGISTERED_RUNTIME_DIR/candidate-receipt.json")" == 'root:root 644' ]] || fail "installed runtime receipt metadata mismatch"
-[[ "$(stat -c '%U:%G %a' "$REGISTERED_RUNTIME_DIR/venv/bin/python")" == 'root:root 755' ]] || fail "installed runtime Python metadata mismatch"
+[[ "$(stat -c '%U:%G %a' "$REGISTERED_RUNTIME_DIR/python/bin/python3.13")" == 'root:root 755' ]] || fail "installed runtime Python metadata mismatch"
 REGISTERED_RUNTIME_REPORT="$(run_contract_as_andris verify \
   --runtime-root "$REGISTERED_RUNTIME_DIR" \
   --repo "$REPO" \
@@ -653,7 +665,9 @@ for expected_line in \
   "RUNTIME_PYTHON_LINE=$RUNTIME_PYTHON_LINE" \
   "RUNTIME_LOCK_RELATIVE=$RUNTIME_LOCK_REL" \
   "RUNTIME_LOCK_SHA256=$RUNTIME_LOCK_SHA" \
-  "RUNTIME_PYTHON_BINARY_SHA256=$RUNTIME_PYTHON_BINARY_SHA"; do
+  "RUNTIME_PYTHON_BINARY_SHA256=$RUNTIME_PYTHON_BINARY_SHA" \
+  "BOOTSTRAP_MANIFEST_SHA256=$BOOTSTRAP_SHA" \
+  "BOOTSTRAP_ASSET_SHA256=$RUNTIME_BOOTSTRAP_ASSET_SHA"; do
   printf '%s\n' "$REGISTERED_RUNTIME_REPORT" | grep -Fxq "$expected_line" || fail "installed K3C runtime receipt mismatch"
 done
 
@@ -664,10 +678,10 @@ install -o root -g root -m 0440 "$TMP/sudoers" "$SUDOERS"
 
 visudo -cf "$SUDOERS" >/dev/null || fail "installed K3C sudoers validation failed"
 [[ "$(sha256sum "$VALIDATOR" | awk '{print $1}')" == "$VALIDATOR_SHA" ]] || fail "installed validator hash mismatch"
-[[ "$(stat -c '%U:%G %a' "$VALIDATOR")" == 'root:root 644' ]] || fail "installed validator metadata mismatch"
-[[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 644' ]] || fail "installed config metadata mismatch"
-[[ "$(stat -c '%U:%G %a' "$DISPATCHER")" == 'root:root 755' ]] || fail "installed dispatcher metadata mismatch"
-[[ "$(stat -c '%U:%G %a' "$SUDOERS")" == 'root:root 440' ]] || fail "installed sudoers metadata mismatch"
+[[ "$(stat -c '%U:%G %a' "$VALIDATOR")" == 'root:root 644' ]] || fail "installed validator metadata invalid"
+[[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 644' ]] || fail "installed config metadata invalid"
+[[ "$(stat -c '%U:%G %a' "$DISPATCHER")" == 'root:root 755' ]] || fail "installed dispatcher metadata invalid"
+[[ "$(stat -c '%U:%G %a' "$SUDOERS")" == 'root:root 440' ]] || fail "installed sudoers metadata invalid"
 sudo -l -U github-runner | grep -Fq "$DISPATCHER" || fail "github-runner dispatcher sudo rule was not installed"
 [[ "$(git_as_andris -C "$REPO" rev-parse HEAD)" == "$CURRENT_HEAD" ]] || fail "source checkout changed during registration"
 [[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail "source checkout became dirty during registration"
@@ -683,6 +697,8 @@ printf 'RUNTIME_TREE_SHA256=%s\n' "$RUNTIME_TREE_SHA"
 printf 'RUNTIME_INVENTORY_SHA256=%s\n' "$RUNTIME_INVENTORY_SHA"
 printf 'RUNTIME_PYTHON_LINE=%s\n' "$RUNTIME_PYTHON_LINE"
 printf 'RUNTIME_LOCK_SHA256=%s\n' "$RUNTIME_LOCK_SHA"
+printf 'BOOTSTRAP_MANIFEST_SHA256=%s\n' "$BOOTSTRAP_SHA"
+printf 'BOOTSTRAP_ASSET_SHA256=%s\n' "$RUNTIME_BOOTSTRAP_ASSET_SHA"
 printf 'RUNNER_HAS_DOCKER_GROUP=false\n'
 printf 'SOURCE_CHECKOUT_MUTATED=false\n'
 printf 'SOURCE_SYNC_EXECUTED=false\n'
