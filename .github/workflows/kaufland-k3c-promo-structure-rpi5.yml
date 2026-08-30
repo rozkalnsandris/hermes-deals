@@ -298,6 +298,15 @@ jobs:
           summary_path = artifact_dir / "kaufland-k3c-promo-structure-summary.json"
           runner_rc_raw = os.environ.get("RUNNER_RC") or "1"
           runner_rc = int(runner_rc_raw) if re.fullmatch(r"-?[0-9]+", runner_rc_raw) else 1
+          sanitizer_reason_codes = {
+              "SANITIZER_PRICE_CLASS_REJECTED",
+              "SANITIZER_LOCATOR_REJECTED",
+              "SANITIZER_IDENTITY_REJECTED",
+              "SANITIZER_SCHEMA_REJECTED",
+              "SANITIZER_BOUND_REJECTED",
+              "SANITIZER_INPUT_READ_REJECTED",
+              "SANITIZER_OUTPUT_REJECTED",
+          }
 
           bridge_status = "BLOCKED"
           diagnostic_status = "UNAVAILABLE"
@@ -331,6 +340,8 @@ jobs:
                   raise SystemExit("unsupported diagnostic status")
               if not re.fullmatch(r"(?:none|[A-Z0-9_]{1,96})", reason_code):
                   raise SystemExit("unbounded reason code")
+              if reason_code.startswith("SANITIZER_") and reason_code not in sanitizer_reason_codes:
+                  raise SystemExit("unreviewed sanitizer reason code")
               if runner_rc == 0:
                   if bridge_status != "PASS" or diagnostic_status not in {"PASS", "BLOCKED"}:
                       raise SystemExit("dispatcher success/status mismatch")
