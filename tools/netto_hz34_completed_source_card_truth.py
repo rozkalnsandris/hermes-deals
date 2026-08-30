@@ -171,6 +171,12 @@ def _reject_prediction_keys(value: Any, *, path: str = "$") -> None:
             _reject_prediction_keys(child, path=f"{path}[{index}]")
 
 
+def _reject_unknown_keys(value: Mapping[str, Any], allowed: set[str], *, path: str) -> None:
+    unknown = set(value) - allowed
+    if unknown:
+        raise Hz34CompletedTruthError(f"unknown completed truth fields at {path}: {sorted(unknown)}")
+
+
 def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int, tuple[float, float]]) -> dict[str, Any]:
     _reject_prediction_keys(payload)
     expected = {
@@ -196,6 +202,11 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
         "expected_truth_included": False,
         "adjudication_started": False,
     }
+    _reject_unknown_keys(
+        payload,
+        set(expected) | {"reviewer_process", "prediction_ownership_derivation", "pages"},
+        path="$",
+    )
     for key, value in expected.items():
         if payload.get(key) != value:
             raise Hz34CompletedTruthError(f"completed truth contract mismatch: {key}")
@@ -212,12 +223,18 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
         "adjudication_started": False,
         "review_order": "pages_001_through_070_sequential",
     }
+    _reject_unknown_keys(process, set(process_expected), path="$.reviewer_process")
     for key, value in process_expected.items():
         if process.get(key) != value:
             raise Hz34CompletedTruthError(f"reviewer process mismatch: {key}")
     derivation = payload.get("prediction_ownership_derivation")
     if not isinstance(derivation, dict):
         raise Hz34CompletedTruthError("prediction ownership derivation gate is missing")
+    _reject_unknown_keys(
+        derivation,
+        {"performed_during_source_review", "allowed_only_after_completed_truth_sha_is_frozen"},
+        path="$.prediction_ownership_derivation",
+    )
     if derivation.get("performed_during_source_review") is not False:
         raise Hz34CompletedTruthError("prediction ownership was derived during source review")
     if derivation.get("allowed_only_after_completed_truth_sha_is_frozen") is not True:
@@ -232,7 +249,14 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
     boundary_counts: Counter[str] = Counter()
     total = empty_pages = 0
     for expected_page, page in enumerate(pages, start=1):
-        if not isinstance(page, dict) or page.get("page_number") != expected_page:
+        if not isinstance(page, dict):
+            raise Hz34CompletedTruthError("truth page must be an object")
+        _reject_unknown_keys(
+            page,
+            {"page_number", "page_width_points", "page_height_points", "review_complete", "page_disposition", "source_regions"},
+            path=f"$.pages[{expected_page - 1}]",
+        )
+        if page.get("page_number") != expected_page:
             raise Hz34CompletedTruthError("truth pages must be sequential 1..70")
         expected_width, expected_height = page_dimensions[expected_page]
         width, height = page.get("page_width_points"), page.get("page_height_points")
@@ -253,6 +277,11 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
         for expected_region, row in enumerate(rows, start=1):
             if not isinstance(row, dict):
                 raise Hz34CompletedTruthError("source region must be an object")
+            _reject_unknown_keys(
+                row,
+                {"source_region_id", "rect_points", "scope_classification", "boundary_state", "observed_label", "reviewer_confidence", "reviewer_note"},
+                path=f"$.pages[{expected_page - 1}].source_regions[{expected_region - 1}]",
+            )
             region_id = row.get("source_region_id")
             expected_id = f"p{expected_page:03d}-r{expected_region:03d}"
             if region_id != expected_id or not re.fullmatch(r"p\d{3}-r\d{3}", str(region_id)):
