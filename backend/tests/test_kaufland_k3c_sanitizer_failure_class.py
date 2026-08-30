@@ -14,24 +14,35 @@ _spec.loader.exec_module(validator)
 
 
 def test_sanitizer_failure_classes_are_fixed_and_allowlisted() -> None:
-    assert validator._sanitizer_failure_reason(
-        validator.BridgeValidationError("projection.marker_price_classes must be sorted and unique")
-    ) == "SANITIZER_PRICE_CLASS_REJECTED"
-    assert validator._sanitizer_failure_reason(
-        validator.BridgeValidationError("projection.marker_locator is not a bounded rawpath locator")
-    ) == "SANITIZER_LOCATOR_REJECTED"
-    assert validator._sanitizer_failure_reason(
-        validator.BridgeValidationError("diagnostic result identity mismatch")
-    ) == "SANITIZER_IDENTITY_REJECTED"
-    assert validator._sanitizer_failure_reason(
-        validator.BridgeValidationError("diagnostic PASS field set mismatch")
-    ) == "SANITIZER_SCHEMA_REJECTED"
-    assert validator._sanitizer_failure_reason(
-        validator.BridgeValidationError("projection marker sample bound exceeded")
-    ) == "SANITIZER_BOUND_REJECTED"
-    assert validator._sanitizer_failure_reason(
-        validator.BridgeValidationError("unclassified private detail")
-    ) == "SANITIZER_OUTPUT_REJECTED"
+    cases = (
+        ("projection.marker_price_classes must be sorted and unique", "SANITIZER_PRICE_CLASS_REJECTED"),
+        ("projection.marker_locator is not a bounded rawpath locator", "SANITIZER_LOCATOR_REJECTED"),
+        ("diagnostic result identity mismatch", "SANITIZER_IDENTITY_REJECTED"),
+        ("diagnostic PASS field set mismatch", "SANITIZER_SCHEMA_REJECTED"),
+        ("projection marker sample bound exceeded", "SANITIZER_COLLECTION_BOUND_REJECTED"),
+        ("projection marker truncation flag is inconsistent", "SANITIZER_SAMPLE_CONSISTENCY_REJECTED"),
+        ("projection marker count smaller than samples", "SANITIZER_SAMPLE_CONSISTENCY_REJECTED"),
+        ("projection.public_amount_candidate_samples[0].candidate_amount_count must be exactly one", "SANITIZER_EXACT_CARDINALITY_REJECTED"),
+        ("unclassified private detail", "SANITIZER_OUTPUT_REJECTED"),
+    )
+    for message, expected in cases:
+        assert validator._sanitizer_failure_reason(validator.BridgeValidationError(message)) == expected
+
+
+def test_split_bound_classes_do_not_export_private_detail(tmp_path: Path) -> None:
+    private = "PRIVATE_PRODUCT_TEXT_1.99/rawpath:/secret"
+    for index, message in enumerate(
+        (
+            f"projection marker sample bound exceeded {private}",
+            f"projection marker truncation flag is inconsistent {private}",
+            f"candidate_amount_count must be exactly one {private}",
+        )
+    ):
+        reason = validator._sanitizer_failure_reason(validator.BridgeValidationError(message))
+        artifact, summary = validator._sanitizer_blocked_receipt(expected_sha=str(index + 3) * 40, reason=reason)
+        exported = json.dumps(artifact, sort_keys=True) + json.dumps(summary, sort_keys=True)
+        assert private not in exported
+        assert "rawpath:/secret" not in exported
 
 
 def test_main_exports_only_bounded_schema_rejection(tmp_path: Path) -> None:
