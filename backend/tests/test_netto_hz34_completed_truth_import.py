@@ -98,6 +98,33 @@ def test_completed_truth_rejects_prediction_or_candidate_leakage() -> None:
         truth.validate_truth_payload(payload, _dimensions())
 
 
+def test_completed_truth_rejects_unknown_schema_fields_at_every_level() -> None:
+    payload = _payload()
+    payload["candidate_hint"] = {"price": "9.99"}
+    with pytest.raises(truth.Hz34CompletedTruthError, match="unknown completed truth fields"):
+        truth.validate_truth_payload(payload, _dimensions())
+
+    payload = _payload()
+    payload["reviewer_process"]["candidate_visibility"] = False
+    with pytest.raises(truth.Hz34CompletedTruthError, match="unknown completed truth fields"):
+        truth.validate_truth_payload(payload, _dimensions())
+
+    payload = _payload()
+    payload["prediction_ownership_derivation"]["candidate_count"] = 0
+    with pytest.raises(truth.Hz34CompletedTruthError, match="unknown completed truth fields"):
+        truth.validate_truth_payload(payload, _dimensions())
+
+    payload = _payload()
+    payload["pages"][0]["candidate_summary"] = None
+    with pytest.raises(truth.Hz34CompletedTruthError, match="unknown completed truth fields"):
+        truth.validate_truth_payload(payload, _dimensions())
+
+    payload = _payload()
+    payload["pages"][0]["source_regions"][0]["candidate_score"] = 0.99
+    with pytest.raises(truth.Hz34CompletedTruthError, match="unknown completed truth fields"):
+        truth.validate_truth_payload(payload, _dimensions())
+
+
 def test_completed_truth_rejects_overlap_and_unreviewed_empty_page() -> None:
     payload = _payload()
     payload["pages"][0]["source_regions"].append({
