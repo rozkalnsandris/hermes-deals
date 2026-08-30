@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
-import platform
 import posixpath
 import re
 import stat
@@ -167,24 +166,38 @@ def _validate_link(member_name: str, target: str) -> None:
     _require(combined == "python" or combined.startswith("python/"), f"tar link escapes python root: {member_name}")
 
 
+def _tar_parent_names(name: str) -> tuple[str, ...]:
+    parts = PurePosixPath(name).parts
+    return tuple(PurePosixPath(*parts[:index]).as_posix() for index in range(1, len(parts)))
+
+
 def safe_extract_bootstrap(archive: Path, destination: Path) -> None:
     _require(archive.is_file() and not archive.is_symlink(), "bootstrap archive is missing or unsafe")
     _require(destination.is_dir() and not destination.is_symlink(), "bootstrap destination is missing or unsafe")
+    python_root = destination / RUNTIME_RELATIVE
+    _require(not python_root.exists() and not python_root.is_symlink(), "bootstrap runtime root already exists")
     with tarfile.open(archive, mode="r:gz") as bundle:
         members = bundle.getmembers()
         _require(bool(members), "bootstrap archive is empty")
+        canonical_names: set[str] = set()
+        symlink_names: set[str] = set()
         for member in members:
             name = _clean_tar_name(member.name)
+            _require(name not in canonical_names, f"duplicate tar member is forbidden: {name}")
+            canonical_names.add(name)
             if member.isdev() or member.isfifo():
                 raise RuntimeContractError(f"special tar member is forbidden: {name}")
             if member.islnk():
                 raise RuntimeContractError(f"hardlink tar member is forbidden: {name}")
             if member.issym():
                 _validate_link(name, member.linkname)
+                symlink_names.add(name)
             elif not (member.isdir() or member.isfile()):
                 raise RuntimeContractError(f"unsupported tar member type: {name}")
+        for name in canonical_names:
+            symlink_parent = next((parent for parent in _tar_parent_names(name) if parent in symlink_names), None)
+            _require(symlink_parent is None, f"tar member is nested below symlink parent: {name}")
         bundle.extractall(destination, members=members, numeric_owner=False)
-    python_root = destination / RUNTIME_RELATIVE
     _require(python_root.is_dir() and not python_root.is_symlink(), "bootstrap archive did not create python runtime root")
 
 
