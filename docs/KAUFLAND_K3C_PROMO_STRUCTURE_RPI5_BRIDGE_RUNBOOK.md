@@ -1,6 +1,6 @@
 # Kaufland K3C promo-structure RPi5 bridge
 
-Refs: #702, #741, #749, #758, #769, #772, #774, #775, #777, #780, #785.
+Refs: #702, #741, #749, #758, #769, #772, #774, #775, #777, #780, #785, #794, #795, #796.
 
 Runtime provisioning and verification details are authoritative in `docs/KAUFLAND_K3C_HASH_LOCKED_RUNTIME_RUNBOOK.md`.
 
@@ -45,6 +45,14 @@ Debian Bookworm `/usr/bin/python3` remains distribution-managed control-plane Py
 `backend/locks/runtime-py311.txt` may remain a conservative GitHub-hosted provenance witness. It is not selectable or executable by the K3C builder, runtime contract, installer or dispatcher.
 
 Because #785 changes K3C trusted runtime source and runtime identity, earlier runtime candidates and registrations must not be reused. A reviewed post-#785 registration PR is required before any new K3C runtime build/root registration/diagnostic sequence.
+
+## Post-#795 registration re-anchor
+
+PR #795 changed the trusted diagnostic producer `backend/app/kaufland_k3c_promo_structure_diagnostic.py` after the #791 registration merge `ce1cbedf5ca7a01f360333e72a23c07b46377e9f`. Because #795 changed neither the K3C workflow nor installer, #795 itself cannot satisfy the registration-anchor rule.
+
+Therefore `ce1cbedf5ca7a01f360333e72a23c07b46377e9f` is obsolete for post-#795 K3C runtime build, root registration and diagnostic continuation. A new reviewed registration PR must introduce or update at least one bridge control-plane anchor and be explicitly merged before any new runtime candidate is built for that registration identity.
+
+After that merge, revalidate exact-main CI and trusted-source equality, then follow the complete source sync -> read-only host preflight -> runtime build -> root registration -> separately authorized diagnostic sequence below. Do not reuse a pre-#795 runtime candidate or root registration for the post-#795 diagnostic producer.
 
 ## Trusted source set
 
