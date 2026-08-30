@@ -32,6 +32,26 @@ def test_descendant_public_amount_candidate_is_observed_but_not_promoted():
     assert candidate["candidate_old_price_class_present"] is False
 
 
+def test_duplicate_price_classes_are_canonicalized_for_sanitized_projection():
+    html = """
+    <html><body>
+      <a class="k-product-tile" href="#" tabindex="0">
+        <div class="k-price-shell k-price-shell">
+          <span class="k-price-marker k-price-marker">nur</span>
+          <span class="k-price-tag__price k-price-tag__price">1,99 €</span>
+        </div>
+      </a>
+    </body></html>
+    """
+    payload = promo.derive_promo_structure_projection(html)
+
+    marker = payload["marker_samples"][0]
+    assert marker["marker_price_classes"] == ["k-price-marker"]
+    candidate = marker["public_amount_candidate_samples"][0]
+    assert candidate["candidate_price_classes"] == ["k-price-tag__price"]
+    assert candidate["lca_price_classes"] == ["k-price-shell"]
+
+
 def test_sibling_candidate_relation_is_structural_and_amount_is_not_emitted():
     html = """
     <html><body>
