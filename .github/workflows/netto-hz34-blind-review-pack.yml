@@ -143,6 +143,8 @@ jobs:
           expected_files = {
               ".github/workflows/netto-hz34-blind-review-pack.yml",
               "backend/tests/test_netto_hz34_blind_review_pack_workflow.py",
+              "tools/netto_heldout_blind_artifact_pack.py",
+              "backend/tests/test_netto_heldout_blind_artifact_pack.py",
           }
           if set(files) != expected_files:
               raise SystemExit(f"runtime PR file set mismatch: {sorted(files)}")
@@ -502,6 +504,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
     steps:
       - name: Publish sanitized execution receipt and clear label
         env:
