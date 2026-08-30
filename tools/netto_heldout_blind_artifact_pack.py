@@ -96,6 +96,16 @@ def _validate_member_name(name: str) -> PurePosixPath:
     return path
 
 
+def _normalize_checksum_member_name(name: str) -> str:
+    # GNU sha256sum commonly emits paths with one explicit current-directory
+    # prefix ("./..."). The ZIP members themselves remain strictly canonical;
+    # only this producer representation is normalized before exact membership
+    # comparison. Any second prefix, traversal or other non-canonical spelling
+    # still fails closed in _validate_member_name.
+    normalized = name[2:] if name.startswith("./") else name
+    return _validate_member_name(normalized).as_posix()
+
+
 def _validate_regular_member(info: zipfile.ZipInfo) -> None:
     _validate_member_name(info.filename)
     if info.is_dir():
@@ -125,10 +135,12 @@ def _parse_checksum_manifest(payload: bytes) -> dict[str, str]:
         match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
         if not match:
             raise BlindArtifactPackError("SHA256SUMS contains an invalid row")
-        digest, name = match.groups()
-        _validate_member_name(name)
+        digest, raw_name = match.groups()
+        name = _normalize_checksum_member_name(raw_name)
         if name in result:
-            raise BlindArtifactPackError(f"SHA256SUMS contains a duplicate path: {name}")
+            raise BlindArtifactPackError(
+                f"SHA256SUMS contains a duplicate normalized path: {name}"
+            )
         result[name] = digest
     if not result:
         raise BlindArtifactPackError("SHA256SUMS is empty")
