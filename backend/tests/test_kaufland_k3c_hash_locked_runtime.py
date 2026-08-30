@@ -137,6 +137,40 @@ def test_safe_bootstrap_extract_rejects_unsafe_members(tmp_path: Path, name: str
         runtime_contract.safe_extract_bootstrap(archive, destination)
 
 
+def test_safe_bootstrap_extract_rejects_duplicate_members(tmp_path: Path) -> None:
+    archive = tmp_path / "runtime.tar.gz"
+    first = tarfile.TarInfo("python/bin/python3.13")
+    second = tarfile.TarInfo("python/bin/python3.13")
+    _tar(archive, [first, second])
+    destination = tmp_path / "out"
+    destination.mkdir()
+    with pytest.raises(runtime_contract.RuntimeContractError, match="duplicate tar member"):
+        runtime_contract.safe_extract_bootstrap(archive, destination)
+
+
+def test_safe_bootstrap_extract_rejects_member_below_symlink_parent(tmp_path: Path) -> None:
+    archive = tmp_path / "runtime.tar.gz"
+    link = tarfile.TarInfo("python/lib")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "share"
+    nested = tarfile.TarInfo("python/lib/escape.txt")
+    _tar(archive, [nested, link])
+    destination = tmp_path / "out"
+    destination.mkdir()
+    with pytest.raises(runtime_contract.RuntimeContractError, match="nested below symlink parent"):
+        runtime_contract.safe_extract_bootstrap(archive, destination)
+
+
+def test_safe_bootstrap_extract_rejects_preexisting_runtime_root(tmp_path: Path) -> None:
+    archive = tmp_path / "runtime.tar.gz"
+    member = tarfile.TarInfo("python/bin/python3.13")
+    _tar(archive, [member])
+    destination = tmp_path / "out"
+    (destination / "python").mkdir(parents=True)
+    with pytest.raises(runtime_contract.RuntimeContractError, match="runtime root already exists"):
+        runtime_contract.safe_extract_bootstrap(archive, destination)
+
+
 def test_builder_bootstraps_canonical_py313_without_host_venv_dependency() -> None:
     source = _text(BUILDER)
     for marker in (
