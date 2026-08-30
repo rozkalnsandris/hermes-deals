@@ -147,6 +147,83 @@ def _fail(message: str) -> None:
     raise BridgeValidationError(message)
 
 
+def _sanitizer_failure_reason(exc: Exception) -> str:
+    if not isinstance(exc, BridgeValidationError):
+        return "SANITIZER_INPUT_READ_REJECTED"
+
+    message = str(exc)
+    if "price" in message:
+        return "SANITIZER_PRICE_CLASS_REJECTED"
+    if "locator" in message:
+        return "SANITIZER_LOCATOR_REJECTED"
+    if "identity" in message or "SHA-256" in message:
+        return "SANITIZER_IDENTITY_REJECTED"
+    if any(
+        token in message
+        for token in (
+            "field set mismatch",
+            "schema version mismatch",
+            "contract version mismatch",
+            "parser backend mismatch",
+            "diagnostic status",
+            "must be an object",
+        )
+    ):
+        return "SANITIZER_SCHEMA_REJECTED"
+    if any(
+        token in message
+        for token in (
+            "bounded",
+            "bound exceeded",
+            "sample count",
+            "truncation",
+            "truncated",
+            "exactly one",
+        )
+    ):
+        return "SANITIZER_BOUND_REJECTED"
+    return "SANITIZER_OUTPUT_REJECTED"
+
+
+def _sanitizer_blocked_receipt(
+    *,
+    expected_sha: str,
+    reason: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    artifact: dict[str, Any] = {
+        "bridge_schema_version": BRIDGE_SCHEMA_VERSION,
+        "bridge_contract_version": BRIDGE_CONTRACT_VERSION,
+        "registered_commit_sha": expected_sha,
+        "diagnostic_schema_version": DIAGNOSTIC_SCHEMA_VERSION,
+        "diagnostic_contract_version": DIAGNOSTIC_CONTRACT_VERSION,
+        "diagnostic_status": "BLOCKED",
+        "reason_code": reason,
+        "evidence_only": True,
+        "promo_role_promoted": False,
+        "promo_role_policy": PROMO_ROLE_POLICY,
+        **{field: False for field in _SAFETY_FIELDS},
+    }
+    summary = {
+        "bridge_schema_version": BRIDGE_SCHEMA_VERSION,
+        "bridge_contract_version": BRIDGE_CONTRACT_VERSION,
+        "bridge_execution_status": "PASS",
+        "registered_commit_sha": expected_sha,
+        "diagnostic_status": "BLOCKED",
+        "reason_code": reason,
+        "evidence_only": True,
+        "promo_role_promoted": False,
+        "nur_marker_count": None,
+        "card_local_nur_marker_count": None,
+        "orphan_nur_marker_count": None,
+        "public_amount_candidate_pair_count": None,
+        "distinct_structure_signature_count": None,
+        "diagnostic_result_identity_sha256": None,
+        "production_deploy_authorized": False,
+        "host_mutation_authorized": False,
+    }
+    return artifact, summary
+
+
 def _exact_keys(value: dict[str, Any], expected: set[str], label: str) -> None:
     if set(value) != expected:
         _fail(f"{label} field set mismatch")
@@ -548,12 +625,15 @@ def main(argv: list[str] | None = None) -> int:
             expected_sha=args.expected_sha,
             diagnostic_rc=args.diagnostic_rc,
         )
-        _write_json(args.artifact, artifact)
-        _write_json(args.summary, summary)
     except (BridgeValidationError, OSError, UnicodeError, json.JSONDecodeError) as exc:
-        print(f"VALIDATION_BLOCKED={type(exc).__name__}", flush=True)
-        return 30
+        reason = _sanitizer_failure_reason(exc)
+        artifact, summary = _sanitizer_blocked_receipt(
+            expected_sha=args.expected_sha,
+            reason=reason,
+        )
 
+    _write_json(args.artifact, artifact)
+    _write_json(args.summary, summary)
     print(
         f"VALIDATION_RESULT=PASS DIAGNOSTIC_STATUS={summary['diagnostic_status']}",
         flush=True,
