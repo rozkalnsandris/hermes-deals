@@ -49,7 +49,7 @@ def test_public_rpi5_inventory_covers_every_self_hosted_workflow() -> None:
         if _has_self_hosted_runner(path.read_text(encoding="utf-8"))
     }
 
-    assert len(all_workflows) == policy["inventory_counts"]["workflow_files"] == 79
+    assert len(all_workflows) == policy["inventory_counts"]["workflow_files"] == 80
     assert len(actual) == policy["inventory_counts"]["self_hosted_workflows"] == 52
     assert actual == declared
 
