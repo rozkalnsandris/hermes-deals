@@ -2,7 +2,7 @@
   "schema": "hermes-deals.public-rpi5-control-plane.v1",
   "inventory_baseline_sha": "aa86c956ed2f487e0c8223eab6e8d7224cea7f8f",
   "inventory_counts": {
-    "workflow_files": 79,
+    "workflow_files": 80,
     "self_hosted_workflows": 52,
     "self_hosted_pull_request": 0,
     "self_hosted_pull_request_target": 10,
