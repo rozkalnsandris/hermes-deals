@@ -161,6 +161,8 @@ def test_workflow_is_exact_reviewer_pack_and_truth_only_gated() -> None:
     assert "completed truth evidence is create-only" in text
     assert "Checkout trusted control plane from exact current main" in text
     assert "Checkout exact evidence PR head only after truth validation" in text
+    assert 'os.environ["GITHUB_EVENT_PATH"]' in text
+    assert 'EVENT_PATH: ${{ github.event_path }}' not in text
     assert "production/DB/Review/deploy: **false**" in text
     assert "self-hosted" not in text
     assert "sudo " not in text
