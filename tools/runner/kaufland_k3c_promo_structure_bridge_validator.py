@@ -170,18 +170,29 @@ def _sanitizer_failure_reason(exc: Exception) -> str:
         )
     ):
         return "SANITIZER_SCHEMA_REJECTED"
+    if "exactly one" in message:
+        return "SANITIZER_EXACT_CARDINALITY_REJECTED"
+    if any(
+        token in message
+        for token in (
+            "sample count",
+            "count smaller than samples",
+            "truncation",
+            "truncated",
+            "is inconsistent",
+        )
+    ):
+        return "SANITIZER_SAMPLE_CONSISTENCY_REJECTED"
     if any(
         token in message
         for token in (
             "bounded",
             "bound exceeded",
-            "sample count",
-            "truncation",
-            "truncated",
-            "exactly one",
+            "exceeds bound",
+            "exceeds size bound",
         )
     ):
-        return "SANITIZER_BOUND_REJECTED"
+        return "SANITIZER_COLLECTION_BOUND_REJECTED"
     return "SANITIZER_OUTPUT_REJECTED"
 
 
