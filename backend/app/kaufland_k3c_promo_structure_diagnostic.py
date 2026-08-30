@@ -23,9 +23,11 @@ _EXCLUDED_ROLE_CLASSES = ("k-price-tag--xtra", "k-price-tag__old-price")
 def _price_classes(tag: Tag) -> tuple[str, ...]:
     return tuple(
         sorted(
-            token
-            for token in k3c._classes(tag)
-            if token.startswith(_PRICE_CLASS_PREFIX)
+            {
+                token
+                for token in k3c._classes(tag)
+                if token.startswith(_PRICE_CLASS_PREFIX)
+            }
         )
     )
 
