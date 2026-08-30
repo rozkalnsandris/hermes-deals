@@ -68,7 +68,8 @@ def test_hz34_review_pack_workflow_never_forwards_github_auth_to_signed_storage(
 
 def test_hz34_review_pack_workflow_runs_exact_adapter_twice_and_verifies_output() -> None:
     text = _text()
-    assert text.count("tools/netto_heldout_blind_artifact_pack.py") == 2
+    invocation = "python3 tools/netto_heldout_blind_artifact_pack.py"
+    assert text.count(invocation) == 2
     assert '--output "$pack_a"' in text
     assert '--output "$pack_b"' in text
     assert "second build is not byte-for-byte deterministic" in text
