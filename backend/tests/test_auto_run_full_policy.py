@@ -16,7 +16,7 @@ def _json(path: Path) -> dict:
 
 def test_machine_policy_is_bound_to_hermes_deals_controller() -> None:
     policy = _json(POLICY_PATH)
-    assert policy["schema_version"] == 1
+    assert policy["schema_version"] == 2
     assert policy["policy"] == "AUTO-RUN FULL v1"
     assert policy["repository"] == "rozkalnsandris/hermes-deals"
     assert policy["enablement_issue"] == 815
@@ -93,6 +93,7 @@ def test_activation_and_continuation_fail_closed() -> None:
     assert activation["activation_comment_schema"] == "rozkalns.auto-run-full-authorization.v1"
     assert activation["later_issue_edits_do_not_expand_authority"] is True
     assert activation["new_scope_requires_stop"] is True
+    assert activation["pre_receipt_non_metadata_mutation_requires_stop"] is True
     assert "controller_issue_814" in activation["fresh_reads_required"]
 
     continuation = policy["continuation"]
@@ -102,6 +103,46 @@ def test_activation_and_continuation_fail_closed() -> None:
     assert continuation["session_or_turn_end_is_owner_gate"] is False
     assert continuation["identical_failure_retry_ceiling"] == 3
     assert continuation["retry_requires_materially_new_hypothesis_after_repeat"] is True
+
+
+def test_activation_receipt_precedes_controller_source_pr_merge_and_live() -> None:
+    activation = _json(POLICY_PATH)["activation"]
+    assert activation["preferred_write_order"] == [
+        "AUTHORIZATION_RECEIPT",
+        "CONTROLLER_ACTIVATION",
+        "SOURCE_WORK",
+    ]
+    required_before = set(activation["authorization_receipt_required_before"])
+    assert {
+        "CONTROLLER_ACTIVE_POINTER_WRITE",
+        "BRANCH_CREATE",
+        "SOURCE_FILE_WRITE",
+        "COMMIT_OR_PUSH",
+        "PR_CREATE_OR_UPDATE",
+        "MERGE",
+        "RUNTIME_OR_LIVE_MUTATION",
+    } <= required_before
+
+
+def test_harmless_same_target_metadata_write_can_recover_before_receipt() -> None:
+    activation = _json(POLICY_PATH)["activation"]
+    recovery = activation["pre_receipt_metadata_recovery"]
+    assert activation["classification_metadata_write_before_receipt_is_optional"] is True
+    assert recovery["allowed"] is True
+    assert recovery["allowed_write_class"] == "IDEMPOTENT_SAME_TARGET_ISSUE_METADATA_ONLY"
+    assert recovery["example"] == "ADD_CLASSIFICATION_LABEL"
+    assert recovery["does_not_consume_owner_authorization"] is True
+    assert recovery["does_not_count_as_source_mutation"] is True
+    assert recovery["does_not_count_as_live_mutation"] is True
+    assert recovery["receipt_must_be_persisted_before_any_non_metadata_mutation"] is True
+    predicates = set(recovery["requires_fresh_revalidation"])
+    assert {
+        "controller_is_IDLE_with_null_active_issue",
+        "exact_target_issue_is_still_open",
+        "target_issue_scope_has_not_widened",
+        "no_branch_source_commit_pr_merge_controller_active_runtime_or_live_mutation_occurred",
+        "current_main_and_repository_rules_are_freshly_re_read",
+    } <= predicates
 
 
 def test_required_states_and_source_only_completion_are_explicit() -> None:
@@ -144,6 +185,8 @@ def test_human_contracts_repeat_the_critical_safety_split() -> None:
 
     assert "AUTO-RUN FULL hermes-deals #<issue>" in agents
     assert "PAUSED_OWNER_LIVE_GATE" in agents
+    assert "same-target issue metadata write" in agents
     assert "AUTO-RUN FULL authorizes **source + merge only**" in doc
+    assert "same-target issue metadata write" in doc
     assert "`AUTO-RUN FULL` does not silently convert any of those classes into source authority" in fast
     assert "AUTO-RUN FULL hermes-deals #812" in doc
