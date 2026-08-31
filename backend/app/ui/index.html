@@ -7,46 +7,10 @@
   <meta name="theme-color" content="#f6f7f4">
   <meta name="hermes-ui-bundle" content="minimal-v2">
   <meta name="hermes-ui-release" content="reference-v1">
-  <meta name="hermes-ui-fix" content="reference-v2">
-  <meta name="hermes-ui-fix" content="reference-v3-hover">
-  <meta name="hermes-ui-fix" content="reference-v4c-doc-audited">
-  <meta name="hermes-ui-fix" content="reference-v5-details-restoration">
-  <meta name="hermes-ui-fix" content="reference-v6-single-scroll-sidebar">
-  <meta name="hermes-ui-fix" content="reference-v7-stable-sidebar-anchor">
-  <meta name="hermes-ui-fix" content="reference-v8-calendar-icon-centering">
-  <meta name="hermes-ui-fix" content="reference-v9-daily-specials-overview">
-  <meta name="hermes-ui-fix" content="reference-v9a-legacy-contract">
-  <meta name="hermes-ui-fix" content="reference-v9b-exact-legacy-markers">
-  <meta name="hermes-ui-fix" content="reference-v10-complete-daily-special-pagination">
-  <meta name="hermes-ui-fix" content="reference-v10a-legacy-contract-fix">
-  <meta name="hermes-ui-fix" content="reference-v10b-complete-v9b-contract">
-  <meta name="hermes-ui-fix" content="reference-v10c-available-count-pagination">
-  <meta name="hermes-ui-fix" content="reference-v11-explicit-daily-special-api">
-  <!-- V10a archived V9b static contract markers only; not rendered:
-  new URLSearchParams({as_of:iso,view:"current",sort:"discount_desc",limit:"500",offset:"0"})
-  Promise.all([fetchJson(dailySpecialsUrl(today)),fetchJson(dailySpecialsUrl(tomorrow))])
-  "Tikai šodien" "Tikai rīt"
-  -->
-  <!-- Legacy UI test-lineage markers only; not rendered:
-  class="app-frame" class="sidebar" class="workspace"
-  data-icon="◎" data-icon="↗" data-icon="◫" data-icon="⇄"
-  function bestTodayCard(d) class="best-mini best-detail" class="best-mini best-add"
-  class="toolbar filters-collapsed" Izceltie piedāvājumi Skata filtri
-  -->
-  <!-- V9b exact archived static contract markers only; not rendered:
-id="bestTodaySection" id="bestToday"
-function bestDealCard(d){const primary=dealPrimaryPrice(d),image=d.source_image_url?`<img src="${esc(d.source_image_url)}" alt="${esc(d.product_name_raw)}" loading="lazy">`:`<div class="media-placeholder">H</div>`;return `<article class="best-card" data-best-kind="deal" data-best-id="${esc(d.offer_candidate_id)}"><div class="best-media">${image}</div><div class="best-copy"><div class="best-name">${esc(d.product_name_raw)}</div><div class="best-price">${primary[0]}</div><div class="best-sub">${esc(retailerName(d.source_chain))} · 1 veikals</div></div></article>`;}function bestCanonicalCard(p){const image=p.primary_image_url?`<img src="${esc(p.primary_image_url)}" alt="${esc(p.display_name)}" loading="lazy">`:`<div class="media-placeholder">H</div>`,price=p.lowest_price_eur==null?"—":euro.format(Number(p.lowest_price_eur));return `<article class="best-card" data-best-kind="canonical" data-best-id="${esc(p.id)}"><div class="best-media">${image}</div><div class="best-copy"><div class="best-name">${esc(p.display_name)}</div><div class="best-price">${price}</div><div class="best-sub">Zemākā cena · ${Number(p.retailer_count||0)} ${Number(p.retailer_count||0)===1?"veikals":"veikali"}</div></div></article>`;}function renderBestToday(){bestTodaySection.hidden=false;let rows=[];if(mode==="canonical"){rows=Array.from(canonicalCache.values()).filter(p=>p.lowest_price_eur!=null).sort((a,b)=>Number(a.lowest_price_eur)-Number(b.lowest_price_eur)).slice(0,3);bestToday.innerHTML=rows.length?rows.map(bestCanonicalCard).join(""):`<div class="empty">Šim datumam nav canonical piedāvājumu.</div>`;bestToday.querySelectorAll('[data-best-kind="canonical"]').forEach(card=>card.addEventListener("click",()=>{const p=canonicalCache.get(card.dataset.bestId);if(p)openCanonicalDetail(p.id,p);}));return;}rows=(currentDealData?.deals||[]).slice().sort((a,b)=>(Number(b.discount_percent||0)-Number(a.discount_percent||0))||(Number(a.price_eur||0)-Number(b.price_eur||0))).slice(0,3);bestToday.innerHTML=rows.length?rows.map(bestDealCard).join(""):`<div class="empty">Šim datumam nav aktuālu piedāvājumu.</div>`;bestToday.querySelectorAll('[data-best-kind="deal"]').forEach(card=>card.addEventListener("click",()=>{const deal=dealCache.get(card.dataset.bestId);if(deal)openRawDealDetail(deal);}));}
-renderBestToday();bindCanonicalCards()
-  -->
   <meta name="hermes-ui-base" content="control-room-v1">
   <meta name="hermes-ui-base-label" content="Control Room 2.0">
   <meta name="hermes-ui-base-copy" content="Ikdienas vadības panelis">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23171914'/%3E%3Ctext x='32' y='44' font-size='38' text-anchor='middle' fill='white'%3EH%3C/text%3E%3C/svg%3E">
-  <meta name="hermes-ui-fix" content="weekly-overview-v1">
-  <meta name="hermes-ui-fix" content="weekly-overview-v2-short-period-filter">
-  <meta name="hermes-ui-fix" content="weekly-overview-v3-empty-day-polish">
-  <meta name="hermes-ui-fix" content="weekly-overview-v6-active-retailer-compaction">
-  <meta name="hermes-ui-fix" content="netto-daily-quality-v1">
   <title>Hermes Deals</title>
   <link rel="stylesheet" href="/ui/styles.css">
 
