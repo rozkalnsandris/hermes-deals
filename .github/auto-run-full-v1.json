@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "policy": "AUTO-RUN FULL v1",
   "repository": "rozkalnsandris/hermes-deals",
   "enablement_issue": 815,
@@ -36,6 +36,7 @@
     ],
     "preferred_write_order": [
       "AUTHORIZATION_RECEIPT",
+      "POST_RECEIPT_MAIN_REVALIDATION",
       "CONTROLLER_ACTIVATION",
       "SOURCE_WORK"
     ],
@@ -59,6 +60,57 @@
       "MERGE",
       "RUNTIME_OR_LIVE_MUTATION"
     ],
+    "stable_receipt_required_before": [
+      "CONTROLLER_WORKING_POINTER_WRITE",
+      "BRANCH_CREATE",
+      "SOURCE_FILE_WRITE",
+      "COMMIT_OR_PUSH",
+      "PR_CREATE_OR_UPDATE",
+      "MERGE",
+      "RUNTIME_OR_LIVE_MUTATION"
+    ],
+    "post_receipt_main_revalidation_required": true,
+    "post_receipt_main_stability": {
+      "barrier": "READ_MAIN_M0__WRITE_RECEIPT_M0__READ_MAIN_M1__REQUIRE_M1_EQUALS_M0",
+      "stable_when": "POST_WRITE_MAIN_SHA_EQUALS_RECEIPT_ACTIVATION_MAIN_SHA",
+      "only_latest_stable_receipt_is_authoritative_for_source_and_merge": true,
+      "stale_receipt_never_authorizes_source_or_merge": true,
+      "main_only_drift_consumes_owner_authorization": false,
+      "main_only_drift_requires_new_owner_command": false,
+      "max_consecutive_inline_stabilization_attempts": 3,
+      "after_attempt_limit_state": "PAUSED_EXTERNAL",
+      "paused_controller_pointer_allowed_after_receipt": true,
+      "paused_controller_pointer_is_source_authority": false,
+      "scheduled_resume_must_establish_stable_receipt_before_source": true,
+      "scope_or_rule_drift_is_not_main_only_drift": true
+    },
+    "main_drift_before_source_recovery": {
+      "allowed": true,
+      "requires_no_branch_source_commit_pr_merge_runtime_or_live_mutation": true,
+      "requires_fresh_revalidation": [
+        "exact_target_issue_is_still_open",
+        "target_issue_scope_is_identical_to_frozen_scope",
+        "repository_rules_and_policy_are_compatible_with_frozen_scope",
+        "controller_points_to_no_other_issue",
+        "no_branch_source_commit_pr_merge_runtime_or_live_mutation_occurred",
+        "current_main_active_pr_ci_review_and_dependencies_are_freshly_re_read"
+      ],
+      "old_receipt_is_immutable_audit_record": true,
+      "old_receipt_must_not_be_deleted_or_edited": true,
+      "superseding_receipt_required": true,
+      "superseding_receipt_fields": [
+        "supersedes_comment_id",
+        "supersession_reason",
+        "activation_main_sha"
+      ],
+      "supersession_reason": "MAIN_DRIFT_BEFORE_SOURCE",
+      "superseding_receipt_must_preserve_frozen_scope": true,
+      "new_explicit_command_may_supersede_prior_stopped_stale_receipt": true,
+      "prior_stopped_receipt_recovery_requires_controller_idle_or_same_issue_paused_external": true,
+      "prior_stopped_receipt_recovery_requires_no_source_or_live_mutation": true,
+      "latest_superseding_receipt_must_pass_post_write_main_revalidation": true,
+      "mismatch_after_prohibited_mutation_requires_stop": true
+    },
     "classification_metadata_write_before_receipt_is_optional": true,
     "pre_receipt_metadata_recovery": {
       "allowed": true,
