@@ -1,0 +1,50 @@
+/* HERMES_UI_ACCESSIBILITY_FIXES_V1 */
+
+/* The production bundler removes the legacy body zoom rule before this file is appended. */
+
+/* The mobile navigation contains five real actions in every active UI layer. */
+@media(max-width:620px){
+  .bottom-nav,
+  body.ui-minimal-v2 .bottom-nav,
+  body[data-ui-release="reference-v1"] .bottom-nav,
+  body.ui-minimal-v2[data-ui-release="reference-v1"] .bottom-nav{
+    grid-template-columns:repeat(5,minmax(0,1fr));
+    max-width:100%;
+    overflow:hidden;
+  }
+  .bottom-nav button,
+  body[data-ui-release="reference-v1"] .bottom-nav button{
+    min-width:0;
+    padding-inline:2px;
+    overflow:hidden;
+  }
+  .bottom-nav button span,
+  body[data-ui-release="reference-v1"] .bottom-nav button span{
+    max-width:100%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+}
+
+/* Closed overlays are removed from pointer interaction as well as keyboard focus. */
+.drawer[inert],
+.detail[inert]{pointer-events:none}
+
+/* One high-contrast keyboard focus contract for the active primary controls. */
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{
+  outline:3px solid var(--accent);
+  outline-offset:3px;
+}
+
+/* Non-essential motion, including drawer/scrim/cards and CSS smooth scrolling, is disabled. */
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto!important}
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    scroll-behavior:auto!important;
+    transition-duration:.01ms!important;
+    transition-delay:0ms!important;
+  }
+}
