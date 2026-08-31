@@ -98,14 +98,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          EVENT_PATH: ${{ github.event_path }}
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           import json, os, pathlib, urllib.request
           repo = os.environ["REPOSITORY"]
-          event = json.loads(pathlib.Path(os.environ["EVENT_PATH"]).read_text())
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
           sender = event.get("sender") or {}
           if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or str(sender.get("id")) != os.environ["EXPECTED_OWNER_ID"]:
               raise SystemExit("truth trigger actor is not repository owner")
