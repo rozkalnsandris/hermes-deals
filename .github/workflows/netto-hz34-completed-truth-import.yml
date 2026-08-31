@@ -293,7 +293,7 @@ jobs:
           test "$(git hash-object "$EXPECTED_TRUTH_PATH")" = "$EXPECTED_BLOB_SHA"
           test ! -e "$EXPECTED_RECEIPT_PATH"
           install -D -m 0644 "$RECEIPT" "$EXPECTED_RECEIPT_PATH"
-          git add -- "$EXPECTED_RECEIPT_PATH"
+          git add -f -- "$EXPECTED_RECEIPT_PATH"
           mapfile -t staged < <(git diff --cached --name-only)
           test "${#staged[@]}" -eq 1
           test "${staged[0]}" = "$EXPECTED_RECEIPT_PATH"
