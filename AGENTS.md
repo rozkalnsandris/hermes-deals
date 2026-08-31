@@ -22,11 +22,30 @@
 
 Read `.github/start-mode-routing.json` before selecting a startup/continuation mode.
 
-- Bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation means normal **FAST-LANE v2.2**. It is not `GITHUB-ONLY`.
+- Bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation means normal **FAST-LANE v2.2**. It is not `GITHUB-ONLY`, `LIVE-ALL`, or `AUTO-RUN FULL`.
 - Activate `GITHUB-ONLY` only when the owner explicitly includes `GITHUB-ONLY` (or the documented `git hub only` spelling) in the current command.
 - Activate `LIVE-ALL` only when the owner explicitly includes `LIVE-ALL` in the current command.
-- Never infer either explicit mode from `.github/start-github-only.json`, deploy-queue state, handoff/issue continuity, executor availability, historical chat mode, or a prior authorization receipt.
+- Activate `AUTO-RUN FULL` only from the exact explicit form `AUTO-RUN FULL hermes-deals #<positive issue number>` and then read `.github/auto-run-full-v1.json`.
+- Never infer an explicit mode from `.github/start-github-only.json`, deploy-queue state, handoff/issue continuity, executor availability, historical chat mode, controller state, or a prior authorization receipt.
 - Continuity evidence may affect lane selection only after command mode has been selected; it must never rewrite the command mode itself.
+
+<!-- BEGIN AUTO-RUN-FULL-V1-MANAGED -->
+## AUTO-RUN FULL v1 — Hermes Deals
+
+Canonical machine contract: `.github/auto-run-full-v1.json`. Durable controller: issue `#814`.
+
+`AUTO-RUN FULL hermes-deals #<issue>` is one explicit issue-specific owner decision for **source work plus merge** inside the target issue's frozen Definition of Done. It is not repository-wide blanket authority.
+
+Activation must freshly read repository rules, routing/policy, the exact open target issue, current `main`, overlapping PR/CI/review state, relevant dependencies, and controller #814. It must persist an owner-identity `rozkalns.auto-run-full-authorization.v1` receipt on the target issue before source mutation. The receipt freezes the issue DoD, source actions, merge authority, retry semantics, and explicit exclusions; later issue edits cannot silently widen authority.
+
+Within that frozen source envelope, routine source analysis, branch/commit/push, PR creation/update, CI waiting/inspection, review ingestion, scope-preserving corrections, ordinary merge-conflict correction, exact-head merge, post-merge read-only verification, and final GitHub receipts are technical steps and do not require another owner nudge. The explicit AUTO-RUN FULL command is the merge authorization for that exact frozen source task when fresh exact-head CI/review/mergeability checks pass. Force merge, reset, rebase, force-push, or history rewrite are forbidden.
+
+Hermes Deals STRICT live boundaries remain separately explicit. AUTO-RUN FULL by itself does **not** authorize production deploy, production DB write/migration, Review/publication write, retained/source-evidence mutation, runtime/replay/APPLY execution, live collector/source execution with write effects, scheduler/systemd/host/container mutation, secrets/credentials/permission or trust-boundary changes, Cloudflare/DNS/Access/infrastructure mutation, or arbitrary SSH/sudo/shell authority. If the issue DoD requires such a class, source work may converge and merge, then controller state becomes `PAUSED_OWNER_LIVE_GATE` until the repository's separate exact live authorization is provided.
+
+Only one Hermes Deals AUTO-RUN issue may be active at a time. `turpini` is resume-only for an already-active run and never creates or broadens authority. Session ending, CI waiting/failure, review findings, and ordinary merge conflicts are not owner gates. Platform-required connected-app approval is persisted as `PAUSED_PLATFORM_APPROVAL`. Three materially identical failed attempts without a new safe hypothesis terminate as `STOP_ERROR`.
+
+No provider LLM API key, token-billed fallback, automatic paid-credit purchase, Codex requirement, or Copilot requirement is allowed by this mode.
+<!-- END AUTO-RUN-FULL-V1-MANAGED -->
 
 <!-- BEGIN FAST-LANE-V2.2-MANAGED -->
 ## FAST-LANE v2.2 Composite
@@ -38,13 +57,13 @@ Read `docs/FAST_LANE_V2_2.md` as the active local startup contract.
 - `START`, `turpini`, or equivalent continuation may carry safe source-only work from fresh canonical GitHub state through branch, implementation, focused tests, commit/push, Draft PR, CI/review and up to two scope-preserving corrections until Ready.
 - FAST may batch **2-5 closely related same-risk work items** when they form one coherent acceptance story and do not cross a persistence/runtime/production boundary.
 - Use selective CI by changed-file classification and a stable `FAST-LANE Merge Gate`. Required checks must not depend on a workflow being skipped entirely by top-level path filters.
-- Normal delivery has at most two owner gates: explicit **MERGE**, then one bounded **COMPOSITE LIVE** only when a live mutation is actually required.
+- Normal FAST delivery has at most two owner gates: explicit **MERGE**, then one bounded **COMPOSITE LIVE** only when a live mutation is actually required. A valid explicit AUTO-RUN FULL command is a separate mode and does not change bare FAST semantics.
 - CI polling, diff inspection, GET/preflight, evidence refresh, checkout discovery, build preparation, candidate verification and reconciliation are technical automation steps, not owner gates.
 - Composite Live must bind exact Git SHA, exact target, allowed mutation categories, practical limits, explicit exclusions and expected baseline. Revalidate immediately before the first live write and STOP on drift.
 - Authorization is consumed at the first authorized mutation. Any later error, ambiguity or drift requires evidence preservation and STOP; no automatic retry, rollback, cleanup, reset, rebase or alternate mutation path unless explicitly pre-authorized.
 - **STRICT** includes runtime/replay execution, retained-evidence writes, production database writes/migrations, deploy, scheduler/systemd, host/container mutation, secrets/credentials, Cloudflare mutation, scraper/runtime activation, and equivalent live authority.
 - Produce one complete Ready receipt and one final live receipt when live mutation occurs. Put any remaining owner decision visibly at the end under `ACTION REQUIRED` with exact copyable input when needed.
-- Merge remains explicit owner authority. Merge never authorizes deployment, migration or runtime mutation.
+- Normal FAST merge remains explicit owner authority. Merge never authorizes deployment, migration or runtime mutation.
 
 Hermes Deals local safety semantics remain stricter where stated.
 <!-- END FAST-LANE-V2.2-MANAGED -->

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
   "explicit_modes": {
@@ -12,6 +12,17 @@
       "requires_explicit_current_command_token": true,
       "accepted_tokens": ["LIVE-ALL"],
       "may_be_inferred_from_context": false
+    },
+    "AUTO-RUN-FULL": {
+      "canonical_prefix": "AUTO-RUN FULL",
+      "requires_explicit_current_command_token": true,
+      "accepted_tokens": ["AUTO-RUN FULL"],
+      "requires_repository_argument": "hermes-deals",
+      "requires_issue_argument": true,
+      "issue_argument_pattern": "^#[1-9][0-9]*$",
+      "policy": ".github/auto-run-full-v1.json",
+      "controller_issue": 814,
+      "may_be_inferred_from_context": false
     }
   },
   "bare_continuation_commands": ["START", "START hermes-deals", "turpini"],
@@ -22,13 +33,16 @@
     "handoff or issue continuity",
     "executor availability or unavailability",
     "historical chat mode",
-    "prior authorization receipt"
+    "prior authorization receipt",
+    "AUTO-RUN controller state without a fresh explicit activation command",
+    "prior AUTO-RUN authorization receipt"
   ],
   "examples": {
     "START hermes-deals": "FAST-LANE v2.2",
     "turpini": "FAST-LANE v2.2",
     "START hermes-deals GITHUB-ONLY": "GITHUB-ONLY",
     "GITHUB-ONLY": "GITHUB-ONLY",
-    "LIVE-ALL": "LIVE-ALL"
+    "LIVE-ALL": "LIVE-ALL",
+    "AUTO-RUN FULL hermes-deals #812": "AUTO-RUN-FULL"
   }
 }
