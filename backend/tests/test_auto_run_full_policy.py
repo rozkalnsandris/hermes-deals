@@ -145,5 +145,5 @@ def test_human_contracts_repeat_the_critical_safety_split() -> None:
     assert "AUTO-RUN FULL hermes-deals #<issue>" in agents
     assert "PAUSED_OWNER_LIVE_GATE" in agents
     assert "AUTO-RUN FULL authorizes **source + merge only**" in doc
-    assert "AUTO-RUN FULL does not silently convert any of those classes into source authority" in fast
+    assert "`AUTO-RUN FULL` does not silently convert any of those classes into source authority" in fast
     assert "AUTO-RUN FULL hermes-deals #812" in doc
