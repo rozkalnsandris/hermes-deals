@@ -18,13 +18,9 @@ class UiReferenceRebuildV9bTest(unittest.TestCase):
             raise AssertionError("V9 daily-specials style block is missing")
         cls.style = match.group(1)
 
-    def test_release_marker_and_style_are_present(self):
-        self.assertIn("reference-v9-daily-specials-overview", self.html)
-        self.assertIn("reference-v9a-legacy-contract", self.html)
-        self.assertIn(
-            'id="ui-reference-v9-daily-specials-overview"',
-            self.html,
-        )
+    def test_historical_release_metadata_is_retired_but_style_is_present(self):
+        self.assertNotIn('content="reference-v9a-legacy-contract"', self.html)
+        self.assertIn('id="ui-reference-v9-daily-specials-overview"', self.html)
 
     def test_empty_kpi_decorations_are_removed(self):
         self.assertIn(".stat::after", self.style)
@@ -44,7 +40,7 @@ class UiReferenceRebuildV9bTest(unittest.TestCase):
         self.assertIn("<h2>Šodien</h2>", self.html)
         self.assertIn("<h2>Rīt</h2>", self.html)
 
-    def test_legacy_best_today_static_contract_is_comment_only(self):
+    def test_archived_best_today_static_contract_is_not_shipped(self):
         for marker in (
             'id="bestTodaySection"',
             'id="bestToday"',
@@ -54,19 +50,9 @@ class UiReferenceRebuildV9bTest(unittest.TestCase):
             'data-best-kind="deal"',
             'data-best-kind="canonical"',
             "renderBestToday();bindCanonicalCards()",
-        ):
-            self.assertIn(marker, self.html)
-        self.assertIn(
             "V9b exact archived static contract markers only",
-            self.html,
-        )
-        self.assertNotIn('<section id="bestTodaySection"', self.html)
-        self.assertNotIn('<div id="bestToday"', self.html)
-        without_comments = re.sub(r"<!--.*?-->", "", self.html, flags=re.S)
-        self.assertNotIn("function bestDealCard(d)", without_comments)
-        self.assertNotIn("function bestCanonicalCard(p)", without_comments)
-        self.assertNotIn("function renderBestToday()", without_comments)
-        self.assertNotIn("renderBestToday();bindCanonicalCards()", without_comments)
+        ):
+            self.assertNotIn(marker, self.html)
 
     def test_one_day_base_offer_predicate_is_exact(self):
         self.assertIn(
@@ -91,13 +77,13 @@ class UiReferenceRebuildV9bTest(unittest.TestCase):
             self.html,
         )
 
-    def test_both_days_fetch_full_current_offer_sets(self):
-        self.assertIn(
+    def test_archived_full_current_offer_pair_is_not_shipped(self):
+        self.assertNotIn(
             'new URLSearchParams({as_of:iso,view:"current",'
             'sort:"discount_desc",limit:"500",offset:"0"})',
             self.html,
         )
-        self.assertIn(
+        self.assertNotIn(
             "Promise.all([fetchJson(dailySpecialsUrl(today)),"
             "fetchJson(dailySpecialsUrl(tomorrow))])",
             self.html,
@@ -117,8 +103,8 @@ class UiReferenceRebuildV9bTest(unittest.TestCase):
         self.assertIn("daily-special-price", self.html)
         self.assertIn("daily-special-validity", self.html)
         self.assertIn('daily-special-badge">Lietotnē', self.html)
-        self.assertIn('"Tikai šodien"', self.html)
-        self.assertIn('"Tikai rīt"', self.html)
+        self.assertIn('"Spēkā tikai šodien"', self.html)
+        self.assertIn('"Spēkā tikai rīt"', self.html)
 
     def test_daily_cards_open_existing_raw_detail_dialog(self):
         self.assertIn("specialDealCache.get(card.dataset.specialId)", self.html)

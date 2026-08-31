@@ -8,8 +8,8 @@ class UiReferenceRebuildV4cTest(unittest.TestCase):
     def setUpClass(cls):
         cls.html = read_family_ui_contract()
 
-    def test_release_identity_is_doc_audited_v4c(self):
-        self.assertIn('content="reference-v4c-doc-audited"', self.html)
+    def test_historical_release_identity_metadata_is_retired(self):
+        self.assertNotIn('content="reference-v4c-doc-audited"', self.html)
         self.assertIn('id="ui-reference-v4c-layout-fix"', self.html)
 
     def test_visible_date_keeps_latvian_text_contract(self):

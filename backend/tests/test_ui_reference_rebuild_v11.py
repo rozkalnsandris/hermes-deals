@@ -10,18 +10,16 @@ class UiReferenceRebuildV11Test(unittest.TestCase):
         cls.html = read_family_ui_contract()
         cls.active = re.sub(r"<!--.*?-->", "", cls.html, flags=re.S)
 
-    def test_release_marker_is_present(self):
-        self.assertIn("reference-v11-explicit-daily-special-api", self.html)
+    def test_historical_release_marker_is_retired(self):
+        self.assertIn('content="reference-v1"', self.html)
+        self.assertNotIn("reference-v11-explicit-daily-special-api", self.html)
 
     def test_ui_uses_explicit_daily_special_endpoint(self):
         self.assertIn("/api/v1/deals/daily-specials?", self.active)
         self.assertIn("function fetchExplicitDailySpecials(iso)", self.active)
 
     def test_loader_requires_source_backed_contract(self):
-        self.assertIn(
-            'payload.source_contract!=="explicit_immutable_retailer_evidence_only"',
-            self.active,
-        )
+        self.assertIn('payload.source_contract!=="explicit_immutable_retailer_evidence_only"', self.active)
 
     def test_loader_requires_explicit_high_confidence_fields(self):
         self.assertIn("deal.is_daily_special===true", self.active)
@@ -29,11 +27,7 @@ class UiReferenceRebuildV11Test(unittest.TestCase):
         self.assertIn('deal.special_confidence==="high"', self.active)
 
     def test_today_and_tomorrow_use_explicit_endpoint(self):
-        self.assertIn(
-            "Promise.all([fetchExplicitDailySpecials(today),"
-            "fetchExplicitDailySpecials(tomorrow)])",
-            self.active,
-        )
+        self.assertIn("Promise.all([fetchExplicitDailySpecials(today),fetchExplicitDailySpecials(tomorrow)])", self.active)
 
     def test_active_loader_no_longer_filters_by_plain_one_day_validity(self):
         start = self.active.index("async function loadDailySpecials()")
@@ -44,15 +38,8 @@ class UiReferenceRebuildV11Test(unittest.TestCase):
 
     def test_v10c_pagination_contract_remains_nonregressed(self):
         self.assertIn("async function fetchAllDailyDeals(iso)", self.active)
-        self.assertIn(
-            "payload.available_count??payload.total??rows.length",
-            self.active,
-        )
-        self.assertIn(
-            "Promise.all([fetchAllDailyDeals(today),"
-            "fetchAllDailyDeals(tomorrow)])",
-            self.active,
-        )
+        self.assertIn("payload.available_count??payload.total??rows.length", self.active)
+        self.assertIn("Promise.all([fetchAllDailyDeals(today),fetchAllDailyDeals(tomorrow)])", self.active)
 
     def test_existing_cards_keep_raw_detail_flow(self):
         self.assertIn("specialDealCache.get(card.dataset.specialId)", self.active)

@@ -8,8 +8,8 @@ class UiReferenceRebuildV3Test(unittest.TestCase):
     def setUpClass(cls):
         cls.html = read_family_ui_contract()
 
-    def test_release_fix_identity_is_explicit(self):
-        self.assertIn('content="reference-v3-hover"', self.html)
+    def test_historical_release_fix_metadata_is_retired(self):
+        self.assertNotIn('content="reference-v3-hover"', self.html)
         self.assertIn('id="ui-reference-v3-hover-fix"', self.html)
 
     def test_full_card_detail_hover_stays_transparent(self):

@@ -8,8 +8,8 @@ class UiReferenceRebuildV5Test(unittest.TestCase):
     def setUpClass(cls):
         cls.html = read_family_ui_contract()
 
-    def test_release_marker_and_style_are_present(self):
-        self.assertIn('content="reference-v5-details-restoration"', self.html)
+    def test_historical_release_marker_is_retired_but_style_remains(self):
+        self.assertNotIn('content="reference-v5-details-restoration"', self.html)
         self.assertIn('id="ui-reference-v5-details-restoration"', self.html)
 
     def test_date_text_and_picker_are_centered(self):
@@ -60,4 +60,3 @@ class UiReferenceRebuildV5Test(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
