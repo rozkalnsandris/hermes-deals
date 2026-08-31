@@ -1,6 +1,6 @@
 # AUTO-RUN FULL v1 — Hermes Deals source-to-DONE orchestration
 
-Status: PROPOSED until the enabling PR is merged to `main`.
+Status: ACTIVE on `main` since merged PR #816.
 Canonical machine contract: `.github/auto-run-full-v1.json`
 Enablement issue: `hermes-deals#815`
 Durable controller state: `hermes-deals#814`
@@ -81,6 +81,12 @@ Before source mutation, the activating worker freshly reads:
 7. relevant dependencies, trackers and handoffs;
 8. controller issue `#814`.
 
+Preferred write order is:
+
+1. authorization receipt on the exact target issue;
+2. controller #814 active-pointer update;
+3. source/branch/PR work.
+
 It then writes an owner-identity target-issue comment with schema:
 
 ```text
@@ -95,6 +101,22 @@ The receipt freezes at least:
 - merge authority;
 - retry semantics;
 - explicit exclusions, especially all unapproved STRICT live classes.
+
+The authorization receipt is mandatory before any controller-active pointer write, branch creation, source-file write, commit/push, PR creation/update, merge, runtime or live mutation.
+
+### Harmless pre-receipt metadata recovery
+
+Classification labels or other issue metadata are not required for activation and should normally be left until after the authorization receipt. However, an idempotent **same-target issue metadata write** such as adding a classification label does not by itself consume the owner authorization and does not count as source or live mutation.
+
+If such a metadata-only write occurs before the receipt, the same explicit current AUTO-RUN command may continue only after fresh revalidation proves all of the following:
+
+- controller #814 is still `IDLE` with `active_issue: null`;
+- the exact target issue is still open;
+- the target issue scope/Definition of Done has not widened;
+- no branch, source-file, commit, push, PR, merge, controller-active, runtime or live mutation occurred;
+- current `main` and repository rules/policy have been freshly re-read.
+
+The authorization receipt must then be persisted before any non-metadata mutation. A pre-receipt source, branch, PR, merge, controller-active, runtime/live, secret/permission/trust-boundary or cross-repository mutation remains fail-closed and requires STOP/new authorization as applicable.
 
 Later issue edits may clarify or reduce work but do not silently add authority. New repository scope, mutation classes, secrets, permissions, trust boundaries or live targets cause `STOP_SCOPE_OR_RISK` unless separately authorized by the applicable repository contract.
 
