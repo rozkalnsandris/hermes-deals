@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "policy": "AUTO-RUN FULL v1",
   "repository": "rozkalnsandris/hermes-deals",
   "enablement_issue": 815,
@@ -34,6 +34,11 @@
       "relevant_dependencies",
       "controller_issue_814"
     ],
+    "preferred_write_order": [
+      "AUTHORIZATION_RECEIPT",
+      "CONTROLLER_ACTIVATION",
+      "SOURCE_WORK"
+    ],
     "materialize_owner_auth_on_target_issue": true,
     "activation_comment_schema": "rozkalns.auto-run-full-authorization.v1",
     "activation_must_freeze": [
@@ -45,6 +50,33 @@
       "retry_semantics",
       "explicit_exclusions"
     ],
+    "authorization_receipt_required_before": [
+      "CONTROLLER_ACTIVE_POINTER_WRITE",
+      "BRANCH_CREATE",
+      "SOURCE_FILE_WRITE",
+      "COMMIT_OR_PUSH",
+      "PR_CREATE_OR_UPDATE",
+      "MERGE",
+      "RUNTIME_OR_LIVE_MUTATION"
+    ],
+    "classification_metadata_write_before_receipt_is_optional": true,
+    "pre_receipt_metadata_recovery": {
+      "allowed": true,
+      "allowed_write_class": "IDEMPOTENT_SAME_TARGET_ISSUE_METADATA_ONLY",
+      "example": "ADD_CLASSIFICATION_LABEL",
+      "does_not_consume_owner_authorization": true,
+      "does_not_count_as_source_mutation": true,
+      "does_not_count_as_live_mutation": true,
+      "requires_fresh_revalidation": [
+        "controller_is_IDLE_with_null_active_issue",
+        "exact_target_issue_is_still_open",
+        "target_issue_scope_has_not_widened",
+        "no_branch_source_commit_pr_merge_controller_active_runtime_or_live_mutation_occurred",
+        "current_main_and_repository_rules_are_freshly_re_read"
+      ],
+      "receipt_must_be_persisted_before_any_non_metadata_mutation": true
+    },
+    "pre_receipt_non_metadata_mutation_requires_stop": true,
     "later_issue_edits_do_not_expand_authority": true,
     "new_scope_requires_stop": true
   },
