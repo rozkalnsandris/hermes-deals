@@ -4,9 +4,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / ".github" / "auto-run-full-v1.json"
+V2_POLICY_PATH = ROOT / ".github" / "auto-run-full-v2.json"
 ROUTING_PATH = ROOT / ".github" / "start-mode-routing.json"
 AGENTS_PATH = ROOT / "AGENTS.md"
 DOC_PATH = ROOT / "docs" / "AUTO_RUN_FULL_V1.md"
+V2_DOC_PATH = ROOT / "docs" / "AUTO_RUN_FULL_V2.md"
 FAST_PATH = ROOT / "docs" / "FAST_LANE_V2_2.md"
 
 
@@ -39,18 +41,65 @@ def test_command_requires_exact_explicit_issue_scoped_form() -> None:
 
 def test_routing_exposes_auto_run_without_changing_bare_fast_lane() -> None:
     routing = _json(ROUTING_PATH)
-    assert routing["schema_version"] == 2
+    assert routing["schema_version"] == 3
     assert routing["repository"] == "rozkalnsandris/hermes-deals"
     assert routing["bare_continuation_result"] == "FAST-LANE v2.2"
+    assert routing["lane_roles"]["FAST-LANE v2.2"] == "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION"
+    assert routing["lane_roles"]["AUTO-RUN-FULL"] == "NORMAL_ISSUE_SCOPED_IMPLEMENTATION"
     auto = routing["explicit_modes"]["AUTO-RUN-FULL"]
     assert auto["canonical_prefix"] == "AUTO-RUN FULL"
     assert auto["requires_repository_argument"] == "hermes-deals"
     assert auto["requires_issue_argument"] is True
     assert auto["issue_argument_pattern"] == r"^#[1-9][0-9]*$"
-    assert auto["policy"] == ".github/auto-run-full-v1.json"
+    assert auto["policy"] == ".github/auto-run-full-v2.json"
     assert auto["controller_issue"] == 814
+    assert auto["preferred_resume"] == "GITHUB_EVENT_TRIGGERED_WORK"
+    assert auto["fallback_resume"] == "HOURLY_SCHEDULED_WATCHDOG"
+    assert auto["preferred_merge"] == "GITHUB_AUTO_MERGE_AFTER_FINAL_EXACT_HEAD_READINESS"
     assert auto["may_be_inferred_from_context"] is False
     assert routing["examples"]["AUTO-RUN FULL hermes-deals #812"] == "AUTO-RUN-FULL"
+
+
+def test_v2_policy_is_event_driven_guarded_and_source_only() -> None:
+    policy = _json(V2_POLICY_PATH)
+    assert policy["schema_version"] == 4
+    assert policy["policy"] == "AUTO-RUN FULL v2"
+    assert policy["repository"] == "rozkalnsandris/hermes-deals"
+    assert policy["controller_issue"] == 814
+
+    lane = policy["lane_role"]
+    assert lane["normal_implementation_lane"] == "AUTO-RUN FULL"
+    assert lane["safe_discovery_lane"] == "FAST-LANE v2.2"
+    assert lane["fast_lane_may_infer_auto_run_full"] is False
+
+    execution = policy["execution_model"]
+    assert execution["primary_resume"] == "CHATGPT_WORK_GITHUB_EVENT_TRIGGERED_TASK"
+    assert execution["fallback_watchdog"] == "CHATGPT_PLUS_SCHEDULED_TASK"
+    assert execution["event_triggered_work_primary"] is True
+    assert execution["event_triggered_work_required_for_correctness"] is False
+    assert execution["scheduled_watchdog_max_frequency"] == "PT1H"
+    assert execution["event_triggered_task_max_runs_per_hour"] == 30
+
+    merge = policy["merge"]
+    assert merge["preferred_merge_mechanism"] == "GITHUB_AUTO_MERGE"
+    assert merge["auto_merge_enable_only_after_final_exact_head_ready"] is True
+    assert merge["final_diff_scope_review_required"] is True
+    assert merge["required_ci_must_pass"] is True
+    assert merge["unresolved_actionable_review_findings_must_be_zero"] is True
+    assert merge["changed_head_invalidates_previous_merge_readiness"] is True
+    assert merge["repository_ruleset_bypass"] is False
+    assert merge["force_merge"] is False
+
+    live = policy["live"]
+    assert live["auto_run_full_command_is_live_authority"] is False
+    assert live["separate_explicit_owner_live_authorization_required"] is True
+    assert live["state_when_definition_of_done_requires_unapproved_strict_live"] == "PAUSED_OWNER_LIVE_GATE"
+
+    doc = V2_DOC_PATH.read_text(encoding="utf-8")
+    assert "normal implementation lane" in doc
+    assert "GitHub event-triggered ChatGPT Work" in doc
+    assert "Guarded GitHub auto-merge" in doc
+    assert "PAUSED_OWNER_LIVE_GATE" in doc
 
 
 def test_deals_strict_live_classes_are_never_implicitly_authorized() -> None:
@@ -247,16 +296,19 @@ def test_billing_never_falls_back_to_provider_api_or_paid_credits() -> None:
 def test_human_contracts_repeat_the_critical_safety_split() -> None:
     agents = AGENTS_PATH.read_text(encoding="utf-8")
     doc = DOC_PATH.read_text(encoding="utf-8")
+    v2_doc = V2_DOC_PATH.read_text(encoding="utf-8")
     fast = FAST_PATH.read_text(encoding="utf-8")
 
     assert "AUTO-RUN FULL hermes-deals #<issue>" in agents
     assert "PAUSED_OWNER_LIVE_GATE" in agents
-    assert "same-target issue metadata write" in agents
-    assert "post-receipt `main` stability barrier" in agents
-    assert "supersedes_comment_id" in agents
+    assert "post-receipt main-stability barrier" in agents
+    assert "same-scope superseding receipts" in agents
     assert "AUTO-RUN FULL authorizes **source + merge only**" in doc
     assert "same-target issue metadata write" in doc
     assert "post-receipt `main` stability barrier" in doc
     assert "supersedes_comment_id" in doc
     assert "`AUTO-RUN FULL` does not silently convert any of those classes into source authority" in fast
     assert "AUTO-RUN FULL hermes-deals #812" in doc
+    assert "AUTO-RUN FULL authorizes **source + merge only**" in v2_doc
+    assert "GitHub event-triggered ChatGPT Work" in v2_doc
+    assert "Guarded GitHub auto-merge" in v2_doc

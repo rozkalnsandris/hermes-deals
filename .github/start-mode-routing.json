@@ -1,7 +1,11 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
+  "lane_roles": {
+    "FAST-LANE v2.2": "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION",
+    "AUTO-RUN-FULL": "NORMAL_ISSUE_SCOPED_IMPLEMENTATION"
+  },
   "explicit_modes": {
     "GITHUB-ONLY": {
       "requires_explicit_current_command_token": true,
@@ -20,8 +24,11 @@
       "requires_repository_argument": "hermes-deals",
       "requires_issue_argument": true,
       "issue_argument_pattern": "^#[1-9][0-9]*$",
-      "policy": ".github/auto-run-full-v1.json",
+      "policy": ".github/auto-run-full-v2.json",
       "controller_issue": 814,
+      "preferred_resume": "GITHUB_EVENT_TRIGGERED_WORK",
+      "fallback_resume": "HOURLY_SCHEDULED_WATCHDOG",
+      "preferred_merge": "GITHUB_AUTO_MERGE_AFTER_FINAL_EXACT_HEAD_READINESS",
       "may_be_inferred_from_context": false
     }
   },

@@ -22,42 +22,46 @@
 
 Read `.github/start-mode-routing.json` before selecting a startup/continuation mode.
 
-- Bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation means normal **FAST-LANE v2.2**. It is not `GITHUB-ONLY`, `LIVE-ALL`, or `AUTO-RUN FULL`.
+- Bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation means normal **FAST-LANE v2.2**. FAST is the safe discovery/audit/non-FULL continuation lane; it is not the preferred implementation authority and does not activate `AUTO-RUN FULL`.
+- For a concrete implementation issue with a usable Definition of Done, the preferred operator lane is `AUTO-RUN FULL hermes-deals #<positive issue number>`.
 - Activate `GITHUB-ONLY` only when the owner explicitly includes `GITHUB-ONLY` (or the documented `git hub only` spelling) in the current command.
 - Activate `LIVE-ALL` only when the owner explicitly includes `LIVE-ALL` in the current command.
-- Activate `AUTO-RUN FULL` only from the exact explicit form `AUTO-RUN FULL hermes-deals #<positive issue number>` and then read `.github/auto-run-full-v1.json`.
+- Activate `AUTO-RUN FULL` only from the exact explicit form `AUTO-RUN FULL hermes-deals #<positive issue number>` and then read `.github/auto-run-full-v2.json` plus `docs/AUTO_RUN_FULL_V2.md`.
 - Never infer an explicit mode from `.github/start-github-only.json`, deploy-queue state, handoff/issue continuity, executor availability, historical chat mode, controller state, or a prior authorization receipt.
 - Continuity evidence may affect lane selection only after command mode has been selected; it must never rewrite the command mode itself.
 
-<!-- BEGIN AUTO-RUN-FULL-V1-MANAGED -->
-## AUTO-RUN FULL v1 — Hermes Deals
+<!-- BEGIN AUTO-RUN-FULL-V2-MANAGED -->
+## AUTO-RUN FULL v2 — Hermes Deals
 
-Canonical machine contract: `.github/auto-run-full-v1.json`. Durable controller: issue `#814`.
+Canonical machine contract: `.github/auto-run-full-v2.json`. Human contract: `docs/AUTO_RUN_FULL_V2.md`. Durable controller: issue `#814`.
 
-`AUTO-RUN FULL hermes-deals #<issue>` is one explicit issue-specific owner decision for **source work plus merge** inside the target issue's frozen Definition of Done. It is not repository-wide blanket authority.
+`AUTO-RUN FULL hermes-deals #<issue>` is the normal implementation lane and one explicit issue-specific owner decision for **source work plus merge** inside the target issue's frozen Definition of Done. It is not repository-wide blanket authority.
 
-Activation must freshly read repository rules, routing/policy, the exact open target issue, current `main`, overlapping PR/CI/review state, relevant dependencies, and controller #814. It must persist an owner-identity `rozkalns.auto-run-full-authorization.v1` receipt on the target issue before source mutation. The receipt freezes the issue DoD, source actions, merge authority, retry semantics, and explicit exclusions; later issue edits cannot silently widen authority.
+Activation must freshly read repository rules, routing/policy, the exact open target issue, current `main`, overlapping PR/CI/review state, relevant dependencies, and controller #814. It must persist an owner-identity `rozkalns.auto-run-full-authorization.v2` receipt on the target issue before source mutation. The receipt freezes the issue DoD, source actions, merge authority, retry semantics, and explicit exclusions; later issue edits cannot silently widen authority.
 
-Preferred activation write order is **authorization receipt → post-receipt main revalidation → controller activation → source work**. Do not add classification labels or other issue metadata before the receipt unless they are genuinely needed. If an idempotent **same-target issue metadata write** (for example, adding a classification label) nevertheless happens before the receipt, that metadata write alone does not consume the owner authorization and does not count as source/live mutation. The same explicit command may continue only after fresh revalidation that controller #814 is still `IDLE` with `active_issue: null`, the exact target issue remains open with unchanged scope, no branch/source/commit/PR/merge/controller-active/runtime/live mutation occurred, and current `main` plus repository rules are freshly re-read. The authorization receipt must then be persisted before any non-metadata mutation. Any pre-receipt non-metadata mutation remains fail-closed.
+Preferred activation write order remains **authorization receipt → post-receipt main revalidation → controller activation → source work**. The existing post-receipt main-stability barrier remains mandatory before branch/source/commit/PR/merge authority becomes usable. Main-only drift before source may use immutable same-scope superseding receipts; three consecutive stabilization failures enter `PAUSED_EXTERNAL`. Scope/rule/trust-boundary drift remains fail-closed.
 
-After every authorization receipt, establish a **post-receipt `main` stability barrier** before controller `WORKING`, branch/source/commit/PR/merge/runtime/live work: fresh-read `main` as M0, write the receipt bound to M0, then immediately fresh-read `main` again and require the post-write SHA to equal the receipt SHA. If `main` moved before source work, preserve the stale receipt unchanged and append a same-scope superseding receipt carrying `supersedes_comment_id`, `supersession_reason=MAIN_DRIFT_BEFORE_SOURCE`, and the new `activation_main_sha`; only the latest post-write-stable receipt is source/merge authority. A new explicit current command may similarly supersede a stale receipt left by a prior STOP when controller #814 is `IDLE` (or the same issue is only `PAUSED_EXTERNAL`), scope is unchanged, and no source/live mutation occurred. Three consecutive pre-source main drifts enter resumable `PAUSED_EXTERNAL`; that paused pointer grants no source authority, and scheduled resume must establish a stable superseding receipt first. Scope/rule/trust-boundary drift or a mismatch discovered after source/live mutation remains fail-closed.
+Within the stable frozen source envelope, routine source analysis, branch/commit/push, PR creation/update, CI waiting/inspection, review ingestion, scope-preserving corrections, ordinary merge-conflict correction, exact-head merge, post-merge read-only verification, and final GitHub receipts are technical steps and do not require another owner nudge.
 
-Within that frozen source envelope, routine source analysis, branch/commit/push, PR creation/update, CI waiting/inspection, review ingestion, scope-preserving corrections, ordinary merge-conflict correction, exact-head merge, post-merge read-only verification, and final GitHub receipts are technical steps and do not require another owner nudge. The explicit AUTO-RUN FULL command is the merge authorization for that exact frozen source task when fresh exact-head CI/review/mergeability checks pass. Force merge, reset, rebase, force-push, or history rewrite are forbidden.
+GitHub event-triggered ChatGPT Work is the preferred low-latency resume path for supported PR activity. The hourly `Deals AUTO-RUN` Scheduled Task remains the durable watchdog/fallback. Neither resume path creates new authority.
+
+The explicit AUTO-RUN FULL command is merge authority only for the canonical PR implementing that exact frozen source issue. V2 prefers GitHub native auto-merge only after the **final exact current head** has passed fresh diff/scope review, required CI, actionable-review convergence and mergeability checks. Do not arm auto-merge early on an unreviewed/mutable head. A changed head voids prior merge readiness and requires fresh review/checks before auto-merge may be enabled again. Repository rulesets remain authoritative; no bypass, force merge, reset, rebase, force-push or history rewrite is allowed. If repository auto-merge capability is unavailable, direct exact-head merge is only a fallback after the same final readiness gate.
 
 Hermes Deals STRICT live boundaries remain separately explicit. AUTO-RUN FULL by itself does **not** authorize production deploy, production DB write/migration, Review/publication write, retained/source-evidence mutation, runtime/replay/APPLY execution, live collector/source execution with write effects, scheduler/systemd/host/container mutation, secrets/credentials/permission or trust-boundary changes, Cloudflare/DNS/Access/infrastructure mutation, or arbitrary SSH/sudo/shell authority. If the issue DoD requires such a class, source work may converge and merge, then controller state becomes `PAUSED_OWNER_LIVE_GATE` until the repository's separate exact live authorization is provided.
 
-Only one Hermes Deals AUTO-RUN issue may be active at a time. `turpini` is resume-only for an already-active run and never creates or broadens authority. Session ending, CI waiting/failure, review findings, and ordinary merge conflicts are not owner gates. Platform-required connected-app approval is persisted as `PAUSED_PLATFORM_APPROVAL`. Three materially identical failed attempts without a new safe hypothesis terminate as `STOP_ERROR`; repeated pre-source `main` drift follows the dedicated `PAUSED_EXTERNAL` stabilization rule instead.
+Only one Hermes Deals AUTO-RUN issue may be active at a time. `turpini` is resume-only for an already-active run and never creates or broadens authority. Session ending, CI waiting/failure, review findings, and ordinary merge conflicts are not owner gates. Platform-required connected-app approval is persisted as `PAUSED_PLATFORM_APPROVAL`. Three materially identical failed attempts without a new safe hypothesis terminate as `STOP_ERROR`.
 
 No provider LLM API key, token-billed fallback, automatic paid-credit purchase, Codex requirement, or Copilot requirement is allowed by this mode.
-<!-- END AUTO-RUN-FULL-V1-MANAGED -->
+<!-- END AUTO-RUN-FULL-V2-MANAGED -->
 
 <!-- BEGIN FAST-LANE-V2.2-MANAGED -->
 ## FAST-LANE v2.2 Composite
 
-Read `docs/FAST_LANE_V2_2.md` as the active local startup contract.
+Read `docs/FAST_LANE_V2_2.md` as the active local FAST contract.
 
 **Primary rule:** the human approves the **RISK / DECISION**; automation executes the **TECHNICAL STEPS**.
 
+- FAST is the safe discovery, audit and non-FULL continuation lane. Use it when scope/risk/DoD still needs to be established or the owner has not issued an explicit FULL command.
 - `START`, `turpini`, or equivalent continuation may carry safe source-only work from fresh canonical GitHub state through branch, implementation, focused tests, commit/push, Draft PR, CI/review and up to two scope-preserving corrections until Ready.
 - FAST may batch **2-5 closely related same-risk work items** when they form one coherent acceptance story and do not cross a persistence/runtime/production boundary.
 - Use selective CI by changed-file classification and a stable `FAST-LANE Merge Gate`. Required checks must not depend on a workflow being skipped entirely by top-level path filters.
