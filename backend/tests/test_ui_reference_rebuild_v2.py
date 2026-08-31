@@ -9,8 +9,8 @@ class UiReferenceRebuildV2Test(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.html = read_family_ui_contract()
 
-    def test_release_fix_identity_is_explicit(self) -> None:
-        self.assertIn('content="reference-v2"', self.html)
+    def test_historical_release_fix_metadata_is_retired(self) -> None:
+        self.assertNotIn('content="reference-v2"', self.html)
         self.assertIn('id="ui-reference-v2-fixes"', self.html)
 
     def test_desktop_legacy_zoom_is_neutralized(self) -> None:

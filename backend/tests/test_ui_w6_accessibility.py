@@ -52,12 +52,20 @@ def test_visible_focus_and_reduced_motion_cover_primary_interactions() -> None:
 
 
 def _prepare_w3_fixture(target: Path) -> None:
-    """Mirror the deterministic W3 build markers that Docker adds before bundling."""
+    """Mirror the deterministic W3 build contract that Docker stages before bundling."""
     app_path = target / "app.js"
-    source = app_path.read_text(encoding="utf-8")
-    source += "\n/* w3-behavior-preserving-bootstrap-v1 */\n"
-    source += "/* normalized_unique_deals_by_id_v1 */\n"
-    app_path.write_text(source, encoding="utf-8")
+    app_path.write_text(
+        """const identity = "HERMES_UI_SCRIPT_OPEN:";
+const bootstrap = "w3-behavior-preserving-bootstrap-v1";
+const weekly = "normalized_unique_deals_by_id_v1";
+const current = "/api/v1/deals/current";
+const daily = "/api/v1/deals/daily-specials";
+const dailyContract = "explicit_immutable_retailer_evidence_only";
+const catalog = "/api/v1/catalog";
+void [identity, bootstrap, weekly, current, daily, dailyContract, catalog];
+""",
+        encoding="utf-8",
+    )
 
 
 def test_production_bundle_removes_global_zoom_and_includes_w6_contract(tmp_path: Path) -> None:

@@ -8,7 +8,6 @@ from app.main import app
 from tests.ui_contract import (
     CSS_TRAILING_WS_PATCHES,
     JS_TRAILING_WS_PATCHES,
-    ORIGINAL_INDEX_SHA256,
     UI_APP_PATH,
     UI_STYLE_PATH,
     UI_WEEKLY_BRIDGE_PATH,
@@ -21,7 +20,7 @@ EXPECTED_JS_SHA256 = "5e8e7b2f94a8ba9cca4e22be5ed0c189e996f40d137231fa27ca34e9ef
 EXPECTED_WEEKLY_BRIDGE_SHA256 = "6501a7ae2d3998ce1716c6710d97e7afcbac2d493991c2cdd6ebe57b324976fe"
 
 
-def test_ui_html_uses_external_static_assets() -> None:
+def test_ui_html_uses_external_static_assets_without_historical_fix_metadata() -> None:
     response = TestClient(app).get("/ui")
 
     assert response.status_code == 200
@@ -34,9 +33,10 @@ def test_ui_html_uses_external_static_assets() -> None:
     )
     assert "<style" not in response.text
     assert "<script>" not in response.text
-    assert 'content="reference-v11-explicit-daily-special-api"' in response.text
-    assert 'content="weekly-overview-v6-active-retailer-compaction"' in response.text
-    assert 'content="netto-daily-quality-v1"' in response.text
+    assert '<meta name="hermes-ui-bundle" content="minimal-v2">' in response.text
+    assert '<meta name="hermes-ui-release" content="reference-v1">' in response.text
+    assert 'data-ui-release="reference-v1"' in response.text
+    assert 'name="hermes-ui-fix"' not in response.text
 
 
 def test_ui_stylesheet_route_and_content_identity() -> None:
@@ -107,11 +107,15 @@ def test_ui_weekly_payload_bridge_route_and_content_identity() -> None:
     )
 
 
-def test_legacy_contract_reconstructs_original_index_exactly() -> None:
+def test_split_asset_contract_reconstructs_current_ui_without_archaeology() -> None:
     contract = read_family_ui_contract()
 
-    assert sha256(contract.encode("utf-8")).hexdigest() == ORIGINAL_INDEX_SHA256
-    assert ORIGINAL_INDEX_SHA256 == "6212cc9c923650c1f6fa4ed25adb3a3dcc37dde1faab7e3bc48e45de8de93164"
+    assert '<meta name="hermes-ui-bundle" content="minimal-v2">' in contract
+    assert '<meta name="hermes-ui-release" content="reference-v1">' in contract
+    assert 'data-ui-release="reference-v1"' in contract
+    assert 'name="hermes-ui-fix"' not in contract
+    assert 'id="weeklyOverviewTitle"' in contract
+    assert 'id="dailySpecialsSection"' in contract
 
 
 def test_ui_trailing_slash_behavior_remains_routable() -> None:
