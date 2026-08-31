@@ -3,8 +3,6 @@ import { addDaysIso, fmtDate, todayLocal } from "../core/dates.js";
 import { EURO, dealPrimaryPrice, retailerName } from "./deals.js";
 
 export const DAILY_SPECIAL_PREVIEW_LIMIT = 6;
-export const DAILY_SPECIAL_PAGE_LIMIT = 500;
-export const DAILY_SPECIAL_MAX_PAGES = 20;
 export const DAILY_SPECIAL_RETAILER_ORDER = ["netto", "lidl", "aldi_nord", "edeka"];
 export const DAILY_SPECIAL_SOURCE_CONTRACT = "explicit_immutable_retailer_evidence_only";
 
@@ -67,54 +65,6 @@ export async function fetchExplicitDailySpecials(fetchJson, iso) {
     deal.is_daily_special === true &&
     deal.special_valid_on === iso &&
     deal.special_confidence === "high");
-}
-
-export function legacyDailySpecialsUrl(iso, offset = 0, limit = DAILY_SPECIAL_PAGE_LIMIT) {
-  const params = new URLSearchParams({
-    as_of: iso,
-    view: "current",
-    sort: "discount_desc",
-    limit: String(limit),
-    offset: String(offset),
-  });
-  return `/api/v1/deals/current?${params.toString()}`;
-}
-
-export async function fetchAllDailyDeals(fetchJson, iso, {
-  pageLimit = DAILY_SPECIAL_PAGE_LIMIT,
-  maxPages = DAILY_SPECIAL_MAX_PAGES,
-} = {}) {
-  const all = [];
-  const seen = new Set();
-  let offset = 0;
-  let total = null;
-  let pages = 0;
-  while (pages < maxPages) {
-    const payload = await fetchJson(legacyDailySpecialsUrl(iso, offset, pageLimit));
-    const rows = payload.deals || [];
-    const reportedTotal = Number(payload.available_count ?? payload.total ?? rows.length);
-    if (!Number.isFinite(reportedTotal) || reportedTotal < 0) throw new Error("API neatgrieza derīgu kopējo piedāvājumu skaitu");
-    if (total == null) total = reportedTotal;
-    else if (reportedTotal !== total) throw new Error("Piedāvājumu skaits mainījās lapošanas laikā");
-    for (const deal of rows) {
-      const key = String(deal.offer_candidate_id || `${deal.source_chain || ""}:${deal.source_offer_id || ""}:${deal.product_name_raw || ""}:${deal.price_eur ?? ""}`);
-      if (!seen.has(key)) {
-        seen.add(key);
-        all.push(deal);
-      }
-    }
-    pages += 1;
-    if (!rows.length || offset + rows.length >= total) break;
-    offset += rows.length;
-  }
-  if (total != null && all.length < total && pages >= maxPages) {
-    throw new Error(`Piedāvājumu lapošana pārsniedza drošības limitu (${maxPages})`);
-  }
-  return all;
-}
-
-export async function legacyCurrentDealDailySpecialContract(fetchJson, today, tomorrow) {
-  return Promise.all([fetchAllDailyDeals(fetchJson, today), fetchAllDailyDeals(fetchJson, tomorrow)]);
 }
 
 export async function loadDailySpecialData(fetchJson, today = todayLocal()) {
