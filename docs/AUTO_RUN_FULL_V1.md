@@ -84,8 +84,9 @@ Before source mutation, the activating worker freshly reads:
 Preferred write order is:
 
 1. authorization receipt on the exact target issue;
-2. controller #814 active-pointer update;
-3. source/branch/PR work.
+2. post-receipt current-`main` revalidation;
+3. controller #814 activation;
+4. source/branch/PR work.
 
 It then writes an owner-identity target-issue comment with schema:
 
@@ -118,9 +119,32 @@ If such a metadata-only write occurs before the receipt, the same explicit curre
 
 The authorization receipt must then be persisted before any non-metadata mutation. A pre-receipt source, branch, PR, merge, controller-active, runtime/live, secret/permission/trust-boundary or cross-repository mutation remains fail-closed and requires STOP/new authorization as applicable.
 
+### Post-receipt `main` stability barrier
+
+An authorization receipt is not usable for source or merge authority merely because its comment write succeeded. The activating worker must establish a **post-receipt `main` stability barrier** before controller `WORKING`, branch creation, source edits, commit/push, PR mutation, merge or runtime/live mutation:
+
+1. freshly read current `main` as `M0` with the normal activation inputs;
+2. write the immutable receipt with `activation_main_sha=M0`;
+3. immediately fresh-read current `main` as `M1`;
+4. use that receipt for source/merge authority only if `M1 == M0`.
+
+If `M1 != M0` and no branch/source/commit/PR/merge/runtime/live mutation has occurred, this is recoverable main-only concurrency drift, not a new owner gate. The worker must preserve the old receipt unchanged, freshly revalidate repository rules, the exact target issue scope, controller ownership, overlapping PR/CI/review state and dependencies, then append a new owner-identity receipt with the identical frozen Definition of Done/actions/merge authority/exclusions plus:
+
+- `supersedes_comment_id`: the immediately prior stale receipt comment id;
+- `supersession_reason`: `MAIN_DRIFT_BEFORE_SOURCE`;
+- `activation_main_sha`: the newly read current `main` SHA.
+
+The superseding receipt itself must pass the same post-write `main` revalidation. Only the latest receipt whose `activation_main_sha` still equals post-write current `main` is authoritative. Superseded/stale receipts remain immutable audit evidence and must never be deleted or edited.
+
+A new explicit current `AUTO-RUN FULL hermes-deals #<issue>` command may also supersede an unusable stale receipt left by a prior STOP when controller #814 is still `IDLE` (or the same issue is only `PAUSED_EXTERNAL`), the target issue remains open with the same frozen scope, and no source/live mutation occurred. The old STOP receipt remains in history; the new command does not silently reuse it.
+
+Inline stabilization is limited to three consecutive `main` drifts. If `main` still moves, the worker records the same issue as `PAUSED_EXTERNAL` with the latest receipt pointer so the scheduled controller can resume later. That paused pointer is **not source authority**. A later scheduled run must freshly revalidate the same frozen issue and establish a stable superseding receipt before any source/branch/PR/merge work.
+
+This recovery is only for main-only drift before source work. Scope/DoD widening, incompatible repository-rule changes, another active controller issue, trust-boundary changes, or a receipt mismatch discovered after branch/source/PR/merge/runtime/live mutation remain fail-closed and must not be repaired by silent receipt supersession.
+
 Later issue edits may clarify or reduce work but do not silently add authority. New repository scope, mutation classes, secrets, permissions, trust boundaries or live targets cause `STOP_SCOPE_OR_RISK` unless separately authorized by the applicable repository contract.
 
-After a valid receipt, controller #814 becomes the active pointer.
+After a stable receipt, controller #814 becomes the active working pointer. A `PAUSED_EXTERNAL` pointer created only for repeated activation drift is resumability state and grants no source authority until stability is re-established.
 
 ## Source convergence loop
 
@@ -148,7 +172,7 @@ Session end, CI waiting, ordinary CI failure, review findings and ordinary merge
 
 The explicit AUTO-RUN FULL command is the owner's merge decision for the exact frozen source issue. A second literal `MERGE` message is not required if all of the following are freshly true:
 
-- the target issue and activation receipt still match;
+- the target issue and latest stable activation receipt still match;
 - the PR is the canonical implementation for the issue;
 - the exact current PR head was freshly read;
 - required CI/checks pass;
@@ -194,7 +218,7 @@ STOP_ERROR
 
 `PAUSED_PLATFORM_APPROVAL` means ChatGPT/app policy requires a UI approval that repository policy cannot bypass.
 
-Three materially identical failed attempts without a materially new safe hypothesis terminate as `STOP_ERROR`. Do not loop the same failed approach indefinitely.
+Three materially identical failed technical attempts without a materially new safe hypothesis terminate as `STOP_ERROR`. Three consecutive pre-source `main` drifts are different: they enter resumable `PAUSED_EXTERNAL`, because no source authority has yet been exercised.
 
 ## Scheduled controller
 
@@ -204,12 +228,13 @@ Each scheduled run:
 
 1. reads controller #814;
 2. if state is `IDLE`, does nothing and does not notify;
-3. otherwise reads the exact target issue and activation receipt;
-4. refreshes current repository, PR, CI and review state;
-5. performs the maximum coherent work allowed by the frozen source envelope;
-6. persists state/evidence back to GitHub;
-7. never crosses a STRICT live gate without separate explicit owner authorization;
-8. notifies only for `DONE`, `PAUSED_OWNER_LIVE_GATE`, `STOP_SCOPE_OR_RISK`, `STOP_ERROR`, or a required platform approval.
+3. otherwise reads the exact target issue and activation receipt chain;
+4. if activation is `PAUSED_EXTERNAL` because of receipt/main drift, establishes a latest stable superseding receipt before any source work;
+5. refreshes current repository, PR, CI and review state;
+6. performs the maximum coherent work allowed by the frozen source envelope;
+7. persists state/evidence back to GitHub;
+8. never crosses a STRICT live gate without separate explicit owner authorization;
+9. notifies only for `DONE`, `PAUSED_OWNER_LIVE_GATE`, `STOP_SCOPE_OR_RISK`, `STOP_ERROR`, or a required platform approval.
 
 ## Billing/model constraint
 
