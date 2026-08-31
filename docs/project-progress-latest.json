@@ -560,17 +560,60 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 214,
+  "completed_issue_count": 221,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-08-30T09:55:41.789955Z",
-  "generated_at_local": "2026-08-30T11:55:41.789955+02:00",
+  "generated_at": "2026-08-31T10:49:32.549797Z",
+  "generated_at_local": "2026-08-31T12:49:32.549797+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-08-29",
+  "previous_day": "2026-08-30",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 0,
-  "previous_day_completed_issues": [],
+  "previous_day_completed_issue_count": 7,
+  "previous_day_completed_issues": [
+    {
+      "closed_at": "2026-08-30T19:26:39Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/732",
+      "number": 732,
+      "title": "P0 Netto hz34: owner-gated blind reviewer-pack creation from frozen artifact"
+    },
+    {
+      "closed_at": "2026-08-30T19:26:43Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/733",
+      "number": 733,
+      "title": "P0 Netto hz34: GitHub-hosted exact PyMuPDF 1.28.0 reviewer-pack runtime"
+    },
+    {
+      "closed_at": "2026-08-30T18:14:03Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/737",
+      "number": 737,
+      "title": "P0 Netto hz34: diagnose failed GitHub-hosted blind reviewer-pack retry"
+    },
+    {
+      "closed_at": "2026-08-30T13:57:44Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/796",
+      "number": 796,
+      "title": "P1 Kaufland K3C: re-anchor registration after promo diagnostic trust drift"
+    },
+    {
+      "closed_at": "2026-08-30T15:15:01Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/798",
+      "number": 798,
+      "title": "P1 Kaufland K3C: expose bounded sanitizer failure class"
+    },
+    {
+      "closed_at": "2026-08-30T15:15:06Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/800",
+      "number": 800,
+      "title": "P1 Kaufland K3C: re-anchor registration after sanitizer observability merge"
+    },
+    {
+      "closed_at": "2026-08-30T16:17:59Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/802",
+      "number": 802,
+      "title": "P1 Kaufland K3C: split sanitizer bound rejection class"
+    }
+  ],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
