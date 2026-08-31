@@ -1,4 +1,5 @@
 import { esc } from "../core/dom.js";
+import { openAccessibleOverlay } from "../ui/overlays.js";
 import {
   detailComparisonHtml,
   detailHistoryHtml,
@@ -43,9 +44,11 @@ export function initDealDetails(app) {
   } = app;
 
   async function openRawDealDetail(deal) {
-    scrim.classList.add("open");
-    dealDetail.classList.add("open");
-    document.body.classList.add("locked");
+    openAccessibleOverlay({
+      panel: dealDetail,
+      scrim,
+      focusTarget: dealDetail.querySelector("#closeDealDetail"),
+    });
     dealDetailBody.innerHTML = '<div class="empty"><span class="loading"></span>Ielādēju piedāvājuma detaļas…</div>';
 
     const primary = dealPrimaryPrice(deal, { euro });
