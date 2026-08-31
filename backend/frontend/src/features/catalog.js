@@ -1,4 +1,5 @@
 import { esc } from "../core/dom.js";
+import { openAccessibleOverlay } from "../ui/overlays.js";
 import { EURO, retailerName } from "./deals.js";
 
 export const CATALOG_SORTS = new Set(["name", "price_asc", "price_desc", "retailers_desc"]);
@@ -165,9 +166,11 @@ export function initCatalog(app) {
   }
 
   async function openDetail(id, seed = null) {
-    scrim.classList.add("open");
-    detail.classList.add("open");
-    document.body.classList.add("locked");
+    openAccessibleOverlay({
+      panel: detail,
+      scrim,
+      focusTarget: detail.querySelector("#closeDetail"),
+    });
     detailBody.innerHTML = '<div class="empty"><span class="loading"></span>Ielādēju produkta detaļas…</div>';
     try {
       const [metaUrl, currentUrlValue, historyUrl] = canonicalDetailUrls(id, getAsOf());
