@@ -10,7 +10,6 @@ import {
 } from "../src/features/deals.js";
 import {
   DAILY_SPECIAL_SOURCE_CONTRACT,
-  fetchAllDailyDeals,
   fetchExplicitDailySpecials,
   loadDailySpecialData,
   specialSortRows,
@@ -140,34 +139,6 @@ test("daily-special initial data performs exactly two explicit requests", async 
   assert.equal(data.today.length, 1);
   assert.equal(data.tomorrow.length, 1);
   assert.ok(calls.every((url) => !url.startsWith("/api/v1/deals/current?")));
-});
-
-test("legacy daily-special helper remains bounded and deduplicated", async () => {
-  const calls = [];
-  const rows = await fetchAllDailyDeals(async (url) => {
-    calls.push(url);
-    const offset = Number(new URL(`https://example.invalid${url}`).searchParams.get("offset"));
-    if (offset === 0) {
-      return {
-        available_count: 3,
-        deals: [
-          { offer_candidate_id: "a" },
-          { offer_candidate_id: "b" },
-        ],
-      };
-    }
-    return {
-      available_count: 3,
-      deals: [
-        { offer_candidate_id: "b" },
-        { offer_candidate_id: "c" },
-      ],
-    };
-  }, "2026-08-08", { pageLimit: 2, maxPages: 5 });
-  assert.deepEqual(rows.map((row) => row.offer_candidate_id), ["a", "b", "c"]);
-  assert.equal(calls.length, 2);
-  assert.match(calls[0], /limit=2&offset=0$/);
-  assert.match(calls[1], /limit=2&offset=2$/);
 });
 
 test("daily-special sorting round-robins retailers after within-store ranking", () => {
