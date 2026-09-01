@@ -586,7 +586,7 @@ jobs:
                   leaked = [marker for marker in forbidden_ui_markers if marker in ui]
                   if leaked:
                       raise RuntimeError(
-                          f"public UI contains forbidden markers: {leaked}"
+                          f"public UI still depends on external assets: {leaked}"
                       )
 
                   report = {
