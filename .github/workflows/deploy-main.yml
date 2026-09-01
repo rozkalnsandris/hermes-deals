@@ -468,16 +468,17 @@ jobs:
               '<meta name="hermes-production-bundle" content="inline-v1">',
               'data-hermes-production-bundle="styles.css"',
               'data-hermes-production-bundle="app.js"',
-              'content="reference-v11-explicit-daily-special-api"',
-              'content="weekly-overview-v6-active-retailer-compaction"',
-              'content="netto-daily-quality-v1"',
               'class="ui2-shell reference-app"',
               "--accent:#246b45",
-              "/api/v1/deals/current",
+              "/api/v1/deals/daily-specials",
+              "explicit_immutable_retailer_evidence_only",
           )
           forbidden_ui_markers = (
               'href="/ui/styles.css"',
               'src="/ui/app.js"',
+              'content="reference-v11-explicit-daily-special-api"',
+              'content="weekly-overview-v6-active-retailer-compaction"',
+              'content="netto-daily-quality-v1"',
           )
           canonical_files = (
               "public-health.headers",
@@ -585,7 +586,7 @@ jobs:
                   leaked = [marker for marker in forbidden_ui_markers if marker in ui]
                   if leaked:
                       raise RuntimeError(
-                          f"public UI still depends on external assets: {leaked}"
+                          f"public UI contains forbidden markers: {leaked}"
                       )
 
                   report = {
