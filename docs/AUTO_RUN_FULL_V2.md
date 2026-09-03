@@ -18,8 +18,12 @@ AUTO-RUN FULL hermes-deals #<issue>
 For the frozen issue, that command authorizes source work plus the exact converged merge. The intended flow is:
 
 ```text
-source -> PR -> CI -> corrections/review convergence -> guarded auto-merge -> post-merge verification -> DONE or PAUSED_OWNER_LIVE_GATE
+source -> PR -> CI -> corrections/review convergence -> guarded auto-merge -> post-merge verification -> DONE
+                                                                                                      \
+                                                                                                       -> pending-LIVE receipt -> controller IDLE
 ```
+
+A pending STRICT LIVE gate may keep the target issue open in `PAUSED_OWNER_LIVE_GATE`, but after the source/merge envelope is fully complete and the pending-LIVE receipt is persisted it no longer occupies the single AUTO-RUN source-controller slot.
 
 The command never becomes blanket repository authority and is never inferred from `START`, `turpini`, controller state, prior receipts, chat history or memory.
 
@@ -49,7 +53,45 @@ It does not authorize any STRICT live class, including:
 - arbitrary SSH/sudo/shell authority;
 - undeclared live retry/rollback/cleanup.
 
-If the source portion converges but the issue Definition of Done still requires an unapproved STRICT class, persist the exact remaining gate and enter `PAUSED_OWNER_LIVE_GATE`. Merge never implies deploy/runtime/DB/Review/evidence authority.
+If the source portion converges but the issue still has an unapproved STRICT continuation, preserve that exact owner gate in an immutable/public-safe pending-LIVE receipt. The target issue remains `PAUSED_OWNER_LIVE_GATE`, but controller #814 may return to `IDLE` after the source handoff predicates below are satisfied. Returning the controller to `IDLE` does not close, consume, imply, transfer or supersede the LIVE gate. Merge never implies deploy/runtime/DB/Review/evidence authority.
+
+## Pending LIVE handoff and source-controller release
+
+The single active controller slot owns **AUTO-RUN source orchestration**, not an indefinitely pending separate LIVE decision.
+
+Use pending-LIVE receipt schema:
+
+```text
+rozkalns.auto-run-pending-live.v1
+```
+
+Before controller #814 may release a source-complete issue with STRICT LIVE still pending, all of the following must be freshly true:
+
+- the frozen source Definition of Done has converged;
+- the canonical PR is merged;
+- exact post-merge `main` is verified;
+- relevant exact-main CI is verified;
+- unresolved actionable review findings are zero;
+- the exact remaining STRICT owner gate is identified;
+- the pending-LIVE receipt has been persisted on the target issue.
+
+The receipt must preserve at minimum:
+
+- repository;
+- target issue;
+- merged `main` SHA;
+- canonical PR;
+- activation/authorization receipt identity;
+- exact remaining owner gate;
+- `live_authority_granted: false`.
+
+After the valid receipt is persisted, controller #814 may become `IDLE` with `active_issue: null`. The target issue may remain open in `PAUSED_OWNER_LIVE_GATE`; that status is a backlog/continuation fact, not source-controller ownership.
+
+Controller release is forbidden if the source Definition of Done is incomplete, the canonical PR is not merged, post-merge verification is incomplete, required CI is unresolved/failed, actionable review findings remain, the remaining mutation class is ambiguous, or the pending-LIVE receipt is missing/invalid.
+
+A later LIVE action must enter through the repository's normal fresh explicit LIVE authorization path and freshly bind the then-current source/runtime evidence and permitted mutation envelope. The old AUTO-RUN command, the pending-LIVE receipt, `turpini`, watchdog/event resume, controller state, historical authorization receipts and chat history are not LIVE authority and cannot infer a new AUTO-RUN FULL source authorization.
+
+Releasing a pending-LIVE issue does not weaken the invariant that only one AUTO-RUN **source** issue may be active at once. A different source issue can activate only from a fresh explicit `AUTO-RUN FULL hermes-deals #<issue>` command.
 
 ## Durable state and resume architecture
 
@@ -99,8 +141,9 @@ Within the stable frozen source envelope:
 10. perform final exact-head merge readiness;
 11. prefer GitHub native auto-merge when repository capability is enabled;
 12. verify exact post-merge main and relevant exact-main CI;
-13. reconcile the target Definition of Done;
-14. finish as `DONE` for completed source-only scope or `PAUSED_OWNER_LIVE_GATE` when a separate STRICT gate remains.
+13. reconcile the frozen source Definition of Done;
+14. finish as `DONE` for completed source-only scope, or persist a valid pending-LIVE receipt when a separate STRICT gate remains;
+15. after a valid pending-LIVE handoff, keep the target issue's STRICT continuation visible while returning controller #814 to `IDLE` with no active source issue.
 
 Three materially identical technical failures without a materially new safe hypothesis produce `STOP_ERROR`.
 
@@ -148,6 +191,8 @@ STOP_SCOPE_OR_RISK
 STOP_ERROR
 ```
 
+`PAUSED_OWNER_LIVE_GATE` may describe the target issue's remaining continuation after source orchestration has been handed off. It does not require controller #814 to retain `active_issue` once the pending-LIVE release contract is satisfied.
+
 Session ending, CI waiting/failure, review findings and ordinary merge conflicts are technical/resume states, not new owner gates.
 
 ## Billing/model boundary
@@ -165,4 +210,4 @@ If product usage is exhausted, persist `PAUSED_USAGE`; do not silently change bi
 
 A source-only task reaches `DONE` only when its frozen Definition of Done is satisfied by current evidence, exact merged source/post-merge main are verified, relevant exact-main CI is verified, unresolved actionable review findings are zero, the final GitHub receipt is written and controller #814 returns to `IDLE`.
 
-If STRICT live work remains, the correct terminal continuation state is `PAUSED_OWNER_LIVE_GATE`, not false `DONE`.
+If STRICT live work remains, the overall target issue is not falsely marked `DONE`. Instead, after source/merge convergence and a valid `rozkalns.auto-run-pending-live.v1` receipt, source-controller occupancy may end: controller #814 returns to `IDLE` with `active_issue: null`, while the target issue remains open with the exact `PAUSED_OWNER_LIVE_GATE` continuation. A later LIVE operation still requires a fresh explicit owner authorization and fresh then-current evidence binding.
