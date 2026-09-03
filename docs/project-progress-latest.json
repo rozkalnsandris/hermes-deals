@@ -562,28 +562,15 @@
   ],
   "completed_issue_count": 231,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-09-02T08:45:38.644432Z",
-  "generated_at_local": "2026-09-02T10:45:38.644432+02:00",
+  "generated_at": "2026-09-03T08:55:34.700009Z",
+  "generated_at_local": "2026-09-03T10:55:34.700009+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-09-01",
+  "previous_day": "2026-09-02",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 2,
-  "previous_day_completed_issues": [
-    {
-      "closed_at": "2026-08-31T23:15:57Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/514",
-      "number": 514,
-      "title": "ui: W5B remove archived HTML markers and legacy daily-special fallback"
-    },
-    {
-      "closed_at": "2026-09-01T08:24:41Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/825",
-      "number": 825,
-      "title": "ops: align deploy public UI canary with W5B cleanup contract"
-    }
-  ],
+  "previous_day_completed_issue_count": 0,
+  "previous_day_completed_issues": [],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
