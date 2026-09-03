@@ -166,5 +166,12 @@
     "line": 37,
     "commit": "a0ba072f3701491b90b59f62dd7c6e90202f2873",
     "reason": "Owner-verified public SHA-256 digest of the exact Netto #831 prospect PDF; immutable source identity evidence, not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "tools/netto_heldout_live_source.py",
+    "line": 37,
+    "commit": "2277a6aab8c0830639482a0458fb8cc162fd3962",
+    "reason": "Same owner-verified public SHA-256 digest after PR #833 reached main via squash merge; immutable source identity evidence, not authentication material."
   }
 ]
