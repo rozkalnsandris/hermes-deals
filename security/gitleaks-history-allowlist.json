@@ -159,5 +159,12 @@
     "line": 1,
     "commit": "76b002665690bd44bd2e39bb0e96d6c014e91541",
     "reason": "Same exact immutable reviewed Lidl semantic-row evidence after squash merge #622; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "tools/netto_heldout_live_source.py",
+    "line": 37,
+    "commit": "a0ba072f3701491b90b59f62dd7c6e90202f2873",
+    "reason": "Owner-verified public SHA-256 digest of the exact Netto #831 prospect PDF; immutable source identity evidence, not authentication material."
   }
 ]
