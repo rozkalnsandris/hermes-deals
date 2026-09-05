@@ -198,14 +198,14 @@ jobs:
       PYMUPDF_WHEEL_SHA256: 44f0973f5e5edbaec95bc34b64e71d1959d4ee90b1328de1b4f4f5b4fa78673f
     steps:
       - name: Checkout exact reviewed runtime merge
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ needs.authorize.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up exact Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13.12"
 
@@ -484,7 +484,7 @@ jobs:
 
       - name: Upload reviewer-safe pack only
         id: upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ steps.verify.outputs.artifact_name }}
           path: ${{ steps.generate.outputs.pack_a }}

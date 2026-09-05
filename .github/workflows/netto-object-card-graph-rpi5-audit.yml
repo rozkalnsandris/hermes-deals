@@ -213,7 +213,7 @@ jobs:
 
       - name: Upload sanitized read-only object-card graph evidence
         if: always() && steps.dispatch.outputs.artifact_dir != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: netto-object-card-graph-v1-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.dispatch.outputs.artifact_dir }}

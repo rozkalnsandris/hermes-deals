@@ -167,14 +167,14 @@ jobs:
       EXPECTED_PAGE_COUNT: "77"
     steps:
       - name: Checkout exact reviewed implementation merge
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ needs.authorize.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
           cache: pip
@@ -379,7 +379,7 @@ jobs:
 
       - name: Upload frozen blind review pack
         id: upload
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.generate.outputs.artifact_name }}
           path: ${{ steps.generate.outputs.output }}

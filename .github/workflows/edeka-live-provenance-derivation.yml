@@ -122,8 +122,9 @@ jobs:
       provenance_sha256: ${{ steps.result.outputs.provenance_sha256 }}
       attestation_sha256: ${{ steps.result.outputs.attestation_sha256 }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 0
 
@@ -136,7 +137,7 @@ jobs:
           test -f tools/edeka_candidate_provenance.py
 
       - name: Download exact successful shadow artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: ${{ needs.authorize.outputs.artifact_name }}
           path: ${{ runner.temp }}/edeka-source-artifact
@@ -193,7 +194,7 @@ jobs:
           PY
 
       - name: Upload sanitized provenance only
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: edeka-live-gate-c-provenance-source-${{ inputs.source_run_id }}-derive-${{ github.run_id }}
           path: |

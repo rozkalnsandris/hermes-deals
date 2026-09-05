@@ -307,7 +307,7 @@ jobs:
 
       - name: Upload bounded visual review pack
         id: upload
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hermes-lidl-gate-b-review-pack-588-${{ github.run_id }}-${{ github.run_attempt }}
           path: review-pack

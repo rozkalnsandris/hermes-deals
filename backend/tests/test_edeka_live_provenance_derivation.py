@@ -273,7 +273,7 @@ def test_workflow_is_owner_only_main_and_reuses_successful_shadow_artifact() -> 
     assert 'os.environ["REF"] != "refs/heads/main"' in text
     assert 'run.get("name") != "EDEKA shadow cycle RPi5 audit"' in text
     assert 'run.get("conclusion") != "success"' in text
-    assert "actions/download-artifact@v6" in text
+    assert "actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53" in text
     assert "github-token: ${{ github.token }}" in text
     assert "run-id: ${{ inputs.source_run_id }}" in text
     assert "71ce804f9b9e2a0e7810fa1f035cb6e27592f45f" in text
