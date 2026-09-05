@@ -81,7 +81,7 @@ def test_review_pack_workflow_never_exposes_predictions_or_production_paths() ->
     assert "Production deployment: **not authorized**" in text
     assert "Database/Review writes: **not authorized**" in text
     assert "persist-credentials: false" in text
-    assert "actions/upload-artifact@v6" in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f" in text
     assert "artifact-id" in text
     assert "artifact-digest" in text
     for forbidden in (

@@ -162,7 +162,7 @@ jobs:
       EXPECTED_LOGICAL_FREEZE_SHA256: 38bb9445ad5f2c3cc0159bd4332a4138f1d81cab03591de0542825b3f88db087
     steps:
       - name: Checkout exact reviewed audit merge
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ needs.authorize.outputs.sha }}
           fetch-depth: 0
@@ -376,7 +376,7 @@ jobs:
 
       - name: Upload parent-unit audit artifact
         id: upload
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.run.outputs.artifact_name }}
           path: ${{ steps.run.outputs.output }}

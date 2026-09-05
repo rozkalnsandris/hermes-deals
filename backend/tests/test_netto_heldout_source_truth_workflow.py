@@ -26,8 +26,8 @@ def test_source_truth_workflow_is_exact_owner_gated_and_source_only() -> None:
         "bc7170d05f075bcd7d90d12952b5811b14a51e69da60304337fcb4aeec557f55"
     ) in text
     assert 'EXPECTED_PAGE_COUNT: "77"' in text
-    assert "actions/download-artifact@v5" in text
-    assert "actions/upload-artifact@v6" in text
+    assert "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0" in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f" in text
     assert "persist-credentials: false" in text
 
 

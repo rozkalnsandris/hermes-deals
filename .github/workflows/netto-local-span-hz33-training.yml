@@ -116,7 +116,7 @@ jobs:
       EXPECTED_PREDICTIONS_SHA: 70c3c8abace632f6be298abb5d02b398b3e8b91e8d53565b21eface536ed7b94
       EXPECTED_CAPTURE_SUMS_SHA: 9711f54387a02c1e3d18fa979acca599166b860c3d823fa1b66c318e580c1f9d
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ needs.authorize.outputs.sha }}
           fetch-depth: 0
@@ -222,7 +222,7 @@ jobs:
 
       - name: Upload training replay artifact
         id: upload
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.run.outputs.artifact_name }}
           path: ${{ steps.run.outputs.output }}
