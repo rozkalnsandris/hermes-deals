@@ -2313,6 +2313,22 @@
       font-weight:850;
       white-space:nowrap;
     }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-trust-chip{
+      white-space:normal;
+      overflow-wrap:anywhere;
+      max-width:100%;
+      text-align:left;
+      line-height:1.4;
+      padding-top:5px;
+      padding-bottom:5px;
+    }
+    body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-trust-freshness{
+      display:block;
+      font-size:.65rem;
+      font-weight:500;
+      color:#526358;
+      overflow-wrap:anywhere;
+    }
     body.ui-minimal-v2[data-ui-release="reference-v1"] .weekly-empty-day{
       min-height:138px;
       display:grid;
