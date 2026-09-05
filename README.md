@@ -51,11 +51,11 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **57/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **234 total** · **0 during the previous day** (04.09.2026)
+**Development activity:** **Issues fixed:** **235 total** · **0 during the previous day** (04.09.2026)
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 05.09.2026 10:20 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 05.09.2026 12:49 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
