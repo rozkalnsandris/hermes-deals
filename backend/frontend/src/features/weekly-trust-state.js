@@ -27,7 +27,7 @@ export function normalizeWeeklyRetailerStates(rows) {
     if (!STATE_SET.has(state)) {
       throw new Error(`Nezināms weekly retailer state: ${state}`);
     }
-    const dealCount = Number(row.deal_count);
+    const dealCount = row.deal_count;
     if (!Number.isInteger(dealCount) || dealCount < 0) {
       throw new Error(`Nederīgs weekly retailer deal_count: ${key}`);
     }
@@ -67,6 +67,16 @@ export function weeklyRetailerPresentation(entry, retailerLabel = "Veikals") {
       short: "Datu statuss nav pieejams",
       title: `${retailerLabel} dati nav pieejami`,
       detail: "Nedēļas avota statuss nav saņemts; to nevar uzskatīt par apstiprinātu nulles rezultātu.",
+      confirmedEmpty: false,
+    };
+  }
+  if (String(entry.reason || "").endsWith("_parse_unavailable")) {
+    return {
+      state: entry.state,
+      tone: "unavailable",
+      short: "Avota apstrāde neizdevās",
+      title: `${retailerLabel} avota apstrāde neizdevās`,
+      detail: "Piedāvājumu neesamība nav apstiprināta.",
       confirmedEmpty: false,
     };
   }
@@ -133,4 +143,14 @@ export function weeklyUnavailableRetailers(byKey, retailerKeys = WEEKLY_RETAILER
   return retailerKeys
     .map((key) => [key, weeklyRetailerState(byKey, key)])
     .filter(([, entry]) => !weeklyRetailerIsTrustedEmpty(entry));
+}
+
+export function weeklyRetailerFreshness(entry) {
+  if (!entry) return "";
+  return [
+    entry.last_verified_campaign && `Pārbaudītā kampaņa: ${entry.last_verified_campaign}`,
+    entry.last_verified_valid_from && entry.last_verified_valid_until
+      && `${entry.last_verified_valid_from}–${entry.last_verified_valid_until}`,
+    entry.last_verified_at && `Pārbaudīts: ${entry.last_verified_at}`,
+  ].filter(Boolean).join(" · ");
 }

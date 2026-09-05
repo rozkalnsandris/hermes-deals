@@ -1,5 +1,11 @@
 import { $, esc } from "../core/dom.js";
 import { addDaysIso, todayLocal } from "../core/dates.js";
+import {
+  normalizeWeeklyRetailerStates,
+  weeklyRetailerFreshness,
+  weeklyRetailerPresentation,
+  weeklyUnavailableRetailers,
+} from "./weekly-trust-state.js";
 
 const WEEKLY_RETAILER_ORDER = ["lidl", "aldi_nord", "netto", "edeka"];
 const WEEKLY_DAY_NAMES = ["Svētdiena", "Pirmdiena", "Otrdiena", "Trešdiena", "Ceturtdiena", "Piektdiena", "Sestdiena"];
@@ -30,6 +36,7 @@ export function initWeeklyOverview(app) {
     selectedDate: "",
     cache: new Map(),
     rowsByDate: new Map(),
+    retailerStates: new Map(),
     dealById: new Map(),
     failedDates: new Set(),
     loadingDates: new Set(),
@@ -208,11 +215,6 @@ export function initWeeklyOverview(app) {
     return `${weeklyShortDate(start)}–${weeklyShortDate(end || start)}`;
   }
 
-  function weeklyStoreOrder(keys) {
-    return [...WEEKLY_RETAILER_ORDER, ...keys.filter((key) => !WEEKLY_RETAILER_ORDER.includes(key)).sort()]
-      .filter((key, index, array) => array.indexOf(key) === index);
-  }
-
   function weeklyBundleUrl(start) {
     const params = new URLSearchParams({ week_start: start });
     return `/api/v1/deals/weekly-specials?${params.toString()}`;
@@ -224,13 +226,23 @@ export function initWeeklyOverview(app) {
       throw new Error("API neatgrieza derīgu nedēļas datu līgumu");
     }
     const dates = weeklyDates(start);
+    if (payload.days.length !== dates.length || new Set(payload.days.map((day) => day?.date)).size !== dates.length
+      || payload.days.some((day) => !day || !dates.includes(day.date) || !Array.isArray(day.deals))) {
+      throw new Error("Nedēļas datos trūkst derīgas dienas; nulles rezultātu nevar apstiprināt");
+    }
     const rowsByDate = new Map((payload.days || []).map((day) => [day.date, weeklyUnique(day.deals || [])]));
-    for (const iso of dates) if (!rowsByDate.has(iso)) rowsByDate.set(iso, []);
-    return rowsByDate;
+    let retailerStates;
+    try {
+      retailerStates = normalizeWeeklyRetailerStates(payload.retailers);
+    } catch {
+      // Keep visible offers, but missing/invalid metadata cannot confirm an empty day.
+      retailerStates = new Map();
+    }
+    return { rowsByDate, retailerStates };
   }
 
-  function weeklyRememberCache(start, rowsByDate) {
-    weeklyState.cache.set(start, rowsByDate);
+  function weeklyRememberCache(start, bundle) {
+    weeklyState.cache.set(start, bundle);
     while (weeklyState.cache.size > WEEKLY_CACHE_LIMIT) {
       weeklyState.cache.delete(weeklyState.cache.keys().next().value);
     }
@@ -254,22 +266,23 @@ export function initWeeklyOverview(app) {
     weeklyState.selectedDate = targetIso;
     weeklyRetailer.value = getSelectedRetailer();
     if (!force && weeklyState.cache.has(start)) {
-      weeklyState.rowsByDate = weeklyState.cache.get(start);
+      Object.assign(weeklyState, weeklyState.cache.get(start));
       weeklyState.failedDates = new Set();
       weeklyState.loadingDates = new Set();
       renderWeeklyOverview();
       return;
     }
     weeklyState.rowsByDate = new Map();
+    weeklyState.retailerStates = new Map();
     weeklyState.failedDates = new Set();
     weeklyState.loadingDates = new Set(dates);
     weeklyRenderLoading(start);
     try {
-      const rowsByDate = await weeklyFetchWeek(start);
+      const bundle = await weeklyFetchWeek(start);
       if (token !== weeklyState.requestToken) return;
-      weeklyState.rowsByDate = rowsByDate;
+      Object.assign(weeklyState, bundle);
       weeklyState.loadingDates = new Set();
-      weeklyRememberCache(start, rowsByDate);
+      weeklyRememberCache(start, bundle);
       renderWeeklyOverview();
     } catch {
       if (token !== weeklyState.requestToken) return;
@@ -280,8 +293,17 @@ export function initWeeklyOverview(app) {
     }
   }
 
+  function weeklyShownRetailers() {
+    return getSelectedRetailer() ? [getSelectedRetailer()] : WEEKLY_RETAILER_ORDER;
+  }
+
+  function weeklyTrust(retailer) {
+    return weeklyRetailerPresentation(weeklyState.retailerStates.get(retailer), retailerName(retailer));
+  }
+
   function weeklyDayChip(retailer, count) {
-    return `<span class="weekly-store-chip" data-retailer-color="${esc(retailer)}">${esc(retailerName(retailer))} ${count}</span>`;
+    const trust = weeklyTrust(retailer);
+    return `<span class="weekly-store-chip weekly-trust-chip" data-retailer-color="${esc(retailer)}" data-weekly-state="${esc(trust.state)}">${esc(retailerName(retailer))}: ${count || esc(trust.short)}</span>`;
   }
 
   function renderWeeklyDays() {
@@ -293,13 +315,13 @@ export function initWeeklyOverview(app) {
       const rows = weeklyStartsFor(iso);
       const counts = {};
       for (const deal of rows) counts[deal.source_chain] = (counts[deal.source_chain] || 0) + 1;
-      const chips = weeklyStoreOrder(Object.keys(counts)).filter((key) => counts[key]).map((key) => weeklyDayChip(key, counts[key])).join("");
+      const chips = weeklyShownRetailers().map((key) => weeklyDayChip(key, counts[key] || 0)).join("");
       const pending = weeklyState.loadingDates.has(iso);
       const dayBody = pending
         ? '<span class="weekly-no-deals">Ielādēju…</span>'
         : weeklyState.failedDates.has(iso)
           ? '<span class="weekly-no-deals">Neizdevās ielādēt</span>'
-          : chips || '<span class="weekly-no-deals">⊘ Nav jaunu akciju</span>';
+          : chips;
       return `<button class="weekly-day${iso === weeklyState.selectedDate ? " selected" : ""}${iso === today ? " today" : ""}" data-weekly-date="${iso}" type="button" aria-pressed="${iso === weeklyState.selectedDate}" ${pending ? "disabled" : ""}><span class="weekly-day-name">${esc(weeklyCap(weeklyWeekday(iso)))}</span><span class="weekly-day-date">${esc(weeklyShortDate(iso))}</span><span class="weekly-day-chips">${dayBody}</span></button>`;
     }).join("");
     weeklyDays.querySelectorAll("[data-weekly-date]").forEach((button) =>
@@ -328,18 +350,20 @@ export function initWeeklyOverview(app) {
   function weeklyStoreCard(retailer, rows, iso) {
     const sorted = weeklySort(rows);
     const preview = sorted.slice(0, WEEKLY_PREVIEW_LIMIT);
+    const freshness = weeklyRetailerFreshness(weeklyState.retailerStates.get(retailer));
     const content = preview.length
       ? `<div class="weekly-products">${preview.map((deal) => weeklyProductHtml(deal, iso)).join("")}</div>`
       : `<div class="weekly-store-empty">Šajā dienā nav jaunu ${esc(retailerName(retailer))} akciju.</div>`;
-    return `<article class="weekly-store-card"><div class="weekly-store-head"><span><i class="weekly-store-dot ${esc(retailer)}"></i>${esc(retailerName(retailer))}</span><span class="weekly-store-count">${rows.length}</span></div>${content}<button class="weekly-store-footer" data-weekly-open-retailer="${esc(retailer)}" type="button" ${rows.length ? "" : "disabled"}>${rows.length ? `Skatīt visus ${rows.length} piedāvājumus →` : "Nav jaunu piedāvājumu"}</button></article>`;
+    return `<article class="weekly-store-card"><div class="weekly-store-head"><span><i class="weekly-store-dot ${esc(retailer)}"></i>${esc(retailerName(retailer))}</span><span class="weekly-store-count">${rows.length}</span></div>${freshness ? `<small class="weekly-trust-freshness">${esc(freshness)}</small>` : ""}${content}<button class="weekly-store-footer" data-weekly-open-retailer="${esc(retailer)}" type="button" ${rows.length ? "" : "disabled"}>${rows.length ? `Skatīt visus ${rows.length} piedāvājumus →` : "Nav jaunu piedāvājumu"}</button></article>`;
   }
 
   function weeklyInactiveRetailersHtml(retailerKeys) {
     if (!retailerKeys.length) return "";
-    const label = retailerKeys.length === 1
-      ? "Šajā dienā nav jaunu piedāvājumu:"
-      : "Šajā dienā nav jaunu piedāvājumu šiem veikaliem:";
-    return `<div class="weekly-inactive-retailers" role="note"><div class="weekly-inactive-retailers-copy">${esc(label)}</div><div class="weekly-inactive-retailers-list">${retailerKeys.map((retailer) => `<span class="weekly-inactive-chip"><i class="weekly-store-dot ${esc(retailer)}"></i>${esc(retailerName(retailer))}</span>`).join("")}</div></div>`;
+    return `<div class="weekly-inactive-retailers" role="note"><div class="weekly-inactive-retailers-copy">Veikalu datu statuss</div><div class="weekly-inactive-retailers-list">${retailerKeys.map((retailer) => {
+      const trust = weeklyTrust(retailer);
+      const freshness = weeklyRetailerFreshness(weeklyState.retailerStates.get(retailer));
+      return `<span class="weekly-inactive-chip weekly-trust-chip" data-weekly-state="${esc(trust.state)}"><i class="weekly-store-dot ${esc(retailer)}"></i><span>${esc(retailerName(retailer))}: ${esc(trust.short)}${freshness ? `<small class="weekly-trust-freshness">${esc(freshness)}</small>` : ""}</span></span>`;
+    }).join("")}</div></div>`;
   }
 
   function bindWeeklyProducts() {
@@ -359,6 +383,10 @@ export function initWeeklyOverview(app) {
   }
 
   function weeklyEmptyDayHtml(iso) {
+    const unavailable = weeklyUnavailableRetailers(weeklyState.retailerStates, weeklyShownRetailers());
+    if (unavailable.length) {
+      return `<div class="weekly-empty-day"><div class="weekly-empty-day-copy"><div class="weekly-empty-day-title">Piedāvājumu dati nav pilnīgi</div><div class="weekly-empty-day-text">Piedāvājumu neesamību visiem izvēlētajiem veikaliem vēl nevar apstiprināt.</div></div></div>${weeklyInactiveRetailersHtml(weeklyShownRetailers())}`;
+    }
     const nextIso = weeklyNextActiveDate(iso);
     const selectedRetailer = getSelectedRetailer();
     const subject = selectedRetailer ? `${retailerName(selectedRetailer)} īstermiņa akcijas` : "Īstermiņa akcijas";
@@ -366,7 +394,7 @@ export function initWeeklyOverview(app) {
     const action = nextIso
       ? `<button class="weekly-empty-day-action" data-weekly-empty-next="${esc(nextIso)}" type="button">Skatīt ${esc(weeklyShortDate(nextIso))} piedāvājumus →</button>`
       : "";
-    return `<div class="weekly-empty-day"><div class="weekly-empty-day-icon" aria-hidden="true">✓</div><div class="weekly-empty-day-copy"><div class="weekly-empty-day-title">${esc(subject)} šajā dienā nesākas</div><div class="weekly-empty-day-text">${esc(nextCopy)}</div></div>${action}</div>`;
+    return `<div class="weekly-empty-day"><div class="weekly-empty-day-icon" aria-hidden="true">✓</div><div class="weekly-empty-day-copy"><div class="weekly-empty-day-title">${esc(subject)} šajā dienā nesākas</div><div class="weekly-empty-day-text">${esc(nextCopy)}</div></div>${action}</div>${weeklyInactiveRetailersHtml(weeklyShownRetailers())}`;
   }
 
   function renderWeeklyDetail() {
@@ -439,13 +467,14 @@ export function initWeeklyOverview(app) {
     const counts = dates.map((iso) => [iso, weeklyStartsFor(iso).length]);
     const busiest = counts.slice().sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
     const allStarts = dates.flatMap((iso) => weeklyStartsFor(iso).map((deal) => ({ deal, iso })));
-    const singleCount = allStarts.filter((entry) => weeklyIsSingleDay(entry.deal, entry.iso)).length;
+    const singleCount = weeklyUnique(allStarts.filter((entry) => weeklyIsSingleDay(entry.deal, entry.iso)).map((entry) => entry.deal)).length;
     const retailerCount = new Set(allStarts.map((entry) => entry.deal.source_chain)).size;
     const next = counts.find(([iso, count]) => iso > weeklyState.selectedDate && count > 0);
-    $("weeklyBusiest").textContent = busiest && busiest[1] ? weeklyCap(weeklyWeekday(busiest[0])) : "Nav jaunu akciju";
-    $("weeklySingleDay").textContent = String(singleCount);
-    $("weeklyRetailerCount").textContent = String(retailerCount);
-    $("weeklyNextActivity").textContent = next ? weeklyCap(weeklyWeekday(next[0])) : "Šonedēļ nav";
+    const incomplete = weeklyState.failedDates.size > 0 || weeklyUnavailableRetailers(weeklyState.retailerStates, weeklyShownRetailers()).length > 0;
+    $("weeklyBusiest").textContent = busiest && busiest[1] ? weeklyCap(weeklyWeekday(busiest[0])) : incomplete ? "Dati nepilnīgi" : "Nav jaunu akciju";
+    $("weeklySingleDay").textContent = singleCount || !incomplete ? String(singleCount) : "—";
+    $("weeklyRetailerCount").textContent = retailerCount || !incomplete ? String(retailerCount) : "—";
+    $("weeklyNextActivity").textContent = next ? weeklyCap(weeklyWeekday(next[0])) : incomplete ? "Dati nepilnīgi" : "Šonedēļ nav";
   }
 
   function renderWeeklyOverview() {
