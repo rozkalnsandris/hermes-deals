@@ -75,5 +75,103 @@
     "line": 167,
     "commit": "150a95a72a423201195df567184a98acec4d52be",
     "reason": "Same sudoers NOPASSWD command-alias syntax in squash-merge commit #438; not a password assignment or credential."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_gate_b_review_pack_588.py",
+    "line": 96,
+    "commit": "c1c25f3d9e52984b8c80b74d72a50aad8ba53749",
+    "reason": "Deterministic public Lidl FLYER_KEY asserted by the Gate-B review-pack regression test; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-review-pack-588.yml",
+    "line": 163,
+    "commit": "8d0a734253247d3d61aa47f4836b454bc845ad35",
+    "reason": "Deterministic public Lidl FLYER_KEY binding the Gate-B review-pack workflow to the known flyer; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_gate_b_review_pack_588.py",
+    "line": 94,
+    "commit": "ec298d5dafd207b274e55995f94c18e19e3df8cb",
+    "reason": "Same deterministic public Lidl FLYER_KEY after the reviewed Gate-B review-pack content reached main; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-review-pack-588.yml",
+    "line": 163,
+    "commit": "ec298d5dafd207b274e55995f94c18e19e3df8cb",
+    "reason": "Same deterministic public Lidl FLYER_KEY in the main history identity; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-frozen-review-pack-603.yml",
+    "line": 178,
+    "commit": "2c779da0eaa6271e6395b04f79f72268c24fbf01",
+    "reason": "Deterministic public Lidl flyer identifier binding the frozen Gate-B review-pack workflow to the exact reviewed family; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-frozen-review-pack-603.yml",
+    "line": 178,
+    "commit": "5c1d8dd9692b9a95d7a0140e183b3e836ad30531",
+    "reason": "Same deterministic public Lidl flyer identifier after the reviewed frozen review-pack workflow reached main via squash merge #604; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_615_reviewed_canary_landliebe.json",
+    "line": 1,
+    "commit": "9e99957de41e44f33dd44fc48824024cfbc37395",
+    "reason": "Immutable SHA-256 evidence in the reviewed Lidl canary receipt; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_v631_semantic_persistence.py",
+    "line": 30,
+    "commit": "9e99957de41e44f33dd44fc48824024cfbc37395",
+    "reason": "Immutable Lidl source/semantic SHA-256 fixture constant used by persistence planner tests; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_615_reviewed_canary_landliebe.json",
+    "line": 1,
+    "commit": "bb6ddc738fdab6009cf0792dfccedb726f4d6cbd",
+    "reason": "Same immutable SHA-256 evidence after reviewed Lidl persistence planner reached main via squash merge #618; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/test_lidl_v631_semantic_persistence.py",
+    "line": 30,
+    "commit": "bb6ddc738fdab6009cf0792dfccedb726f4d6cbd",
+    "reason": "Same immutable Lidl source/semantic SHA-256 fixture after squash merge #618; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_620_full_semantic_row_landliebe.json.b64",
+    "line": 1,
+    "commit": "4008c6e332ef089f26174f9dfe7d557fcd7b0b10",
+    "reason": "Base64 encoding of the exact immutable reviewed Lidl semantic-row evidence extracted under #620; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "backend/tests/fixtures/lidl/issue_620_full_semantic_row_landliebe.json.b64",
+    "line": 1,
+    "commit": "76b002665690bd44bd2e39bb0e96d6c014e91541",
+    "reason": "Same exact immutable reviewed Lidl semantic-row evidence after squash merge #622; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "tools/netto_heldout_live_source.py",
+    "line": 37,
+    "commit": "a0ba072f3701491b90b59f62dd7c6e90202f2873",
+    "reason": "Owner-verified public SHA-256 digest of the exact Netto #831 prospect PDF; immutable source identity evidence, not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "tools/netto_heldout_live_source.py",
+    "line": 37,
+    "commit": "2277a6aab8c0830639482a0458fb8cc162fd3962",
+    "reason": "Same owner-verified public SHA-256 digest after PR #833 reached main via squash merge; immutable source identity evidence, not authentication material."
   }
 ]

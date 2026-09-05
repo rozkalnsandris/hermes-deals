@@ -140,12 +140,14 @@ def test_w3_daily_special_module_preserves_explicit_evidence_contract() -> None:
     assert "payload.source_contract !== DAILY_SPECIAL_SOURCE_CONTRACT" in daily
     assert 'deal.special_confidence === "high"' in daily
     assert 'deal.special_valid_on === iso' in daily
-    assert "legacyCurrentDealDailySpecialContract" in daily
-    assert "/api/v1/deals/current" in daily
-    assert "DAILY_SPECIAL_MAX_PAGES = 20" in daily
+    assert "legacyCurrentDealDailySpecialContract" not in daily
+    assert "fetchAllDailyDeals" not in daily
+    assert "legacyDailySpecialsUrl" not in daily
+    assert "DAILY_SPECIAL_PAGE_LIMIT" not in daily
+    assert "DAILY_SPECIAL_MAX_PAGES" not in daily
+    assert "/api/v1/deals/current" not in daily
     for marker in (
         "explicit_immutable_retailer_evidence_only",
-        "legacyCurrentDealDailySpecialContract",
         "Šodienas īpašās akcijas neizdevās ielādēt.",
         "Rītdienas īpašās akcijas neizdevās ielādēt.",
     ):

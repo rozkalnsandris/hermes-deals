@@ -1,0 +1,316 @@
+{
+  "schema_version": 4,
+  "policy": "AUTO-RUN FULL v2",
+  "repository": "rozkalnsandris/hermes-deals",
+  "enablement_issue": 815,
+  "rollout_issue": "RPi5_main#315",
+  "controller_issue": 814,
+  "lane_role": {
+    "normal_implementation_lane": "AUTO-RUN FULL",
+    "safe_discovery_lane": "FAST-LANE v2.2",
+    "fast_lane_may_infer_auto_run_full": false
+  },
+  "command": {
+    "canonical_prefix": "AUTO-RUN FULL",
+    "syntax": "AUTO-RUN FULL hermes-deals #<issue>",
+    "requires_explicit_current_command": true,
+    "requires_exact_repository": true,
+    "requires_exact_open_issue": true,
+    "may_be_inferred_from_context": false,
+    "single_command_is_owner_source_and_merge_authorization": true,
+    "single_command_is_live_authorization": false
+  },
+  "execution_model": {
+    "canonical_state": "GITHUB",
+    "one_active_issue_at_a_time": true,
+    "one_active_source_orchestration_issue_at_a_time": true,
+    "pending_live_backlog_does_not_occupy_source_controller": true,
+    "chat_history_is_authority": false,
+    "primary_resume": "CHATGPT_WORK_GITHUB_EVENT_TRIGGERED_TASK",
+    "fallback_watchdog": "CHATGPT_PLUS_SCHEDULED_TASK",
+    "event_triggered_work_primary": true,
+    "event_triggered_work_required_for_correctness": false,
+    "scheduled_watchdog_max_frequency": "PT1H",
+    "event_triggered_task_max_runs_per_hour": 30,
+    "session_end_is_resumable": true,
+    "manual_turpini_is_resume_only": true
+  },
+  "activation": {
+    "fresh_reads_required": [
+      "AGENTS.md",
+      ".github/start-mode-routing.json",
+      ".github/auto-run-full-v2.json",
+      "target_issue",
+      "current_main",
+      "active_pr_ci_review_state",
+      "relevant_dependencies",
+      "controller_issue_814"
+    ],
+    "preferred_write_order": [
+      "AUTHORIZATION_RECEIPT",
+      "POST_RECEIPT_MAIN_REVALIDATION",
+      "CONTROLLER_ACTIVATION",
+      "SOURCE_WORK"
+    ],
+    "materialize_owner_auth_on_target_issue": true,
+    "activation_comment_schema": "rozkalns.auto-run-full-authorization.v2",
+    "activation_must_freeze": [
+      "repository",
+      "issue_number",
+      "issue_definition_of_done",
+      "allowed_source_actions",
+      "merge_authority",
+      "retry_semantics",
+      "explicit_exclusions"
+    ],
+    "authorization_receipt_required_before": [
+      "CONTROLLER_ACTIVE_POINTER_WRITE",
+      "BRANCH_CREATE",
+      "SOURCE_FILE_WRITE",
+      "COMMIT_OR_PUSH",
+      "PR_CREATE_OR_UPDATE",
+      "MERGE",
+      "RUNTIME_OR_LIVE_MUTATION"
+    ],
+    "stable_receipt_required_before": [
+      "CONTROLLER_WORKING_POINTER_WRITE",
+      "BRANCH_CREATE",
+      "SOURCE_FILE_WRITE",
+      "COMMIT_OR_PUSH",
+      "PR_CREATE_OR_UPDATE",
+      "MERGE",
+      "RUNTIME_OR_LIVE_MUTATION"
+    ],
+    "post_receipt_main_revalidation_required": true,
+    "post_receipt_main_stability": {
+      "barrier": "READ_MAIN_M0__WRITE_RECEIPT_M0__READ_MAIN_M1__REQUIRE_M1_EQUALS_M0",
+      "stable_when": "POST_WRITE_MAIN_SHA_EQUALS_RECEIPT_ACTIVATION_MAIN_SHA",
+      "only_latest_stable_receipt_is_authoritative_for_source_and_merge": true,
+      "stale_receipt_never_authorizes_source_or_merge": true,
+      "main_only_drift_consumes_owner_authorization": false,
+      "main_only_drift_requires_new_owner_command": false,
+      "max_consecutive_inline_stabilization_attempts": 3,
+      "after_attempt_limit_state": "PAUSED_EXTERNAL",
+      "paused_controller_pointer_allowed_after_receipt": true,
+      "paused_controller_pointer_is_source_authority": false,
+      "resume_must_establish_stable_receipt_before_source": true,
+      "scope_or_rule_drift_is_not_main_only_drift": true
+    },
+    "main_drift_before_source_recovery": {
+      "allowed": true,
+      "requires_no_branch_source_commit_pr_merge_runtime_or_live_mutation": true,
+      "requires_fresh_revalidation": [
+        "exact_target_issue_is_still_open",
+        "target_issue_scope_is_identical_to_frozen_scope",
+        "repository_rules_and_policy_are_compatible_with_frozen_scope",
+        "controller_points_to_no_other_issue",
+        "no_branch_source_commit_pr_merge_runtime_or_live_mutation_occurred",
+        "current_main_active_pr_ci_review_and_dependencies_are_freshly_re_read"
+      ],
+      "old_receipt_is_immutable_audit_record": true,
+      "old_receipt_must_not_be_deleted_or_edited": true,
+      "superseding_receipt_required": true,
+      "superseding_receipt_fields": [
+        "supersedes_comment_id",
+        "supersession_reason",
+        "activation_main_sha"
+      ],
+      "supersession_reason": "MAIN_DRIFT_BEFORE_SOURCE",
+      "superseding_receipt_must_preserve_frozen_scope": true,
+      "new_explicit_command_may_supersede_prior_stopped_stale_receipt": true,
+      "prior_stopped_receipt_recovery_requires_controller_idle_or_same_issue_paused_external": true,
+      "prior_stopped_receipt_recovery_requires_no_source_or_live_mutation": true,
+      "latest_superseding_receipt_must_pass_post_write_main_revalidation": true,
+      "mismatch_after_prohibited_mutation_requires_stop": true
+    },
+    "classification_metadata_write_before_receipt_is_optional": true,
+    "pre_receipt_metadata_recovery": {
+      "allowed": true,
+      "allowed_write_class": "IDEMPOTENT_SAME_TARGET_ISSUE_METADATA_ONLY",
+      "does_not_consume_owner_authorization": true,
+      "does_not_count_as_source_mutation": true,
+      "does_not_count_as_live_mutation": true,
+      "receipt_must_be_persisted_before_any_non_metadata_mutation": true
+    },
+    "pre_receipt_non_metadata_mutation_requires_stop": true,
+    "later_issue_edits_do_not_expand_authority": true,
+    "new_scope_requires_stop": true
+  },
+  "allowed_without_further_owner_nudge": [
+    "FRESH_GITHUB_READS",
+    "SOURCE_ANALYSIS",
+    "SOURCE_DOC_TEST_POLICY_CHANGES",
+    "BRANCH_CREATE",
+    "EXACT_PATH_COMMITS",
+    "PUSH",
+    "PR_CREATE_OR_UPDATE",
+    "CI_WAIT_AND_INSPECTION",
+    "REVIEW_INGESTION",
+    "SCOPE_PRESERVING_CORRECTIVE_COMMITS",
+    "MERGE_CONFLICT_RESOLUTION_WITHOUT_HISTORY_REWRITE",
+    "FINAL_EXACT_HEAD_REVIEW",
+    "ENABLE_GITHUB_AUTO_MERGE_FOR_EXACT_CANONICAL_PR_WHEN_READY",
+    "DIRECT_MERGE_FALLBACK_WHEN_AUTO_MERGE_IS_UNAVAILABLE_AND_FROZEN_AUTHORITY_PERMITS",
+    "POST_MERGE_READ_ONLY_REVALIDATION",
+    "FINAL_GITHUB_RECEIPTS"
+  ],
+  "strict_live_never_implied": [
+    "PRODUCTION_DEPLOY",
+    "PRODUCTION_DATABASE_WRITE_OR_MIGRATION",
+    "REVIEW_OR_PUBLICATION_WRITE",
+    "RETAINED_OR_SOURCE_EVIDENCE_MUTATION",
+    "RUNTIME_REPLAY_APPLY_OR_EXECUTOR_INVOCATION",
+    "LIVE_COLLECTOR_OR_SOURCE_EXECUTION_WITH_WRITE_EFFECTS",
+    "SCHEDULER_SYSTEMD_HOST_OR_CONTAINER_MUTATION",
+    "SECRET_CREDENTIAL_PERMISSION_OR_TRUST_BOUNDARY_CHANGE",
+    "CLOUDFLARE_DNS_ACCESS_OR_INFRASTRUCTURE_MUTATION",
+    "ARBITRARY_SSH_SUDO_OR_SHELL_AUTHORITY",
+    "UNDECLARED_RETRY_ROLLBACK_OR_CLEANUP"
+  ],
+  "never_implied": [
+    "UNRELATED_ISSUE_OR_REPOSITORY_WORK",
+    "RESET_REBASE_FORCE_OR_HISTORY_REWRITE",
+    "PROVIDER_API_KEY",
+    "TOKEN_BILLED_LLM_FALLBACK",
+    "AUTOMATIC_PAID_CREDIT_PURCHASE"
+  ],
+  "merge": {
+    "auto_run_full_command_is_explicit_owner_merge_authority_for_the_frozen_issue": true,
+    "preferred_merge_mechanism": "GITHUB_AUTO_MERGE",
+    "repository_auto_merge_capability_required_for_preferred_mechanism": true,
+    "canonical_pr_only": true,
+    "auto_merge_enable_only_after_final_exact_head_ready": true,
+    "fresh_exact_head_revalidation_required": true,
+    "final_diff_scope_review_required": true,
+    "required_ci_must_pass": true,
+    "unresolved_actionable_review_findings_must_be_zero": true,
+    "mergeability_must_be_fresh": true,
+    "changed_head_invalidates_previous_merge_readiness": true,
+    "changed_head_requires_fresh_review_and_checks_before_auto_merge_reenable": true,
+    "repository_ruleset_bypass": false,
+    "force_merge": false,
+    "direct_merge_fallback_allowed_only_after_same_final_readiness_gate": true
+  },
+  "live": {
+    "auto_run_full_command_is_live_authority": false,
+    "separate_explicit_owner_live_authorization_required": true,
+    "existing_repository_live_contracts_remain_authoritative": true,
+    "source_work_may_converge_before_live_gate": true,
+    "state_when_definition_of_done_requires_unapproved_strict_live": "PAUSED_OWNER_LIVE_GATE",
+    "pending_live_handoff": {
+      "enabled": true,
+      "receipt_schema": "rozkalns.auto-run-pending-live.v1",
+      "target_issue_continuation_state": "PAUSED_OWNER_LIVE_GATE",
+      "controller_state_after_receipt": "IDLE",
+      "controller_active_issue_after_release": null,
+      "target_issue_may_remain_open": true,
+      "source_orchestration_ownership_ends_after_receipt": true,
+      "pending_live_backlog_is_not_source_authority": true,
+      "pending_live_receipt_is_not_live_authority": true,
+      "pending_live_receipt_is_not_auto_run_full_authority": true,
+      "returning_controller_to_idle_does_not_close_consume_imply_transfer_or_supersede_live_gate": true,
+      "later_live_requires_fresh_explicit_owner_authorization": true,
+      "later_live_must_rebind_then_current_source_and_runtime_evidence": true,
+      "required_receipt_fields": [
+        "repository",
+        "target_issue",
+        "merged_main_sha",
+        "canonical_pr",
+        "activation_comment_id",
+        "remaining_owner_gate",
+        "live_authority_granted"
+      ],
+      "required_receipt_values": {
+        "live_authority_granted": false
+      },
+      "controller_release_requires": [
+        "frozen_source_definition_of_done_converged",
+        "canonical_pr_merged",
+        "post_merge_exact_main_verified",
+        "relevant_exact_main_ci_verified",
+        "unresolved_actionable_review_findings_zero",
+        "exact_remaining_strict_live_gate_identified",
+        "pending_live_receipt_persisted"
+      ],
+      "controller_release_forbidden_when": [
+        "source_definition_of_done_incomplete",
+        "canonical_pr_not_merged",
+        "post_merge_verification_incomplete",
+        "required_ci_unresolved_or_failed",
+        "actionable_review_findings_unresolved",
+        "remaining_mutation_class_ambiguous",
+        "pending_live_receipt_missing_or_invalid"
+      ],
+      "new_source_activation_after_release_requires_fresh_explicit_auto_run_full_command": true,
+      "authority_may_not_be_inferred_from": [
+        "turpini",
+        "watchdog_resume",
+        "event_triggered_resume",
+        "controller_state",
+        "historical_authorization_receipt",
+        "pending_live_receipt",
+        "chat_history"
+      ]
+    },
+    "new_live_mutation_class_after_activation": "STOP_SCOPE_OR_RISK",
+    "post_live_mutation_error_without_predeclared_recovery": "STOP_ERROR"
+  },
+  "states": [
+    "IDLE",
+    "ACTIVATING",
+    "WORKING",
+    "WAITING_CI",
+    "WAITING_REVIEW",
+    "CORRECTING",
+    "WAITING_EVENT_RESUME",
+    "WAITING_WATCHDOG_RESUME",
+    "PAUSED_USAGE",
+    "PAUSED_PLATFORM_APPROVAL",
+    "PAUSED_EXTERNAL",
+    "PAUSED_OWNER_LIVE_GATE",
+    "VERIFYING",
+    "DONE",
+    "STOP_SCOPE_OR_RISK",
+    "STOP_ERROR"
+  ],
+  "continuation": {
+    "routine_ci_failure_is_owner_gate": false,
+    "review_finding_is_owner_gate": false,
+    "ordinary_merge_conflict_is_owner_gate": false,
+    "session_or_turn_end_is_owner_gate": false,
+    "event_triggered_run_reconstructs_from_github": true,
+    "scheduled_watchdog_reconstructs_from_github": true,
+    "usage_exhaustion": "PAUSED_USAGE",
+    "platform_required_app_approval": "PAUSED_PLATFORM_APPROVAL",
+    "external_wait": "PAUSED_EXTERNAL",
+    "identical_failure_retry_ceiling": 3,
+    "retry_requires_materially_new_hypothesis_after_repeat": true
+  },
+  "completion": {
+    "source_only_normal_terminal_state": "DONE",
+    "target_issue_definition_of_done_must_be_satisfied": true,
+    "post_merge_exact_main_verification_required": true,
+    "final_github_receipt_required": true,
+    "controller_returns_to_idle_on_done": true,
+    "strict_live_required_but_not_authorized_is_not_done": true,
+    "strict_live_pending_may_end_source_controller_occupancy": true,
+    "pending_live_receipt_required_before_source_controller_release": true,
+    "controller_returns_to_idle_after_pending_live_handoff": true,
+    "target_issue_may_remain_open_after_source_controller_release": true
+  },
+  "billing": {
+    "primary_product": "CHATGPT_PLUS",
+    "provider_api_keys_allowed": false,
+    "automatic_paid_credits_allowed": false,
+    "codex_required": false,
+    "copilot_required": false
+  },
+  "platform_constraints": {
+    "scheduled_tasks_paid_plan_max_frequency": "PT1H",
+    "event_triggered_tasks_max_runs_per_hour": 30,
+    "github_event_triggered_work_supported_for_pull_request_activity": true,
+    "connected_app_approval_may_pause_task": true,
+    "repository_provider_permissions_still_apply": true,
+    "repository_allow_auto_merge_setting_must_be_enabled_out_of_band_when_not_exposed_by_the_connected_app": true
+  }
+}

@@ -297,7 +297,7 @@ def test_workflow_uses_ruleset_safe_app_pr_publisher() -> None:
     assert 'snapshot["generated_at_local"]' in text
     assert "snapshot already generated today" in text
     assert "permissions:\n  contents: read\n  issues: read" in text
-    assert "actions/create-github-app-token@v3" in text
+    assert "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1" in text
     assert "PROJECT_PROGRESS_APP_CLIENT_ID" in text
     assert "PROJECT_PROGRESS_APP_PRIVATE_KEY" in text
     assert "permission-checks: read" in text

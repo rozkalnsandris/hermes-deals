@@ -150,6 +150,18 @@ OLD_REVISION="$(docker inspect "$API_BEFORE" --format '{{index .Config.Labels "o
 [[ "$OLD_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail 'current production image has no exact Git revision'
 owner_git cat-file -e "${OLD_REVISION}^{commit}" \
   || fail 'current production revision is not available in Git history'
+MANAGED_TAG_SHA=''
+if [[ "$OLD_TAG" =~ ^(main|w4b|w4c)-([0-9a-f]{12})$ ]]; then
+  MANAGED_TAG_SHA="${BASH_REMATCH[2]}"
+  [[ "$MANAGED_TAG_SHA" == "${OLD_REVISION:0:12}" ]] \
+    || fail 'managed current production image tag does not match OCI revision'
+elif [[ "$OLD_TAG" =~ ^release-[A-Za-z0-9_.-]+$ ]]; then
+  :
+else
+  fail 'current production image is not a managed Hermes Deals release image'
+fi
+[[ "$(docker image inspect "$OLD_IMAGE_REF" --format '{{.Id}}')" == "$OLD_IMAGE_ID" ]] \
+  || fail 'current image tag and container image ID disagree'
 ENV_TAG="$(python3 - "$PRIMARY/.env" <<'PY_ENV_READ'
 import pathlib
 import sys
@@ -164,7 +176,12 @@ if len(values) != 1 or not values[0]:
 print(values[0])
 PY_ENV_READ
 )" || fail 'production env tag could not be read'
-[[ "$ENV_TAG" == "$OLD_TAG" ]] || fail 'production env tag does not match running API image'
+if [[ "$ENV_TAG" != "$OLD_TAG" ]]; then
+  printf 'CHECK: production env tag is stale; running API provenance verified independently\n'
+  printf 'PRODUCTION_ENV_TAG_STALE=true\n'
+else
+  printf 'PRODUCTION_ENV_TAG_STALE=false\n'
+fi
 PRE_ALEMBIC="$(read_alembic)"
 HEALTH_URL="$(resolve_web_url "$WEB_BEFORE" '/api/health')" || fail 'published API health URL could not be resolved'
 UI_URL="$(resolve_web_url "$WEB_BEFORE" '/ui')" || fail 'published UI URL could not be resolved'

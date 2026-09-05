@@ -72,6 +72,17 @@ def test_main_register_uses_exact_main_and_ci_without_pr_or_issue() -> None:
         assert forbidden not in text
 
 
+def test_main_register_accepts_only_bounded_managed_baselines_with_oci_binding() -> None:
+    text = read(MAIN_REGISTER)
+    assert '^hermes-deals-api:(main|w4b|w4c)-([0-9a-f]{12})$' in text
+    assert '^hermes-deals-api:release-[A-Za-z0-9_.-]+$' in text
+    assert 'MANAGED_TAG_SHA="${BASH_REMATCH[2]}"' in text
+    assert '[[ "$MANAGED_TAG_SHA" == "${CURRENT_REVISION:0:12}" ]]' in text
+    assert "managed current production image requires an exact OCI revision label" in text
+    assert "managed current production image tag does not match OCI revision" in text
+    assert '[[ "$CURRENT_TAG" == hermes-deals-api:release-* ]]' not in text
+
+
 def test_main_deploy_reuses_controlled_dispatcher_and_verifies_boundaries() -> None:
     subprocess.run(["bash", "-n", str(MAIN_DEPLOY)], check=True)
     text = read(MAIN_DEPLOY)

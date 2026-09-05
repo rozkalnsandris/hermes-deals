@@ -1,0 +1,306 @@
+name: Hermes Lidl Gate B #603 frozen visual review pack
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions: {}
+
+concurrency:
+  group: hermes-lidl-gate-b-frozen-review-pack-603
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Verify #603 owner authorization and start signal
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.number == 603 &&
+      github.event.sender.login == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      startsWith(github.event.comment.body, '/hermes-lidl-gate-b-frozen-review-pack-603 auth=')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: read
+    outputs:
+      trigger_comment_id: ${{ steps.authorize.outputs.trigger_comment_id }}
+      authorization_comment_id: ${{ steps.authorize.outputs.authorization_comment_id }}
+      status_comment_id: ${{ steps.authorize.outputs.status_comment_id }}
+
+    steps:
+      - name: Verify exact one-shot authorization lineage
+        id: authorize
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TRIGGER_COMMENT_ID: ${{ github.event.comment.id }}
+          TRIGGER_BODY: ${{ github.event.comment.body }}
+          STATUS_COMMENT_ID: '5246347776'
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.request
+
+          repo = os.environ['REPOSITORY']
+          if repo != 'rozkalnsandris/hermes-deals':
+              raise SystemExit('unexpected repository')
+          trigger_id = os.environ['TRIGGER_COMMENT_ID']
+          body = os.environ['TRIGGER_BODY'].strip()
+          match = re.fullmatch(r'/hermes-lidl-gate-b-frozen-review-pack-603 auth=([1-9][0-9]*)', body)
+          if match is None:
+              raise SystemExit('start signal does not match exact command contract')
+          auth_id = match.group(1)
+          status_id = os.environ['STATUS_COMMENT_ID']
+          if not trigger_id.isdigit() or int(trigger_id) <= 0:
+              raise SystemExit('invalid trigger comment id')
+
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+              'User-Agent': 'hermes-lidl-gate-b-frozen-review-pack-603-authorizer',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def get_json(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  if response.status != 200:
+                      raise SystemExit(f'unexpected GitHub status: {response.status}')
+                  return json.load(response)
+
+          authorization = get_json(f'https://api.github.com/repos/{repo}/issues/comments/{auth_id}')
+          if authorization.get('id') != int(auth_id):
+              raise SystemExit('authorization comment identity mismatch')
+          if authorization.get('issue_url') != f'https://api.github.com/repos/{repo}/issues/603':
+              raise SystemExit('authorization comment issue mismatch')
+          user = authorization.get('user') or {}
+          if user.get('login') != 'rozkalnsandris' or user.get('id') != 277435981:
+              raise SystemExit('authorization comment owner mismatch')
+          auth_body = str(authorization.get('body') or '')
+          required = (
+              '## Owner authorization — #603 frozen RPi5 visual review-pack execution',
+              'aktionsprospekt-10-08-2026-15-08-2026-71933b',
+              '/home/andris/hermes-deals-lidl-corpus/flyers/aktionsprospekt-10-08-2026-15-08-2026-71933b/source.pdf',
+              'ce84a4996f5c709620b8becc44c4e2a23e23d24b28694679903490efc91ce728',
+              'expected pages: `73`',
+              '`ONE_CONTROLLED_RENDER=true`',
+              '`RPI5_EXECUTION_AUTHORIZED=true`',
+              '`SELF_HOSTED_EXECUTION_AUTHORIZED=true`',
+              '`CORPUS_WRITE=false`',
+              '`CORPUS_REPLACEMENT=false`',
+              '`PRODUCTION_DATABASE_WRITE=false`',
+              '`REVIEW_WRITE=false`',
+              '`PRODUCTION_PUBLISH=false`',
+              '`PRODUCTION_DEPLOY=false`',
+              '`SYSTEMD_CHANGE=false`',
+              '`AUTOMATIC_RETRY=false`',
+              '`GATE_C_D_AUTHORIZED=false`',
+          )
+          for marker in required:
+              if marker not in auth_body:
+                  raise SystemExit(f'authorization evidence mismatch: {marker[:72]}')
+
+          status = get_json(f'https://api.github.com/repos/{repo}/issues/comments/{status_id}')
+          if status.get('id') != int(status_id):
+              raise SystemExit('status comment identity mismatch')
+          if status.get('issue_url') != f'https://api.github.com/repos/{repo}/issues/588':
+              raise SystemExit('status comment issue mismatch')
+          status_user = status.get('user') or {}
+          if status_user.get('login') != 'rozkalnsandris' or status_user.get('id') != 277435981:
+              raise SystemExit('status comment owner mismatch')
+          status_body = str(status.get('body') or '')
+          if '<!-- hermes-lidl-gate-b-review-pack-588-status -->' not in status_body:
+              raise SystemExit('status comment marker mismatch')
+          if f'authorization comment: `{auth_id}`' in status_body:
+              raise SystemExit('authorization comment was already consumed by a prior render attempt')
+
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              handle.write(f'trigger_comment_id={trigger_id}\n')
+              handle.write(f'authorization_comment_id={auth_id}\n')
+              handle.write(f'status_comment_id={status_id}\n')
+          PY
+
+  render:
+    name: Render exact frozen 73-page pack on RPi5
+    needs:
+      - authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 30
+    permissions: {}
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      source_pdf_sha256: ${{ steps.inspect.outputs.source_pdf_sha256 }}
+      page_count: ${{ steps.inspect.outputs.page_count }}
+      render_tree_sha256: ${{ steps.inspect.outputs.render_tree_sha256 }}
+      manifest_sha256: ${{ steps.inspect.outputs.manifest_sha256 }}
+      renderer: ${{ steps.inspect.outputs.renderer }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+
+    steps:
+      - name: Run fixed root-owned frozen review-pack dispatcher
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-gate-b-frozen-review-pack-603 \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+
+      - name: Inspect sanitized frozen review-pack summary
+        id: inspect
+        shell: bash
+        env:
+          SUMMARY_PATH: /var/lib/hermes-deals/lidl-gate-b-frozen-review-pack-603/${{ github.run_id }}-${{ github.run_attempt }}/summary.json
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          summary = json.loads(Path(os.environ['SUMMARY_PATH']).read_text(encoding='utf-8'))
+          expected = {
+              'schema_version': 1,
+              'audit': 'lidl-gate-b-frozen-review-pack-603',
+              'result': 'PASS',
+              'flyer_key': 'aktionsprospekt-10-08-2026-15-08-2026-71933b',
+              'source_pdf_sha256': 'ce84a4996f5c709620b8becc44c4e2a23e23d24b28694679903490efc91ce728',
+              'page_count': 73,
+              'staging_scan_tree_sha256': 'dd4ef887a72d6942bbade1adf8f2e2e29c229675c8c28bb1f0b41c1082d4f4c1',
+              'independent_render_replay': 'BYTE_IDENTICAL_PASS',
+          }
+          for key, value in expected.items():
+              if summary.get(key) != value:
+                  raise SystemExit(f'summary identity mismatch: {key}')
+          for key in ('render_tree_sha256', 'manifest_sha256'):
+              if re.fullmatch(r'[0-9a-f]{64}', str(summary.get(key) or '')) is None:
+                  raise SystemExit(f'invalid summary digest: {key}')
+          if not str(summary.get('renderer') or '').startswith('pdftoppm version '):
+              raise SystemExit('renderer identity mismatch')
+          safety = summary.get('safety') or {}
+          required_safety = {
+              'private_evidence_write': True,
+              'artifact_write': True,
+              'source_content_exported': False,
+              'raw_pdf_uploaded': False,
+              'corpus_write': False,
+              'corpus_replacement': False,
+              'production_database_write': False,
+              'review_write': False,
+              'production_publish': False,
+              'production_deploy': False,
+              'systemd_change': False,
+              'automatic_retry': False,
+              'gate_c_d_authorized': False,
+          }
+          for key, value in required_safety.items():
+              if safety.get(key) is not value:
+                  raise SystemExit(f'unsafe summary flag: {key}')
+          output = Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a', encoding='utf-8') as handle:
+              for key in ('result', 'source_pdf_sha256', 'page_count', 'render_tree_sha256', 'manifest_sha256', 'renderer'):
+                  value = str(summary[key]).replace('\n', ' ')
+                  handle.write(f'{key}={value}\n')
+          PY
+
+      - name: Upload sanitized 73-page review artifact
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lidl-gate-b-frozen-review-pack-603-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /var/lib/hermes-deals/lidl-gate-b-frozen-review-pack-603/${{ github.run_id }}-${{ github.run_attempt }}/artifact
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+  report:
+    name: Update fixed #588 review-pack status
+    if: always() && needs.authorize.result == 'success'
+    needs:
+      - authorize
+      - render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+
+    steps:
+      - name: Patch fixed #588 status marker
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          STATUS_COMMENT_ID: ${{ needs.authorize.outputs.status_comment_id }}
+          AUTHORIZATION_COMMENT_ID: ${{ needs.authorize.outputs.authorization_comment_id }}
+          TRIGGER_COMMENT_ID: ${{ needs.authorize.outputs.trigger_comment_id }}
+          RENDER_JOB_RESULT: ${{ needs.render.result }}
+          RESULT: ${{ needs.render.outputs.result }}
+          SOURCE_PDF_SHA256: ${{ needs.render.outputs.source_pdf_sha256 }}
+          PAGE_COUNT: ${{ needs.render.outputs.page_count }}
+          RENDER_TREE_SHA256: ${{ needs.render.outputs.render_tree_sha256 }}
+          MANIFEST_SHA256: ${{ needs.render.outputs.manifest_sha256 }}
+          RENDERER: ${{ needs.render.outputs.renderer }}
+          ARTIFACT_ID: ${{ needs.render.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.render.outputs.artifact_digest }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          passed = os.environ.get('RENDER_JOB_RESULT') == 'success' and os.environ.get('RESULT') == 'PASS'
+          state = 'PASS' if passed else 'BLOCKED'
+          if passed:
+              details = (
+                  f"- source PDF SHA-256: `{os.environ['SOURCE_PDF_SHA256']}`\n"
+                  f"- pages: `{os.environ['PAGE_COUNT']}`\n"
+                  f"- render tree SHA-256: `{os.environ['RENDER_TREE_SHA256']}`\n"
+                  f"- manifest SHA-256: `{os.environ['MANIFEST_SHA256']}`\n"
+                  f"- renderer: `{os.environ['RENDERER']}`\n"
+                  f"- artifact ID: `{os.environ['ARTIFACT_ID']}`\n"
+                  f"- artifact digest: `{os.environ['ARTIFACT_DIGEST']}`\n"
+                  "- independent render replay: `BYTE_IDENTICAL_PASS`\n"
+              )
+          else:
+              details = f"- render job: `{os.environ.get('RENDER_JOB_RESULT') or 'unknown'}`\n"
+          body = (
+              '<!-- hermes-lidl-gate-b-review-pack-588-status -->\n'
+              f'## Lidl Gate B #588 frozen visual review pack — {state}\n\n'
+              f"- authorization comment: `{os.environ['AUTHORIZATION_COMMENT_ID']}`\n"
+              f"- start-signal comment: `{os.environ['TRIGGER_COMMENT_ID']}`\n"
+              f"- workflow: {os.environ['RUN_URL']}\n"
+              + details
+              + '\nSafety: this path reads only the exact frozen PDF and exports bounded JPEG/manifest evidence. '
+                'No corpus replacement/promotion, production DB/Review write, publication, deploy, systemd/retry or Gate C/D action is authorized.'
+          )
+          payload = json.dumps({'body': body}).encode('utf-8')
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/issues/comments/{os.environ['STATUS_COMMENT_ID']}",
+              data=payload,
+              method='PATCH',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'hermes-lidl-gate-b-frozen-review-pack-603-reporter',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 200:
+                  raise SystemExit(f'unexpected status patch response: {response.status}')
+          PY

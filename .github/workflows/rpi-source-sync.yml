@@ -1,0 +1,316 @@
+name: Owner-gated RPi5 source checkout sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_pr_number:
+        description: Merged same-repository PR whose squash merge SHA should become the RPi source checkout HEAD
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: hermes-deals-rpi-source-sync
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact merged-main source target
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.gate.outputs.sha }}
+      pr_number: ${{ steps.gate.outputs.pr_number }}
+      ci_mode: ${{ steps.gate.outputs.ci_mode }}
+
+    steps:
+      - name: Validate owner, merged PR, reachability and exact CI
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+          REQUESTED_PR: ${{ inputs.target_pr_number }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          if repo != "rozkalnsandris/hermes-deals":
+              raise SystemExit("unexpected repository")
+          if os.environ["WORKFLOW_REF"] != "refs/heads/main":
+              raise SystemExit("workflow must execute from main")
+
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender = event.get("sender") or {}
+          if (
+              sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"]
+              or sender.get("id") != int(os.environ["EXPECTED_OWNER_ID"])
+          ):
+              raise SystemExit("workflow_dispatch actor is not allowlisted owner")
+
+          raw_pr = os.environ["REQUESTED_PR"].strip()
+          if not raw_pr.isdigit() or int(raw_pr) <= 0:
+              raise SystemExit("target_pr_number must be a positive integer")
+          pr_number = int(raw_pr)
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-rpi-source-sync-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def get(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
+          if not pr.get("merged") or not pr.get("merged_at"):
+              raise SystemExit("source sync requires a merged pull request")
+          if pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != repo:
+              raise SystemExit("pull request was not merged into repository main")
+          if (pr.get("head", {}).get("repo") or {}).get("full_name") != repo:
+              raise SystemExit("source sync requires a same-repository PR head")
+
+          sha = str(pr.get("merge_commit_sha") or "")
+          head_sha = str((pr.get("head") or {}).get("sha") or "")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("merged pull request does not expose a valid merge SHA")
+          if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+              raise SystemExit("pull request does not expose a valid head SHA")
+
+          comparison = get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("target merge SHA is not reachable from current main")
+
+          merge_query = urllib.parse.urlencode(
+              {"head_sha": sha, "event": "push", "status": "completed", "per_page": 20}
+          )
+          merge_runs = get(
+              f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{merge_query}"
+          ).get("workflow_runs") or []
+          merge_ci_ok = any(
+              run.get("head_sha") == sha
+              and run.get("head_branch") == "main"
+              and run.get("event") == "push"
+              and run.get("conclusion") == "success"
+              and run.get("name") == "Hermes Deals CI checks"
+              for run in merge_runs
+          )
+
+          ci_mode = "merge_push_ci"
+          if not merge_ci_ok:
+              head_query = urllib.parse.urlencode(
+                  {"head_sha": head_sha, "event": "pull_request", "status": "completed", "per_page": 20}
+              )
+              head_runs = get(
+                  f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{head_query}"
+              ).get("workflow_runs") or []
+              head_ci_ok = any(
+                  run.get("head_sha") == head_sha
+                  and run.get("event") == "pull_request"
+                  and run.get("conclusion") == "success"
+                  and run.get("name") == "Hermes Deals CI checks"
+                  for run in head_runs
+              )
+              if not head_ci_ok:
+                  raise SystemExit("neither merge SHA nor exact PR head has successful CI")
+
+              merge_commit = get(f"https://api.github.com/repos/{repo}/git/commits/{sha}")
+              head_commit = get(f"https://api.github.com/repos/{repo}/git/commits/{head_sha}")
+              merge_tree = str((merge_commit.get("tree") or {}).get("sha") or "")
+              head_tree = str((head_commit.get("tree") or {}).get("sha") or "")
+              if not re.fullmatch(r"[0-9a-f]{40}", merge_tree) or merge_tree != head_tree:
+                  raise SystemExit("tested PR head tree differs from squash merge tree")
+              ci_mode = "tree_equivalent_pr_head_ci"
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"sha={sha}\n")
+              handle.write(f"pr_number={pr_number}\n")
+              handle.write(f"ci_mode={ci_mode}\n")
+          PY
+
+  sync-rpi5:
+    name: Fast-forward fixed RPi5 primary source checkout
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 15
+    permissions: {}
+    outputs:
+      bridge_status: ${{ steps.inspect.outputs.bridge_status }}
+      reason_code: ${{ steps.inspect.outputs.reason_code }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+
+    steps:
+      - name: Run fixed root-owned source-sync dispatcher
+        id: dispatch
+        env:
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export_dir="${RUNNER_TEMP}/hermes-deals-rpi-source-sync-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$export_dir"
+          echo "artifact_dir=$export_dir" >> "$GITHUB_OUTPUT"
+
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-rpi-source-sync-dispatch \
+            "$APPROVED_SHA" \
+            "$export_dir"
+          runner_rc=$?
+          set -e
+          echo "runner_rc=$runner_rc" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect sanitized source-sync receipt
+        id: inspect
+        if: always()
+        env:
+          ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+
+          artifact_dir = pathlib.Path(os.environ.get("ARTIFACT_DIR") or ".")
+          summary_path = artifact_dir / "rpi-source-sync-summary.json"
+          runner_rc_raw = os.environ.get("RUNNER_RC") or "1"
+          runner_rc = int(runner_rc_raw) if re.fullmatch(r"-?[0-9]+", runner_rc_raw) else 1
+          bridge_status = "BLOCKED"
+          reason_code = "SANITIZED_SUMMARY_MISSING"
+
+          if summary_path.is_file() and not summary_path.is_symlink():
+              payload = json.loads(summary_path.read_text(encoding="utf-8"))
+              expected_fields = {
+                  "bridge_schema_version", "bridge_contract_version", "bridge_execution_status",
+                  "reason_code", "registered_bridge_sha", "source_checkout_path", "head_before",
+                  "target_sha", "remote_main_sha", "head_after", "host_mutation_started",
+                  "network_fetch_attempted", "source_checkout_head_changed",
+                  "production_deploy_performed", "database_write_performed", "review_write_performed",
+                  "publication_write_performed", "retained_evidence_read_performed",
+                  "retained_evidence_write_performed", "diagnostic_execution_performed",
+                  "scheduler_change_performed", "systemd_change_performed", "cloudflare_mutation_performed",
+                  "container_mutation_performed", "package_install_performed",
+              }
+              if set(payload) != expected_fields:
+                  raise SystemExit("source-sync summary field set mismatch")
+              if payload["bridge_schema_version"] != 1:
+                  raise SystemExit("source-sync summary schema mismatch")
+              if payload["bridge_contract_version"] != "hermes-deals-rpi-source-sync-v1":
+                  raise SystemExit("source-sync summary contract mismatch")
+              if payload["source_checkout_path"] != "/home/andris/hermes-deals":
+                  raise SystemExit("source checkout path mismatch")
+              if payload["target_sha"] != os.environ["EXPECTED_SHA"]:
+                  raise SystemExit("source-sync target mismatch")
+              if not re.fullmatch(r"[0-9a-f]{40}", payload["registered_bridge_sha"]):
+                  raise SystemExit("registered bridge SHA invalid")
+
+              false_flags = {
+                  "production_deploy_performed", "database_write_performed", "review_write_performed",
+                  "publication_write_performed", "retained_evidence_read_performed",
+                  "retained_evidence_write_performed", "diagnostic_execution_performed",
+                  "scheduler_change_performed", "systemd_change_performed", "cloudflare_mutation_performed",
+                  "container_mutation_performed", "package_install_performed",
+              }
+              if any(payload[field] is not False for field in false_flags):
+                  raise SystemExit("source-sync receipt contains forbidden mutation")
+
+              bridge_status = str(payload["bridge_execution_status"])
+              reason = payload["reason_code"]
+              reason_code = "none" if reason is None else str(reason)
+              if bridge_status not in {"PASS", "BLOCKED"}:
+                  raise SystemExit("unsupported source-sync bridge status")
+              if not re.fullmatch(r"(?:none|[A-Z0-9_]{1,96})", reason_code):
+                  raise SystemExit("unbounded source-sync reason code")
+
+              if runner_rc == 0:
+                  if bridge_status != "PASS" or reason is not None:
+                      raise SystemExit("dispatcher success/status mismatch")
+                  if payload["head_after"] != payload["target_sha"]:
+                      raise SystemExit("successful source-sync did not reach target")
+                  if payload["host_mutation_started"] is not True:
+                      raise SystemExit("successful source-sync did not attest host mutation")
+                  if payload["network_fetch_attempted"] is not True:
+                      raise SystemExit("successful source-sync did not attest exact fetch")
+              elif bridge_status != "BLOCKED":
+                  raise SystemExit("dispatcher failure/status mismatch")
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"bridge_status={bridge_status}\n")
+              handle.write(f"reason_code={reason_code}\n")
+          PY
+
+      - name: Upload sanitized source-sync evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rpi-source-sync-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}/rpi-source-sync-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 9
+
+      - name: Record source-sync safety boundary
+        if: always()
+        env:
+          BRIDGE_STATUS: ${{ steps.inspect.outputs.bridge_status }}
+          REASON_CODE: ${{ steps.inspect.outputs.reason_code }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo '## RPi5 source checkout sync'
+            echo "- Approved target: \`${APPROVED_SHA}\`"
+            echo "- Bridge execution: \`${BRIDGE_STATUS:-UNAVAILABLE}\`"
+            echo "- Reason code: \`${REASON_CODE:-none}\`"
+            echo "- Dispatcher exit: \`${RUNNER_RC:-unknown}\`"
+            echo '- Production deploy: **not performed / not authorized**'
+            echo '- DB/Review/publication writes: **not performed / not authorized**'
+            echo '- Retained evidence read/write: **not performed / not authorized**'
+            echo '- Diagnostic execution: **not performed / not authorized**'
+            echo '- Root bridge registration: **not chained**'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce source-sync execution
+        if: always()
+        env:
+          BRIDGE_STATUS: ${{ steps.inspect.outputs.bridge_status }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_RC" == "0" ]] || {
+            echo "RPi source-sync dispatcher failed closed with exit ${RUNNER_RC:-unknown}." >&2
+            exit 1
+          }
+          [[ "$BRIDGE_STATUS" == "PASS" ]] || {
+            echo 'RPi source-sync bridge did not produce a validated PASS receipt.' >&2
+            exit 1
+          }

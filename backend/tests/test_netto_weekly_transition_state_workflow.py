@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -8,7 +9,7 @@ WORKFLOW = ROOT / ".github/workflows/netto-weekly-transition-state.yml"
 def test_schedule_is_timezone_aware_non_top_of_hour_and_main_only_runtime() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "schedule:" in text
-    assert "cron: '17 6 * * *'" in text
+    assert "cron: '10 0 * * 0'" in text
     assert "timezone: 'Europe/Berlin'" in text
     assert "workflow_dispatch:" in text
     assert "runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]" in text
@@ -17,6 +18,36 @@ def test_schedule_is_timezone_aware_non_top_of_hour_and_main_only_runtime() -> N
     assert "grep -Fxq docker" in text
     assert "ref: ${{ github.sha }}" in text
     assert "persist-credentials: false" in text
+
+
+def test_scheduler_external_actions_are_immutable_and_version_annotated() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    expected = {
+        "actions/checkout": (
+            "08c6903cd8c0fde910a37f88322edcfb5dd907a8",
+            "v5.0.0",
+        ),
+        "actions/upload-artifact": (
+            "b7c566a772e6b6bfb58ed0dc250532a479d7789f",
+            "v6.0.0",
+        ),
+    }
+    uses_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("uses: ")
+    ]
+    assert len(uses_lines) == len(expected)
+    for line in uses_lines:
+        action_ref = line.removeprefix("uses: ").split(maxsplit=1)[0]
+        action, sha = action_ref.rsplit("@", 1)
+        assert action in expected
+        expected_sha, expected_version = expected[action]
+        assert sha == expected_sha
+        assert re.fullmatch(r"[0-9a-f]{40}", sha)
+        assert line.endswith(f"# {expected_version}")
+    assert "actions/checkout@v5" not in text
+    assert "actions/upload-artifact@v6" not in text
 
 
 def test_only_successful_scheduled_artifact_can_restore_unattended_state() -> None:
@@ -33,6 +64,18 @@ def test_only_successful_scheduled_artifact_can_restore_unattended_state() -> No
     assert "previous artifact members mismatch" in text
     assert "previous artifact contains symlink" in text
     assert "actions: read" in text
+
+
+def test_scheduled_restore_does_not_forward_github_auth_to_artifact_storage() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "class NoRedirect(urllib.request.HTTPRedirectHandler):" in text
+    assert "redirect_opener=urllib.request.build_opener(NoRedirect())" in text
+    assert "urllib.request.Request(selected['archive_download_url'],headers=headers)" in text
+    assert "location=response.headers.get('Location')" in text
+    assert "previous artifact download endpoint did not return a signed redirect" in text
+    assert "signed_request=urllib.request.Request(location,headers={'User-Agent':user_agent})" in text
+    assert "urllib.request.urlopen(signed_request,timeout=60)" in text
+    assert "urllib.request.Request(location,headers=headers)" not in text
 
 
 def test_manual_canary_namespace_never_enters_scheduled_chain() -> None:
@@ -55,7 +98,7 @@ def test_live_source_uses_existing_verified_selector_with_bounded_retries() -> N
 
 def test_transition_artifact_is_exact_and_daily_noop_does_not_spam_issue() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/upload-artifact@v6" in text
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0" in text
     for member in (
         "SHA256SUMS",
         "live-source.json",

@@ -256,6 +256,159 @@ def _labelled_price_fields(
     return None
 
 
+def _bounded_dialog_price_structure(
+    dialog: Tag,
+) -> tuple[list[str], list[str], list[str]]:
+    fragments: list[str] = []
+    seen_fragments: set[str] = set()
+    for value in dialog.stripped_strings:
+        fragment = _norm(str(value))
+        folded = fragment.casefold()
+        if not fragment or not (
+            any(character.isdigit() for character in fragment)
+            or any(token in folded for token in ("preis", "€", "eur", "pfand", "rabatt"))
+        ):
+            continue
+        bounded = fragment[:60]
+        if bounded in seen_fragments:
+            continue
+        seen_fragments.add(bounded)
+        fragments.append(bounded)
+        if len(fragments) >= 4:
+            break
+
+    attributes: list[str] = []
+    seen_attributes: set[str] = set()
+    numeric_nodes: list[str] = []
+    seen_numeric_nodes: set[str] = set()
+    for node in dialog.find_all(True):
+        if len(attributes) < 3:
+            for key, raw_value in node.attrs.items():
+                key_folded = key.casefold()
+                if key not in {"aria-label", "title", "data-testid"} and not any(
+                    token in key_folded for token in ("price", "preis", "amount", "value")
+                ):
+                    continue
+                if isinstance(raw_value, list):
+                    value = _norm(" ".join(str(item) for item in raw_value))
+                else:
+                    value = _norm(str(raw_value))
+                if not value:
+                    continue
+                entry = f"{node.name}.{key}={value[:60]}"[:90]
+                if entry in seen_attributes:
+                    continue
+                seen_attributes.add(entry)
+                attributes.append(entry)
+                if len(attributes) >= 3:
+                    break
+
+        if len(numeric_nodes) < 6:
+            direct_text = _norm(
+                " ".join(
+                    str(value)
+                    for value in node.find_all(string=True, recursive=False)
+                )
+            )
+            if direct_text and any(
+                character.isdigit() for character in direct_text
+            ):
+                node_classes = " ".join(
+                    str(value) for value in (node.get("class") or [])
+                )
+                parent = node.parent if isinstance(node.parent, Tag) else None
+                parent_name = parent.name if parent is not None else "none"
+                parent_classes = (
+                    " ".join(
+                        str(value) for value in (parent.get("class") or [])
+                    )
+                    if parent is not None
+                    else ""
+                )
+                entry = (
+                    f"{node.name}.class={node_classes[:30]} "
+                    f"text={direct_text[:24]!r} "
+                    f"parent={parent_name}.class={parent_classes[:30]}"
+                )[:110]
+                if entry not in seen_numeric_nodes:
+                    seen_numeric_nodes.add(entry)
+                    numeric_nodes.append(entry)
+
+        if len(numeric_nodes) >= 6 and len(attributes) >= 3:
+            break
+
+    return fragments, attributes, numeric_nodes
+
+
+def _is_pfand_only_unpriced_card(article: Tag, dialog: Tag) -> bool:
+    """Return True only when the exact card exposes deposit text but no price shape."""
+
+    saw_pfand_currency = False
+    structural_tokens = ("price", "preis", "amount", "value")
+
+    for container in (article, dialog):
+        for raw_value in container.stripped_strings:
+            fragment = _norm(str(raw_value))
+            if not fragment:
+                continue
+            folded = fragment.casefold()
+
+            if ("€" in fragment or "eur" in folded) and "pfand" in folded:
+                saw_pfand_currency = True
+
+            # Any explicit/unknown price wording remains authoritative enough to
+            # stop the skip path and preserve fail-closed behaviour.
+            if "preis" in folded or "rabatt" in folded:
+                return False
+
+            # Currency outside a Pfand fragment may be an unrecognised offer
+            # price and must never be silently discarded.
+            if ("€" in fragment or "eur" in folded) and "pfand" not in folded:
+                return False
+
+            # Remove full German-style dates before looking for a decimal-like
+            # number. This keeps campaign dates out while treating any other
+            # decimal quantity/price as suspicious and therefore fail-closed.
+            without_dates = re.sub(r"\b\d{2}\.\d{2}\.\d{4}\b", "", fragment)
+            if "pfand" not in folded and re.search(
+                r"\b\d{1,4}[.,]\d{1,2}\b", without_dates
+            ):
+                return False
+
+        for node in container.find_all(True):
+            for key, raw_attr in node.attrs.items():
+                key_folded = key.casefold()
+                if not any(token in key_folded for token in structural_tokens):
+                    continue
+                if isinstance(raw_attr, list):
+                    attr_value = _norm(" ".join(str(item) for item in raw_attr))
+                else:
+                    attr_value = _norm(str(raw_attr))
+                if attr_value:
+                    return False
+
+            classes = [str(value) for value in (node.get("class") or [])]
+            if any(
+                any(token in class_name.casefold() for token in structural_tokens)
+                for class_name in classes
+            ):
+                return False
+
+            direct_text = _norm(
+                " ".join(
+                    str(value)
+                    for value in node.find_all(string=True, recursive=False)
+                )
+            )
+            if direct_text and re.fullmatch(
+                r"\d{1,4}(?:[.,]\d{0,2})?\s*€?",
+                direct_text,
+            ):
+                return False
+
+    return saw_pfand_currency
+
+
 def _price_fields(
     article: Tag,
 ) -> tuple[Decimal, Decimal | None, bool, list[str]] | None:
@@ -462,13 +615,23 @@ def parse_edeka_html(
 
             dialog_price_fields = _labelled_price_fields(dialog)
             if dialog_price_fields is None:
+                if _is_pfand_only_unpriced_card(article, dialog):
+                    seen_offer_ids.add(source_offer_id)
+                    continue
+
                 dialog_labels = _price_labels(dialog)
+                dialog_fragments, dialog_attributes, dialog_numeric_nodes = (
+                    _bounded_dialog_price_structure(dialog)
+                )
                 raise ValueError(
                     "EDEKA unsupported offer price semantics; "
                     f"source_offer_id={source_offer_id}; "
                     f"product_name={product_name[:160]!r}; "
-                    f"article_detail={str(article_exc)[:1000]}; "
-                    f"dialog_price_labels={dialog_labels[:12]!r}"
+                    f"article_detail={str(article_exc)[:400]}; "
+                    f"dialog_price_labels={dialog_labels[:6]!r}; "
+                    f"dialog_numeric_nodes={dialog_numeric_nodes!r}; "
+                    f"dialog_price_attributes={dialog_attributes!r}; "
+                    f"dialog_fragments={dialog_fragments!r}"
                 ) from article_exc
             price_fields = dialog_price_fields
 

@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/aldi-gate-d1-evidence-discovery-rpi5.yml"
 INSTALLER = ROOT / "tools/runner/install-aldi-gate-d1-evidence-discovery-dispatcher.py"
 DISPATCHER = ROOT / "tools/runner/aldi_gate_d1_evidence_discovery_dispatch.py"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
 def load_module(path: Path, name: str):
@@ -68,7 +69,11 @@ def test_workflow_is_owner_only_manual_rpi5_execution() -> None:
     assert 'os.environ["ACTOR_ID"] != "277435981"' in text
     assert "runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]" in text
     assert "hermes-deals-aldi-gate-d1-evidence-discovery-dispatch" in text
-    assert "actions/upload-artifact@v6" in text
+    assert (
+        f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA} # v6.0.0"
+        in text
+    )
+    assert "uses: actions/upload-artifact@v6" not in text
     assert "Raw evidence exported: **false**" in text
     assert "Gate D review-pack execution: **false / not authorized**" in text
 

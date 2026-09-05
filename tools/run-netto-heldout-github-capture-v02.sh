@@ -87,7 +87,7 @@ if candidate.get("candidate_provenance_sha256") != v2.get("candidate_provenance_
 if review.get("parser_predictions_included") is not False or review.get("expected_truth_included") is not False:
     raise SystemExit("blind review template contains forbidden truth/predictions")
 payload = {
-    "schema_version": 2,
+    "schema_version": 3,
     "result": "PASS",
     "strategy": "netto_heldout_github_capture_v2",
     "registered_commit": sha,
@@ -104,6 +104,9 @@ payload = {
     "parent_reuse_metric": v2["parent_reuse_metric"],
     "network_fetch_performed": True,
     "candidate_decisions_frozen_before_truth": True,
+    "independent_retention_verified": False,
+    "heldout_eligible": False,
+    "retention_gate": "BLOCKED_PENDING_INDEPENDENT_COPY_RECEIPT",
     "database_write_performed": False,
     "review_write_performed": False,
     "deployment_performed": False,
@@ -129,6 +132,9 @@ echo "AS_OF=$AS_OF"
 echo "RUN_ROOT=$RUN_ROOT"
 echo "CANDIDATE_IMPLEMENTATION_COMMIT=$CANDIDATE_COMMIT"
 echo "CANDIDATE_FROZEN_BEFORE_TRUTH=true"
+echo "INDEPENDENT_RETENTION_VERIFIED=false"
+echo "HELDOUT_ELIGIBLE=false"
+echo "RETENTION_GATE=BLOCKED_PENDING_INDEPENDENT_COPY_RECEIPT"
 echo "DATABASE_WRITE=false"
 echo "REVIEW_WRITE=false"
 echo "PRODUCTION_DEPLOY=false"

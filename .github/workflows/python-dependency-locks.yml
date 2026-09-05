@@ -1,0 +1,63 @@
+name: Python dependency hash locks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - backend/requirements.in
+      - backend/requirements-ci.in
+      - backend/locks/**
+      - scripts/compile-python-locks.sh
+      - .github/workflows/python-dependency-locks.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-python-locks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-locks:
+    name: Verify Python 3.13 locks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up exact Python line
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.in
+            backend/requirements-ci.in
+
+      - name: Regenerate wheel-only hash locks
+        shell: bash
+        run: |
+          bash scripts/compile-python-locks.sh 3.13
+
+      - name: Require committed locks to be reproducible
+        shell: bash
+        run: |
+          git diff --exit-code -- \
+            backend/locks/runtime-py313.txt \
+            backend/locks/ci-py313.txt
+
+      - name: Upload regenerated lock evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: verified-python-locks-py313-${{ github.sha }}
+          path: |
+            backend/locks/runtime-py313.txt
+            backend/locks/ci-py313.txt
+          if-no-files-found: error
+          retention-days: 7

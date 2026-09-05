@@ -152,7 +152,7 @@ jobs:
       EXPECTED_PAGE_COUNT: "77"
     steps:
       - name: Checkout exact reviewed implementation merge
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ needs.authorize.outputs.sha }}
           persist-credentials: false
@@ -193,7 +193,7 @@ jobs:
           PY
 
       - name: Download exact source-only review pack
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: ${{ env.UPSTREAM_ARTIFACT }}
           path: ${{ runner.temp }}/netto-review-pack-upstream
@@ -227,7 +227,7 @@ jobs:
           PY
 
       - name: Upload corrected blank source-truth ledger
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.generate.outputs.artifact_name }}
           path: ${{ steps.generate.outputs.output }}

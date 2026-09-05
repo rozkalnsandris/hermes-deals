@@ -151,14 +151,14 @@ jobs:
 
     steps:
       - name: Checkout exact default-branch runtime
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
           cache: pip
@@ -319,7 +319,7 @@ jobs:
 
       - name: Upload retained R2 staging scan and sanitized evidence
         id: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lidl-source-refresh-r2-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.run.outputs.output_dir }}

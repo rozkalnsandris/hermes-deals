@@ -1,0 +1,259 @@
+name: Hermes ALDI new-baseline weekly shadow
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: hermes-aldi-new-baseline-weekly-shadow-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 682 &&
+      github.event.comment.user.login == 'rozkalnsandris' &&
+      github.event.comment.user.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/hermes-aldi-new-baseline-weekly-shadow request=')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      request_sha256: ${{ steps.auth.outputs.request_sha256 }}
+      main_sha: ${{ steps.auth.outputs.main_sha }}
+    steps:
+      - name: Checkout current default branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Authorize exact owner request
+        id: auth
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$COMMENT_BODY" =~ ^/hermes-aldi-new-baseline-weekly-shadow\ request=([0-9a-f]{64})$ ]] || {
+            echo 'Exact command required: /hermes-aldi-new-baseline-weekly-shadow request=<sha256>' >&2
+            exit 1
+          }
+          request_sha256="${BASH_REMATCH[1]}"
+          [[ "$(git branch --show-current)" == "$DEFAULT_BRANCH" ]]
+          [[ -z "$(git status --porcelain)" ]]
+          main_sha="$(git rev-parse HEAD)"
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
+          for path in \
+            tools/aldi_new_baseline_weekly_shadow_bridge.py \
+            tools/aldi_new_immutable_baseline_gate.py \
+            tools/aldi_new_baseline_page_card_parity.py \
+            tools/aldi_new_baseline_gate_c_replay.py \
+            tools/aldi_new_baseline_two_cycle_shadow_gate.py \
+            tools/runner/aldi-new-baseline-weekly-shadow-dispatcher.sh
+          do
+            test -f "$path"
+          done
+          {
+            echo "request_sha256=$request_sha256"
+            echo "main_sha=$main_sha"
+          } >> "$GITHUB_OUTPUT"
+
+  run-rpi5:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 30
+    permissions: {}
+    outputs:
+      decision: ${{ steps.inspect.outputs.decision }}
+      result_fingerprint: ${{ steps.inspect.outputs.result_fingerprint }}
+      production_canary_plan_ready: ${{ steps.inspect.outputs.production_canary_plan_ready }}
+      dispatcher_rc: ${{ steps.dispatch.outputs.dispatcher_rc }}
+      artifact_name: ${{ steps.dispatch.outputs.artifact_name }}
+    steps:
+      - name: Run fixed root-owned ALDI weekly-shadow dispatcher
+        id: dispatch
+        env:
+          REQUEST_SHA256: ${{ needs.authorize.outputs.request_sha256 }}
+          EXPECTED_MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          AUTHORIZATION_COMMENT_ID: ${{ github.event.comment.id }}
+          GH_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_name="aldi-new-baseline-weekly-shadow-$GH_RUN_ID"
+          artifact_dir="$RUNNER_TEMP/$artifact_name"
+          [[ ! -e "$artifact_dir" ]]
+          install -d -m 0700 "$artifact_dir"
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-new-baseline-weekly-shadow-dispatch \
+            "$REQUEST_SHA256" \
+            "$EXPECTED_MAIN_SHA" \
+            "$AUTHORIZATION_COMMENT_ID" \
+            "$GH_RUN_ID" \
+            "$artifact_dir"
+          rc=$?
+          set -e
+          {
+            echo "dispatcher_rc=$rc"
+            echo "artifact_name=$artifact_name"
+            echo "artifact_dir=$artifact_dir"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Inspect sanitized local evidence
+        id: inspect
+        if: always()
+        env:
+          ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          root_text = os.environ.get("ARTIFACT_DIR", "")
+          root = Path(root_text) if root_text else None
+          decision = "BLOCKED"
+          fingerprint = "n/a"
+          canary_ready = False
+          inspection_ok = False
+
+          if root and root.is_dir() and not root.is_symlink():
+              result_path = root / "sanitized-result.json"
+              manifest_path = root / "MANIFEST.sha256"
+              if result_path.is_file() and manifest_path.is_file():
+                  for line in manifest_path.read_text(encoding="utf-8").splitlines():
+                      digest, name = line.split("  ", 1)
+                      path = root / name
+                      if not path.is_file() or path.is_symlink():
+                          raise SystemExit(f"unsafe manifest member: {name}")
+                      if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                          raise SystemExit(f"manifest digest mismatch: {name}")
+                  result = json.loads(result_path.read_text(encoding="utf-8"))
+                  decision = str(result.get("decision") or "BLOCKED")
+                  if decision not in {
+                      "WEEKLY_SHADOW_EVIDENCE_ACCEPTED",
+                      "READY_FOR_PRODUCTION_CANARY_PLAN",
+                      "BLOCKED",
+                  }:
+                      raise SystemExit("unexpected bridge decision")
+                  for key in (
+                      "production_canary_authorized",
+                      "production_deploy_authorized",
+                      "production_database_write_authorized",
+                      "review_or_publication_write_authorized",
+                      "source_mutation_authorized",
+                      "automatic_schedule",
+                      "automatic_approval_or_publication",
+                      "historical_issue_56_completion_claimed",
+                  ):
+                      if result.get(key) is not False:
+                          raise SystemExit(f"unsafe result flag: {key}")
+                  fingerprint = str(result.get("result_fingerprint") or result.get("reason_sha256") or "n/a")
+                  canary_ready = bool(result.get("production_canary_plan_ready"))
+                  inspection_ok = True
+
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"decision={decision}\n")
+              handle.write(f"result_fingerprint={fingerprint}\n")
+              handle.write(f"production_canary_plan_ready={str(canary_ready).lower()}\n")
+              handle.write(f"inspection_ok={str(inspection_ok).lower()}\n")
+
+      - name: Upload sanitized immutable evidence only
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ steps.dispatch.outputs.artifact_name }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail closed on blocked dispatcher or unsafe evidence
+        if: always()
+        env:
+          DISPATCHER_RC: ${{ steps.dispatch.outputs.dispatcher_rc }}
+          INSPECTION_OK: ${{ steps.inspect.outputs.inspection_ok }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$DISPATCHER_RC" == 0 ]]
+          [[ "$INSPECTION_OK" == true ]]
+
+  report:
+    needs: [authorize, run-rpi5]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Report sanitized owner-gated result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REQUEST_SHA256: ${{ needs.authorize.outputs.request_sha256 }}
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          RPI5_RESULT: ${{ needs.run-rpi5.result }}
+          DECISION: ${{ needs.run-rpi5.outputs.decision }}
+          RESULT_FINGERPRINT: ${{ needs.run-rpi5.outputs.result_fingerprint }}
+          CANARY_PLAN_READY: ${{ needs.run-rpi5.outputs.production_canary_plan_ready }}
+          ARTIFACT_NAME: ${{ needs.run-rpi5.outputs.artifact_name }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          result = os.environ.get("RPI5_RESULT") or "failure"
+          body = "\n".join(
+              [
+                  "## ALDI new-baseline weekly-shadow owner-gated run",
+                  "",
+                  f"- RPi5 workflow result: **{result.upper()}**",
+                  f"- request SHA256: `{os.environ['REQUEST_SHA256']}`",
+                  f"- exact main: `{os.environ['MAIN_SHA']}`",
+                  f"- decision: `{os.environ.get('DECISION') or 'BLOCKED'}`",
+                  f"- result/evidence fingerprint: `{os.environ.get('RESULT_FINGERPRINT') or 'n/a'}`",
+                  f"- production canary plan ready: `{os.environ.get('CANARY_PLAN_READY') or 'false'}`",
+                  "- production canary authorized: `false`",
+                  "- production DB write: `false`",
+                  "- Review/publication write: `false`",
+                  "- source mutation: `false`",
+                  "- production deploy: `false`",
+                  "- automatic schedule: `false`",
+                  f"- artifact: `{os.environ.get('ARTIFACT_NAME') or 'unavailable'}`",
+                  f"- workflow run: {os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['RUN_ID']}",
+                  "",
+                  "This owner command authorizes one exact request only. It does not authorize another week, host registration, canary application, or deploy.",
+              ]
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-aldi-new-baseline-weekly-shadow-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/issues/682/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers=headers,
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              if response.status != 201:
+                  raise SystemExit(f"unexpected comment response: {response.status}")
+          PY

@@ -235,7 +235,7 @@ jobs:
 
       - name: Upload sanitized evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lidl-gate-b-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.prepare.outputs.artifact_dir }}/audit-evidence

@@ -48,7 +48,23 @@ Put disposable browser output under `.codex/evidence/` and never save secrets/au
 
 Never report success from source inspection alone when runtime verification is required.
 
-## 5. Report compactly
+## 5. FAST-LANE v2.2 execution
+
+Command-mode selection is owned by repository `AGENTS.md` and `.github/start-mode-routing.json`; this skill must not redefine or narrow that authorization.
+
+When routing selects normal FAST-LANE v2.2:
+
+- bare `START`, `START hermes-deals`, `turpini`, or equivalent continuation may proceed through the repository-authorized safe source envelope without requiring a separate FAST token;
+- resolve the exact related work and keep it to one coherent risk/subsystem boundary;
+- batch up to five closely related same-risk work items when that reduces duplicate PR/CI cycles without hiding review scope;
+- proceed from fresh GitHub state through source changes, focused validation, branch/commit/push, Draft PR, CI and Ready without inserting artificial STOPs between those source-only steps;
+- after initial publication, make at most two scope-preserving corrective commits for CI/review findings inside the original scope;
+- STOP before a third corrective commit, material scope expansion, merge, runtime execution, retained write, migration, deploy or another STRICT action;
+- prepare one complete Ready receipt rather than repeating the same mutable state after every micro-step.
+
+`GITHUB-ONLY` and `LIVE-ALL` remain explicit modes and must never be inferred by this skill from manifests, handoff state, deploy queues, executor availability, historical chat state, or prior receipts.
+
+## 6. Report compactly
 
 Return:
 

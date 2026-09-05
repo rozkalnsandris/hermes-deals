@@ -16,11 +16,7 @@ class _IdCollector(HTMLParser):
         super().__init__()
         self.ids: list[str] = []
 
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         for name, value in attrs:
             if name == "id" and value:
                 self.ids.append(value)
@@ -33,22 +29,15 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
         cls.active = re.sub(r"<!--.*?-->", "", cls.html, flags=re.S)
         cls.bridge = UI_WEEKLY_BRIDGE_PATH.read_text(encoding="utf-8")
 
-    def test_release_markers_and_top_navigation_are_present(self) -> None:
-        self.assertIn('content="weekly-overview-v1"', self.html)
-        self.assertIn(
-            'content="weekly-overview-v2-short-period-filter"',
-            self.html,
-        )
-        self.assertIn(
-            'content="weekly-overview-v3-empty-day-polish"',
-            self.html,
-        )
+    def test_historical_release_markers_are_retired_and_top_navigation_remains(self) -> None:
+        self.assertIn('content="reference-v1"', self.html)
         for marker in (
-            "Nedēļas pārskats",
-            "Šodien",
-            "Visi piedāvājumi",
-            "Pārskatīšana",
+            'content="weekly-overview-v1"',
+            'content="weekly-overview-v2-short-period-filter"',
+            'content="weekly-overview-v3-empty-day-polish"',
         ):
+            self.assertNotIn(marker, self.html)
+        for marker in ("Nedēļas pārskats", "Šodien", "Visi piedāvājumi", "Pārskatīšana"):
             self.assertIn(marker, self.active)
 
     def test_semantic_weekly_structure_is_present(self) -> None:
@@ -58,30 +47,12 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
         self.assertIn('<aside class="weekly-summary-panel"', self.active)
 
     def test_week_loader_uses_one_weekly_api_response(self) -> None:
-        self.assertIn(
-            '/api/v1/deals/weekly-specials',
-            self.active,
-        )
-        self.assertIn(
-            'function weeklyBundleUrl(start)',
-            self.active,
-        )
-        self.assertIn(
-            'const payload=await fetchJson(weeklyBundleUrl(start))',
-            self.active,
-        )
-        self.assertIn(
-            'payload.days||[]',
-            self.active,
-        )
-        self.assertNotIn(
-            'async function weeklyFetchDay(iso)',
-            self.active,
-        )
-        self.assertNotIn(
-            'weeklyLoadDate',
-            self.active,
-        )
+        self.assertIn('/api/v1/deals/weekly-specials', self.active)
+        self.assertIn('function weeklyBundleUrl(start)', self.active)
+        self.assertIn('const payload=await fetchJson(weeklyBundleUrl(start))', self.active)
+        self.assertIn('payload.days||[]', self.active)
+        self.assertNotIn('async function weeklyFetchDay(iso)', self.active)
+        self.assertNotIn('weeklyLoadDate', self.active)
 
     def test_weekly_payload_bridge_normalizes_network_contract(self) -> None:
         for marker in (
@@ -102,40 +73,22 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
         self.assertIn("pending=weeklyState.loadingDates.has(iso)", self.active)
         self.assertIn("async function openWeeklyDeals", self.active)
         self.assertIn('weeklyNavDeals").addEventListener("click",()=>void openWeeklyDeals())', self.active)
-        self.assertNotIn(
-            '$("comparisonToggle").style.display=mode==="canonical"?"flex":"none";loadInitialPage();',
-            self.active,
-        )
+        self.assertNotIn('$("comparisonToggle").style.display=mode==="canonical"?"flex":"none";loadInitialPage();', self.active)
         self.assertNotIn("syncUrl();renderWeeklyOverview();reloadAll();", self.active)
         self.assertNotIn("syncUrl();reloadAll();loadWeeklyOverview(target);", self.active)
 
     def test_full_week_catalog_rows_are_excluded(self) -> None:
         self.assertIn("WEEKLY_SPECIAL_MAX_DAYS=3", self.active)
-        self.assertIn(
-            "span&&span<=WEEKLY_SPECIAL_MAX_DAYS",
-            self.active,
-        )
-        self.assertIn(
-            'if(deal.source_chain!=="netto")',
-            self.active,
-        )
-        self.assertIn(
-            "add(deal.valid_from,deal.valid_until,\"base\")",
-            self.active,
-        )
-        self.assertIn(
-            "add(deal.app_valid_from,deal.app_valid_until,\"app\")",
-            self.active,
-        )
+        self.assertIn("span&&span<=WEEKLY_SPECIAL_MAX_DAYS", self.active)
+        self.assertIn('if(deal.source_chain!=="netto")', self.active)
+        self.assertIn('add(deal.valid_from,deal.valid_until,"base")', self.active)
+        self.assertIn('add(deal.app_valid_from,deal.app_valid_until,"app")', self.active)
 
     def test_netto_requires_explicit_high_confidence_evidence(self) -> None:
         self.assertIn("deal.is_daily_special===true", self.active)
         self.assertIn("deal.special_valid_on", self.active)
         self.assertIn('deal.special_confidence==="high"', self.active)
-        self.assertIn(
-            'add(deal.special_valid_on,deal.special_valid_on,"explicit")',
-            self.active,
-        )
+        self.assertIn('add(deal.special_valid_on,deal.special_valid_on,"explicit")', self.active)
 
     def test_start_and_continuing_sections_use_qualifying_windows(self) -> None:
         self.assertIn("weeklyWindowForStart(deal,iso)", self.active)
@@ -155,14 +108,8 @@ class UiWeeklyOverviewV3Test(unittest.TestCase):
         self.assertIn("loadGrid();", self.active)
 
     def test_responsive_week_and_store_grids_are_defined(self) -> None:
-        self.assertIn(
-            "grid-template-columns:repeat(7,minmax(150px,1fr))",
-            self.active,
-        )
-        self.assertIn(
-            "grid-template-columns:repeat(4,minmax(0,1fr))",
-            self.active,
-        )
+        self.assertIn("grid-template-columns:repeat(7,minmax(150px,1fr))", self.active)
+        self.assertIn("grid-template-columns:repeat(4,minmax(0,1fr))", self.active)
         self.assertIn("@media(max-width:760px)", self.active)
 
     def test_week_strip_hides_cross_axis_scrollbar(self) -> None:

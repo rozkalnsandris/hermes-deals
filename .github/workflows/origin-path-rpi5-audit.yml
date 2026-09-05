@@ -153,7 +153,7 @@ jobs:
 
       - name: Upload sanitized evidence
         if: always() && steps.dispatch.outputs.artifact_dir != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: origin-path-audit-${{ needs.authorize.outputs.sha }}-${{ needs.authorize.outputs.as_of }}-run-${{ github.run_id }}
           path: ${{ steps.dispatch.outputs.artifact_dir }}

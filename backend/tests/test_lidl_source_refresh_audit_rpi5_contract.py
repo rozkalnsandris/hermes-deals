@@ -41,7 +41,11 @@ def test_workflow_is_owner_issue_comment_only_and_rpi_job_has_no_repo_token() ->
     assert "permissions: {}" in source
     assert "actions/checkout" not in source
     assert "sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-source-refresh-audit-dispatch" in source
-    assert "actions/upload-artifact@v4" in source
+    assert (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2"
+        in source
+    )
+    assert "actions/upload-artifact@v4" not in source
     assert "source-refresh-summary.json" in source
     assert "source-review-template.json" in source
     assert "raw_source_exported" in source

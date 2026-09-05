@@ -11,6 +11,7 @@ on:
       - tools/netto_heldout_page_capture_v2.py
       - tools/netto_heldout_ownership_protocol_v2.py
       - tools/netto_local_span_auto_single_candidate.py
+      - tools/netto_heldout_retention_receipt.py
       - tools/run-netto-heldout-github-capture-v02.sh
   pull_request_target:
     types: [labeled]
@@ -114,6 +115,8 @@ jobs:
     outputs:
       artifact_root: ${{ steps.run.outputs.artifact_root }}
       artifact_name: ${{ steps.run.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Verify non-root runner boundary
         shell: bash
@@ -125,7 +128,7 @@ jobs:
           [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]]
 
       - name: Checkout exact reviewed merge
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ needs.authorize.outputs.sha }}
           fetch-depth: 0
@@ -177,8 +180,9 @@ jobs:
           bash tools/run-netto-heldout-github-capture-v02.sh "$REGISTERED_SHA" "$as_of" "$root"
 
       - name: Upload held-out v2 evidence
+        id: upload
         if: always() && steps.run.outputs.artifact_root != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.run.outputs.artifact_name }}
           path: ${{ steps.run.outputs.artifact_root }}
@@ -216,6 +220,8 @@ jobs:
           CAPTURE_RESULT: ${{ needs.capture.result }}
           RUN_ID: ${{ github.run_id }}
           ARTIFACT_NAME: ${{ needs.capture.outputs.artifact_name }}
+          ARTIFACT_ID: ${{ needs.capture.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.capture.outputs.artifact_digest }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -228,7 +234,13 @@ jobs:
                 f"- Registered commit: `{os.environ['REGISTERED_SHA']}`\n"
                 f"- Workflow run ID: `{os.environ['RUN_ID']}`\n"
                 f"- Artifact: `{os.environ.get('ARTIFACT_NAME') or 'none'}`\n"
+                f"- Actions artifact ID: `{os.environ.get('ARTIFACT_ID') or 'none'}`\n"
+                f"- Actions artifact digest: `{os.environ.get('ARTIFACT_DIGEST') or 'none'}`\n"
                 "- Candidate decisions frozen before truth: **true when capture succeeds**\n"
+                "- Independent retention verified: **false**\n"
+                "- Held-out eligible: **false**\n"
+                "- Retention gate: **BLOCKED pending a separately authorized, independently verified retained copy receipt**\n"
+                "- The transient Actions artifact alone does not satisfy the held-out retention contract; any independent copy write requires separate retained-evidence authorization.\n"
                 "- Production deployment: **not authorized**\n"
                 "- Database/Review writes: **not authorized**\n"
                 "- Promotion ready: **false**\n")

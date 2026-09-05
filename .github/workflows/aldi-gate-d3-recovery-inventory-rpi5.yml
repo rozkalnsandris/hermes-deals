@@ -131,7 +131,7 @@ jobs:
                   handle.write(f"reason_code={payload.get('reason_code', '')}\n")
           PY
       - if: always() && steps.run.outputs.artifact_dir != ''
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: aldi-gate-d3-recovery-inventory-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.run.outputs.artifact_dir }}

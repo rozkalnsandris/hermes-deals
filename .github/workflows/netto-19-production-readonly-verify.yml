@@ -1,0 +1,207 @@
+name: Netto #19 production read-only verify
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: hermes-deals-netto-19-production-readonly
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact owner #19 verify command
+    if: >-
+      github.event.issue.number == 19 &&
+      github.event.issue.pull_request == null &&
+      github.actor == 'rozkalnsandris' &&
+      github.event.sender.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/hermes-netto-19 verify ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      registered_sha: ${{ steps.gate.outputs.registered_sha }}
+    steps:
+      - name: Validate exact issue, owner command and merged registration identity
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          WORKFLOW_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.request
+
+          repo = os.environ['REPOSITORY']
+          if repo != 'rozkalnsandris/hermes-deals':
+              raise SystemExit('unexpected repository')
+          if os.environ['WORKFLOW_REF'] != 'refs/heads/main':
+              raise SystemExit('workflow must execute from main')
+
+          match = re.fullmatch(
+              r'/hermes-netto-19 verify sha=([0-9a-f]{40})',
+              os.environ['COMMENT_BODY'].strip(),
+          )
+          if not match:
+              raise SystemExit('command format is invalid')
+          registered_sha = match.group(1)
+
+          event = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          sender = event.get('sender') or {}
+          comment = event.get('comment') or {}
+          issue = event.get('issue') or {}
+          if issue.get('number') != 19 or issue.get('pull_request') is not None:
+              raise SystemExit('command must be on issue #19')
+          if sender.get('login') != 'rozkalnsandris' or sender.get('id') != 277435981:
+              raise SystemExit('command actor is not allowlisted owner')
+          if comment.get('author_association') != 'OWNER':
+              raise SystemExit('command author association is not OWNER')
+
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+              'User-Agent': 'hermes-deals-netto-19-authorizer',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+          def get(url: str):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+
+          commit = get(f'https://api.github.com/repos/{repo}/commits/{registered_sha}')
+          if str(commit.get('sha') or '') != registered_sha:
+              raise SystemExit('registered SHA is not a commit in this repository')
+          comparison = get(f'https://api.github.com/repos/{repo}/compare/{registered_sha}...main')
+          if comparison.get('status') not in {'ahead', 'identical'}:
+              raise SystemExit('registered SHA is not reachable from current main')
+          workflow = get(
+              f'https://api.github.com/repos/{repo}/contents/'
+              f'.github/workflows/netto-19-production-readonly-verify.yml?ref={registered_sha}'
+          )
+          if workflow.get('type') != 'file' or not workflow.get('sha'):
+              raise SystemExit('registered SHA lacks verifier workflow')
+
+          with pathlib.Path(os.environ['GITHUB_OUTPUT']).open('a') as handle:
+              handle.write('should_run=true\n')
+              handle.write(f'registered_sha={registered_sha}\n')
+          print(f'AUTHORIZATION_RESULT=PASS REGISTERED_SHA={registered_sha}')
+          PY
+
+  verify:
+    name: Run fixed root-owned production read-only verifier on RPi5
+    needs: authorize
+    if: needs.authorize.result == 'success' && needs.authorize.outputs.should_run == 'true'
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 20
+    permissions: {}
+    steps:
+      - name: Create private sanitized evidence directory
+        id: evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          evidence_dir="${RUNNER_TEMP}/hermes-netto-19-production-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$evidence_dir"
+          echo "dir=$evidence_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run only installed root-owned read-only dispatcher
+        env:
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+          EVIDENCE_DIR: ${{ steps.evidence.outputs.dir }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo --non-interactive \
+            /usr/local/sbin/hermes-deals-netto-19-production-readonly-verify \
+            "$REGISTERED_SHA" "$EVIDENCE_DIR"
+
+      - name: Enforce sanitized PASS receipt
+        env:
+          EVIDENCE_DIR: ${{ steps.evidence.outputs.dir }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$EVIDENCE_DIR/receipt.json" "$REGISTERED_SHA" <<'PY'
+          import json, pathlib, sys
+          receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          registered_sha = sys.argv[2]
+          assert receipt['schema_version'] == 1
+          assert receipt['result'] == 'PASS'
+          assert receipt['registered_sha'] == registered_sha
+          assert receipt['production_mutated'] is False
+          assert receipt['database_write_performed'] is False
+          assert receipt['review_write_performed'] is False
+          assert receipt['publication_performed'] is False
+          assert receipt['deployment_performed'] is False
+          assert receipt['scheduler_change_performed'] is False
+          assert receipt['host_root_change_performed'] is False
+          assert receipt['required_fix_commits_present'] is True
+          assert receipt['daily_contract'] == 'PASS'
+          assert receipt['weekly_contract'] == 'PASS'
+          assert receipt['review_only_policy'] == 'PASS'
+          assert receipt['database_payload_unchanged'] is True
+          assert receipt['historical_covered_probe_present'] is True
+          assert len(receipt['covered_probes']) >= 2
+          PY
+
+      - name: Upload sanitized #19 evidence
+        if: always() && steps.evidence.outputs.dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: netto-19-production-readonly-${{ needs.authorize.outputs.registered_sha }}-${{ github.run_id }}
+          path: ${{ steps.evidence.outputs.dir }}
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+
+  report:
+    name: Report sanitized #19 verification result
+    needs: [authorize, verify]
+    if: always() && github.event.issue.number == 19
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Comment fixed-token result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          AUTH_RESULT: ${{ needs.authorize.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          REGISTERED_SHA: ${{ needs.authorize.outputs.registered_sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$AUTH_RESULT" == success ]] || exit 0
+          result=FAIL
+          [[ "$VERIFY_RESULT" == success ]] && result=PASS
+          body="## #19 production read-only verifier
+
+          - result: \`${result}\`
+          - registered verifier SHA: \`${REGISTERED_SHA}\`
+          - workflow run: \`${RUN_ID}\`
+          - production mutation: \`false\`
+          - DB/Review/publication write: \`false\`
+          - deploy: \`false\`
+          - host/root/systemd mutation by verifier: \`false\`
+
+          Sanitized evidence is attached to the workflow run."
+          gh api --method POST "repos/${REPOSITORY}/issues/19/comments" -f body="$body"

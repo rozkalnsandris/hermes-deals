@@ -36,11 +36,16 @@ class UiReferenceRebuildV1Test(unittest.TestCase):
             self.assertIn(marker, self.html)
         self.assertIn('grid-template-columns:repeat(4,minmax(0,1fr))', self.html)
 
-    def test_best_today_supports_deal_and_canonical_modes(self) -> None:
-        self.assertIn('function bestDealCard', self.html)
-        self.assertIn('function bestCanonicalCard', self.html)
-        self.assertIn('data-best-kind="canonical"', self.html)
-        self.assertIn('renderBestToday();bindCanonicalCards()', self.html)
+    def test_archived_best_today_contract_is_not_shipped(self) -> None:
+        for marker in (
+            'id="bestTodaySection"',
+            'id="bestToday"',
+            'function bestDealCard',
+            'function bestCanonicalCard',
+            'data-best-kind="canonical"',
+            'renderBestToday();bindCanonicalCards()',
+        ):
+            self.assertNotIn(marker, self.html)
 
     def test_filter_area_is_a_real_catalog_panel_not_old_toolbar(self) -> None:
         self.assertIn('class="catalog-panel" id="deals"', self.html)

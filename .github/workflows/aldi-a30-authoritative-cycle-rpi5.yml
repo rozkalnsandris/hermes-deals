@@ -88,7 +88,7 @@ jobs:
           echo "$rc" > "$out/runner-dispatch-exit-code.txt"
           exit "$rc"
       - if: always() && steps.run.outputs.artifact_dir != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: aldi-a30-authoritative-cycle-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
           path: ${{ steps.run.outputs.artifact_dir }}

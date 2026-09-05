@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "strategy": "netto_hz33_adjudication_evidence_import_request_v2",
+  "adjudication_workflow_run_id": 31329528400,
+  "adjudication_artifact_id": 9042509363,
+  "adjudication_artifact_name": "netto-heldout-hz33-adjudication-run-31329528400",
+  "adjudication_artifact_digest_sha256": "10f778b802d6a36d831e05e996052f91a098e11c9a53d2e062df3ce6e4e12867",
+  "adjudication_artifact_size_bytes": 25285,
+  "adjudication_json_sha256": "1d1975c4845fe1bdbd2dd97670fac2df28cc68894003322485c10d53826a818f",
+  "completed_source_truth_sha256": "ddcf664eca4d1305fa9d3984de8d59b37af83b9a3820d26fc2155bf0af32f6b6",
+  "predictions_sha256": "70c3c8abace632f6be298abb5d02b398b3e8b91e8d53565b21eface536ed7b94",
+  "recompute_adjudication": false,
+  "review_only": true,
+  "promotion_ready": false
+}

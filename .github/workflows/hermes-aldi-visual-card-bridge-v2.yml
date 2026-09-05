@@ -1,0 +1,209 @@
+name: Hermes ALDI visual card bridge diagnostic v2
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: hermes-aldi-visual-card-bridge-v2-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 682 &&
+      github.event.comment.user.login == 'rozkalnsandris' &&
+      github.event.comment.user.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.body == '/hermes-aldi-visual-card-bridge-v2 diagnose'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      main_sha: ${{ steps.auth.outputs.main_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: auth
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(git branch --show-current)" == "${{ github.event.repository.default_branch }}" ]]
+          [[ -z "$(git status --porcelain)" ]]
+          main_sha="$(git rev-parse HEAD)"
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
+          for path in \
+            tools/aldi_visual_card_bridge_diagnostic_v2.py \
+            tools/aldi_new_baseline_weekly_shadow_producer.py \
+            tools/runner/aldi-visual-card-bridge-v2-dispatcher.sh \
+            tools/runner/install-aldi-visual-card-bridge-v2-dispatcher.sh
+          do
+            test -f "$path"
+          done
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+  diagnose-rpi5:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 25
+    permissions: {}
+    outputs:
+      decision: ${{ steps.inspect.outputs.decision }}
+      selected: ${{ steps.inspect.outputs.selected }}
+      cards: ${{ steps.inspect.outputs.cards }}
+      bridged: ${{ steps.inspect.outputs.bridged }}
+      family: ${{ steps.inspect.outputs.family }}
+      artifact_name: ${{ steps.dispatch.outputs.artifact_name }}
+    steps:
+      - id: dispatch
+        env:
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_name="aldi-visual-card-bridge-v2-$RUN_ID"
+          artifact_dir="$RUNNER_TEMP/$artifact_name"
+          [[ ! -e "$artifact_dir" ]]
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-visual-card-bridge-v2 \
+            "$MAIN_SHA" "$COMMENT_ID" "$RUN_ID" "$artifact_dir"
+
+      - id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["ARTIFACT_DIR"])
+          result = root / "diagnostic-result.json"
+          manifest = root / "MANIFEST.sha256"
+          if not result.is_file() or not manifest.is_file():
+              raise SystemExit("sanitized v2 diagnostic evidence missing")
+          digest, name = manifest.read_text().strip().split("  ", 1)
+          if name != "diagnostic-result.json":
+              raise SystemExit("v2 diagnostic manifest member mismatch")
+          if hashlib.sha256(result.read_bytes()).hexdigest() != digest:
+              raise SystemExit("v2 diagnostic evidence manifest mismatch")
+          payload = json.loads(result.read_text())
+          if payload.get("schema_version") != 2:
+              raise SystemExit("v2 diagnostic schema mismatch")
+          if payload.get("decision") not in {
+              "EXACT_ONE_TO_ONE_BRIDGE_FOUND",
+              "PARTIAL_EXACT_BRIDGE_CANDIDATES",
+              "NO_EXACT_VISUAL_CARD_BRIDGE",
+          }:
+              raise SystemExit("v2 diagnostic decision rejected")
+          for key in (
+              "production_database_write",
+              "review_publication_write",
+              "source_mutation",
+              "production_deploy",
+              "scheduler_activation",
+              "automatic_retry",
+              "request_created",
+              "request_accepted",
+              "production_canary",
+          ):
+              if payload.get(key) is not False:
+                  raise SystemExit(f"unsafe v2 diagnostic flag: {key}")
+          if payload.get("network_source_read") is not True:
+              raise SystemExit("v2 network source-read evidence missing")
+          selected = int(payload.get("selected_offer_count", 0))
+          cards = int(payload.get("visible_product_card_count", 0))
+          if not 0 < selected <= 512 or not 0 < cards <= 512:
+              raise SystemExit("v2 diagnostic counts outside bound")
+          best = payload.get("best_family") or {}
+          bridged = int(best.get("bridged_offer_count", 0))
+          family = str(best.get("family_fingerprint_sha256") or "none")
+          if family != "none" and (
+              len(family) != 64 or any(ch not in "0123456789abcdef" for ch in family)
+          ):
+              raise SystemExit("v2 best-family fingerprint invalid")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"decision={payload['decision']}\n")
+              out.write(f"selected={selected}\n")
+              out.write(f"cards={cards}\n")
+              out.write(f"bridged={bridged}\n")
+              out.write(f"family={family}\n")
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ steps.dispatch.outputs.artifact_name }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    needs: [authorize, diagnose-rpi5]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          RESULT: ${{ needs.diagnose-rpi5.result }}
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          DECISION: ${{ needs.diagnose-rpi5.outputs.decision }}
+          SELECTED: ${{ needs.diagnose-rpi5.outputs.selected }}
+          CARDS: ${{ needs.diagnose-rpi5.outputs.cards }}
+          BRIDGED: ${{ needs.diagnose-rpi5.outputs.bridged }}
+          FAMILY: ${{ needs.diagnose-rpi5.outputs.family }}
+          ARTIFACT: ${{ needs.diagnose-rpi5.outputs.artifact_name }}
+          REPO: ${{ github.repository }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.request
+
+          body = "\n".join([
+              "## ALDI visual card bridge diagnostic v2",
+              "",
+              f"- runner result: **{os.environ['RESULT'].upper()}**",
+              f"- decision: **{os.environ.get('DECISION') or 'UNAVAILABLE'}**",
+              f"- exact main: `{os.environ['MAIN_SHA']}`",
+              f"- selected structured offers: `{os.environ.get('SELECTED') or 'unavailable'}`",
+              f"- visible stabilized product cards: `{os.environ.get('CARDS') or 'unavailable'}`",
+              f"- best exact-family bridged offers: `{os.environ.get('BRIDGED') or 'unavailable'}`",
+              f"- best family fingerprint: `{os.environ.get('FAMILY') or 'unavailable'}`",
+              f"- sanitized artifact: `{os.environ.get('ARTIFACT') or 'unavailable'}`",
+              "- network source read: `true` only inside this separately owner-authorized diagnostic run",
+              "- visible text / substring / OCR matching: `false`",
+              "- raw HTML/screenshot/product text/href/structured token export: `false`",
+              "- producer matching contract mutation: `false`",
+              "- request creation/acceptance: `false`",
+              "- production DB/Review/source mutation/deploy/scheduler/canary: `false`",
+          ])
+          url = (
+              f"https://api.github.com/repos/{os.environ['REPO']}"
+              f"/issues/{os.environ['ISSUE']}/comments"
+          )
+          request = urllib.request.Request(
+              url,
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status != 201:
+                  raise SystemExit(f"report comment failed: {response.status}")

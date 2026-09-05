@@ -1,0 +1,359 @@
+name: Netto hz34 completed source truth import
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/netto-hz34-completed-truth-import.yml
+      - tools/netto_hz34_completed_source_card_truth.py
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: netto-hz34-completed-source-truth-${{ github.event.pull_request.number || 'label' }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_OWNER_LOGIN: rozkalnsandris
+  EXPECTED_OWNER_ID: "277435981"
+  TRIGGER_LABEL: audit:netto-hz34-completed-source-truth-v1
+  EXPECTED_TRUTH_PATH: audit/netto/hz34/completed-source-truth.json
+  EXPECTED_RECEIPT_PATH: audit/netto/hz34/completed-source-truth-receipt.json
+  REVIEW_PACK_ARTIFACT_ID: "9737495579"
+  REVIEW_PACK_RUN_ID: "33330445681"
+  REVIEW_PACK_ARTIFACT: netto-hz34-blind-review-pack-33330445681-1
+  REVIEW_PACK_ARTIFACT_DIGEST: sha256:ba30feab1ed792ed62fc613acc2c1c1b06a43bfaa3754666170a98a4da1e5b32
+  REVIEW_PACK_ARTIFACT_BYTES: "133220089"
+  REVIEW_PACK_MANIFEST_SHA256: eff911a09ef343abda3c6c16922e998b4903ef0ccaa679a1423a83f26ffc43f3
+  BLANK_LEDGER_SHA256: 5e0dcb89d9cd957175e5c4bdcba5de1fb7c8075c1b16db9a139c20052e108d79
+  ARTIFACT_SOURCE_RECEIPT_SHA256: cc50b5f49dd3f62618556832416dc2f694e023000664bbb145e9b2b3cdb2bad8
+
+jobs:
+  ensure-label:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or reconcile owner-gated truth label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          if os.environ["REPOSITORY"] != "rozkalnsandris/hermes-deals":
+              raise SystemExit("unexpected repository")
+          label = {
+              "name": os.environ["TRIGGER_LABEL"],
+              "color": "5319e7",
+              "description": "Owner-gated import of independently completed Netto hz34 source truth",
+          }
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-hz34-truth-label",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          encoded = urllib.parse.quote(label["name"], safe="")
+          payload = json.dumps(label).encode()
+          url = f"https://api.github.com/repos/{os.environ['REPOSITORY']}/labels/{encoded}"
+          try:
+              urllib.request.urlopen(urllib.request.Request(url, data=payload, method="PATCH", headers=headers), timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              url = f"https://api.github.com/repos/{os.environ['REPOSITORY']}/labels"
+              urllib.request.urlopen(urllib.request.Request(url, data=payload, method="POST", headers=headers), timeout=20).close()
+          PY
+
+  authorize:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'audit:netto-hz34-completed-source-truth-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      base_sha: ${{ steps.auth.outputs.base_sha }}
+      head_sha: ${{ steps.auth.outputs.head_sha }}
+      head_ref: ${{ steps.auth.outputs.head_ref }}
+      truth_blob_sha: ${{ steps.auth.outputs.truth_blob_sha }}
+      pr_number: ${{ steps.auth.outputs.pr_number }}
+    steps:
+      - name: Authorize owner truth-only PR against current main
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request
+          repo = os.environ["REPOSITORY"]
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          sender = event.get("sender") or {}
+          if sender.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or str(sender.get("id")) != os.environ["EXPECTED_OWNER_ID"]:
+              raise SystemExit("truth trigger actor is not repository owner")
+          number = int((event.get("pull_request") or {}).get("number") or 0)
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-hz34-truth-authorizer",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                  return json.load(response)
+          pr = get(f"https://api.github.com/repos/{repo}/pulls/{number}")
+          owner = pr.get("user") or {}
+          head = pr.get("head") or {}
+          base = pr.get("base") or {}
+          if owner.get("login") != os.environ["EXPECTED_OWNER_LOGIN"] or str(owner.get("id")) != os.environ["EXPECTED_OWNER_ID"]:
+              raise SystemExit("truth PR author is not repository owner")
+          if pr.get("state") != "open" or pr.get("merged"):
+              raise SystemExit("truth PR must be open and unmerged")
+          if base.get("ref") != "main" or (base.get("repo") or {}).get("full_name") != repo:
+              raise SystemExit("truth PR base is not repository main")
+          if (head.get("repo") or {}).get("full_name") != repo:
+              raise SystemExit("truth PR must use a same-repository branch")
+          main = get(f"https://api.github.com/repos/{repo}/branches/main")
+          current_main = str((main.get("commit") or {}).get("sha") or "")
+          base_sha = str(base.get("sha") or "")
+          if len(current_main) != 40 or base_sha != current_main:
+              raise SystemExit("truth PR base is not exact current main")
+          files = get(f"https://api.github.com/repos/{repo}/pulls/{number}/files?per_page=100")
+          if len(files) != 1 or files[0].get("filename") != os.environ["EXPECTED_TRUTH_PATH"]:
+              raise SystemExit("truth PR must change exactly the canonical completed truth file")
+          if files[0].get("status") != "added":
+              raise SystemExit("completed truth evidence is create-only")
+          def full_sha(value):
+              return len(value) == 40 and all(ch in "0123456789abcdef" for ch in value.lower())
+          blob_sha = str(files[0].get("sha") or "")
+          head_sha = str(head.get("sha") or "")
+          head_ref = str(head.get("ref") or "")
+          if not full_sha(blob_sha) or not full_sha(head_sha) or not head_ref:
+              raise SystemExit("truth PR identity is incomplete")
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"base_sha={base_sha}\nhead_sha={head_sha}\nhead_ref={head_ref}\ntruth_blob_sha={blob_sha}\npr_number={number}\n")
+          PY
+
+  validate-and-freeze:
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    outputs:
+      truth_sha256: ${{ steps.validate.outputs.truth_sha256 }}
+      receipt_sha256: ${{ steps.validate.outputs.receipt_sha256 }}
+      evidence_commit: ${{ steps.commit.outputs.evidence_commit }}
+    steps:
+      - name: Checkout trusted control plane from exact current main
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.authorize.outputs.base_sha }}
+          path: control
+          persist-credentials: false
+
+      - name: Download exact reviewer-safe pack and exact truth blob
+        id: inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TRUTH_BLOB_SHA: ${{ needs.authorize.outputs.truth_blob_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          pack="${RUNNER_TEMP}/netto-hz34-review-pack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip"
+          truth="${RUNNER_TEMP}/netto-hz34-completed-truth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          echo "pack=$pack" >> "$GITHUB_OUTPUT"
+          echo "truth=$truth" >> "$GITHUB_OUTPUT"
+          PACK="$pack" TRUTH="$truth" python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, urllib.error, urllib.request
+          repo = os.environ["REPOSITORY"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "User-Agent": "hermes-deals-netto-hz34-truth-inputs",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          artifact_id = int(os.environ["REVIEW_PACK_ARTIFACT_ID"])
+          request = urllib.request.Request(f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}", headers=headers)
+          with urllib.request.urlopen(request, timeout=20) as response:
+              artifact = json.load(response)
+          workflow = artifact.get("workflow_run") or {}
+          if (
+              int(artifact.get("id") or 0) != artifact_id
+              or artifact.get("name") != os.environ["REVIEW_PACK_ARTIFACT"]
+              or artifact.get("expired") is not False
+              or artifact.get("digest") != os.environ["REVIEW_PACK_ARTIFACT_DIGEST"]
+              or int(artifact.get("size_in_bytes") or 0) != int(os.environ["REVIEW_PACK_ARTIFACT_BYTES"])
+              or int(workflow.get("id") or 0) != int(os.environ["REVIEW_PACK_RUN_ID"])
+          ):
+              raise SystemExit("review-pack artifact metadata mismatch")
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl): return None
+          opener = urllib.request.build_opener(NoRedirect)
+          archive = urllib.request.Request(f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip", headers=headers)
+          try:
+              opener.open(archive, timeout=20)
+              raise SystemExit("artifact endpoint unexpectedly did not redirect")
+          except urllib.error.HTTPError as error:
+              if error.code != 302: raise
+              location = error.headers.get("Location")
+          if not location: raise SystemExit("review-pack redirect is missing")
+          digest = hashlib.sha256(); size = 0
+          target = pathlib.Path(os.environ["PACK"])
+          with urllib.request.urlopen(location, timeout=180) as response, target.open("xb") as output:
+              while True:
+                  chunk = response.read(1024 * 1024)
+                  if not chunk: break
+                  output.write(chunk); digest.update(chunk); size += len(chunk)
+          if f"sha256:{digest.hexdigest()}" != os.environ["REVIEW_PACK_ARTIFACT_DIGEST"] or size != int(os.environ["REVIEW_PACK_ARTIFACT_BYTES"]):
+              target.unlink(missing_ok=True)
+              raise SystemExit("downloaded review-pack digest/size mismatch")
+          blob_request = urllib.request.Request(f"https://api.github.com/repos/{repo}/git/blobs/{os.environ['TRUTH_BLOB_SHA']}", headers=headers)
+          with urllib.request.urlopen(blob_request, timeout=20) as response:
+              blob = json.load(response)
+          if blob.get("sha") != os.environ["TRUTH_BLOB_SHA"] or blob.get("encoding") != "base64":
+              raise SystemExit("truth Git blob identity mismatch")
+          raw = base64.b64decode(str(blob.get("content") or "").replace("\n", ""), validate=True)
+          git_sha = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+          if git_sha != os.environ["TRUTH_BLOB_SHA"]:
+              raise SystemExit("truth Git blob bytes do not match blob SHA")
+          pathlib.Path(os.environ["TRUTH"]).write_bytes(raw)
+          PY
+
+      - name: Validate independent truth against reviewer-safe pack
+        id: validate
+        env:
+          PACK: ${{ steps.inputs.outputs.pack }}
+          TRUTH: ${{ steps.inputs.outputs.truth }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          receipt="${RUNNER_TEMP}/netto-hz34-truth-receipt-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          result="$(python3 control/tools/netto_hz34_completed_source_card_truth.py --truth "$TRUTH" --review-pack-zip "$PACK" --write-receipt "$receipt")"
+          printf '%s\n' "$result"
+          echo "receipt=$receipt" >> "$GITHUB_OUTPUT"
+          RESULT_JSON="$result" python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json, os, pathlib, sys
+          payload = json.loads(os.environ["RESULT_JSON"])
+          if payload.get("frozen_predictions_opened") is not False or payload.get("candidate_provenance_opened") is not False or payload.get("adjudication_started") is not False:
+              raise SystemExit("truth validation crossed candidate/adjudication boundary")
+          with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:
+              handle.write(f"truth_sha256={payload['completed_source_truth_sha256']}\nreceipt_sha256={payload['receipt_sha256']}\n")
+          PY
+          rm -f -- "$PACK"
+
+      - name: Checkout exact evidence PR head only after truth validation
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.authorize.outputs.head_sha }}
+          path: evidence
+          fetch-depth: 0
+          # Required only to push the allowlisted immutable receipt to the exact owner-authorized evidence PR.
+          persist-credentials: true
+
+      - name: Commit only immutable truth receipt to evidence PR
+        id: commit
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+          EXPECTED_HEAD_REF: ${{ needs.authorize.outputs.head_ref }}
+          EXPECTED_BLOB_SHA: ${{ needs.authorize.outputs.truth_blob_sha }}
+          RECEIPT: ${{ steps.validate.outputs.receipt }}
+        working-directory: evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test -z "$(git status --porcelain)"
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "${{ needs.authorize.outputs.base_sha }}"
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$EXPECTED_TRUTH_PATH"
+          test "$(git hash-object "$EXPECTED_TRUTH_PATH")" = "$EXPECTED_BLOB_SHA"
+          test ! -e "$EXPECTED_RECEIPT_PATH"
+          install -D -m 0644 "$RECEIPT" "$EXPECTED_RECEIPT_PATH"
+          git add -f -- "$EXPECTED_RECEIPT_PATH"
+          mapfile -t staged < <(git diff --cached --name-only)
+          test "${#staged[@]}" -eq 1
+          test "${staged[0]}" = "$EXPECTED_RECEIPT_PATH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "netto: freeze hz34 completed source truth receipt"
+          git push origin "HEAD:${EXPECTED_HEAD_REF}"
+          echo "evidence_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  report:
+    needs: [authorize, validate-and-freeze]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Report result and clear one-shot label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          RESULT: ${{ needs.validate-and-freeze.result }}
+          TRUTH_SHA256: ${{ needs.validate-and-freeze.outputs.truth_sha256 }}
+          RECEIPT_SHA256: ${{ needs.validate-and-freeze.outputs.receipt_sha256 }}
+          EVIDENCE_COMMIT: ${{ needs.validate-and-freeze.outputs.evidence_commit }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.parse, urllib.request
+          repo = os.environ["REPOSITORY"]; number = int(os.environ["PR_NUMBER"])
+          body = (
+              "## Netto hz34 completed source truth import result\n\n"
+              f"- validation/freeze job: **{os.environ['RESULT']}**\n"
+              f"- reviewer-pack artifact ID: `{os.environ['REVIEW_PACK_ARTIFACT_ID']}`\n"
+              f"- completed truth SHA256: `{os.environ['TRUTH_SHA256'] or 'unavailable'}`\n"
+              f"- truth receipt SHA256: `{os.environ['RECEIPT_SHA256'] or 'unavailable'}`\n"
+              f"- evidence commit: `{os.environ['EVIDENCE_COMMIT'] or 'unavailable'}`\n"
+              "- frozen predictions opened: **false**\n"
+              "- candidate provenance opened: **false**\n"
+              "- adjudication started: **false**\n"
+              "- production/DB/Review/deploy: **false**"
+          )
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "hermes-deals-netto-hz34-truth-reporter",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          url = f"https://api.github.com/repos/{repo}/issues/{number}/comments"
+          urllib.request.urlopen(urllib.request.Request(url, data=json.dumps({"body": body}).encode(), method="POST", headers=headers), timeout=20).close()
+          encoded = urllib.parse.quote(os.environ["TRIGGER_LABEL"], safe="")
+          remove = urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{number}/labels/{encoded}", method="DELETE", headers=headers)
+          try:
+              urllib.request.urlopen(remove, timeout=20).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404: raise
+          PY

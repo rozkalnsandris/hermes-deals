@@ -1,0 +1,191 @@
+name: Lidl V6.3.1 C3 read-only production preflight on RPi5
+
+on:
+  workflow_dispatch:
+    inputs:
+      registration_pr_number:
+        description: Merged PR that registered the exact C3 RPi5 bridge
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: hermes-deals-lidl-v631-c3-readonly
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Resolve owner-authorized exact C3 runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      current_sha: ${{ steps.authorize.outputs.current_sha }}
+      registration_pr_number: ${{ steps.authorize.outputs.registration_pr_number }}
+
+    steps:
+      - name: Authorize owner dispatch and exact trusted blobs
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: '277435981'
+          EXPECTED_C3_BLOB: 1975cab5cb8d9c27104eb10b85ec7018659bfe2c
+          EXPECTED_CORE_BLOB: 69bc685ca5792079fdda1e73c09af94dfc28e29c
+          EXPECTED_PLANNER_BLOB: 5c183c4459275c99c7d0f9d66a7a5c425384a5be
+          EXPECTED_DISPATCHER_BLOB: 6e7187dd8bda79843c7fe56df63269c8f2bf7b36
+          EXPECTED_INSTALLER_BLOB: 73c16820b12d79496802e166a03bac13b434bfcb
+          EXPECTED_LOCK_BLOB: d6a64564901ce38dd4a790d44ead89be917f1b21
+          EXPECTED_MANIFEST_BLOB: bb0e40363afeb89a176b95bc3b9314dbef075a5d
+          EXPECTED_VERIFIER_BLOB: 5c7c8d5e32ef84308b688213224b2528d99378e0
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          from pathlib import Path
+
+          repo=os.environ['REPOSITORY']
+          if repo!='rozkalnsandris/hermes-deals': raise SystemExit('unexpected repository')
+          event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+          sender=event.get('sender') or {}
+          if sender.get('login')!=os.environ['EXPECTED_OWNER_LOGIN'] or sender.get('id')!=int(os.environ['EXPECTED_OWNER_ID']):
+              raise SystemExit('workflow actor is not the allowlisted owner')
+          raw=str((event.get('inputs') or {}).get('registration_pr_number') or '').strip()
+          if not raw.isdigit() or int(raw)<=0: raise SystemExit('registration_pr_number must be positive')
+          pr_number=int(raw)
+          headers={'Accept':'application/vnd.github+json','Authorization':f"Bearer {os.environ['GH_TOKEN']}",'X-GitHub-Api-Version':'2022-11-28','User-Agent':'hermes-deals-lidl-v631-c3-authorizer'}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as r: return json.load(r)
+          pr=get(f'https://api.github.com/repos/{repo}/pulls/{pr_number}')
+          if not pr.get('merged') or not pr.get('merged_at'): raise SystemExit('registration PR is not merged')
+          base=pr.get('base') or {}; base_repo=base.get('repo') or {}
+          if base.get('ref')!='main' or base_repo.get('full_name')!=repo: raise SystemExit('registration PR was not merged to repository main')
+          registered=str(pr.get('merge_commit_sha') or '')
+          if len(registered)!=40: raise SystemExit('registration merge SHA invalid')
+          main=get(f'https://api.github.com/repos/{repo}/commits/main')
+          current=str(main.get('sha') or '')
+          if len(current)!=40: raise SystemExit('current main SHA invalid')
+          comparison=get(f'https://api.github.com/repos/{repo}/compare/{registered}...{current}')
+          if comparison.get('status') not in {'ahead','identical'}: raise SystemExit('registration merge is not reachable from current main')
+          paths={
+            'tools/lidl_v631_c3_readonly_preflight.py':os.environ['EXPECTED_C3_BLOB'],
+            'backend/app/lidl_v631_c3_readonly_preflight.py':os.environ['EXPECTED_CORE_BLOB'],
+            'backend/app/lidl_v631_semantic_persistence.py':os.environ['EXPECTED_PLANNER_BLOB'],
+            'tools/runner/lidl-v631-c3-readonly-dispatcher.sh':os.environ['EXPECTED_DISPATCHER_BLOB'],
+            'tools/runner/install-lidl-v631-c3-readonly-dispatcher.sh':os.environ['EXPECTED_INSTALLER_BLOB'],
+            'backend/locks/runtime-py311.txt':os.environ['EXPECTED_LOCK_BLOB'],
+            'backend/locks/manifest.json':os.environ['EXPECTED_MANIFEST_BLOB'],
+            'scripts/verify-python-lock-environment.py':os.environ['EXPECTED_VERIFIER_BLOB'],
+          }
+          for path, expected in paths.items():
+              encoded=urllib.parse.quote(path,safe='/')
+              at_registered=get(f'https://api.github.com/repos/{repo}/contents/{encoded}?ref={registered}')
+              at_current=get(f'https://api.github.com/repos/{repo}/contents/{encoded}?ref={current}')
+              if at_registered.get('sha')!=expected: raise SystemExit(f'registration blob mismatch: {path}')
+              if at_current.get('sha')!=expected: raise SystemExit(f'current main C3 blob drift: {path}')
+          out=Path(os.environ['GITHUB_OUTPUT'])
+          with out.open('a',encoding='utf-8') as f:
+              f.write(f'current_sha={current}\nregistration_pr_number={pr_number}\n')
+          PY
+
+  c3-readonly:
+    name: Run fixed C3 read-only dispatcher on RPi5
+    needs: authorize
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - hermes-deals-audit
+    timeout-minutes: 20
+    permissions: {}
+    outputs:
+      result: ${{ steps.inspect.outputs.result }}
+      plan_fingerprint: ${{ steps.inspect.outputs.plan_fingerprint }}
+      payload_fingerprint: ${{ steps.inspect.outputs.payload_fingerprint }}
+      runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
+
+    steps:
+      - name: Run fixed root-owned C3 read-only dispatcher
+        id: dispatch
+        env:
+          CURRENT_SHA: ${{ needs.authorize.outputs.current_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-v631-c3-readonly "$CURRENT_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          rc=$?
+          set -e
+          echo "runner_rc=$rc" >> "$GITHUB_OUTPUT"
+          [[ "$rc" -eq 0 || "$rc" -eq 30 ]] || exit "$rc"
+
+      - name: Inspect sanitized C3 evidence
+        id: inspect
+        if: always()
+        env:
+          SUMMARY_PATH: /var/lib/hermes-deals/lidl-v631-c3-readonly/${{ github.run_id }}-${{ github.run_attempt }}/summary.json
+          EXPECTED_SHA: ${{ needs.authorize.outputs.current_sha }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          p=Path(os.environ['SUMMARY_PATH'])
+          if not p.is_file() or p.is_symlink(): raise SystemExit('sanitized C3 summary missing or unsafe')
+          s=json.loads(p.read_text(encoding='utf-8'))
+          if s.get('schema_version')!=1 or s.get('audit')!='lidl-v631-c3-readonly' or s.get('commit_sha')!=os.environ['EXPECTED_SHA']:
+              raise SystemExit('C3 summary identity mismatch')
+          rc=int(os.environ.get('RUNNER_RC') or -1)
+          expected='PASS' if rc==0 else 'BLOCKED' if rc==30 else 'INVALID'
+          if s.get('result')!=expected: raise SystemExit('C3 result/exit mismatch')
+          safety=s.get('safety') or {}
+          for key in ('production_database_write','review_write','production_publish','production_deploy','corpus_write','source_replacement','systemd_change','scheduler_change','docker_exec','container_create','package_install'):
+              if safety.get(key) is not False: raise SystemExit(f'unsafe C3 summary flag: {key}')
+          pf=str(s.get('plan_fingerprint') or ''); payload=str(s.get('payload_fingerprint') or '')
+          if expected=='PASS':
+              if s.get('transaction')!={'transaction_read_only':'on','transaction_isolation':'repeatable read'}: raise SystemExit('transaction proof mismatch')
+              if s.get('exact_key_counts')!={'snapshot_id':0,'snapshot_raw_sha256':0,'offer_uniqueness_key':0}: raise SystemExit('exact key baseline mismatch')
+              if s.get('expected_first_apply_delta')!={'source_snapshots':1,'offer_candidates':1}: raise SystemExit('expected first-apply delta mismatch')
+              if not re.fullmatch(r'[0-9a-f]{64}',pf) or not re.fullmatch(r'[0-9a-f]{64}',payload): raise SystemExit('fingerprint invalid')
+              if s.get('transaction_rolled_back') is not True: raise SystemExit('rollback proof missing')
+              for key in ('runtime_lock_sha256','runtime_inventory_sha256','runtime_python_sha256'):
+                  if not re.fullmatch(r'[0-9a-f]{64}',str(s.get(key) or '')): raise SystemExit(f'invalid {key}')
+              if s.get('runtime_python_version')!='3.11': raise SystemExit('runtime Python version mismatch')
+              if 'reason_code' in s: raise SystemExit('PASS result must not expose blocked reason code')
+          else:
+              allowed={'dispatcher_preflight_blocked','domain_validation','database_read_error','unexpected_internal_error','unexpected_runner_exit'}
+              if s.get('reason_code') not in allowed: raise SystemExit('BLOCKED reason code invalid')
+              if pf or payload: raise SystemExit('BLOCKED result must not expose plan fingerprints')
+          out=Path(os.environ['GITHUB_OUTPUT'])
+          with out.open('a',encoding='utf-8') as f:
+              f.write(f"result={s['result']}\nplan_fingerprint={pf}\npayload_fingerprint={payload}\n")
+          PY
+
+      - name: Upload sanitized C3 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lidl-v631-c3-readonly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /var/lib/hermes-deals/lidl-v631-c3-readonly/${{ github.run_id }}-${{ github.run_attempt }}/summary.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Enforce C3 PASS
+        if: always()
+        env:
+          RESULT: ${{ steps.inspect.outputs.result }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RESULT" == PASS && "$RUNNER_RC" == 0 ]] || {
+            echo 'C3 read-only production preflight did not reach PASS.' >&2
+            exit 1
+          }

@@ -44,7 +44,11 @@ def test_workflow_is_manual_owner_only_and_read_only() -> None:
     assert "push:" not in source
     assert "pull_request:" not in source
     assert "/usr/local/sbin/hermes-deals-lidl-gate-b-plan-dispatch" in source
-    assert "actions/upload-artifact@v4" in source
+    assert (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2"
+        in source
+    )
+    assert "actions/upload-artifact@v4" not in source
     assert "READY_TO_FREEZE" in source
     assert '"corpus_write_authorized": False' in source
     assert '"parser_scan_authorized": False' in source

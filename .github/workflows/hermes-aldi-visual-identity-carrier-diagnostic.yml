@@ -1,0 +1,195 @@
+name: Hermes ALDI visual identity-carrier diagnostic
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: hermes-aldi-visual-identity-carrier-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.event.issue.number == 682 &&
+      github.event.comment.user.login == 'rozkalnsandris' &&
+      github.event.comment.user.id == 277435981 &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.body == '/hermes-aldi-visual-identity-carrier diagnose'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      main_sha: ${{ steps.auth.outputs.main_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: auth
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$(git branch --show-current)" == "${{ github.event.repository.default_branch }}" ]]
+          [[ -z "$(git status --porcelain)" ]]
+          main_sha="$(git rev-parse HEAD)"
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
+          for path in \
+            tools/aldi_visual_identity_carrier_diagnostic.py \
+            tools/aldi_new_baseline_weekly_shadow_producer.py \
+            tools/runner/aldi-visual-identity-carrier-diagnostic-dispatcher.sh \
+            tools/runner/install-aldi-visual-identity-carrier-diagnostic-dispatcher.sh
+          do test -f "$path"; done
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+  diagnose-rpi5:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 20
+    permissions: {}
+    outputs:
+      decision: ${{ steps.inspect.outputs.decision }}
+      unbound: ${{ steps.inspect.outputs.unbound }}
+      with_dom: ${{ steps.inspect.outputs.with_dom }}
+      script_only: ${{ steps.inspect.outputs.script_only }}
+      no_carrier: ${{ steps.inspect.outputs.no_carrier }}
+      artifact_name: ${{ steps.dispatch.outputs.artifact_name }}
+    steps:
+      - id: dispatch
+        env:
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_name="aldi-visual-identity-carrier-diagnostic-$RUN_ID"
+          artifact_dir="$RUNNER_TEMP/$artifact_name"
+          [[ ! -e "$artifact_dir" ]]
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+          sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-visual-identity-carrier-diagnostic \
+            "$MAIN_SHA" "$COMMENT_ID" "$RUN_ID" "$artifact_dir"
+      - id: inspect
+        env:
+          ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["ARTIFACT_DIR"])
+          result = root / "diagnostic-result.json"
+          manifest = root / "MANIFEST.sha256"
+          if not result.is_file() or not manifest.is_file():
+              raise SystemExit("sanitized diagnostic evidence missing")
+          digest, name = manifest.read_text().strip().split("  ", 1)
+          if name != "diagnostic-result.json":
+              raise SystemExit("diagnostic manifest member mismatch")
+          if hashlib.sha256(result.read_bytes()).hexdigest() != digest:
+              raise SystemExit("diagnostic evidence manifest mismatch")
+          payload = json.loads(result.read_text())
+          if payload.get("decision") not in {
+              "NO_UNBOUND_OFFERS",
+              "ALL_UNBOUND_HAVE_DOM_IDENTITY_CARRIERS",
+              "PARTIAL_DOM_IDENTITY_CARRIERS",
+              "NO_DOM_IDENTITY_CARRIERS",
+          }:
+              raise SystemExit("diagnostic decision rejected")
+          for key in (
+              "production_database_write",
+              "review_publication_write",
+              "source_mutation",
+              "production_deploy",
+              "scheduler_activation",
+              "automatic_retry",
+              "request_created",
+              "request_accepted",
+              "production_canary",
+          ):
+              if payload.get(key) is not False:
+                  raise SystemExit(f"unsafe diagnostic flag: {key}")
+          if payload.get("network_source_read") is not True:
+              raise SystemExit("network source-read evidence missing")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"decision={payload['decision']}\n")
+              out.write(f"unbound={payload.get('unbound_offer_count', 0)}\n")
+              out.write(
+                  "with_dom="
+                  f"{payload.get('unbound_with_dom_identity_carrier_count', 0)}\n"
+              )
+              out.write(
+                  f"script_only={payload.get('unbound_script_only_count', 0)}\n"
+              )
+              out.write(
+                  "no_carrier="
+                  f"{payload.get('unbound_without_any_observed_carrier_count', 0)}\n"
+              )
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ steps.dispatch.outputs.artifact_name }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    needs: [authorize, diagnose-rpi5]
+    if: always() && needs.authorize.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAIN_SHA: ${{ needs.authorize.outputs.main_sha }}
+          RESULT: ${{ needs.diagnose-rpi5.result }}
+          DECISION: ${{ needs.diagnose-rpi5.outputs.decision }}
+          UNBOUND: ${{ needs.diagnose-rpi5.outputs.unbound }}
+          WITH_DOM: ${{ needs.diagnose-rpi5.outputs.with_dom }}
+          SCRIPT_ONLY: ${{ needs.diagnose-rpi5.outputs.script_only }}
+          NO_CARRIER: ${{ needs.diagnose-rpi5.outputs.no_carrier }}
+          RUN_ID: ${{ github.run_id }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.request
+
+          body = "\n".join([
+              "## ALDI visual identity-carrier diagnostic",
+              "",
+              f"- runner result: **{os.environ['RESULT'].upper()}**",
+              f"- decision: **{os.environ.get('DECISION') or 'unavailable'}**",
+              f"- exact main: `{os.environ['MAIN_SHA']}`",
+              f"- unbound under current producer contract: `{os.environ.get('UNBOUND') or '0'}`",
+              f"- unbound with DOM identity carrier: `{os.environ.get('WITH_DOM') or '0'}`",
+              f"- script-only identity: `{os.environ.get('SCRIPT_ONLY') or '0'}`",
+              f"- no observed carrier: `{os.environ.get('NO_CARRIER') or '0'}`",
+              f"- workflow run: `{os.environ['RUN_ID']}`",
+              "- network source read: `true` only inside the separately owner-authorized diagnostic run",
+              "- raw HTML/screenshot/product text/href export: `false`",
+              "- producer matching contract mutation: `false`",
+              "- request creation/acceptance: `false`",
+              "- production DB/Review/source mutation/deploy/scheduler/canary: `false`",
+              "",
+              "This diagnostic is evidence only. Any producer matching change requires a separate source PR and owner merge authorization.",
+          ])
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/682/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+          )
+          urllib.request.urlopen(request, timeout=20).read()
