@@ -69,7 +69,7 @@ def test_helper_is_separate_and_has_no_generic_execution_authority():
     assert helper.CAPABILITY == "origin-path-audit"
     assert helper.MACHINE_ID == "rpi5"
     assert helper.PUBLIC_BASE_URL == "https://deals.rozkalns.net"
-    assert helper.ORIGIN_BASE_URL == "http://192.168.0.180:9128"
+    assert helper.ORIGIN_BASE_URL == "http://127.0.0.1:9128"
     assert helper.ORIGIN_HOST == "deals.rozkalns.net"
     assert "shell=True" not in text
     assert "os.system" not in text
@@ -77,6 +77,14 @@ def test_helper_is_separate_and_has_no_generic_execution_authority():
     assert "sudo" not in text
     assert "github-runner" not in text
     assert "artifact_dir" not in text
+
+
+def test_origin_probe_is_loopback_only_and_does_not_require_lan_exposure():
+    expected = helper._expected_urls(AS_OF)
+    origin_urls = [url for (target, _endpoint), url in expected.items() if target == "origin"]
+    assert len(origin_urls) == 3
+    assert all(url.startswith("http://127.0.0.1:9128/") for url in origin_urls)
+    assert all("192.168.0.180" not in url for url in origin_urls)
 
 
 def test_future_broker_interface_accepts_only_source_sha_and_date():
