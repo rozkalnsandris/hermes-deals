@@ -23,6 +23,12 @@ The helper itself fixes the probe executable, `andris` execution user, public
 and origin URLs, Host header, timeout and clean probe argv/environment. It never
 uses `shell=True` and exposes no generic privileged execution primitive.
 
+The origin base URL is source-fixed to `http://127.0.0.1:9128`. The production
+Deals web port is intentionally published on host loopback only, so this audit
+must use the host-local endpoint and must not require widening Docker publication
+to the RPi5 LAN address or all host interfaces. The fixed `Host` header remains
+`deals.rozkalns.net` so origin routing semantics stay explicit.
+
 ## Registration and provenance
 
 Future installation must create exactly one root-owned `0600` registration at:
