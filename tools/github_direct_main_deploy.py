@@ -162,6 +162,8 @@ def dispatch_deploy(
             "inputs": {
                 "target_sha": authorized.sha,
                 "confirmation": f"DEPLOY {authorized.sha}",
+                "authorization_issue": str(authorized.issue_number),
+                "authorization_comment_id": str(authorized.comment_id),
             },
         },
         separators=(",", ":"),

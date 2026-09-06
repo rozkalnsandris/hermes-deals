@@ -32,14 +32,12 @@ def test_manual_deploy_requires_owner_main_ref_exact_sha_and_confirmation() -> N
 
     assert inputs["target_sha"]["required"] is True
     assert inputs["confirmation"]["required"] is True
+    assert inputs["authorization_issue"]["required"] is False
+    assert inputs["authorization_comment_id"]["required"] is False
     assert "ORIGINAL_ACTOR: ${{ github.actor }}" in text
     assert "TRIGGERING_ACTOR: ${{ github.triggering_actor }}" in text
-    assert 'os.environ["EVENT_REF"] != "refs/heads/main"' in text
-    assert "deploy-main.yml@refs/heads/main" in text
-    assert 'confirmation != f"DEPLOY {target_sha}"' in text
-    assert "actions/workflows/ci.yml/runs" in text
-    assert 'row.get("event") == "push"' in text
-    assert 'row.get("head_branch") == "main"' in text
-    assert 'row.get("head_sha") == target_sha' in text
-    assert 'row.get("conclusion") == "success"' in text
+    assert 'event_ref=os.environ["EVENT_REF"]' in text
+    assert "from tools.github_deploy_main_authorization import authorize_deploy_main" in text
+    assert "AUTHORIZATION_ISSUE: ${{ inputs.authorization_issue }}" in text
+    assert "AUTHORIZATION_COMMENT_ID: ${{ inputs.authorization_comment_id }}" in text
     assert "/usr/local/sbin/hermes-deals-deploy-main" in text

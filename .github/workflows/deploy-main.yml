@@ -11,6 +11,16 @@ on:
         description: Type DEPLOY followed by the exact SHA
         required: true
         type: string
+      authorization_issue:
+        description: Exact owner-control issue for a bot-dispatched owner comment
+        required: false
+        default: ""
+        type: string
+      authorization_comment_id:
+        description: Exact owner-authored comment ID for a bot-dispatched owner command
+        required: false
+        default: ""
+        type: string
 
 permissions:
   actions: read
@@ -25,12 +35,23 @@ jobs:
     name: Authorize exact main SHA
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: read
     outputs:
       sha: ${{ steps.authorize.outputs.sha }}
       ci_run_id: ${{ steps.authorize.outputs.ci_run_id }}
 
     steps:
-      - name: Verify owner, exact SHA and successful main CI
+      - name: Checkout exact main deploy authorizer
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify owner/comment, exact SHA and successful main CI
         id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,98 +64,48 @@ jobs:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           TARGET_SHA: ${{ inputs.target_sha }}
           CONFIRMATION: ${{ inputs.confirmation }}
+          AUTHORIZATION_ISSUE: ${{ inputs.authorization_issue }}
+          AUTHORIZATION_COMMENT_ID: ${{ inputs.authorization_comment_id }}
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
-          import json
           import os
           import pathlib
-          import re
-          import urllib.parse
-          import urllib.request
 
-          repo = os.environ["REPOSITORY"]
-          owner = os.environ["REPOSITORY_OWNER"]
-          actor = os.environ["ORIGINAL_ACTOR"]
-          triggering_actor = os.environ["TRIGGERING_ACTOR"]
-          target_sha = os.environ["TARGET_SHA"].strip()
-          confirmation = os.environ["CONFIRMATION"]
+          from tools.github_deploy_main_authorization import authorize_deploy_main
 
-          if repo != "rozkalnsandris/hermes-deals" or owner != "rozkalnsandris":
-              raise SystemExit("unexpected repository owner")
-          if os.environ["EVENT_NAME"] != "workflow_dispatch":
-              raise SystemExit("production deploy requires workflow_dispatch")
-          if os.environ["EVENT_REF"] != "refs/heads/main":
-              raise SystemExit("production deploy workflow must be dispatched from main")
-          expected_workflow_ref = (
-              "rozkalnsandris/hermes-deals/.github/workflows/deploy-main.yml@refs/heads/main"
+          authorized = authorize_deploy_main(
+              repository=os.environ["REPOSITORY"],
+              repository_owner=os.environ["REPOSITORY_OWNER"],
+              event_name=os.environ["EVENT_NAME"],
+              event_ref=os.environ["EVENT_REF"],
+              workflow_ref=os.environ["WORKFLOW_REF"],
+              actor=os.environ["ORIGINAL_ACTOR"],
+              triggering_actor=os.environ["TRIGGERING_ACTOR"],
+              target_sha=os.environ["TARGET_SHA"].strip(),
+              confirmation=os.environ["CONFIRMATION"],
+              authorization_issue=os.environ["AUTHORIZATION_ISSUE"].strip(),
+              authorization_comment_id=os.environ["AUTHORIZATION_COMMENT_ID"].strip(),
+              token=os.environ["GH_TOKEN"],
           )
-          if os.environ["WORKFLOW_REF"] != expected_workflow_ref:
-              raise SystemExit("production deploy workflow ref is not exact main")
-          if actor != owner:
-              raise SystemExit("original workflow actor is not the repository owner")
-          if triggering_actor != owner:
-              raise SystemExit("workflow triggering actor is not the repository owner")
-          if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
-              raise SystemExit("target SHA must be an exact lowercase 40-character commit SHA")
-          if confirmation != f"DEPLOY {target_sha}":
-              raise SystemExit("typed production confirmation does not match target SHA")
-
-          headers = {
-              "Accept": "application/vnd.github+json",
-              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-              "X-GitHub-Api-Version": "2022-11-28",
-              "User-Agent": "hermes-deals-owner-authorized-deploy",
-          }
-
-          def get_json(url: str):
-              request = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  return json.load(response)
-
-          main = get_json(f"https://api.github.com/repos/{repo}/branches/main")
-          current_main = str(main.get("commit", {}).get("sha", ""))
-          if not re.fullmatch(r"[0-9a-f]{40}", current_main):
-              raise SystemExit("current main SHA is invalid")
-
-          if target_sha != current_main:
-              comparison = get_json(
-                  f"https://api.github.com/repos/{repo}/compare/{target_sha}...{current_main}"
-              )
-              merge_base = str((comparison.get("merge_base_commit") or {}).get("sha", ""))
-              if comparison.get("status") != "ahead" or merge_base != target_sha:
-                  raise SystemExit("target SHA is not an ancestor of current main")
-
-          encoded = urllib.parse.quote(target_sha, safe="")
-          runs = get_json(
-              f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs"
-              f"?branch=main&head_sha={encoded}&status=completed&per_page=100"
-          ).get("workflow_runs", [])
-          successful = [
-              row
-              for row in runs
-              if row.get("event") == "push"
-              and row.get("head_branch") == "main"
-              and row.get("head_sha") == target_sha
-              and row.get("status") == "completed"
-              and row.get("conclusion") == "success"
-          ]
-          if not successful:
-              raise SystemExit("target SHA has no successful main push CI run")
-          ci_run_id = max(int(row["id"]) for row in successful)
-
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as handle:
-              handle.write(f"sha={target_sha}\n")
-              handle.write(f"ci_run_id={ci_run_id}\n")
+              handle.write(f"sha={authorized.sha}\n")
+              handle.write(f"ci_run_id={authorized.ci_run_id}\n")
 
+          comment_line = (
+              f"- Owner command comment: `{authorized.authorization_comment_id}`\n"
+              if authorized.authorization_comment_id is not None
+              else ""
+          )
           pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
               "## Production deploy authorized\n\n"
-              f"- Owner: `{owner}`\n"
-              f"- Target SHA: `{target_sha}`\n"
-              f"- Successful main CI: `{ci_run_id}`\n"
-              "- Database writes and migrations are not authorized by this workflow.\n",
+              f"- Authorization mode: `{authorized.authorization_mode}`\n"
+              f"- Target SHA: `{authorized.sha}`\n"
+              f"- Successful main CI: `{authorized.ci_run_id}`\n"
+              + comment_line
+              + "- Database writes and migrations are not authorized by this workflow.\n",
               encoding="utf-8",
           )
           PY
