@@ -79,6 +79,8 @@ def test_source_runtime_pr_scope_is_exact_and_no_live_trigger_is_automatic() -> 
         "audit/netto/hz37/independent-retention-receipt.json",
         "backend/tests/test_netto_hz37_truth_boundary.py",
         "tools/netto_hz37_completed_source_truth.py",
+        "policy/public-rpi5-control-plane-v1.json",
+        "backend/tests/test_public_rpi5_control_plane_policy.py",
     }
     for path in expected_paths:
         assert path in text
