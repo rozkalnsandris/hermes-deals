@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 REVIEW_WORKFLOW = ROOT / ".github" / "workflows" / "netto-hz37-blind-review-pack.yml"
 TRUTH_WORKFLOW = ROOT / ".github" / "workflows" / "netto-hz37-completed-truth-import.yml"
 VALIDATOR = ROOT / "tools" / "netto_hz37_completed_source_truth.py"
+BASE_VALIDATOR = ROOT / "tools" / "netto_hz34_completed_source_card_truth.py"
 RETENTION = ROOT / "audit" / "netto" / "hz37" / "independent-retention-receipt.json"
 
 
@@ -42,6 +43,16 @@ def test_hz37_validator_binds_exact_frozen_source_and_dynamic_safe_pack() -> Non
     assert "review_pack_artifact_digest" in text
     assert "candidate_provenance_payload_parsed" in text
     assert "base.validate_truth_file" in text
+
+
+def test_hz37_uses_dynamic_shared_page_contract() -> None:
+    hz37 = VALIDATOR.read_text(encoding="utf-8")
+    shared = BASE_VALIDATOR.read_text(encoding="utf-8")
+    assert 'EXPECTED_PAGES = 73' in hz37
+    assert '"review_order": f"pages_001_through_{EXPECTED_PAGES:03d}_sequential"' in shared
+    assert 'f"completed truth must contain exactly {EXPECTED_PAGES} pages"' in shared
+    assert 'f"truth pages must be sequential 1..{EXPECTED_PAGES}"' in shared
+    assert 'pages_001_through_070_sequential' not in shared
 
 
 def test_reviewer_pack_workflow_preserves_blindness_and_retention_gate() -> None:
