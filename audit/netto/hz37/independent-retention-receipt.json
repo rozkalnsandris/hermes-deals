@@ -1,0 +1,32 @@
+{
+  "actions_artifact": {
+    "id": 10022687292,
+    "name": "netto-heldout-v2-fbe3cfa143788607446d0095ae1f887354d10eb3-run-34132489970",
+    "size_bytes": 41514323,
+    "workflow_run_id": 34132489970,
+    "zip_sha256": "6a6394e91df0aab2681f7c042397cc4c572f4254e3f7df008840165f97cae2dc"
+  },
+  "base_freeze_manifest_sha256": "4f8381892d3b4e3847267c34c27a3b52131331b42c660ecb812cb5756f79617a",
+  "campaign_key": "hz37_hasb",
+  "candidate_decisions_sha256": "ed406f6cb0e5f1a3ed2e6355aba9dd90fa2f9d59aaee99192307c5448e34225a",
+  "candidate_file_sha256": "60c57d7474464b66349cc9761eb4d4dd7895a470bf7634f1d091f73bf00718b6",
+  "candidate_implementation_commit": "17ceedf0fdb0342acb594ed20679519ec4910e3c",
+  "candidate_payload_opened": false,
+  "candidate_provenance_sha256": "adb4581a45423e5cb093fb49037a8e9a1448ecc13940318d5ee455cff825ee9f",
+  "independent_copy": {
+    "opaque_locator": "netto/5659/hz37_hasb/candidate.zip",
+    "retain_through": "2026-12-31T23:59:59Z",
+    "retention_class": "owner_side_retained_filesystem",
+    "size_bytes": 41514323,
+    "zip_sha256": "6a6394e91df0aab2681f7c042397cc4c572f4254e3f7df008840165f97cae2dc"
+  },
+  "independent_copy_verified": true,
+  "registered_commit": "fbe3cfa143788607446d0095ae1f887354d10eb3",
+  "schema": "hermes.netto.heldout-independent-retention.v1",
+  "v2_freeze_manifest_sha256": "77da6e4ed772d3a513df8dafa6d20c6882ca7ad3da729ac3d76d0ece7b7d4922",
+  "verified_at": "2026-09-07T15:05:46Z",
+  "verifier": {
+    "actor": "owner_authorized_agent",
+    "tool": "sha256sum+stat"
+  }
+}
