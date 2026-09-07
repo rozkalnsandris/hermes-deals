@@ -186,6 +186,8 @@ class GitHubDirectMainDeployTest(unittest.TestCase):
                 "inputs": {
                     "target_sha": SHA,
                     "confirmation": f"DEPLOY {SHA}",
+                    "authorization_issue": "553",
+                    "authorization_comment_id": "12345",
                 },
             },
         )

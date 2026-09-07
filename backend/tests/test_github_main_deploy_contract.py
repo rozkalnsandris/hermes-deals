@@ -27,35 +27,24 @@ def workflow_trigger() -> dict:
 
 def test_workflow_requires_explicit_owner_exact_sha_dispatch() -> None:
     text = read(WORKFLOW)
+    helper = read(ROOT / "tools" / "github_deploy_main_authorization.py")
     trigger = workflow_trigger()
 
     assert set(trigger) == {"workflow_dispatch"}
     inputs = trigger["workflow_dispatch"]["inputs"]
     assert inputs["target_sha"]["required"] is True
-    assert inputs["target_sha"]["type"] == "string"
     assert inputs["confirmation"]["required"] is True
-    assert inputs["confirmation"]["type"] == "string"
+    assert inputs["authorization_issue"]["required"] is False
+    assert inputs["authorization_comment_id"]["required"] is False
 
     for marker in (
         "ORIGINAL_ACTOR: ${{ github.actor }}",
         "TRIGGERING_ACTOR: ${{ github.triggering_actor }}",
-        "EVENT_REF: ${{ github.ref }}",
-        "WORKFLOW_REF: ${{ github.workflow_ref }}",
-        'owner != "rozkalnsandris"',
-        'os.environ["EVENT_NAME"] != "workflow_dispatch"',
-        'os.environ["EVENT_REF"] != "refs/heads/main"',
-        "deploy-main.yml@refs/heads/main",
-        "actor != owner",
-        "triggering_actor != owner",
-        're.fullmatch(r"[0-9a-f]{40}", target_sha)',
-        'confirmation != f"DEPLOY {target_sha}"',
-        "target SHA is not an ancestor of current main",
-        "actions/workflows/ci.yml/runs",
-        'row.get("event") == "push"',
-        'row.get("head_branch") == "main"',
-        'row.get("head_sha") == target_sha',
-        'row.get("status") == "completed"',
-        'row.get("conclusion") == "success"',
+        "AUTHORIZATION_ISSUE: ${{ inputs.authorization_issue }}",
+        "AUTHORIZATION_COMMENT_ID: ${{ inputs.authorization_comment_id }}",
+        "from tools.github_deploy_main_authorization import authorize_deploy_main",
+        "issues: read",
+        "persist-credentials: false",
         "/usr/local/sbin/hermes-deals-deploy-main",
         "hermes-deals-release",
         "group: hermes-deals-production-release",
@@ -64,6 +53,27 @@ def test_workflow_requires_explicit_owner_exact_sha_dispatch() -> None:
         "Database writes and migrations are not authorized by this workflow",
     ):
         assert marker in text
+
+    for marker in (
+        'EXPECTED_OWNER = "rozkalnsandris"',
+        "EXPECTED_OWNER_ID = 277435981",
+        "EXPECTED_ISSUE = 553",
+        'BOT_ACTOR = "github-actions[bot]"',
+        "issues/comments/{comment_id}",
+        'comment.get("issue_url") != expected_issue_url',
+        'user.get("login") != EXPECTED_OWNER',
+        'user.get("id") != EXPECTED_OWNER_ID',
+        "COMMAND_RE.fullmatch(body.strip())",
+        'target_sha != current_main',
+        "target SHA is not an ancestor of current main",
+        "actions/workflows/ci.yml/runs",
+        'row.get("event") == "push"',
+        'row.get("head_branch") == "main"',
+        'row.get("head_sha") == target_sha',
+        'row.get("status") == "completed"',
+        'row.get("conclusion") == "success"',
+    ):
+        assert marker in helper
 
     assert "actions/upload-artifact@v6" not in text
 
