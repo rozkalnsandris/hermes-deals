@@ -102,7 +102,7 @@ jobs:
           pr=get(f"https://api.github.com/repos/{repo}/pulls/{number}")
           if not pr.get("merged") or pr.get("base",{}).get("ref") != "main": raise SystemExit("review pack accepts only a PR merged into main")
           files=get(f"https://api.github.com/repos/{repo}/pulls/{number}/files?per_page=100")
-          expected={".github/workflows/netto-hz37-blind-review-pack.yml",".github/workflows/netto-hz37-completed-truth-import.yml","audit/netto/hz37/independent-retention-receipt.json","backend/tests/test_netto_hz37_truth_boundary.py","tools/netto_hz37_completed_source_truth.py"}
+          expected={".github/workflows/netto-hz37-blind-review-pack.yml",".github/workflows/netto-hz37-completed-truth-import.yml","audit/netto/hz37/independent-retention-receipt.json","backend/tests/test_netto_hz37_truth_boundary.py","tools/netto_hz37_completed_source_truth.py","policy/public-rpi5-control-plane-v1.json","backend/tests/test_public_rpi5_control_plane_policy.py"}
           actual={str(row.get("filename") or "") for row in files}
           if actual != expected: raise SystemExit(f"runtime PR file set mismatch: {sorted(actual)}")
           sha=str(pr.get("merge_commit_sha") or ""); comparison=get(f"https://api.github.com/repos/{repo}/compare/{sha}...main")
