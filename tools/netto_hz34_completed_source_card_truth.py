@@ -221,7 +221,7 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
         "frozen_predictions_opened": False,
         "candidate_provenance_opened": False,
         "adjudication_started": False,
-        "review_order": "pages_001_through_070_sequential",
+        "review_order": f"pages_001_through_{EXPECTED_PAGES:03d}_sequential",
     }
     _reject_unknown_keys(process, set(process_expected), path="$.reviewer_process")
     for key, value in process_expected.items():
@@ -241,7 +241,7 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
         raise Hz34CompletedTruthError("post-freeze ownership gate is missing")
     pages = payload.get("pages")
     if not isinstance(pages, list) or len(pages) != EXPECTED_PAGES:
-        raise Hz34CompletedTruthError("completed truth must contain exactly 70 pages")
+        raise Hz34CompletedTruthError(f"completed truth must contain exactly {EXPECTED_PAGES} pages")
     if set(page_dimensions) != set(range(1, EXPECTED_PAGES + 1)):
         raise Hz34CompletedTruthError("review-pack page-dimension map is incomplete")
     ids: set[str] = set()
@@ -257,7 +257,7 @@ def validate_truth_payload(payload: dict[str, Any], page_dimensions: Mapping[int
             path=f"$.pages[{expected_page - 1}]",
         )
         if page.get("page_number") != expected_page:
-            raise Hz34CompletedTruthError("truth pages must be sequential 1..70")
+            raise Hz34CompletedTruthError(f"truth pages must be sequential 1..{EXPECTED_PAGES}")
         expected_width, expected_height = page_dimensions[expected_page]
         width, height = page.get("page_width_points"), page.get("page_height_points")
         if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in (width, height)):
