@@ -181,7 +181,7 @@ jobs:
           ref: ${{ needs.authorize.outputs.head_sha }}
           path: evidence
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
       - name: Commit only immutable truth receipt to evidence PR
         id: commit
         env:
