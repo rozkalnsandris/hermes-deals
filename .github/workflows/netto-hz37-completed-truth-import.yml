@@ -185,6 +185,7 @@ jobs:
       - name: Commit only immutable truth receipt to evidence PR
         id: commit
         env:
+          GH_TOKEN: ${{ github.token }}
           EXPECTED_HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
           EXPECTED_HEAD_REF: ${{ needs.authorize.outputs.head_ref }}
           EXPECTED_BLOB_SHA: ${{ needs.authorize.outputs.truth_blob_sha }}
@@ -196,7 +197,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"; test -z "$(git status --porcelain)"; git fetch --no-tags origin main; test "$(git rev-parse origin/main)" = "${{ needs.authorize.outputs.base_sha }}"
           mapfile -t changed < <(git diff --name-only origin/main...HEAD); test "${#changed[@]}" -eq 1; test "${changed[0]}" = "$EXPECTED_TRUTH_PATH"; test "$(git hash-object "$EXPECTED_TRUTH_PATH")" = "$EXPECTED_BLOB_SHA"; test ! -e "$EXPECTED_RECEIPT_PATH"
           install -D -m 0644 "$RECEIPT" "$EXPECTED_RECEIPT_PATH"; git add -f -- "$EXPECTED_RECEIPT_PATH"; mapfile -t staged < <(git diff --cached --name-only); test "${#staged[@]}" -eq 1; test "${staged[0]}" = "$EXPECTED_RECEIPT_PATH"
-          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"; git commit -m "netto: freeze hz37 completed source truth receipt"; git push origin "HEAD:${EXPECTED_HEAD_REF}"; echo "evidence_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"; git commit -m "netto: freeze hz37 completed source truth receipt"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" GIT_TERMINAL_PROMPT=0 git push origin "HEAD:${EXPECTED_HEAD_REF}"
+          echo "evidence_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   report:
     needs: [authorize, validate-and-freeze]
