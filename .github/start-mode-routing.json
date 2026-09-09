@@ -1,10 +1,11 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
   "lane_roles": {
     "FAST-LANE v2.2": "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION",
-    "AUTO-RUN-FULL": "NORMAL_ISSUE_SCOPED_IMPLEMENTATION"
+    "AUTO-RUN-FULL": "NORMAL_ISSUE_SCOPED_IMPLEMENTATION",
+    "AUTO-RUN-FULL-QUEUE": "EXPLICIT_BATCH_SOURCE_AND_MERGE_NO_LIVE"
   },
   "explicit_modes": {
     "GITHUB-ONLY": {
@@ -23,6 +24,8 @@
       "accepted_tokens": ["AUTO-RUN FULL"],
       "requires_repository_argument": "hermes-deals",
       "requires_issue_argument": true,
+      "requires_exact_issue_argument_count": 1,
+      "rejects_additional_issue_arguments": true,
       "issue_argument_pattern": "^#[1-9][0-9]*$",
       "policy": ".github/auto-run-full-v2.json",
       "controller_issue": 814,
@@ -30,7 +33,34 @@
       "fallback_resume": "HOURLY_SCHEDULED_WATCHDOG",
       "preferred_merge": "GITHUB_AUTO_MERGE_AFTER_FINAL_EXACT_HEAD_READINESS",
       "may_be_inferred_from_context": false
+    },
+    "AUTO-RUN-FULL-QUEUE": {
+      "canonical_prefix": "AUTO-RUN FULL QUEUE",
+      "requires_explicit_current_command_token": true,
+      "accepted_tokens": ["AUTO-RUN FULL QUEUE"],
+      "requires_repository_argument": "hermes-deals",
+      "requires_issue_arguments": true,
+      "minimum_issue_arguments": 1,
+      "maximum_issue_arguments": 10,
+      "issue_argument_pattern": "^#[1-9][0-9]*$",
+      "issue_arguments_must_be_unique": true,
+      "issue_order_is_authoritative": true,
+      "policy": ".github/auto-run-full-queue-v1.json",
+      "adoption_manifest": ".github/auto-run-full-queue-adoption-v1.json",
+      "requires_separate_batch_controller_issue": true,
+      "legacy_controller_issue_may_be_reused": false,
+      "maximum_active_items": 1,
+      "may_be_inferred_from_context": false
     }
+  },
+  "mode_mutual_exclusion": {
+    "legacy_single_issue_controller_issue": 814,
+    "queue_uses_legacy_controller_issue": false,
+    "queue_requires_separate_batch_controller_issue": true,
+    "single_issue_full_activation_requires_no_active_queue": true,
+    "queue_activation_requires_legacy_single_issue_controller_idle": true,
+    "authority_never_transfers_between_modes": true,
+    "conflict_result": "STOP_MODE_CONFLICT"
   },
   "bare_continuation_commands": ["START", "START hermes-deals", "turpini"],
   "bare_continuation_result": "FAST-LANE v2.2",
@@ -42,7 +72,10 @@
     "historical chat mode",
     "prior authorization receipt",
     "AUTO-RUN controller state without a fresh explicit activation command",
-    "prior AUTO-RUN authorization receipt"
+    "prior AUTO-RUN authorization receipt",
+    "Queue migration issue existence",
+    "Queue controller state without a fresh explicit activation command",
+    "prior Queue authorization receipt"
   ],
   "examples": {
     "START hermes-deals": "FAST-LANE v2.2",
@@ -50,6 +83,7 @@
     "START hermes-deals GITHUB-ONLY": "GITHUB-ONLY",
     "GITHUB-ONLY": "GITHUB-ONLY",
     "LIVE-ALL": "LIVE-ALL",
-    "AUTO-RUN FULL hermes-deals #812": "AUTO-RUN-FULL"
+    "AUTO-RUN FULL hermes-deals #812": "AUTO-RUN-FULL",
+    "AUTO-RUN FULL QUEUE hermes-deals #812 #813": "AUTO-RUN-FULL-QUEUE"
   }
 }
