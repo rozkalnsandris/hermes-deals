@@ -1,0 +1,20 @@
+name: AUTO-RUN FULL Queue adoption guard
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  queue-adoption-guard:
+    uses: rozkalnsandris/ops-workflows/.github/workflows/auto-run-full-queue-adoption-guard.yml@55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a # reviewed policy revision 55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a
+    with:
+      canonical_policy_sha: 55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a
+      manifest_path: .github/auto-run-full-queue-adoption-v1.json

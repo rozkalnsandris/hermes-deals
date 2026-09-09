@@ -1,0 +1,25 @@
+{
+  "schema": "rozkalns.auto-run-full-queue-adoption.v1",
+  "repository": "rozkalnsandris/hermes-deals",
+  "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
+  "adoption_phase": "SOURCE_ONLY_CANARY",
+  "queue": {
+    "command_active": true,
+    "maximum_items": 10,
+    "maximum_active_items": 1,
+    "batch_source_authority": true,
+    "batch_merge_authority": true,
+    "live_authority": false
+  },
+  "final_live": {
+    "mode": "DISABLED",
+    "double_execution_paths_allowed": false,
+    "deferred_rpi5_requires_live_auth_v1": true
+  },
+  "boundaries": {
+    "ops_workflows_executes_production": false,
+    "ops_workflows_stores_production_credentials": false,
+    "consumer_owns_rollout_adapter": true,
+    "repository_local_stricter_rules_win": true
+  }
+}

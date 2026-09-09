@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "policy": "AUTO-RUN FULL Queue v1",
+  "repository": "rozkalnsandris/hermes-deals",
+  "migration_issue": 876,
+  "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
+  "adoption_manifest": ".github/auto-run-full-queue-adoption-v1.json",
+  "adoption_phase": "SOURCE_ONLY_CANARY",
+  "command": {
+    "canonical_prefix": "AUTO-RUN FULL QUEUE",
+    "syntax": "AUTO-RUN FULL QUEUE hermes-deals #<issue1> ... #<issueN>",
+    "requires_explicit_current_command": true,
+    "requires_exact_repository": true,
+    "requires_exact_open_issues": true,
+    "minimum_items": 1,
+    "maximum_items": 10,
+    "issues_must_be_ordered_and_unique": true,
+    "may_be_inferred_from_context": false,
+    "may_be_inferred_from_start_or_turpini": false
+  },
+  "authority": {
+    "requires_durable_batch_authorization_receipt": true,
+    "authorization_schema": "rozkalns.auto-run-full-queue-auth.v1",
+    "shared_contract_sha_must_match_manifest": true,
+    "source": true,
+    "merge": true,
+    "live": false,
+    "authority_applies_only_to_frozen_ordered_issue_set": true,
+    "only_active_item_may_consume_source_or_merge_authority": true,
+    "later_issue_edits_do_not_expand_authority": true
+  },
+  "controller": {
+    "legacy_single_issue_controller": 814,
+    "reuse_legacy_controller_for_queue": false,
+    "separate_batch_controller_issue_required_per_activation": true,
+    "maximum_active_items": 1,
+    "queue_order_is_frozen": true,
+    "skip_or_reorder_on_failure": false
+  },
+  "activation": {
+    "fresh_reads_required": [
+      "AGENTS.md",
+      ".github/start-mode-routing.json",
+      ".github/auto-run-full-queue-v1.json",
+      ".github/auto-run-full-queue-adoption-v1.json",
+      "all_target_issues",
+      "current_main",
+      "active_pr_ci_review_state",
+      "repository_rules",
+      "legacy_controller_issue_814",
+      "active_queue_controller_if_any"
+    ],
+    "active_single_issue_full_blocks_queue_activation": true,
+    "active_queue_blocks_single_issue_full_activation": true,
+    "conflict_result": "STOP_MODE_CONFLICT",
+    "post_receipt_main_stability_required": true,
+    "scope_rules_and_main_stability_required_before_first_source_mutation": true
+  },
+  "merge": {
+    "canonical_pr_only": true,
+    "expected_head_sha_required": true,
+    "fresh_exact_head_ci_required": true,
+    "fresh_reviews_and_unresolved_threads_required": true,
+    "fresh_mergeability_required": true,
+    "exact_main_verification_required_before_queue_advance": true,
+    "force_merge": false,
+    "ruleset_bypass": false,
+    "reset_rebase_force_push_history_rewrite": false
+  },
+  "resume": {
+    "event_or_watchdog_is_authority": false,
+    "fresh_canonical_github_refresh_decides_action": true,
+    "stopped_auto_resume": false,
+    "ready_auto_activation": false
+  },
+  "execution_boundary": {
+    "repository_controller_executor_added_by_a7": false,
+    "event_resume_automation_added_by_a7": false,
+    "watchdog_added_by_a7": false,
+    "production_executor_added_by_a7": false,
+    "ops_workflows_executes_production": false,
+    "ops_workflows_stores_production_credentials": false,
+    "final_live_mode": "DISABLED",
+    "queue_authorizes_live": false,
+    "production_deploy_authorized": false,
+    "production_data_write_authorized": false,
+    "runtime_or_host_mutation_authorized": false,
+    "secrets_permissions_or_repository_settings_mutation_authorized": false,
+    "rpi5_trust_boundary_preserved": true
+  },
+  "compatibility": {
+    "legacy_single_issue_policy": ".github/auto-run-full-v2.json",
+    "legacy_single_issue_command": "AUTO-RUN FULL hermes-deals #<issue>",
+    "legacy_single_issue_remains_available": true,
+    "queue_is_additive_and_explicit_only": true,
+    "authority_never_transfers_between_modes": true,
+    "queue_issue_876_is_not_activation_authority": true,
+    "repository_local_stricter_rules_win": true
+  }
+}
