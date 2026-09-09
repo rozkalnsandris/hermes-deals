@@ -151,11 +151,11 @@ jobs:
           success=0
           for attempt in 0 1 2; do
             rm -rf -- "$raw" "$live"
-            if DATABASE_URL='sqlite+pysqlite:///:memory:' python3 tools/netto_heldout_live_source.py --repo "$GITHUB_WORKSPACE" --raw-root "$raw" --as-of "$as_of" --output "$live"; then success=1; break; fi
+            if DATABASE_URL='sqlite+pysqlite:///:memory:' python3 tools/netto_weekly_live_source.py --repo "$GITHUB_WORKSPACE" --raw-root "$raw" --as-of "$as_of" --output "$live"; then success=1; break; fi
             [[ "$attempt" == 2 ]] || sleep $((60 * (attempt + 1)))
           done
           [[ "$success" == 1 ]] || { echo 'bounded live-source retries exhausted' >&2; exit 1; }
-          python3 tools/netto_heldout_source_selector.py --raw-root "$raw" --as-of "$as_of" --output "$ROOT/current/selector.json"
+          python3 tools/netto_weekly_source_selector.py --live-source "$live" --raw-root "$raw" --as-of "$as_of" --output "$ROOT/current/selector.json"
           echo "as_of=$as_of" >> "$GITHUB_OUTPUT"
 
       - name: Build immutable transition state
