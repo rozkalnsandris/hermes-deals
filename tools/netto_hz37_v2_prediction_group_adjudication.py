@@ -185,13 +185,17 @@ def _validate_truth(truth_path: Path) -> dict[str, Any]:
         "freeze_manifest_sha256": EXPECTED_BASE_FREEZE_SHA256,
         "page_count": EXPECTED_PAGES,
         "truth_unit": "independent_source_region",
-        "frozen_predictions_opened": False,
-        "candidate_provenance_opened": False,
         "adjudication_started": False,
     }
     for key, value in expected.items():
         if truth.get(key) != value:
             raise Hz37V2AdjudicationError(f"completed truth contract mismatch: {key}")
+    reviewer_process = truth.get("reviewer_process")
+    if not isinstance(reviewer_process, Mapping):
+        raise Hz37V2AdjudicationError("completed truth reviewer process missing")
+    for key in ("frozen_predictions_opened", "candidate_provenance_opened", "adjudication_started"):
+        if reviewer_process.get(key) is not False:
+            raise Hz37V2AdjudicationError(f"completed truth reviewer process mismatch: {key}")
     pages = truth.get("pages")
     if not isinstance(pages, list) or len(pages) != EXPECTED_PAGES:
         raise Hz37V2AdjudicationError("completed truth page coverage mismatch")
