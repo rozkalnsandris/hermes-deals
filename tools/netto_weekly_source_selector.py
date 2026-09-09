@@ -58,9 +58,9 @@ def _required_text(payload: Mapping[str, Any], key: str, label: str) -> str:
 
 
 def select_verified_source(live_source: Path, raw_root: Path, as_of: date) -> dict[str, Any]:
-    raw_root = raw_root.resolve()
     if raw_root.is_symlink() or not raw_root.is_dir():
         raise WeeklySourceSelectionError("raw root must be an existing regular directory")
+    raw_root = raw_root.resolve()
 
     live = load_json(live_source, "weekly live-source summary")
     if live.get("strategy") != LIVE_SOURCE_STRATEGY:
@@ -72,7 +72,10 @@ def select_verified_source(live_source: Path, raw_root: Path, as_of: date) -> di
     if live.get("review_only") is not True or live.get("promotion_ready") is not False:
         raise WeeklySourceSelectionError("weekly live-source safety state mismatch")
 
-    manifest = Path(_required_text(live, "manifest_path", "weekly live-source summary")).resolve()
+    manifest_ref = Path(_required_text(live, "manifest_path", "weekly live-source summary"))
+    if manifest_ref.is_symlink():
+        raise WeeklySourceSelectionError("weekly source manifest must not be a symlink")
+    manifest = manifest_ref.resolve()
     if raw_root not in manifest.parents:
         raise WeeklySourceSelectionError("weekly manifest escaped the temporary raw root")
     payload = load_json(manifest, "weekly source manifest")
