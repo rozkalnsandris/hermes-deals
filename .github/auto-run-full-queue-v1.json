@@ -3,9 +3,10 @@
   "policy": "AUTO-RUN FULL Queue v1",
   "repository": "rozkalnsandris/hermes-deals",
   "migration_issue": 876,
+  "live_canary_issue": 879,
   "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
   "adoption_manifest": ".github/auto-run-full-queue-adoption-v1.json",
-  "adoption_phase": "SOURCE_ONLY_CANARY",
+  "adoption_phase": "LIVE_CANARY_READY",
   "command": {
     "canonical_prefix": "AUTO-RUN FULL QUEUE",
     "syntax": "AUTO-RUN FULL QUEUE hermes-deals #<issue1> ... #<issueN>",
@@ -43,6 +44,7 @@
       ".github/start-mode-routing.json",
       ".github/auto-run-full-queue-v1.json",
       ".github/auto-run-full-queue-adoption-v1.json",
+      "policy/simple-live-origin-path-audit-v1.json",
       "all_target_issues",
       "current_main",
       "active_pr_ci_review_state",
@@ -73,6 +75,20 @@
     "stopped_auto_resume": false,
     "ready_auto_activation": false
   },
+  "simple_live": {
+    "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
+    "operation_contract": "policy/simple-live-origin-path-audit-v1.json",
+    "operation_id": "hermes-deals.origin-path-audit.v1",
+    "target_alias": "hermes-deals-origin-path-audit",
+    "ready_envelope_schema": "rozkalns.simple-live-ready.v1",
+    "owner_command": "LIVE <binding_sha256>",
+    "ready_envelope_is_authority": false,
+    "queue_completion_is_live_authority": false,
+    "deferred_rpi5_requires_live_auth_v1": true,
+    "fresh_runtime_eligibility_required": true,
+    "source_ready_does_not_claim_runtime_enabled": true,
+    "auto_live_may_own_same_operation_target": false
+  },
   "execution_boundary": {
     "repository_controller_executor_added_by_a7": false,
     "event_resume_automation_added_by_a7": false,
@@ -80,13 +96,16 @@
     "production_executor_added_by_a7": false,
     "ops_workflows_executes_production": false,
     "ops_workflows_stores_production_credentials": false,
-    "final_live_mode": "DISABLED",
+    "final_live_mode": "SIMPLE_LIVE_OWNER_DRIVEN",
     "queue_authorizes_live": false,
     "production_deploy_authorized": false,
     "production_data_write_authorized": false,
     "runtime_or_host_mutation_authorized": false,
     "secrets_permissions_or_repository_settings_mutation_authorized": false,
-    "rpi5_trust_boundary_preserved": true
+    "rpi5_trust_boundary_preserved": true,
+    "a8_source_creates_ready_envelope": false,
+    "a8_source_creates_live_auth": false,
+    "a8_source_enables_or_invokes_executor": false
   },
   "compatibility": {
     "legacy_single_issue_policy": ".github/auto-run-full-v2.json",
@@ -95,6 +114,8 @@
     "queue_is_additive_and_explicit_only": true,
     "authority_never_transfers_between_modes": true,
     "queue_issue_876_is_not_activation_authority": true,
+    "a8_issue_879_is_not_live_authority": true,
+    "simple_live_and_auto_live_double_ownership_allowed": false,
     "repository_local_stricter_rules_win": true
   }
 }
