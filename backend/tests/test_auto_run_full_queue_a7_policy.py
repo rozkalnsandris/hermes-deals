@@ -18,7 +18,7 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_a7_manifest_is_exact_source_only_canary() -> None:
+def test_queue_manifest_preserves_a7_authority_while_a8_selects_owner_live() -> None:
     manifest = load_json(MANIFEST_PATH)
 
     assert set(manifest) == {
@@ -33,10 +33,9 @@ def test_a7_manifest_is_exact_source_only_canary() -> None:
     assert manifest["schema"] == "rozkalns.auto-run-full-queue-adoption.v1"
     assert manifest["repository"] == "rozkalnsandris/hermes-deals"
     assert manifest["shared_contract_sha"] == SHARED_SHA
-    assert manifest["adoption_phase"] == "SOURCE_ONLY_CANARY"
+    assert manifest["adoption_phase"] == "LIVE_CANARY_READY"
 
-    queue = manifest["queue"]
-    assert queue == {
+    assert manifest["queue"] == {
         "command_active": True,
         "maximum_items": 10,
         "maximum_active_items": 1,
@@ -45,7 +44,7 @@ def test_a7_manifest_is_exact_source_only_canary() -> None:
         "live_authority": False,
     }
     assert manifest["final_live"] == {
-        "mode": "DISABLED",
+        "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
         "double_execution_paths_allowed": False,
         "deferred_rpi5_requires_live_auth_v1": True,
     }
@@ -107,8 +106,7 @@ def test_start_routing_separates_queue_from_single_issue_full() -> None:
     assert queue["maximum_active_items"] == 1
     assert queue["may_be_inferred_from_context"] is False
 
-    exclusion = routing["mode_mutual_exclusion"]
-    assert exclusion == {
+    assert routing["mode_mutual_exclusion"] == {
         "legacy_single_issue_controller_issue": 814,
         "queue_uses_legacy_controller_issue": False,
         "queue_requires_separate_batch_controller_issue": True,
@@ -128,7 +126,9 @@ def test_queue_policy_preserves_a3_authority_and_a4_resume_guards() -> None:
     policy = load_json(QUEUE_POLICY_PATH)
 
     assert policy["shared_contract_sha"] == SHARED_SHA
-    assert policy["adoption_phase"] == "SOURCE_ONLY_CANARY"
+    assert policy["migration_issue"] == 876
+    assert policy["live_canary_issue"] == 879
+    assert policy["adoption_phase"] == "LIVE_CANARY_READY"
     assert policy["command"]["syntax"] == "AUTO-RUN FULL QUEUE hermes-deals #<issue1> ... #<issueN>"
     assert policy["command"]["minimum_items"] == 1
     assert policy["command"]["maximum_items"] == 10
@@ -153,6 +153,7 @@ def test_queue_policy_preserves_a3_authority_and_a4_resume_guards() -> None:
     assert controller["skip_or_reorder_on_failure"] is False
 
     activation = policy["activation"]
+    assert "policy/simple-live-origin-path-audit-v1.json" in activation["fresh_reads_required"]
     assert activation["active_single_issue_full_blocks_queue_activation"] is True
     assert activation["active_queue_blocks_single_issue_full_activation"] is True
     assert activation["conflict_result"] == "STOP_MODE_CONFLICT"
@@ -167,8 +168,7 @@ def test_queue_policy_preserves_a3_authority_and_a4_resume_guards() -> None:
     assert merge["force_merge"] is False
     assert merge["ruleset_bypass"] is False
 
-    resume = policy["resume"]
-    assert resume == {
+    assert policy["resume"] == {
         "event_or_watchdog_is_authority": False,
         "fresh_canonical_github_refresh_decides_action": True,
         "stopped_auto_resume": False,
@@ -176,7 +176,7 @@ def test_queue_policy_preserves_a3_authority_and_a4_resume_guards() -> None:
     }
 
 
-def test_a7_adds_no_live_or_runtime_execution_path() -> None:
+def test_a8_source_still_adds_no_live_or_runtime_execution() -> None:
     policy = load_json(QUEUE_POLICY_PATH)
     boundary = policy["execution_boundary"]
 
@@ -186,13 +186,16 @@ def test_a7_adds_no_live_or_runtime_execution_path() -> None:
     assert boundary["production_executor_added_by_a7"] is False
     assert boundary["ops_workflows_executes_production"] is False
     assert boundary["ops_workflows_stores_production_credentials"] is False
-    assert boundary["final_live_mode"] == "DISABLED"
+    assert boundary["final_live_mode"] == "SIMPLE_LIVE_OWNER_DRIVEN"
     assert boundary["queue_authorizes_live"] is False
     assert boundary["production_deploy_authorized"] is False
     assert boundary["production_data_write_authorized"] is False
     assert boundary["runtime_or_host_mutation_authorized"] is False
     assert boundary["secrets_permissions_or_repository_settings_mutation_authorized"] is False
     assert boundary["rpi5_trust_boundary_preserved"] is True
+    assert boundary["a8_source_creates_ready_envelope"] is False
+    assert boundary["a8_source_creates_live_auth"] is False
+    assert boundary["a8_source_enables_or_invokes_executor"] is False
 
 
 def test_legacy_single_issue_full_remains_separate_and_non_live() -> None:
@@ -213,17 +216,21 @@ def test_legacy_single_issue_full_remains_separate_and_non_live() -> None:
     assert compatibility["queue_is_additive_and_explicit_only"] is True
     assert compatibility["authority_never_transfers_between_modes"] is True
     assert compatibility["queue_issue_876_is_not_activation_authority"] is True
+    assert compatibility["a8_issue_879_is_not_live_authority"] is True
+    assert compatibility["simple_live_and_auto_live_double_ownership_allowed"] is False
 
 
-def test_human_contract_names_the_non_authority_boundaries() -> None:
+def test_human_contract_names_current_non_authority_boundaries() -> None:
     text = DOC_PATH.read_text(encoding="utf-8")
 
-    assert "SOURCE_ONLY_CANARY" in text
+    assert "LIVE_CANARY_READY" in text
     assert "AUTO-RUN FULL QUEUE hermes-deals #<issue1> ... #<issueN>" in text
     assert "rozkalns.auto-run-full-queue-auth.v1" in text
     assert "issue `#814`" in text
     assert "does not reinterpret, replace, migrate, or reuse issue `#814`" in text
     assert "STOP_MODE_CONFLICT" in text
     assert "`expected_head_sha`" in text
-    assert "A7 keeps `final_live.mode=DISABLED`" in text
+    assert "SIMPLE_LIVE_OWNER_DRIVEN" in text
     assert "Queue authority always has `live=false`" in text
+    assert "LIVE <binding_sha256>" in text
+    assert "A8 source preparation does not create a Ready envelope" in text
