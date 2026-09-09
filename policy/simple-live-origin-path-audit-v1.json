@@ -1,0 +1,75 @@
+{
+  "schema": "hermes-deals.simple-live-operation.v1",
+  "repository": "rozkalnsandris/hermes-deals",
+  "migration_issue": 879,
+  "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
+  "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
+  "operation_id": "hermes-deals.origin-path-audit.v1",
+  "target_alias": "hermes-deals-origin-path-audit",
+  "execution_plane": {
+    "kind": "DEFERRED_RPI5_LIVE_AUTH_V1",
+    "registry_repository": "rozkalnsandris/RPi5_main",
+    "registry_sha": "6ca47e656edab8a06ad4d5116f9015efa1ab2e76",
+    "registry_path": "ops/deploy/executor-operations.json",
+    "registry_operation_id": "hermes-deals.origin-path-audit.v1",
+    "runtime_eligibility_must_be_fresh": true,
+    "source_contract_does_not_enable_execution": true
+  },
+  "queue_gate": {
+    "queue_source_complete_required": true,
+    "exact_final_main_required": true,
+    "exact_main_ci_success_required": true,
+    "queue_authorizes_live": false
+  },
+  "ready_envelope": {
+    "schema": "rozkalns.simple-live-ready.v1",
+    "classification": "OWNER_LIVE_REQUIRED",
+    "ready_envelope_is_authority": false,
+    "operation_contract_digest_sha256_required": true,
+    "consumer_rules_digest_sha256_required": true,
+    "read_only_preflight_digest_sha256_required": true,
+    "fresh_expected_baseline_required": true,
+    "owner_command": "LIVE <binding_sha256>",
+    "bare_live_is_valid": false
+  },
+  "baseline": {
+    "resolver_id": "hermes-deals.origin-path-registration.v1",
+    "fresh_read_required": true,
+    "unknown_or_ambiguous_blocks": true
+  },
+  "mutation_budget": [
+    {
+      "class": "READ_ONLY_AUDIT_INVOCATION",
+      "max_operations": 1
+    }
+  ],
+  "exclusions": [
+    "production database writes",
+    "production deployment or cutover",
+    "restart or configuration mutation",
+    "parser or collector behavior changes",
+    "runner registration or deregistration",
+    "GitHub App credential or permission changes",
+    "arbitrary command path argv or environment authority",
+    "automatic retry rollback cleanup or alternate mutation path"
+  ],
+  "execution": {
+    "deferred_rpi5_requires_live_auth_v1": true,
+    "simple_live_selected_for_operation_target": true,
+    "auto_live_may_own_same_operation_target": false,
+    "first_state_change_consumes_authorization": true,
+    "post_mutation_error_action": "PRESERVE_PUBLIC_SAFE_EVIDENCE_AND_STOP",
+    "automatic_retry": false,
+    "automatic_rollback": false,
+    "automatic_cleanup": false,
+    "alternate_mutation_path": false
+  },
+  "source_preparation": {
+    "ready_envelope_created": false,
+    "live_auth_created": false,
+    "executor_enabled": false,
+    "operation_invoked": false,
+    "host_or_runtime_mutated": false,
+    "production_mutated": false
+  }
+}
