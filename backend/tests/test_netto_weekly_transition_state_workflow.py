@@ -86,10 +86,13 @@ def test_manual_canary_namespace_never_enters_scheduled_chain() -> None:
     assert "netto-weekly-transition-state-scheduled-" in text
 
 
-def test_live_source_uses_existing_verified_selector_with_bounded_retries() -> None:
+def test_live_source_uses_weekly_verified_selector_with_bounded_retries() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "netto_heldout_live_source.py" in text
-    assert "netto_heldout_source_selector.py" in text
+    assert "netto_weekly_live_source.py" in text
+    assert "netto_weekly_source_selector.py" in text
+    assert "--live-source \"$live\"" in text
+    assert "netto_heldout_live_source.py" not in text
+    assert "netto_heldout_source_selector.py" not in text
     assert "for attempt in 0 1 2" in text
     assert "bounded live-source retries exhausted" in text
     assert "DATABASE_URL='sqlite+pysqlite:///:memory:'" in text
