@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+from copy import deepcopy
+import hashlib
+import json
 from pathlib import Path
 import sys
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOLS = REPO_ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
+import netto_hz37_v2_prediction_group_adjudication as hz37  # noqa: E402
 from netto_hz37_v2_prediction_group_adjudication import build_metrics  # noqa: E402
 from netto_heldout_ownership_protocol import ACCEPTANCE  # noqa: E402
+
+TRUTH_PATH = REPO_ROOT / "audit/netto/hz37/completed-source-truth.json"
 
 
 def metric_row(outcome: str, *, automatic: bool = False, index: int = 1) -> dict:
@@ -18,6 +26,13 @@ def metric_row(outcome: str, *, automatic: bool = False, index: int = 1) -> dict
         "outcome": outcome,
         "candidate_auto_single": automatic,
     }
+
+
+def _write_bound_truth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict, name: str) -> Path:
+    path = tmp_path / name
+    path.write_bytes((json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"))
+    monkeypatch.setattr(hz37, "EXPECTED_TRUTH_SHA256", hashlib.sha256(path.read_bytes()).hexdigest())
+    return path
 
 
 def test_v2_metrics_use_frozen_candidate_auto_single_and_evaluable_parent_reuse() -> None:
@@ -52,6 +67,50 @@ def test_v2_metrics_keep_zero_candidate_precision_not_evaluable() -> None:
     assert overall is False
 
 
+def test_hz37_truth_validator_accepts_canonical_reviewer_process_schema() -> None:
+    truth = hz37._validate_truth(TRUTH_PATH)
+    reviewer_process = truth["reviewer_process"]
+    assert reviewer_process["frozen_predictions_opened"] is False
+    assert reviewer_process["candidate_provenance_opened"] is False
+    assert reviewer_process["adjudication_started"] is False
+    assert truth["adjudication_started"] is False
+
+
+def test_hz37_truth_validator_requires_exact_false_reviewer_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    canonical = json.loads(TRUTH_PATH.read_text(encoding="utf-8"))
+    for key in ("frozen_predictions_opened", "candidate_provenance_opened", "adjudication_started"):
+        payload = deepcopy(canonical)
+        payload["reviewer_process"][key] = True
+        path = _write_bound_truth(tmp_path, monkeypatch, payload, f"truth-{key}.json")
+        with pytest.raises(hz37.Hz37V2AdjudicationError, match=f"completed truth reviewer process mismatch: {key}"):
+            hz37._validate_truth(path)
+
+    payload = deepcopy(canonical)
+    payload["reviewer_process"]["frozen_predictions_opened"] = 0
+    path = _write_bound_truth(tmp_path, monkeypatch, payload, "truth-false-like-int.json")
+    with pytest.raises(
+        hz37.Hz37V2AdjudicationError,
+        match="completed truth reviewer process mismatch: frozen_predictions_opened",
+    ):
+        hz37._validate_truth(path)
+
+
+def test_hz37_truth_validator_requires_reviewer_process_mapping(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = json.loads(TRUTH_PATH.read_text(encoding="utf-8"))
+    payload["reviewer_process"] = None
+    path = _write_bound_truth(tmp_path, monkeypatch, payload, "truth-no-reviewer-process.json")
+    with pytest.raises(hz37.Hz37V2AdjudicationError, match="completed truth reviewer process missing"):
+        hz37._validate_truth(path)
+
+
+def test_hz37_truth_validator_preserves_top_level_adjudication_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = json.loads(TRUTH_PATH.read_text(encoding="utf-8"))
+    payload["adjudication_started"] = True
+    path = _write_bound_truth(tmp_path, monkeypatch, payload, "truth-adjudication-started.json")
+    with pytest.raises(hz37.Hz37V2AdjudicationError, match="completed truth contract mismatch: adjudication_started"):
+        hz37._validate_truth(path)
+
+
 def test_hz37_adjudicator_binds_exact_frozen_evidence_and_has_no_product_semantics() -> None:
     source = (TOOLS / "netto_hz37_v2_prediction_group_adjudication.py").read_text(encoding="utf-8")
     for required in (
@@ -66,6 +125,8 @@ def test_hz37_adjudicator_binds_exact_frozen_evidence_and_has_no_product_semanti
         'row["candidate_auto_single"]',
         'automatic_candidate_parent_reuse_count',
         'adjudicate_group(',
+        'reviewer_process = truth.get("reviewer_process")',
+        'reviewer_process.get(key) is not False',
     ):
         assert required in source
     for forbidden in (
