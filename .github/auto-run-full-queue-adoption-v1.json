@@ -2,7 +2,7 @@
   "schema": "rozkalns.auto-run-full-queue-adoption.v1",
   "repository": "rozkalnsandris/hermes-deals",
   "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
-  "adoption_phase": "SOURCE_ONLY_CANARY",
+  "adoption_phase": "LIVE_CANARY_READY",
   "queue": {
     "command_active": true,
     "maximum_items": 10,
@@ -12,7 +12,7 @@
     "live_authority": false
   },
   "final_live": {
-    "mode": "DISABLED",
+    "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
     "double_execution_paths_allowed": false,
     "deferred_rpi5_requires_live_auth_v1": true
   },
