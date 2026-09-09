@@ -18,7 +18,7 @@ from netto_shadow_weekly import WeeklyAction, WeeklyInput, decide_weekly_action,
 
 SCHEMA_VERSION = 1
 STRATEGY = "netto_weekly_transition_artifact_state_v1"
-SELECTOR_STRATEGY = "netto_heldout_verified_source_selector_v1"
+SELECTOR_STRATEGY = "netto_weekly_verified_source_selector_v1"
 SAFE_ACTIONS = {WeeklyAction.RUN_SHADOW.value, WeeklyAction.SAFE_EMPTY_NO_PDF.value, WeeklyAction.WRITE_PLAN_READY.value}
 MAX_RECORDS = 16
 
