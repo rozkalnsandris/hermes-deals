@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 3,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
   "lane_roles": {
