@@ -67,7 +67,8 @@ def source_binding() -> dict[str, object]:
 
 
 def semantic_row() -> dict[str, object]:
-    raw = base64.b64decode(FULL_ROW_FIXTURE.read_text().strip(), validate=True)
+    encoded = "".join(FULL_ROW_FIXTURE.read_text().splitlines())
+    raw = base64.b64decode(encoded, validate=True)
     return json.loads(raw.decode("utf-8"))
 
 
