@@ -18,7 +18,8 @@ from netto_shadow_weekly import WeeklyAction, WeeklyInput, decide_weekly_action,
 
 SCHEMA_VERSION = 1
 STRATEGY = "netto_weekly_transition_artifact_state_v1"
-SELECTOR_STRATEGY = "netto_heldout_verified_source_selector_v1"
+SELECTOR_STRATEGY = "netto_weekly_verified_source_selector_v1"
+LEGACY_SELECTOR_STRATEGY = "netto_heldout_verified_source_selector_v1"
 SAFE_ACTIONS = {WeeklyAction.RUN_SHADOW.value, WeeklyAction.SAFE_EMPTY_NO_PDF.value, WeeklyAction.WRITE_PLAN_READY.value}
 MAX_RECORDS = 16
 
@@ -61,7 +62,7 @@ def write_create_only(path: Path, value: Any) -> str:
 
 
 def normalize_selector(payload: Mapping[str, Any]) -> tuple[EvidenceBinding, str, str]:
-    if payload.get("strategy") != SELECTOR_STRATEGY:
+    if payload.get("strategy") not in {SELECTOR_STRATEGY, LEGACY_SELECTOR_STRATEGY}:
         raise WeeklyTransitionStateError("selector strategy mismatch")
     if payload.get("review_only") is not True or payload.get("promotion_ready") is not False:
         raise WeeklyTransitionStateError("selector safety state mismatch")
