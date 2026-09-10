@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 30
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'dispatcher must run as root through sudo'
+[[ $# -eq 2 ]] || fail 'usage: hermes-deals-aldi-registration-refresh-dispatch <target-sha> <artifact-dir>'
+
+TARGET_SHA="$1"
+RAW_EXPORT_DIR="$2"
+REPO='/home/andris/hermes-deals'
+CONFIG='/etc/hermes-deals-audits.d/aldi-registration-refresh.conf'
+DISPATCHER='/usr/local/sbin/hermes-deals-aldi-registration-refresh-dispatch'
+RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
+PRODUCER_REL='tools/runner/install-aldi-new-baseline-weekly-shadow-producer-dispatcher.sh'
+VISUAL_REL='tools/runner/install-aldi-visual-card-bridge-v2-dispatcher.sh'
+PRODUCER_CONF='/etc/hermes-deals-audits.d/aldi-new-baseline-weekly-shadow-producer.conf'
+VISUAL_CONF='/etc/hermes-deals-audits.d/aldi-visual-card-bridge-v2.conf'
+
+[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'target SHA is invalid'
+for command in bash git id python3 readlink runuser sha256sum stat systemctl; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+EXPORT_DIR="$(readlink -f -- "$RAW_EXPORT_DIR")"
+[[ "$EXPORT_DIR" == "$RAW_EXPORT_DIR" ]] || fail 'artifact directory symlink or alias rejected'
+[[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail 'artifact directory is missing or unsafe'
+[[ "$EXPORT_DIR" == /home/github-runner/_work/_temp/aldi-registration-refresh-* ]] || fail 'artifact directory outside runner temp allowlist'
+[[ "$(stat -c '%U:%G %a' "$EXPORT_DIR")" == 'github-runner:github-runner 700' ]] || fail 'artifact directory metadata invalid'
+RUN_KEY="$(basename -- "$EXPORT_DIR")"
+[[ "$RUN_KEY" =~ ^aldi-registration-refresh-[1-9][0-9]*-[1-9][0-9]*$ ]] || fail 'unexpected runner artifact directory name'
+SUMMARY="$EXPORT_DIR/aldi-registration-refresh-summary.json"
+[[ ! -e "$SUMMARY" ]] || fail 'registration summary already exists'
+
+[[ -f "$CONFIG" && ! -L "$CONFIG" ]] || fail 'registration-refresh bridge is not registered'
+[[ "$(stat -c '%U:%G %a' "$CONFIG")" == 'root:root 644' ]] || fail 'bridge config metadata invalid'
+# shellcheck disable=SC1090
+source "$CONFIG"
+[[ "${bridge_contract_version:-}" == 'hermes-deals-aldi-registration-refresh-v1' ]] || fail 'bridge contract mismatch'
+[[ "${repo_path:-}" == "$REPO" ]] || fail 'registered repo path mismatch'
+[[ "${dispatcher_path:-}" == "$DISPATCHER" ]] || fail 'registered dispatcher path mismatch'
+[[ "${registered_bridge_sha:-}" =~ ^[0-9a-f]{40}$ ]] || fail 'registered bridge SHA is invalid'
+[[ "${dispatcher_sha256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'registered dispatcher SHA-256 is invalid'
+[[ -f "$DISPATCHER" && ! -L "$DISPATCHER" ]] || fail 'installed dispatcher is missing or unsafe'
+[[ "$(stat -c '%U:%G %a' "$DISPATCHER")" == 'root:root 755' ]] || fail 'installed dispatcher metadata invalid'
+[[ "$(sha256sum "$DISPATCHER" | awk '{print $1}')" == "$dispatcher_sha256" ]] || fail 'installed dispatcher content drift'
+
+git_as_andris() {
+  runuser -u andris -- /usr/bin/env -i \
+    HOME=/home/andris USER=andris LOGNAME=andris \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    /usr/bin/git "$@"
+}
+
+read_registered_sha() {
+  /usr/bin/python3 - "$1" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+if not path.is_file() or path.is_symlink():
+    print('none')
+    raise SystemExit(0)
+lines = path.read_text(encoding='utf-8').splitlines()
+values = []
+for line in lines:
+    match = re.fullmatch(r"registered_main_sha='([0-9a-f]{40})'", line.strip())
+    if match:
+        values.append(match.group(1))
+print(values[0] if len(values) == 1 else 'none')
+PY
+}
+
+PRODUCER_ATTEMPTED='false'
+VISUAL_ATTEMPTED='false'
+PRODUCER_RC='none'
+VISUAL_RC='none'
+MUTATION_STARTED='false'
+PRODUCER_BEFORE='none'
+VISUAL_BEFORE='none'
+PRODUCER_AFTER='none'
+VISUAL_AFTER='none'
+RUNNER_ACTIVE='false'
+RUNNER_HAS_DOCKER='false'
+
+write_summary() {
+  local bridge_status="$1"
+  local reason_code="$2"
+  /usr/bin/python3 - "$EXPORT_DIR" "$bridge_status" "$reason_code" "$registered_bridge_sha" "$TARGET_SHA" \
+    "$PRODUCER_ATTEMPTED" "$PRODUCER_RC" "$VISUAL_ATTEMPTED" "$VISUAL_RC" "$MUTATION_STARTED" \
+    "$PRODUCER_BEFORE" "$VISUAL_BEFORE" "$PRODUCER_AFTER" "$VISUAL_AFTER" "$RUNNER_ACTIVE" "$RUNNER_HAS_DOCKER" <<'PY'
+import json
+import os
+import pwd
+import re
+import stat
+import sys
+
+(
+    export_dir_raw,
+    bridge_status,
+    reason_raw,
+    registered_bridge_sha,
+    target_sha,
+    producer_attempted_raw,
+    producer_rc_raw,
+    visual_attempted_raw,
+    visual_rc_raw,
+    mutation_started_raw,
+    producer_before_raw,
+    visual_before_raw,
+    producer_after_raw,
+    visual_after_raw,
+    runner_active_raw,
+    runner_has_docker_raw,
+) = sys.argv[1:]
+
+sha_re = re.compile(r"[0-9a-f]{40}")
+reason = None if reason_raw == 'none' else reason_raw
+if bridge_status not in {'PASS', 'BLOCKED'}:
+    raise SystemExit('invalid bridge status')
+if reason is not None and re.fullmatch(r"[A-Z0-9_]{1,96}", reason) is None:
+    raise SystemExit('invalid reason code')
+for value in (registered_bridge_sha, target_sha):
+    if sha_re.fullmatch(value) is None:
+        raise SystemExit('invalid required SHA')
+
+def parse_bool(raw: str) -> bool:
+    if raw == 'true':
+        return True
+    if raw == 'false':
+        return False
+    raise SystemExit('invalid boolean')
+
+def parse_optional_sha(raw: str):
+    if raw == 'none':
+        return None
+    if sha_re.fullmatch(raw) is None:
+        raise SystemExit('invalid optional SHA')
+    return raw
+
+def parse_optional_rc(raw: str):
+    if raw == 'none':
+        return None
+    if re.fullmatch(r"[0-9]{1,3}", raw) is None:
+        raise SystemExit('invalid installer rc')
+    return int(raw)
+
+payload = {
+    'bridge_schema_version': 1,
+    'bridge_contract_version': 'hermes-deals-aldi-registration-refresh-v1',
+    'bridge_execution_status': bridge_status,
+    'reason_code': reason,
+    'registered_bridge_sha': registered_bridge_sha,
+    'target_sha': target_sha,
+    'producer_installer_attempted': parse_bool(producer_attempted_raw),
+    'producer_installer_rc': parse_optional_rc(producer_rc_raw),
+    'visual_installer_attempted': parse_bool(visual_attempted_raw),
+    'visual_installer_rc': parse_optional_rc(visual_rc_raw),
+    'root_registration_mutation_started': parse_bool(mutation_started_raw),
+    'producer_registered_main_sha_before': parse_optional_sha(producer_before_raw),
+    'visual_registered_main_sha_before': parse_optional_sha(visual_before_raw),
+    'producer_registered_main_sha_after': parse_optional_sha(producer_after_raw),
+    'visual_registered_main_sha_after': parse_optional_sha(visual_after_raw),
+    'runner_service_active': parse_bool(runner_active_raw),
+    'runner_has_docker_group': parse_bool(runner_has_docker_raw),
+    'network_source_read_performed': False,
+    'weekly_shadow_prepare_performed': False,
+    'visual_diagnostic_performed': False,
+    'request_created': False,
+    'request_accepted': False,
+    'production_database_write_performed': False,
+    'review_write_performed': False,
+    'publication_write_performed': False,
+    'scheduler_change_performed': False,
+    'systemd_change_performed': False,
+    'container_mutation_performed': False,
+    'canary_performed': False,
+    'production_deploy_performed': False,
+    'rollback_performed': False,
+    'cleanup_performed': False,
+}
+flags = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0)
+dir_fd = os.open(export_dir_raw, flags)
+try:
+    info = os.fstat(dir_fd)
+    runner = pwd.getpwnam('github-runner')
+    if info.st_uid != runner.pw_uid or info.st_gid != runner.pw_gid:
+        raise SystemExit('artifact directory owner drift')
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        raise SystemExit('artifact directory mode drift')
+    fd = os.open(
+        'aldi-registration-refresh-summary.json',
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0),
+        0o600,
+        dir_fd=dir_fd,
+    )
+    try:
+        body = (json.dumps(payload, indent=2, sort_keys=True) + '\n').encode('utf-8')
+        with os.fdopen(fd, 'wb', closefd=False) as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.fchown(fd, runner.pw_uid, runner.pw_gid)
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+finally:
+    os.close(dir_fd)
+PY
+}
+
+block() {
+  local reason="$1"
+  PRODUCER_AFTER="$(read_registered_sha "$PRODUCER_CONF")"
+  VISUAL_AFTER="$(read_registered_sha "$VISUAL_CONF")"
+  systemctl is-active --quiet "$RUNNER_SERVICE" && RUNNER_ACTIVE='true' || RUNNER_ACTIVE='false'
+  if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
+    RUNNER_HAS_DOCKER='true'
+  else
+    RUNNER_HAS_DOCKER='false'
+  fi
+  write_summary 'BLOCKED' "$reason"
+  printf 'ALDI_REGISTRATION_REFRESH_STATUS=BLOCKED\nREASON_CODE=%s\nTARGET_SHA=%s\n' "$reason" "$TARGET_SHA"
+  exit 30
+}
+
+id andris >/dev/null 2>&1 || block 'ANDRIS_USER_MISSING'
+id github-runner >/dev/null 2>&1 || block 'RUNNER_USER_MISSING'
+[[ -d "$REPO" && ! -L "$REPO" ]] || block 'SOURCE_CHECKOUT_PATH_UNSAFE'
+[[ "$(readlink -f -- "$REPO")" == "$REPO" ]] || block 'SOURCE_CHECKOUT_PATH_DRIFT'
+[[ "$(stat -c '%U:%G' "$REPO")" == 'andris:andris' ]] || block 'SOURCE_CHECKOUT_OWNER_DRIFT'
+[[ -d "$REPO/.git" && ! -L "$REPO/.git" ]] || block 'SOURCE_GIT_DIR_UNSAFE'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-inside-work-tree)" == 'true' ]] || block 'SOURCE_NOT_GIT_WORKTREE'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-shallow-repository)" == 'false' ]] || block 'SHALLOW_CHECKOUT_UNSUPPORTED'
+[[ "$(git_as_andris -C "$REPO" branch --show-current)" == 'main' ]] || block 'SOURCE_BRANCH_NOT_MAIN'
+[[ "$(git_as_andris -C "$REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || block 'SOURCE_HEAD_NOT_TARGET'
+[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || block 'SOURCE_CHECKOUT_DIRTY'
+case "$(git_as_andris -C "$REPO" remote get-url origin)" in
+  https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
+  *) block 'SOURCE_ORIGIN_MISMATCH' ;;
+esac
+
+for rel in "$PRODUCER_REL" "$VISUAL_REL"; do
+  git_as_andris -C "$REPO" ls-files --error-unmatch "$rel" >/dev/null 2>&1 || block 'INSTALLER_NOT_TRACKED'
+  [[ -f "$REPO/$rel" && ! -L "$REPO/$rel" ]] || block 'INSTALLER_SOURCE_UNSAFE'
+  /usr/bin/bash -n "$REPO/$rel" || block 'INSTALLER_SYNTAX_INVALID'
+done
+
+systemctl is-active --quiet "$RUNNER_SERVICE" || block 'RUNNER_SERVICE_NOT_ACTIVE'
+RUNNER_ACTIVE='true'
+if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
+  RUNNER_HAS_DOCKER='true'
+  block 'RUNNER_DOCKER_GROUP_FORBIDDEN'
+fi
+RUNNER_HAS_DOCKER='false'
+
+PRODUCER_BEFORE="$(read_registered_sha "$PRODUCER_CONF")"
+VISUAL_BEFORE="$(read_registered_sha "$VISUAL_CONF")"
+
+MUTATION_STARTED='true'
+PRODUCER_ATTEMPTED='true'
+set +e
+/usr/bin/bash "$REPO/$PRODUCER_REL" "$TARGET_SHA"
+PRODUCER_RC=$?
+set -e
+[[ "$PRODUCER_RC" -eq 0 ]] || block 'PRODUCER_INSTALLER_FAILED'
+
+VISUAL_ATTEMPTED='true'
+set +e
+/usr/bin/bash "$REPO/$VISUAL_REL" "$TARGET_SHA"
+VISUAL_RC=$?
+set -e
+[[ "$VISUAL_RC" -eq 0 ]] || block 'VISUAL_INSTALLER_FAILED'
+
+PRODUCER_AFTER="$(read_registered_sha "$PRODUCER_CONF")"
+VISUAL_AFTER="$(read_registered_sha "$VISUAL_CONF")"
+[[ "$PRODUCER_AFTER" == "$TARGET_SHA" ]] || block 'PRODUCER_REGISTERED_SHA_MISMATCH'
+[[ "$VISUAL_AFTER" == "$TARGET_SHA" ]] || block 'VISUAL_REGISTERED_SHA_MISMATCH'
+systemctl is-active --quiet "$RUNNER_SERVICE" || block 'RUNNER_SERVICE_DRIFT_AFTER_REFRESH'
+RUNNER_ACTIVE='true'
+if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
+  RUNNER_HAS_DOCKER='true'
+  block 'RUNNER_DOCKER_GROUP_DRIFT_AFTER_REFRESH'
+fi
+RUNNER_HAS_DOCKER='false'
+
+write_summary 'PASS' 'none'
+printf 'ALDI_REGISTRATION_REFRESH_STATUS=PASS\nTARGET_SHA=%s\nPRODUCER_REGISTERED_MAIN_SHA=%s\nVISUAL_REGISTERED_MAIN_SHA=%s\nRUNNER_SERVICE_ACTIVE=true\nRUNNER_HAS_DOCKER_GROUP=false\n' \
+  "$TARGET_SHA" "$PRODUCER_AFTER" "$VISUAL_AFTER"

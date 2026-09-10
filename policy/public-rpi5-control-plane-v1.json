@@ -2,12 +2,12 @@
   "schema": "hermes-deals.public-rpi5-control-plane.v1",
   "inventory_baseline_sha": "aa86c956ed2f487e0c8223eab6e8d7224cea7f8f",
   "inventory_counts": {
-    "workflow_files": 84,
-    "self_hosted_workflows": 52,
+    "workflow_files": 85,
+    "self_hosted_workflows": 53,
     "self_hosted_pull_request": 0,
     "self_hosted_pull_request_target": 10,
     "self_hosted_issue_comment": 22,
-    "self_hosted_manual_review_union": 32,
+    "self_hosted_manual_review_union": 33,
     "self_hosted_mutable_external_actions": 0
   },
   "runner_trust_domains": {
@@ -36,6 +36,7 @@
     {"path": ".github/workflows/hermes-aldi-gate-d4-encrypted-bridge.yml", "capability": "owner_finalizer_bootstrap"},
     {"path": ".github/workflows/hermes-aldi-new-baseline-weekly-shadow-producer.yml", "capability": "read_only_retailer_audit"},
     {"path": ".github/workflows/hermes-aldi-new-baseline-weekly-shadow.yml", "capability": "read_only_retailer_audit"},
+    {"path": ".github/workflows/hermes-aldi-registration-refresh.yml", "capability": "owner_finalizer_bootstrap"},
     {"path": ".github/workflows/hermes-aldi-visual-card-bridge-v2.yml", "capability": "read_only_retailer_audit"},
     {"path": ".github/workflows/hermes-aldi-visual-identity-carrier-diagnostic.yml", "capability": "diagnostic"},
     {"path": ".github/workflows/hermes-command-bridge.yml", "capability": "read_only_retailer_audit"},
