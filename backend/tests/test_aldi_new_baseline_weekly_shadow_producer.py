@@ -397,6 +397,51 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
                 datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
             )
 
+    def test_card_region_hash_uses_gate_b_canonical_precision(self):
+        region = producer._canonical_card_region(
+            {
+                "x": 123.456789,
+                "y": 234.567891,
+                "width": 345.678912,
+                "height": 456.789123,
+            },
+            width=1000.0,
+            height=2000.0,
+        )
+        self.assertEqual(
+            region,
+            {
+                "x": 0.123457,
+                "y": 0.117284,
+                "width": 0.345679,
+                "height": 0.228395,
+            },
+        )
+        cards = [
+            {
+                "card_id": "p001:c001",
+                "page_number": 1,
+                "page_sha256": "a" * 64,
+                "region": region,
+                "scope": "in_scope",
+                "route": "candidate",
+                "candidate_ids": ["aldi:0123456789abcdef0123456789abcdef"],
+                "reason": "",
+            }
+        ]
+        ledger_sha = producer.digest_bytes(producer.canonical_bytes(cards))
+        meta, normalized = producer.gate_b_module.validate_cards(
+            {
+                "card_ledger": {
+                    "ledger_sha256": ledger_sha,
+                    "cards": cards,
+                }
+            },
+            page_count=1,
+        )
+        self.assertEqual(meta["ledger_sha256"], ledger_sha)
+        self.assertEqual(normalized[0]["region"], region)
+
     def test_candidate_id_is_gate_b_safe_and_deterministic(self):
         first = producer._candidate_id("ABC/Offer?123")
         second = producer._candidate_id("ABC/Offer?123")

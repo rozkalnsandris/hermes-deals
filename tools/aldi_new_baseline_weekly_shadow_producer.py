@@ -344,6 +344,24 @@ def _sync_week_view(page: Any, label: str) -> None:
     )
 
 
+def _canonical_card_region(
+    row: dict[str, Any],
+    *,
+    width: float,
+    height: float,
+) -> dict[str, float]:
+    raw = {
+        "x": float(row["x"]) / width,
+        "y": float(row["y"]) / height,
+        "width": float(row["width"]) / width,
+        "height": float(row["height"]) / height,
+    }
+    try:
+        return gate_b_module._region(raw, "producer card region")
+    except gate_b_module.ParityGateError as exc:
+        raise ProducerError(f"invalid product-card region: {exc}") from exc
+
+
 def _candidate_id(object_id: str) -> str:
     return f"aldi:{sha256(object_id.encode('utf-8')).hexdigest()[:32]}"
 
@@ -686,12 +704,11 @@ def build_capture(
                 "reason": "",
             }
         )
-        region = {
-            "x": round(float(row["x"]) / width, 8),
-            "y": round(float(row["y"]) / height, 8),
-            "width": round(float(row["width"]) / width, 8),
-            "height": round(float(row["height"]) / height, 8),
-        }
+        region = _canonical_card_region(
+            row,
+            width=width,
+            height=height,
+        )
         card_rows.append(
             {
                 "card_id": card_id,
