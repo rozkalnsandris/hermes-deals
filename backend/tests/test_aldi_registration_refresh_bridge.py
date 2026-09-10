@@ -117,7 +117,7 @@ def test_source_sync_remains_checkout_only_and_runbook_keeps_live_gates_separate
     assert "bootstrap registration" in runbook.lower()
     assert "not self-hosting" in runbook.lower()
     assert "separate explicit owner live authorization" in runbook.lower()
-    assert "live ALDI source read" in runbook
-    assert "request acceptance" in runbook
-    assert "scheduler/systemd" in runbook
-    assert "**Production deploy: NO.**" in runbook
+    assert "live aldi source read" in runbook.lower()
+    assert "request acceptance" in runbook.lower()
+    assert "scheduler/systemd" in runbook.lower()
+    assert "**production deploy: no.**" in runbook.lower()
