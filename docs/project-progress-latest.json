@@ -560,17 +560,78 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 247,
+  "completed_issue_count": 256,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-09-09T08:57:00.136790Z",
-  "generated_at_local": "2026-09-09T10:57:00.136790+02:00",
+  "generated_at": "2026-09-10T08:56:11.570887Z",
+  "generated_at_local": "2026-09-10T10:56:11.570887+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-09-08",
+  "previous_day": "2026-09-09",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 0,
-  "previous_day_completed_issues": [],
+  "previous_day_completed_issue_count": 10,
+  "previous_day_completed_issues": [
+    {
+      "closed_at": "2026-09-09T07:39:28Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/374",
+      "number": 374,
+      "title": "ops: W4B cut over RPi5 UI to hashed assets with guarded W3 rollback"
+    },
+    {
+      "closed_at": "2026-09-09T16:26:18Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/831",
+      "number": 831,
+      "title": "P0 Netto: next independent held-out ownership validation after non-recoverable hz34"
+    },
+    {
+      "closed_at": "2026-09-09T05:56:28Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/864",
+      "number": 864,
+      "title": "P1 Overnight AUTO-RUN batch: 10 bounded source backlog packages — round 2"
+    },
+    {
+      "closed_at": "2026-09-09T06:30:00Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/865",
+      "number": 865,
+      "title": "P1 Overnight AUTO-RUN batch: 10 retailer-trust backlog packages — round 3"
+    },
+    {
+      "closed_at": "2026-09-09T07:09:21Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/866",
+      "number": 866,
+      "title": "P1 Overnight AUTO-RUN batch: 10 source/tracker architecture packages — round 4"
+    },
+    {
+      "closed_at": "2026-09-09T07:50:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/867",
+      "number": 867,
+      "title": "P1 Overnight AUTO-RUN batch: 10 continuity/dependency backlog packages — round 5"
+    },
+    {
+      "closed_at": "2026-09-09T15:02:54Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/868",
+      "number": 868,
+      "title": "P1 Overnight AUTO-RUN batch: 10 continuity/readiness backlog packages — round 6"
+    },
+    {
+      "closed_at": "2026-09-09T10:04:55Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/869",
+      "number": 869,
+      "title": "P1 Web W0: deterministic sanitized browser/API baseline scaffolding"
+    },
+    {
+      "closed_at": "2026-09-09T18:06:06Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/875",
+      "number": 875,
+      "title": "P1 Overnight AUTO-RUN batch: 10 delta closeout and continuity packages — round 7"
+    },
+    {
+      "closed_at": "2026-09-09T20:15:08Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/877",
+      "number": 877,
+      "title": "P1 Overnight AUTO-RUN batch: 10 bounded source/closeout packages — round 8"
+    }
+  ],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
