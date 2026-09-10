@@ -40,7 +40,7 @@ def test_public_rpi5_inventory_covers_every_self_hosted_workflow() -> None:
     assert isinstance(workflows, list)
 
     declared = {str(row["path"]) for row in workflows}
-    assert len(declared) == len(workflows) == 52
+    assert len(declared) == len(workflows) == 53
 
     all_workflows = sorted((*WORKFLOWS_DIR.glob("*.yml"), *WORKFLOWS_DIR.glob("*.yaml")))
     actual = {
@@ -49,8 +49,8 @@ def test_public_rpi5_inventory_covers_every_self_hosted_workflow() -> None:
         if _has_self_hosted_runner(path.read_text(encoding="utf-8"))
     }
 
-    assert len(all_workflows) == policy["inventory_counts"]["workflow_files"] == 84
-    assert len(actual) == policy["inventory_counts"]["self_hosted_workflows"] == 52
+    assert len(all_workflows) == policy["inventory_counts"]["workflow_files"] == 85
+    assert len(actual) == policy["inventory_counts"]["self_hosted_workflows"] == 53
     assert actual == declared
 
 
