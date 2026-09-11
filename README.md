@@ -41,7 +41,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Overall:** **77.0%** `███████████████░░░░░` — weighted project completion
 
-**Weighted roadmap progress during 09.09.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
+**Weighted roadmap progress during 10.09.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
 
 **Store catalogues**
 - **Netto:** **78.6%** `████████░░`
@@ -51,19 +51,18 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **57/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **256 total** · **10 during the previous day** (09.09.2026)
+**Development activity:** **Issues fixed:** **257 total** · **5 during the previous day** (10.09.2026)
 
 <details>
-<summary>Show 10 issues fixed on 09.09.2026</summary>
+<summary>Show 5 issues fixed on 10.09.2026</summary>
 
-[#374](https://github.com/rozkalnsandris/hermes-deals/issues/374) · [#831](https://github.com/rozkalnsandris/hermes-deals/issues/831) · [#864](https://github.com/rozkalnsandris/hermes-deals/issues/864) · [#865](https://github.com/rozkalnsandris/hermes-deals/issues/865) · [#866](https://github.com/rozkalnsandris/hermes-deals/issues/866) · [#867](https://github.com/rozkalnsandris/hermes-deals/issues/867) · [#868](https://github.com/rozkalnsandris/hermes-deals/issues/868) · [#869](https://github.com/rozkalnsandris/hermes-deals/issues/869)
-[#875](https://github.com/rozkalnsandris/hermes-deals/issues/875) · [#877](https://github.com/rozkalnsandris/hermes-deals/issues/877)
+[#217](https://github.com/rozkalnsandris/hermes-deals/issues/217) · [#323](https://github.com/rozkalnsandris/hermes-deals/issues/323) · [#876](https://github.com/rozkalnsandris/hermes-deals/issues/876) · [#879](https://github.com/rozkalnsandris/hermes-deals/issues/879) · [#882](https://github.com/rozkalnsandris/hermes-deals/issues/882)
 
 </details>
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 10.09.2026 10:56 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 11.09.2026 10:53 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
