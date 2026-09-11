@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_main_sha:
-        description: Exact current main SHA approved for ALDI producer and visual-card-v2 registration refresh
+        description: Exact current main SHA approved for ALDI producer, visual-card-v2 and acceptance registration refresh
         required: true
         type: string
 
@@ -120,6 +120,7 @@ jobs:
       reason_code: ${{ steps.inspect.outputs.reason_code }}
       producer_registered_main_sha: ${{ steps.inspect.outputs.producer_registered_main_sha }}
       visual_registered_main_sha: ${{ steps.inspect.outputs.visual_registered_main_sha }}
+      acceptance_registered_main_sha: ${{ steps.inspect.outputs.acceptance_registered_main_sha }}
       runner_rc: ${{ steps.dispatch.outputs.runner_rc }}
 
     steps:
@@ -165,6 +166,7 @@ jobs:
           reason_code = "SANITIZED_SUMMARY_MISSING"
           producer_sha = "unavailable"
           visual_sha = "unavailable"
+          acceptance_sha = "unavailable"
 
           if summary_path.is_file() and not summary_path.is_symlink():
               payload = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -173,9 +175,12 @@ jobs:
                   "reason_code", "registered_bridge_sha", "target_sha",
                   "producer_installer_attempted", "producer_installer_rc",
                   "visual_installer_attempted", "visual_installer_rc",
+                  "acceptance_installer_attempted", "acceptance_installer_rc",
                   "root_registration_mutation_started",
                   "producer_registered_main_sha_before", "visual_registered_main_sha_before",
+                  "acceptance_registered_main_sha_before",
                   "producer_registered_main_sha_after", "visual_registered_main_sha_after",
+                  "acceptance_registered_main_sha_after",
                   "runner_service_active", "runner_has_docker_group",
                   "network_source_read_performed", "weekly_shadow_prepare_performed",
                   "visual_diagnostic_performed", "request_created", "request_accepted",
@@ -213,6 +218,7 @@ jobs:
               reason_code = "none" if reason is None else str(reason)
               producer_sha = str(payload["producer_registered_main_sha_after"] or "unavailable")
               visual_sha = str(payload["visual_registered_main_sha_after"] or "unavailable")
+              acceptance_sha = str(payload["acceptance_registered_main_sha_after"] or "unavailable")
               if bridge_status not in {"PASS", "BLOCKED"}:
                   raise SystemExit("unsupported registration bridge status")
               if not re.fullmatch(r"(?:none|[A-Z0-9_]{1,96})", reason_code):
@@ -227,8 +233,10 @@ jobs:
                       raise SystemExit("producer installer success attestation missing")
                   if payload["visual_installer_attempted"] is not True or payload["visual_installer_rc"] != 0:
                       raise SystemExit("visual installer success attestation missing")
-                  if producer_sha != os.environ["EXPECTED_SHA"] or visual_sha != os.environ["EXPECTED_SHA"]:
-                      raise SystemExit("successful refresh did not bind both registrations to target")
+                  if payload["acceptance_installer_attempted"] is not True or payload["acceptance_installer_rc"] != 0:
+                      raise SystemExit("acceptance installer success attestation missing")
+                  if any(value != os.environ["EXPECTED_SHA"] for value in (producer_sha, visual_sha, acceptance_sha)):
+                      raise SystemExit("successful refresh did not bind all three registrations to target")
                   if payload["runner_service_active"] is not True:
                       raise SystemExit("runner service not active after refresh")
                   if payload["runner_has_docker_group"] is not False:
@@ -241,6 +249,7 @@ jobs:
               out.write(f"reason_code={reason_code}\n")
               out.write(f"producer_registered_main_sha={producer_sha}\n")
               out.write(f"visual_registered_main_sha={visual_sha}\n")
+              out.write(f"acceptance_registered_main_sha={acceptance_sha}\n")
 
       - name: Upload sanitized registration evidence
         if: always() && steps.dispatch.outputs.artifact_dir != ''
@@ -259,6 +268,7 @@ jobs:
           REASON_CODE: ${{ steps.inspect.outputs.reason_code }}
           PRODUCER_SHA: ${{ steps.inspect.outputs.producer_registered_main_sha }}
           VISUAL_SHA: ${{ steps.inspect.outputs.visual_registered_main_sha }}
+          ACCEPTANCE_SHA: ${{ steps.inspect.outputs.acceptance_registered_main_sha }}
           RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
           APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
           CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
@@ -272,6 +282,7 @@ jobs:
             echo "- Reason code: \`${REASON_CODE:-none}\`"
             echo "- Producer registration: \`${PRODUCER_SHA:-unavailable}\`"
             echo "- Visual-card-v2 registration: \`${VISUAL_SHA:-unavailable}\`"
+            echo "- Acceptance weekly-shadow registration: \`${ACCEPTANCE_SHA:-unavailable}\`"
             echo "- Dispatcher exit: \`${RUNNER_RC:-unknown}\`"
             echo '- Live ALDI source/prepare/diagnostic: **not performed / not authorized**'
             echo '- DB/Review/publication/canary/scheduler/deploy: **not performed / not authorized**'
@@ -283,6 +294,7 @@ jobs:
           BRIDGE_STATUS: ${{ steps.inspect.outputs.bridge_status }}
           PRODUCER_SHA: ${{ steps.inspect.outputs.producer_registered_main_sha }}
           VISUAL_SHA: ${{ steps.inspect.outputs.visual_registered_main_sha }}
+          ACCEPTANCE_SHA: ${{ steps.inspect.outputs.acceptance_registered_main_sha }}
           RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
           APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
         shell: bash
@@ -296,7 +308,7 @@ jobs:
             echo 'ALDI registration bridge did not produce a validated PASS receipt.' >&2
             exit 1
           }
-          [[ "$PRODUCER_SHA" == "$APPROVED_SHA" && "$VISUAL_SHA" == "$APPROVED_SHA" ]] || {
-            echo 'ALDI registration SHA verification failed.' >&2
+          [[ "$PRODUCER_SHA" == "$APPROVED_SHA" && "$VISUAL_SHA" == "$APPROVED_SHA" && "$ACCEPTANCE_SHA" == "$APPROVED_SHA" ]] || {
+            echo 'ALDI three-registration SHA verification failed.' >&2
             exit 1
           }

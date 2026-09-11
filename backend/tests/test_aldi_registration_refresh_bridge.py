@@ -45,27 +45,31 @@ def test_self_hosted_job_has_no_checkout_and_only_fixed_registration_dispatcher(
     assert "APPROVED_SHA: ${{ needs.authorize.outputs.sha }}" in self_hosted
 
 
-def test_dispatcher_is_exact_source_bound_and_invokes_only_two_fixed_installers():
+def test_dispatcher_is_exact_source_bound_and_invokes_only_three_fixed_installers():
     dispatcher = _text(DISPATCHER)
     assert "REPO='/home/andris/hermes-deals'" in dispatcher
     assert "PRODUCER_REL='tools/runner/install-aldi-new-baseline-weekly-shadow-producer-dispatcher.sh'" in dispatcher
     assert "VISUAL_REL='tools/runner/install-aldi-visual-card-bridge-v2-dispatcher.sh'" in dispatcher
+    assert "ACCEPTANCE_REL='tools/runner/install-aldi-new-baseline-weekly-shadow-dispatcher.sh'" in dispatcher
     assert 'rev-parse HEAD)" == "$TARGET_SHA"' in dispatcher
     assert "status --porcelain=v1 --untracked-files=all" in dispatcher
     assert "ls-files --error-unmatch" in dispatcher
     assert "/usr/bin/bash -n \"$REPO/$rel\"" in dispatcher
     assert '/usr/bin/bash "$REPO/$PRODUCER_REL" "$TARGET_SHA"' in dispatcher
     assert '/usr/bin/bash "$REPO/$VISUAL_REL" "$TARGET_SHA"' in dispatcher
+    assert '/usr/bin/bash "$REPO/$ACCEPTANCE_REL" "$TARGET_SHA"' in dispatcher
     assert "/usr/local/sbin/hermes-deals-aldi-new-baseline-weekly-shadow-producer-dispatch" not in dispatcher
     assert "/usr/local/sbin/hermes-deals-aldi-visual-card-bridge-v2" not in dispatcher
 
 
-def test_dispatcher_verifies_both_registered_shas_and_runner_least_privilege_state():
+def test_dispatcher_verifies_all_three_registered_shas_and_runner_least_privilege_state():
     dispatcher = _text(DISPATCHER)
     assert "PRODUCER_CONF='/etc/hermes-deals-audits.d/aldi-new-baseline-weekly-shadow-producer.conf'" in dispatcher
     assert "VISUAL_CONF='/etc/hermes-deals-audits.d/aldi-visual-card-bridge-v2.conf'" in dispatcher
+    assert "ACCEPTANCE_CONF='/etc/hermes-deals-audits.d/aldi-new-baseline-weekly-shadow.conf'" in dispatcher
     assert '[[ "$PRODUCER_AFTER" == "$TARGET_SHA" ]]' in dispatcher
     assert '[[ "$VISUAL_AFTER" == "$TARGET_SHA" ]]' in dispatcher
+    assert '[[ "$ACCEPTANCE_AFTER" == "$TARGET_SHA" ]]' in dispatcher
     assert "systemctl is-active --quiet \"$RUNNER_SERVICE\"" in dispatcher
     assert "RUNNER_DOCKER_GROUP_FORBIDDEN" in dispatcher
     assert "RUNNER_DOCKER_GROUP_DRIFT_AFTER_REFRESH" in dispatcher
@@ -107,6 +111,7 @@ def test_bootstrap_installer_only_registers_new_bridge_and_never_runs_aldi_refre
     assert "ALDI_REGISTRATION_REFRESH_EXECUTED=false" in installer
     assert "install-aldi-new-baseline-weekly-shadow-producer-dispatcher.sh" not in installer
     assert "install-aldi-visual-card-bridge-v2-dispatcher.sh" not in installer
+    assert "install-aldi-new-baseline-weekly-shadow-dispatcher.sh" not in installer
 
 
 def test_source_sync_remains_checkout_only_and_runbook_keeps_live_gates_separate():

@@ -76,6 +76,7 @@ jobs:
       production_canary_plan_ready: ${{ steps.inspect.outputs.production_canary_plan_ready }}
       dispatcher_rc: ${{ steps.dispatch.outputs.dispatcher_rc }}
       artifact_name: ${{ steps.dispatch.outputs.artifact_name }}
+      reason_code: ${{ steps.inspect.outputs.reason_code }}
     steps:
       - name: Run fixed root-owned ALDI weekly-shadow dispatcher
         id: dispatch
@@ -91,19 +92,34 @@ jobs:
           artifact_dir="$RUNNER_TEMP/$artifact_name"
           [[ ! -e "$artifact_dir" ]]
           install -d -m 0700 "$artifact_dir"
+          dispatcher_log="$RUNNER_TEMP/$artifact_name.dispatcher.log"
           set +e
           sudo --non-interactive /usr/local/sbin/hermes-deals-aldi-new-baseline-weekly-shadow-dispatch \
             "$REQUEST_SHA256" \
             "$EXPECTED_MAIN_SHA" \
             "$AUTHORIZATION_COMMENT_ID" \
             "$GH_RUN_ID" \
-            "$artifact_dir"
+            "$artifact_dir" >"$dispatcher_log" 2>&1
           rc=$?
           set -e
+          reason_code=none
+          if [[ "$rc" != 0 ]]; then
+            last_line="$(tail -n 1 "$dispatcher_log" 2>/dev/null || true)"
+            case "$last_line" in
+              'ERROR: registered main SHA drift') reason_code=REGISTERED_MAIN_SHA_DRIFT ;;
+              'ERROR: bridge path drift') reason_code=BRIDGE_PATH_DRIFT ;;
+              'ERROR: installed bridge hash drift') reason_code=BRIDGE_HASH_DRIFT ;;
+              ERROR:\ installed\ gate\ hash\ drift:*) reason_code=GATE_HASH_DRIFT ;;
+              'ERROR: registered dispatcher config missing or unsafe') reason_code=REGISTRATION_CONFIG_INVALID ;;
+              *) reason_code=PRE_EVIDENCE_BLOCKED_UNKNOWN ;;
+            esac
+          fi
+          rm -f -- "$dispatcher_log"
           {
             echo "dispatcher_rc=$rc"
             echo "artifact_name=$artifact_name"
             echo "artifact_dir=$artifact_dir"
+            echo "pre_evidence_reason_code=$reason_code"
           } >> "$GITHUB_OUTPUT"
 
       - name: Inspect sanitized local evidence
@@ -111,6 +127,7 @@ jobs:
         if: always()
         env:
           ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+          PRE_EVIDENCE_REASON_CODE: ${{ steps.dispatch.outputs.pre_evidence_reason_code }}
         shell: python
         run: |
           import hashlib
@@ -125,6 +142,7 @@ jobs:
           fingerprint = "n/a"
           canary_ready = False
           inspection_ok = False
+          reason_code = os.environ.get("PRE_EVIDENCE_REASON_CODE") or "PRE_EVIDENCE_BLOCKED_UNKNOWN"
 
           if root and root.is_dir() and not root.is_symlink():
               result_path = root / "sanitized-result.json"
@@ -159,6 +177,7 @@ jobs:
                           raise SystemExit(f"unsafe result flag: {key}")
                   fingerprint = str(result.get("result_fingerprint") or result.get("reason_sha256") or "n/a")
                   canary_ready = bool(result.get("production_canary_plan_ready"))
+                  reason_code = "none" if decision != "BLOCKED" else "BRIDGE_RESULT_BLOCKED"
                   inspection_ok = True
 
           with output.open("a", encoding="utf-8") as handle:
@@ -166,9 +185,10 @@ jobs:
               handle.write(f"result_fingerprint={fingerprint}\n")
               handle.write(f"production_canary_plan_ready={str(canary_ready).lower()}\n")
               handle.write(f"inspection_ok={str(inspection_ok).lower()}\n")
+              handle.write(f"reason_code={reason_code}\n")
 
       - name: Upload sanitized immutable evidence only
-        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        if: always() && steps.inspect.outputs.inspection_ok == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.dispatch.outputs.artifact_name }}
@@ -206,6 +226,7 @@ jobs:
           RESULT_FINGERPRINT: ${{ needs.run-rpi5.outputs.result_fingerprint }}
           CANARY_PLAN_READY: ${{ needs.run-rpi5.outputs.production_canary_plan_ready }}
           ARTIFACT_NAME: ${{ needs.run-rpi5.outputs.artifact_name }}
+          REASON_CODE: ${{ needs.run-rpi5.outputs.reason_code }}
           RUN_ID: ${{ github.run_id }}
           SERVER_URL: ${{ github.server_url }}
         shell: bash
@@ -226,6 +247,7 @@ jobs:
                   f"- request SHA256: `{os.environ['REQUEST_SHA256']}`",
                   f"- exact main: `{os.environ['MAIN_SHA']}`",
                   f"- decision: `{os.environ.get('DECISION') or 'BLOCKED'}`",
+                  f"- bounded reason code: `{os.environ.get('REASON_CODE') or 'PRE_EVIDENCE_BLOCKED_UNKNOWN'}`",
                   f"- result/evidence fingerprint: `{os.environ.get('RESULT_FINGERPRINT') or 'n/a'}`",
                   f"- production canary plan ready: `{os.environ.get('CANARY_PLAN_READY') or 'false'}`",
                   "- production canary authorized: `false`",

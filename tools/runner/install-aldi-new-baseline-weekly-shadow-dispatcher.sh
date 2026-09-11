@@ -28,7 +28,7 @@ declare -A source_files=(
 )
 
 for user in andris github-runner; do id "$user" >/dev/null 2>&1 || fail "required user missing: $user"; done
-for command in awk bash git grep id install mktemp readlink rm runuser sha256sum stat sudo systemctl visudo; do
+for command in awk bash git grep id install mktemp python3 readlink rm runuser sha256sum stat sudo systemctl visudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command missing: $command"
 done
 
@@ -97,7 +97,7 @@ conf_tmp="$(mktemp /etc/hermes-deals-audits.d/.aldi-new-baseline-weekly-shadow.c
 cat > "$conf_tmp" <<CONF
 registered_main_sha='$EXPECTED_SHA'
 request_root='$REQUEST_ROOT'
-bridge_path='$LIBEXEC/aldi_new_baseline_weekly-shadow_bridge.py'
+bridge_path='$LIBEXEC/aldi_new_baseline_weekly_shadow_bridge.py'
 bridge_sha256='$bridge_sha'
 gate_a_sha256='$gate_a_sha'
 gate_b_sha256='$gate_b_sha'
@@ -107,6 +107,25 @@ CONF
 chown root:root "$conf_tmp"
 chmod 0644 "$conf_tmp"
 mv -f -- "$conf_tmp" "$CONF"
+
+[[ -f "$CONF" && ! -L "$CONF" ]] || fail "installed config missing or unsafe"
+[[ "$(stat -c '%U:%G %a' "$CONF")" == 'root:root 644' ]] || fail "installed config metadata mismatch"
+# shellcheck disable=SC1090
+source "$CONF"
+[[ "$registered_main_sha" == "$EXPECTED_SHA" ]] || fail "installed config main SHA mismatch"
+[[ "$request_root" == "$REQUEST_ROOT" ]] || fail "installed config request root mismatch"
+[[ "$bridge_path" == "$LIBEXEC/aldi_new_baseline_weekly_shadow_bridge.py" ]] || fail "installed config bridge path mismatch"
+verify_registered_file() {
+  local path="$1" expected_sha="$2" expected_mode="$3"
+  [[ -f "$path" && ! -L "$path" ]] || fail "installed registered file missing or unsafe: $path"
+  [[ "$(stat -c '%U:%G %a' "$path")" == "root:root $expected_mode" ]] || fail "installed registered file metadata mismatch: $path"
+  [[ "$(sha256sum "$path" | awk '{print $1}')" == "$expected_sha" ]] || fail "installed registered file hash mismatch: $path"
+}
+verify_registered_file "$bridge_path" "$bridge_sha256" 555
+verify_registered_file "$LIBEXEC/aldi_new_immutable_baseline_gate.py" "$gate_a_sha256" 444
+verify_registered_file "$LIBEXEC/aldi_new_baseline_page_card_parity.py" "$gate_b_sha256" 444
+verify_registered_file "$LIBEXEC/aldi_new_baseline_gate_c_replay.py" "$gate_c_sha256" 444
+verify_registered_file "$LIBEXEC/aldi_new_baseline_two_cycle_shadow_gate.py" "$two_cycle_sha256" 444
 
 visudo -cf "$SUDOERS" >/dev/null
 systemctl is-active --quiet "$RUNNER_SERVICE" || fail "GitHub Actions runner service is not active"

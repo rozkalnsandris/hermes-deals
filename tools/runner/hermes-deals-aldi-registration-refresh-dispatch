@@ -21,8 +21,10 @@ DISPATCHER='/usr/local/sbin/hermes-deals-aldi-registration-refresh-dispatch'
 RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
 PRODUCER_REL='tools/runner/install-aldi-new-baseline-weekly-shadow-producer-dispatcher.sh'
 VISUAL_REL='tools/runner/install-aldi-visual-card-bridge-v2-dispatcher.sh'
+ACCEPTANCE_REL='tools/runner/install-aldi-new-baseline-weekly-shadow-dispatcher.sh'
 PRODUCER_CONF='/etc/hermes-deals-audits.d/aldi-new-baseline-weekly-shadow-producer.conf'
 VISUAL_CONF='/etc/hermes-deals-audits.d/aldi-visual-card-bridge-v2.conf'
+ACCEPTANCE_CONF='/etc/hermes-deals-audits.d/aldi-new-baseline-weekly-shadow.conf'
 
 [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'target SHA is invalid'
 for command in bash git id python3 readlink runuser sha256sum stat systemctl; do
@@ -84,13 +86,17 @@ PY
 
 PRODUCER_ATTEMPTED='false'
 VISUAL_ATTEMPTED='false'
+ACCEPTANCE_ATTEMPTED='false'
 PRODUCER_RC='none'
 VISUAL_RC='none'
+ACCEPTANCE_RC='none'
 MUTATION_STARTED='false'
 PRODUCER_BEFORE='none'
 VISUAL_BEFORE='none'
+ACCEPTANCE_BEFORE='none'
 PRODUCER_AFTER='none'
 VISUAL_AFTER='none'
+ACCEPTANCE_AFTER='none'
 RUNNER_ACTIVE='false'
 RUNNER_HAS_DOCKER='false'
 
@@ -98,8 +104,8 @@ write_summary() {
   local bridge_status="$1"
   local reason_code="$2"
   /usr/bin/python3 - "$EXPORT_DIR" "$bridge_status" "$reason_code" "$registered_bridge_sha" "$TARGET_SHA" \
-    "$PRODUCER_ATTEMPTED" "$PRODUCER_RC" "$VISUAL_ATTEMPTED" "$VISUAL_RC" "$MUTATION_STARTED" \
-    "$PRODUCER_BEFORE" "$VISUAL_BEFORE" "$PRODUCER_AFTER" "$VISUAL_AFTER" "$RUNNER_ACTIVE" "$RUNNER_HAS_DOCKER" <<'PY'
+    "$PRODUCER_ATTEMPTED" "$PRODUCER_RC" "$VISUAL_ATTEMPTED" "$VISUAL_RC" "$ACCEPTANCE_ATTEMPTED" "$ACCEPTANCE_RC" "$MUTATION_STARTED" \
+    "$PRODUCER_BEFORE" "$VISUAL_BEFORE" "$ACCEPTANCE_BEFORE" "$PRODUCER_AFTER" "$VISUAL_AFTER" "$ACCEPTANCE_AFTER" "$RUNNER_ACTIVE" "$RUNNER_HAS_DOCKER" <<'PY'
 import json
 import os
 import pwd
@@ -117,11 +123,15 @@ import sys
     producer_rc_raw,
     visual_attempted_raw,
     visual_rc_raw,
+    acceptance_attempted_raw,
+    acceptance_rc_raw,
     mutation_started_raw,
     producer_before_raw,
     visual_before_raw,
+    acceptance_before_raw,
     producer_after_raw,
     visual_after_raw,
+    acceptance_after_raw,
     runner_active_raw,
     runner_has_docker_raw,
 ) = sys.argv[1:]
@@ -168,11 +178,15 @@ payload = {
     'producer_installer_rc': parse_optional_rc(producer_rc_raw),
     'visual_installer_attempted': parse_bool(visual_attempted_raw),
     'visual_installer_rc': parse_optional_rc(visual_rc_raw),
+    'acceptance_installer_attempted': parse_bool(acceptance_attempted_raw),
+    'acceptance_installer_rc': parse_optional_rc(acceptance_rc_raw),
     'root_registration_mutation_started': parse_bool(mutation_started_raw),
     'producer_registered_main_sha_before': parse_optional_sha(producer_before_raw),
     'visual_registered_main_sha_before': parse_optional_sha(visual_before_raw),
+    'acceptance_registered_main_sha_before': parse_optional_sha(acceptance_before_raw),
     'producer_registered_main_sha_after': parse_optional_sha(producer_after_raw),
     'visual_registered_main_sha_after': parse_optional_sha(visual_after_raw),
+    'acceptance_registered_main_sha_after': parse_optional_sha(acceptance_after_raw),
     'runner_service_active': parse_bool(runner_active_raw),
     'runner_has_docker_group': parse_bool(runner_has_docker_raw),
     'network_source_read_performed': False,
@@ -225,6 +239,7 @@ block() {
   local reason="$1"
   PRODUCER_AFTER="$(read_registered_sha "$PRODUCER_CONF")"
   VISUAL_AFTER="$(read_registered_sha "$VISUAL_CONF")"
+  ACCEPTANCE_AFTER="$(read_registered_sha "$ACCEPTANCE_CONF")"
   systemctl is-active --quiet "$RUNNER_SERVICE" && RUNNER_ACTIVE='true' || RUNNER_ACTIVE='false'
   if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
     RUNNER_HAS_DOCKER='true'
@@ -252,7 +267,7 @@ case "$(git_as_andris -C "$REPO" remote get-url origin)" in
   *) block 'SOURCE_ORIGIN_MISMATCH' ;;
 esac
 
-for rel in "$PRODUCER_REL" "$VISUAL_REL"; do
+for rel in "$PRODUCER_REL" "$VISUAL_REL" "$ACCEPTANCE_REL"; do
   git_as_andris -C "$REPO" ls-files --error-unmatch "$rel" >/dev/null 2>&1 || block 'INSTALLER_NOT_TRACKED'
   [[ -f "$REPO/$rel" && ! -L "$REPO/$rel" ]] || block 'INSTALLER_SOURCE_UNSAFE'
   /usr/bin/bash -n "$REPO/$rel" || block 'INSTALLER_SYNTAX_INVALID'
@@ -268,6 +283,7 @@ RUNNER_HAS_DOCKER='false'
 
 PRODUCER_BEFORE="$(read_registered_sha "$PRODUCER_CONF")"
 VISUAL_BEFORE="$(read_registered_sha "$VISUAL_CONF")"
+ACCEPTANCE_BEFORE="$(read_registered_sha "$ACCEPTANCE_CONF")"
 
 MUTATION_STARTED='true'
 PRODUCER_ATTEMPTED='true'
@@ -284,10 +300,19 @@ VISUAL_RC=$?
 set -e
 [[ "$VISUAL_RC" -eq 0 ]] || block 'VISUAL_INSTALLER_FAILED'
 
+ACCEPTANCE_ATTEMPTED='true'
+set +e
+/usr/bin/bash "$REPO/$ACCEPTANCE_REL" "$TARGET_SHA"
+ACCEPTANCE_RC=$?
+set -e
+[[ "$ACCEPTANCE_RC" -eq 0 ]] || block 'ACCEPTANCE_INSTALLER_FAILED'
+
 PRODUCER_AFTER="$(read_registered_sha "$PRODUCER_CONF")"
 VISUAL_AFTER="$(read_registered_sha "$VISUAL_CONF")"
+ACCEPTANCE_AFTER="$(read_registered_sha "$ACCEPTANCE_CONF")"
 [[ "$PRODUCER_AFTER" == "$TARGET_SHA" ]] || block 'PRODUCER_REGISTERED_SHA_MISMATCH'
 [[ "$VISUAL_AFTER" == "$TARGET_SHA" ]] || block 'VISUAL_REGISTERED_SHA_MISMATCH'
+[[ "$ACCEPTANCE_AFTER" == "$TARGET_SHA" ]] || block 'ACCEPTANCE_REGISTERED_SHA_MISMATCH'
 systemctl is-active --quiet "$RUNNER_SERVICE" || block 'RUNNER_SERVICE_DRIFT_AFTER_REFRESH'
 RUNNER_ACTIVE='true'
 if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then
@@ -297,5 +322,5 @@ fi
 RUNNER_HAS_DOCKER='false'
 
 write_summary 'PASS' 'none'
-printf 'ALDI_REGISTRATION_REFRESH_STATUS=PASS\nTARGET_SHA=%s\nPRODUCER_REGISTERED_MAIN_SHA=%s\nVISUAL_REGISTERED_MAIN_SHA=%s\nRUNNER_SERVICE_ACTIVE=true\nRUNNER_HAS_DOCKER_GROUP=false\n' \
-  "$TARGET_SHA" "$PRODUCER_AFTER" "$VISUAL_AFTER"
+printf 'ALDI_REGISTRATION_REFRESH_STATUS=PASS\nTARGET_SHA=%s\nPRODUCER_REGISTERED_MAIN_SHA=%s\nVISUAL_REGISTERED_MAIN_SHA=%s\nACCEPTANCE_REGISTERED_MAIN_SHA=%s\nRUNNER_SERVICE_ACTIVE=true\nRUNNER_HAS_DOCKER_GROUP=false\n' \
+  "$TARGET_SHA" "$PRODUCER_AFTER" "$VISUAL_AFTER" "$ACCEPTANCE_AFTER"

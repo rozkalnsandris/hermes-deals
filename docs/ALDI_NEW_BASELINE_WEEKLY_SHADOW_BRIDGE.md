@@ -24,8 +24,7 @@ application or deployment.
 
 Adding these files to GitHub does not activate anything on RPi5.
 
-After merge, installing the root-owned dispatcher is a separate owner authorization.
-Every real weekly request is then separately owner-authorized by an exact #682 comment:
+After merge, host alignment and the three-registration refresh are separate owner-gated LIVE steps. The refresh explicitly rebinds producer, visual-card-v2 and this acceptance runtime to the exact merged main SHA. Every real weekly request is then separately owner-authorized by an exact #682 comment:
 
 `/hermes-aldi-new-baseline-weekly-shadow request=<sha256>`
 
@@ -150,4 +149,6 @@ source-only in this PR. When separately authorized after merge, it:
 - verifies the audit runner is active and not in the `docker` group.
 
 Running this installer is **not** part of the source PR and is not authorized by a
-generic “continue”.
+generic “continue”. Operationally, use the reviewed registration-refresh bridge to
+refresh producer, visual-card-v2 and acceptance runtime together after checkout alignment.
+Only after that verified PASS may a fresh exact-request acceptance authorization be used.
