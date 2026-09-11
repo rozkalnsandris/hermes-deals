@@ -48,6 +48,24 @@ class AldiNewBaselineDispatcherOwnershipTest(unittest.TestCase):
                     text,
                 )
 
+    def test_acceptance_installer_and_dispatcher_share_canonical_registration_contract(self) -> None:
+        installer = (ROOT / "tools/runner/install-aldi-new-baseline-weekly-shadow-dispatcher.sh").read_text(encoding="utf-8")
+        dispatcher = (ROOT / "tools/runner/aldi-new-baseline-weekly-shadow-dispatcher.sh").read_text(encoding="utf-8")
+        canonical = "/usr/local/libexec/hermes-deals-audits/aldi-new-baseline-weekly-shadow-v01/aldi_new_baseline_weekly_shadow_bridge.py"
+        self.assertIn("python3", installer.split("for command in ", 1)[1].split("; do", 1)[0])
+        self.assertIn("bridge_path='$LIBEXEC/aldi_new_baseline_weekly_shadow_bridge.py'", installer)
+        self.assertNotIn("aldi_new_baseline_weekly-shadow_bridge.py", installer)
+        self.assertIn(canonical, dispatcher)
+        self.assertIn('verify_registered_file "$bridge_path" "$bridge_sha256" 555', installer)
+        for name, field in (
+            ("aldi_new_immutable_baseline_gate.py", "gate_a_sha256"),
+            ("aldi_new_baseline_page_card_parity.py", "gate_b_sha256"),
+            ("aldi_new_baseline_gate_c_replay.py", "gate_c_sha256"),
+            ("aldi_new_baseline_two_cycle_shadow_gate.py", "two_cycle_sha256"),
+        ):
+            self.assertIn(name, installer)
+            self.assertIn(field, installer)
+
 
 if __name__ == "__main__":
     unittest.main()
