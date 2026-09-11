@@ -27,6 +27,8 @@ ALDI_HOSTS = {"aldi-nord.de", "www.aldi-nord.de"}
 ALDI_LOCAL_TZ = ZoneInfo("Europe/Berlin")
 CANONICAL_PRODUCT_CARD_SELECTOR = 'a[href][data-testid*="product-tile"]'
 MAX_VISUAL_CARDS = 512
+WEEK_VIEW_CONTROL_DISCOVERY_ATTEMPTS = 80
+WEEK_VIEW_CONTROL_DISCOVERY_POLL_MS = 250
 PARSER_CONTRACT = (
     "aldi-new-baseline-objectid-source-productslug-href-html-stem-v02"
 )
@@ -258,89 +260,109 @@ def _sync_week_view(page: Any, label: str) -> None:
             "rollover_alias": str(rollover_alias),
         }
 
-    result = page.evaluate(
-        r"""(input) => {
-          const label = typeof input === 'string' ? input : input.label;
-          const rolloverAlias = typeof input === 'string'
-            ? ''
-            : (input.rollover_alias || '');
-          const normalize = value => (value || '')
-            .replace(/\u00a0/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          const visible = el => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            return (
-              rect.width > 4 &&
-              rect.height > 4 &&
-              style.display !== 'none' &&
-              style.visibility !== 'hidden'
-            );
-          };
-          const selectors = [
-            'button',
-            'a',
-            '[role="tab"]',
-            '[role="button"]',
-            '[role="radio"]',
-            'label'
-          ].join(',');
-          const exactVisible = value => Array.from(document.querySelectorAll(selectors))
-            .filter(el => visible(el) && normalize(el.textContent) === value);
-          const matches = Array.from(new Set(exactVisible(label)));
-          if (matches.length === 1) {
-            const control = matches[0];
-            control.scrollIntoView({block: 'center', inline: 'nearest'});
-            control.click();
-            return {
-              match_count: 1,
-              alias_match_count: 0,
-              selected_label: label,
-              tag_name: control.tagName.toLowerCase(),
-              role: control.getAttribute('role') || ''
-            };
-          }
-          if (matches.length !== 0 || !rolloverAlias) {
-            return {match_count: matches.length, alias_match_count: 0};
-          }
-          const aliases = Array.from(new Set(exactVisible(rolloverAlias)));
-          if (aliases.length !== 1) {
-            return {match_count: 0, alias_match_count: aliases.length};
-          }
-          const control = aliases[0];
-          control.scrollIntoView({block: 'center', inline: 'nearest'});
-          control.click();
-          return {
-            match_count: 0,
-            alias_match_count: 1,
-            selected_label: rolloverAlias,
-            tag_name: control.tagName.toLowerCase(),
-            role: control.getAttribute('role') || ''
-          };
-        }""",
-        selector_input,
-    )
-    if not isinstance(result, dict):
-        raise ProducerError(
-            f"ALDI visual week-view control is not unique: {label} (invalid)"
+    last_count: Any = None
+    last_alias_count: Any = None
+    for attempt in range(WEEK_VIEW_CONTROL_DISCOVERY_ATTEMPTS):
+        result = page.evaluate(
+            r"""(input) => {
+              const label = typeof input === 'string' ? input : input.label;
+              const rolloverAlias = typeof input === 'string'
+                ? ''
+                : (input.rollover_alias || '');
+              const normalize = value => (value || '')
+                .replace(/\u00a0/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+              const visible = el => {
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                return (
+                  rect.width > 4 &&
+                  rect.height > 4 &&
+                  style.display !== 'none' &&
+                  style.visibility !== 'hidden'
+                );
+              };
+              const selectors = [
+                'button',
+                'a',
+                '[role="tab"]',
+                '[role="button"]',
+                '[role="radio"]',
+                'label'
+              ].join(',');
+              const exactVisible = value => Array.from(document.querySelectorAll(selectors))
+                .filter(el => visible(el) && normalize(el.textContent) === value);
+              const matches = Array.from(new Set(exactVisible(label)));
+              if (matches.length === 1) {
+                const control = matches[0];
+                control.scrollIntoView({block: 'center', inline: 'nearest'});
+                control.click();
+                return {
+                  match_count: 1,
+                  alias_match_count: 0,
+                  selected_label: label,
+                  tag_name: control.tagName.toLowerCase(),
+                  role: control.getAttribute('role') || ''
+                };
+              }
+              if (matches.length !== 0 || !rolloverAlias) {
+                return {match_count: matches.length, alias_match_count: 0};
+              }
+              const aliases = Array.from(new Set(exactVisible(rolloverAlias)));
+              if (aliases.length !== 1) {
+                return {match_count: 0, alias_match_count: aliases.length};
+              }
+              const control = aliases[0];
+              control.scrollIntoView({block: 'center', inline: 'nearest'});
+              control.click();
+              return {
+                match_count: 0,
+                alias_match_count: 1,
+                selected_label: rolloverAlias,
+                tag_name: control.tagName.toLowerCase(),
+                role: control.getAttribute('role') || ''
+              };
+            }""",
+            selector_input,
         )
+        if not isinstance(result, dict):
+            raise ProducerError(
+                f"ALDI visual week-view control is not unique: {label} (invalid)"
+            )
 
-    count = result.get("match_count")
-    if count == 1:
-        page.wait_for_timeout(750)
-        return
-    if count == 0 and rollover_alias:
-        alias_count = result.get("alias_match_count")
-        if alias_count == 1:
+        count = result.get("match_count")
+        last_count = count
+        if count == 1:
             page.wait_for_timeout(750)
             return
+        if count != 0:
+            raise ProducerError(
+                f"ALDI visual week-view control is not unique: {label} ({count})"
+            )
+
+        if rollover_alias:
+            alias_count = result.get("alias_match_count")
+            last_alias_count = alias_count
+            if alias_count == 1:
+                page.wait_for_timeout(750)
+                return
+            if alias_count != 0:
+                raise ProducerError(
+                    "ALDI visual week-view rollover alias is not unique: "
+                    f"{rollover_alias} ({alias_count})"
+                )
+
+        if attempt + 1 < WEEK_VIEW_CONTROL_DISCOVERY_ATTEMPTS:
+            page.wait_for_timeout(WEEK_VIEW_CONTROL_DISCOVERY_POLL_MS)
+
+    if last_count == 0 and rollover_alias:
         raise ProducerError(
             "ALDI visual week-view rollover alias is not unique: "
-            f"{rollover_alias} ({alias_count})"
+            f"{rollover_alias} ({last_alias_count})"
         )
     raise ProducerError(
-        f"ALDI visual week-view control is not unique: {label} ({count})"
+        f"ALDI visual week-view control is not unique: {label} ({last_count})"
     )
 
 
