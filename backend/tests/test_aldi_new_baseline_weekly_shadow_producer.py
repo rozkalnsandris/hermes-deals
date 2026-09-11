@@ -24,15 +24,20 @@ def offer(start: str, price: float = 1.0) -> dict[str, object]:
 
 class FakeWeekViewPage:
     def __init__(self, result: object) -> None:
-        self.result = result
+        self.results = result if isinstance(result, list) else [result]
+        if not self.results:
+            raise ValueError("fake week-view result sequence must not be empty")
         self.label: object | None = None
         self.script = ""
         self.waits: list[int] = []
+        self.evaluate_calls = 0
 
     def evaluate(self, script: str, label: object) -> object:
         self.script = script
         self.label = label
-        return self.result
+        index = min(self.evaluate_calls, len(self.results) - 1)
+        self.evaluate_calls += 1
+        return self.results[index]
 
     def wait_for_timeout(self, milliseconds: int) -> None:
         self.waits.append(milliseconds)
@@ -177,17 +182,52 @@ class AldiWeeklyShadowProducerTest(unittest.TestCase):
         producer._sync_week_view(page, "Nächste Woche")
         self.assertEqual(page.label, "Nächste Woche")
         self.assertEqual(page.waits, [750])
+        self.assertEqual(page.evaluate_calls, 1)
         self.assertIn("normalize(el.textContent) === value", page.script)
 
-        for count in (0, 2):
-            with self.assertRaisesRegex(
-                producer.ProducerError,
-                "week-view control is not unique",
-            ):
-                producer._sync_week_view(
-                    FakeWeekViewPage({"match_count": count}),
-                    "Nächste Woche",
-                )
+        multiple = FakeWeekViewPage({"match_count": 2})
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "week-view control is not unique",
+        ):
+            producer._sync_week_view(multiple, "Nächste Woche")
+        self.assertEqual(multiple.evaluate_calls, 1)
+        self.assertEqual(multiple.waits, [])
+
+        missing = FakeWeekViewPage({"match_count": 0})
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "week-view control is not unique",
+        ):
+            producer._sync_week_view(missing, "Nächste Woche")
+        self.assertEqual(
+            missing.evaluate_calls,
+            producer.WEEK_VIEW_CONTROL_DISCOVERY_ATTEMPTS,
+        )
+        self.assertEqual(
+            missing.waits,
+            [producer.WEEK_VIEW_CONTROL_DISCOVERY_POLL_MS]
+            * (producer.WEEK_VIEW_CONTROL_DISCOVERY_ATTEMPTS - 1),
+        )
+
+    def test_visual_week_view_sync_waits_for_bounded_hydration(self):
+        page = FakeWeekViewPage(
+            [
+                {"match_count": 0},
+                {"match_count": 0},
+                {"match_count": 1},
+            ]
+        )
+        producer._sync_week_view(page, "Aktuelle Woche")
+        self.assertEqual(page.evaluate_calls, 3)
+        self.assertEqual(
+            page.waits,
+            [
+                producer.WEEK_VIEW_CONTROL_DISCOVERY_POLL_MS,
+                producer.WEEK_VIEW_CONTROL_DISCOVERY_POLL_MS,
+                750,
+            ],
+        )
 
     def test_sunday_rollover_alias_requires_primary_zero_and_exactly_one_alias(self):
         label = producer._week_view_label(
