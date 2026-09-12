@@ -2,7 +2,7 @@
   "schema": "hermes-deals.simple-live-operation.v1",
   "repository": "rozkalnsandris/hermes-deals",
   "migration_issue": 879,
-  "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
+  "shared_contract_sha": "106908294d8515f74efa02d03321883db4b8ab79",
   "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
   "operation_id": "hermes-deals.origin-path-audit.v1",
   "target_alias": "hermes-deals-origin-path-audit",

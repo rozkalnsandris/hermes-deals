@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHARED_SHA = "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a"
+SHARED_SHA = "106908294d8515f74efa02d03321883db4b8ab79"
 RPI5_SHA = "6ca47e656edab8a06ad4d5116f9015efa1ab2e76"
 MANIFEST_PATH = ROOT / ".github/auto-run-full-queue-adoption-v1.json"
 QUEUE_POLICY_PATH = ROOT / ".github/auto-run-full-queue-v1.json"
@@ -16,19 +16,24 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_a8_manifest_selects_owner_driven_live_without_queue_live_authority() -> None:
+def test_simple_live_is_staged_but_not_currently_selected() -> None:
     manifest = load_json(MANIFEST_PATH)
+    policy = load_json(QUEUE_POLICY_PATH)
 
     assert manifest["shared_contract_sha"] == SHARED_SHA
-    assert manifest["adoption_phase"] == "LIVE_CANARY_READY"
+    assert manifest["adoption_phase"] == "SOURCE_ONLY_CANARY"
+    assert manifest["source_canary"]["status"] == "NOT_PROVEN"
     assert manifest["queue"]["batch_source_authority"] is True
     assert manifest["queue"]["batch_merge_authority"] is True
     assert manifest["queue"]["live_authority"] is False
     assert manifest["final_live"] == {
-        "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
+        "mode": "DISABLED",
         "double_execution_paths_allowed": False,
         "deferred_rpi5_requires_live_auth_v1": True,
     }
+    assert policy["adoption_phase"] == "SOURCE_ONLY_CANARY"
+    assert policy["execution_boundary"]["final_live_mode"] == "DISABLED"
+    assert policy["simple_live"]["mode"] == "SIMPLE_LIVE_OWNER_DRIVEN"
 
 
 def test_a8_operation_is_one_fixed_read_only_rpi5_contract() -> None:
@@ -118,7 +123,7 @@ def test_a8_exclusions_block_privilege_and_production_expansion() -> None:
     assert "automatic retry rollback cleanup or alternate mutation path" in exclusions
 
 
-def test_queue_policy_and_human_contract_bind_the_same_operation() -> None:
+def test_queue_policy_and_human_contract_keep_same_dormant_operation() -> None:
     policy = load_json(QUEUE_POLICY_PATH)
     operation = load_json(OPERATION_PATH)
     text = DOC_PATH.read_text(encoding="utf-8")
@@ -140,5 +145,6 @@ def test_queue_policy_and_human_contract_bind_the_same_operation() -> None:
     assert operation["operation_id"] in text
     assert operation["target_alias"] in text
     assert RPI5_SHA in text
+    assert "dormant" in text
     assert "This operation is deliberately not the existing `deploy-main.yml`" in text
     assert "A bare `LIVE` is invalid" in text

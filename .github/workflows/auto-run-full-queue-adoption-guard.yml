@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   queue-adoption-guard:
-    uses: rozkalnsandris/ops-workflows/.github/workflows/auto-run-full-queue-adoption-guard.yml@55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a # reviewed policy revision 55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a
+    uses: rozkalnsandris/ops-workflows/.github/workflows/auto-run-full-queue-adoption-guard.yml@106908294d8515f74efa02d03321883db4b8ab79 # reviewed policy revision 106908294d8515f74efa02d03321883db4b8ab79
     with:
-      canonical_policy_sha: 55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a
+      canonical_policy_sha: 106908294d8515f74efa02d03321883db4b8ab79
       manifest_path: .github/auto-run-full-queue-adoption-v1.json
