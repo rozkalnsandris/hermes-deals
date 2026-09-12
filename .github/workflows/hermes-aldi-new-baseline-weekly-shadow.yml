@@ -104,21 +104,68 @@ jobs:
           set -e
           reason_code=none
           if [[ "$rc" != 0 ]]; then
-            last_line="$(tail -n 1 "$dispatcher_log" 2>/dev/null || true)"
-            case "$last_line" in
-              'ERROR: registered main SHA drift') reason_code=REGISTERED_MAIN_SHA_DRIFT ;;
-              'ERROR: bridge path drift') reason_code=BRIDGE_PATH_DRIFT ;;
-              'ERROR: installed bridge hash drift') reason_code=BRIDGE_HASH_DRIFT ;;
-              ERROR:\ installed\ gate\ hash\ drift:*) reason_code=GATE_HASH_DRIFT ;;
-              'ERROR: registered dispatcher config missing or unsafe') reason_code=REGISTRATION_CONFIG_INVALID ;;
-              *) reason_code=PRE_EVIDENCE_BLOCKED_UNKNOWN ;;
+            marker="$(grep -E '^HERMES_WEEKLY_SHADOW_REASON_CODE=[A-Z0-9_]+$' "$dispatcher_log" | tail -n 1 || true)"
+            reason_code="${marker#HERMES_WEEKLY_SHADOW_REASON_CODE=}"
+            case "$reason_code" in
+              DISPATCHER_NOT_ROOT|INVALID_ARGUMENT_COUNT|INVALID_REQUEST_SHA256|INVALID_EXPECTED_MAIN_SHA|INVALID_AUTHORIZATION_COMMENT_ID|INVALID_GITHUB_RUN_ID|REGISTRATION_CONFIG_INVALID|REGISTRATION_CONFIG_FIELD_MISSING|REGISTERED_MAIN_SHA_DRIFT|REQUEST_ROOT_DRIFT|BRIDGE_PATH_DRIFT|BRIDGE_FILE_MISSING_OR_UNSAFE|BRIDGE_HASH_DRIFT|GATE_FILE_MISSING_OR_UNSAFE|GATE_HASH_DRIFT|PRIMARY_REPOSITORY_MISSING_OR_UNSAFE|PRIMARY_REPOSITORY_NOT_MAIN|PRIMARY_REPOSITORY_DIRTY|PRIMARY_MAIN_SHA_DRIFT|PRIMARY_ORIGIN_NOT_ALLOWLISTED|REQUEST_DIRECTORY_MISSING_OR_UNSAFE|REQUEST_DIRECTORY_OWNERSHIP_INVALID|REQUEST_DIRECTORY_MODE_INVALID|REQUEST_JSON_MISSING_OR_UNSAFE|REQUEST_JSON_OWNERSHIP_INVALID|REQUEST_SHA256_MISMATCH|REQUEST_MEMBER_UNSAFE|REQUEST_MEMBER_OWNERSHIP_INVALID|REQUEST_MEMBER_MODE_INVALID|BRIDGE_OUTPUT_MISSING|SANITIZED_RESULT_MISSING|SANITIZED_OUTPUT_VALIDATION_FAILED|ARTIFACT_DIRECTORY_MISSING_OR_UNSAFE|ARTIFACT_DIRECTORY_OUTSIDE_ALLOWLIST|ARTIFACT_DIRECTORY_OWNERSHIP_INVALID|ARTIFACT_DIRECTORY_MODE_INVALID|ARTIFACT_DIRECTORY_NOT_EMPTY|ARTIFACT_EXPORT_FAILED) ;;
+              *) reason_code=UNEXPECTED_PRE_EVIDENCE_FAILURE ;;
             esac
+          fi
+
+          evidence_dir="$artifact_dir"
+          if [[ "$rc" != 0 && ( -n "$marker" || ! ( -f "$artifact_dir/sanitized-result.json" && -f "$artifact_dir/MANIFEST.sha256" ) ) ]]; then
+            failure_dir="$(mktemp -d "$RUNNER_TEMP/$artifact_name.failure.XXXXXX")"
+            chmod 0700 "$failure_dir"
+            python3 - "$failure_dir" "$REQUEST_SHA256" "$EXPECTED_MAIN_SHA" "$AUTHORIZATION_COMMENT_ID" "$GH_RUN_ID" "$rc" "$reason_code" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1])
+          request_sha, main_sha, comment_id, run_id, dispatcher_rc, reason_code = sys.argv[2:]
+          identity = {
+              "request_sha256": request_sha,
+              "authorized_main_sha": main_sha,
+              "authorization_comment_id": int(comment_id),
+              "github_run_id": int(run_id),
+              "dispatcher_rc": int(dispatcher_rc),
+              "bounded_reason_code": reason_code,
+          }
+          reason_sha = hashlib.sha256(
+              (json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n").encode()
+          ).hexdigest()
+          result = {
+              "schema_version": 1,
+              "decision": "BLOCKED",
+              "evidence_class": "pre_evidence_failure",
+              **identity,
+              "reason_sha256": reason_sha,
+              "production_canary_plan_ready": False,
+              "production_canary_authorized": False,
+              "production_deploy_authorized": False,
+              "production_database_write_authorized": False,
+              "review_or_publication_write_authorized": False,
+              "source_mutation_authorized": False,
+              "automatic_schedule": False,
+              "automatic_approval_or_publication": False,
+              "historical_issue_56_completion_claimed": False,
+          }
+          result_path = root / "sanitized-result.json"
+          result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          result_path.chmod(0o400)
+          digest = hashlib.sha256(result_path.read_bytes()).hexdigest()
+          manifest = root / "MANIFEST.sha256"
+          manifest.write_text(f"{digest}  sanitized-result.json\n", encoding="utf-8")
+          manifest.chmod(0o400)
+          PY
+            evidence_dir="$failure_dir"
           fi
           rm -f -- "$dispatcher_log"
           {
             echo "dispatcher_rc=$rc"
             echo "artifact_name=$artifact_name"
-            echo "artifact_dir=$artifact_dir"
+            echo "artifact_dir=$evidence_dir"
             echo "pre_evidence_reason_code=$reason_code"
           } >> "$GITHUB_OUTPUT"
 
@@ -142,7 +189,7 @@ jobs:
           fingerprint = "n/a"
           canary_ready = False
           inspection_ok = False
-          reason_code = os.environ.get("PRE_EVIDENCE_REASON_CODE") or "PRE_EVIDENCE_BLOCKED_UNKNOWN"
+          reason_code = os.environ.get("PRE_EVIDENCE_REASON_CODE") or "UNEXPECTED_PRE_EVIDENCE_FAILURE"
 
           if root and root.is_dir() and not root.is_symlink():
               result_path = root / "sanitized-result.json"
@@ -177,7 +224,7 @@ jobs:
                           raise SystemExit(f"unsafe result flag: {key}")
                   fingerprint = str(result.get("result_fingerprint") or result.get("reason_sha256") or "n/a")
                   canary_ready = bool(result.get("production_canary_plan_ready"))
-                  reason_code = "none" if decision != "BLOCKED" else "BRIDGE_RESULT_BLOCKED"
+                  reason_code = "none" if decision != "BLOCKED" else str(result.get("bounded_reason_code") or "BRIDGE_RESULT_BLOCKED")
                   inspection_ok = True
 
           with output.open("a", encoding="utf-8") as handle:
@@ -247,7 +294,7 @@ jobs:
                   f"- request SHA256: `{os.environ['REQUEST_SHA256']}`",
                   f"- exact main: `{os.environ['MAIN_SHA']}`",
                   f"- decision: `{os.environ.get('DECISION') or 'BLOCKED'}`",
-                  f"- bounded reason code: `{os.environ.get('REASON_CODE') or 'PRE_EVIDENCE_BLOCKED_UNKNOWN'}`",
+                  f"- bounded reason code: `{os.environ.get('REASON_CODE') or 'UNEXPECTED_PRE_EVIDENCE_FAILURE'}`",
                   f"- result/evidence fingerprint: `{os.environ.get('RESULT_FINGERPRINT') or 'n/a'}`",
                   f"- production canary plan ready: `{os.environ.get('CANARY_PLAN_READY') or 'false'}`",
                   "- production canary authorized: `false`",
