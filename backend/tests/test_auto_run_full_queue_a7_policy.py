@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHARED_SHA = "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a"
+SHARED_SHA = "106908294d8515f74efa02d03321883db4b8ab79"
 MANIFEST_PATH = ROOT / ".github/auto-run-full-queue-adoption-v1.json"
 QUEUE_POLICY_PATH = ROOT / ".github/auto-run-full-queue-v1.json"
 ROUTING_PATH = ROOT / ".github/start-mode-routing.json"
@@ -18,7 +18,7 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_queue_manifest_preserves_a7_authority_while_a8_selects_owner_live() -> None:
+def test_queue_manifest_fails_closed_until_source_canary_is_proven() -> None:
     manifest = load_json(MANIFEST_PATH)
 
     assert set(manifest) == {
@@ -27,13 +27,14 @@ def test_queue_manifest_preserves_a7_authority_while_a8_selects_owner_live() -> 
         "shared_contract_sha",
         "adoption_phase",
         "queue",
+        "source_canary",
         "final_live",
         "boundaries",
     }
     assert manifest["schema"] == "rozkalns.auto-run-full-queue-adoption.v1"
     assert manifest["repository"] == "rozkalnsandris/hermes-deals"
     assert manifest["shared_contract_sha"] == SHARED_SHA
-    assert manifest["adoption_phase"] == "LIVE_CANARY_READY"
+    assert manifest["adoption_phase"] == "SOURCE_ONLY_CANARY"
 
     assert manifest["queue"] == {
         "command_active": True,
@@ -43,8 +44,18 @@ def test_queue_manifest_preserves_a7_authority_while_a8_selects_owner_live() -> 
         "batch_merge_authority": True,
         "live_authority": False,
     }
+    assert manifest["source_canary"] == {
+        "status": "NOT_PROVEN",
+        "queue_id": None,
+        "controller_issue_number": None,
+        "ordered_issue_numbers": [],
+        "activation_main_sha": None,
+        "final_main_sha": None,
+        "authorization_receipt_sha256": None,
+        "completion_receipt_sha256": None,
+    }
     assert manifest["final_live"] == {
-        "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
+        "mode": "DISABLED",
         "double_execution_paths_allowed": False,
         "deferred_rpi5_requires_live_auth_v1": True,
     }
@@ -128,7 +139,7 @@ def test_queue_policy_preserves_a3_authority_and_a4_resume_guards() -> None:
     assert policy["shared_contract_sha"] == SHARED_SHA
     assert policy["migration_issue"] == 876
     assert policy["live_canary_issue"] == 879
-    assert policy["adoption_phase"] == "LIVE_CANARY_READY"
+    assert policy["adoption_phase"] == "SOURCE_ONLY_CANARY"
     assert policy["command"]["syntax"] == "AUTO-RUN FULL QUEUE hermes-deals #<issue1> ... #<issueN>"
     assert policy["command"]["minimum_items"] == 1
     assert policy["command"]["maximum_items"] == 10
@@ -176,7 +187,7 @@ def test_queue_policy_preserves_a3_authority_and_a4_resume_guards() -> None:
     }
 
 
-def test_a8_source_still_adds_no_live_or_runtime_execution() -> None:
+def test_current_source_adds_no_live_or_runtime_execution() -> None:
     policy = load_json(QUEUE_POLICY_PATH)
     boundary = policy["execution_boundary"]
 
@@ -186,7 +197,7 @@ def test_a8_source_still_adds_no_live_or_runtime_execution() -> None:
     assert boundary["production_executor_added_by_a7"] is False
     assert boundary["ops_workflows_executes_production"] is False
     assert boundary["ops_workflows_stores_production_credentials"] is False
-    assert boundary["final_live_mode"] == "SIMPLE_LIVE_OWNER_DRIVEN"
+    assert boundary["final_live_mode"] == "DISABLED"
     assert boundary["queue_authorizes_live"] is False
     assert boundary["production_deploy_authorized"] is False
     assert boundary["production_data_write_authorized"] is False
@@ -223,7 +234,8 @@ def test_legacy_single_issue_full_remains_separate_and_non_live() -> None:
 def test_human_contract_names_current_non_authority_boundaries() -> None:
     text = DOC_PATH.read_text(encoding="utf-8")
 
-    assert "LIVE_CANARY_READY" in text
+    assert "SOURCE_ONLY_CANARY" in text
+    assert "source_canary.status=NOT_PROVEN" in text
     assert "AUTO-RUN FULL QUEUE hermes-deals #<issue1> ... #<issueN>" in text
     assert "rozkalns.auto-run-full-queue-auth.v1" in text
     assert "issue `#814`" in text
@@ -233,4 +245,4 @@ def test_human_contract_names_current_non_authority_boundaries() -> None:
     assert "SIMPLE_LIVE_OWNER_DRIVEN" in text
     assert "Queue authority always has `live=false`" in text
     assert "LIVE <binding_sha256>" in text
-    assert "A8 source preparation does not create a Ready envelope" in text
+    assert "final LIVE is disabled" in text
