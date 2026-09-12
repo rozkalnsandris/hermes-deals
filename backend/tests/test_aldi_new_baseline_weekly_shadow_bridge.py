@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
 from copy import deepcopy
 from hashlib import sha256
+import io
 import importlib.util
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -348,6 +352,67 @@ class AldiNewBaselineWeeklyShadowBridgeTest(unittest.TestCase):
             "--github-run-id", "5678",
             "--output-dir", str(output_dir),
         ]
+
+    def test_malformed_cli_argument_fails_bounded_without_systemexit_leak(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            argv = self._main_argv(out)
+            argv[argv.index("--authorization-comment-id") + 1] = "private-not-an-int"
+            proc = subprocess.run(
+                [sys.executable, *argv],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 23)
+            self.assertIn("BOUNDED_REASON_CODE=bridge_argument_invalid", proc.stdout)
+            self.assertNotIn("private-not-an-int", proc.stdout + proc.stderr)
+            self.assertFalse(out.exists())
+
+    def test_import_startup_failure_subprocess_emits_sanitized_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tool = root / TOOL_PATH.name
+            shutil.copy2(TOOL_PATH, tool)
+            private_message = "private import detail /root/secret-token"
+            (root / "aldi_new_immutable_baseline_gate.py").write_text(
+                f'raise RuntimeError({private_message!r})\n',
+                encoding="utf-8",
+            )
+            out = root / "out"
+            argv = self._main_argv(out)
+            argv[0] = str(tool)
+            proc = subprocess.run(
+                [sys.executable, *argv],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 23)
+            result_text = (out / "sanitized-result.json").read_text(encoding="utf-8")
+            result = json.loads(result_text)
+            self.assertEqual(result["bounded_reason_code"], "bridge_startup_import_failed")
+            self.assertEqual(result["exception_category"], "runtime_error")
+            self.assertNotIn(private_message, result_text + proc.stdout + proc.stderr)
+            self.assertEqual(set(p.name for p in out.iterdir()), {"sanitized-result.json", "MANIFEST.sha256"})
+
+    def test_failure_receipt_write_failure_falls_back_to_bounded_process_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            stream = io.StringIO()
+            with (
+                mock.patch.object(MODULE, "run_bridge", side_effect=RuntimeError("private runtime detail")),
+                mock.patch.object(MODULE, "_write_minimal_blocked_output", side_effect=OSError("private receipt write detail")),
+                mock.patch.object(sys, "argv", self._main_argv(out)),
+                redirect_stdout(stream),
+            ):
+                rc = MODULE.main()
+            rendered = stream.getvalue()
+            self.assertEqual(rc, 24)
+            self.assertIn("BOUNDED_REASON_CODE=bridge_failure_receipt_write_failed", rendered)
+            self.assertNotIn("private runtime detail", rendered)
+            self.assertNotIn("private receipt write detail", rendered)
+            self.assertFalse(out.exists())
 
     def test_unexpected_runtime_exception_emits_bounded_sanitized_output(self) -> None:
         fingerprints = []
