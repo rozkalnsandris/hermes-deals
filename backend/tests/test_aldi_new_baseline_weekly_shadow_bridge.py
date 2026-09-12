@@ -5,6 +5,7 @@ from hashlib import sha256
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -335,6 +336,138 @@ class AldiNewBaselineWeeklyShadowBridgeTest(unittest.TestCase):
             self.assertTrue((out / "sanitized-result.json").is_file())
             with self.assertRaisesRegex(MODULE.BridgeError, "already exists"):
                 MODULE.write_outputs(out, result)
+
+
+    def _main_argv(self, output_dir: Path) -> list[str]:
+        return [
+            str(TOOL_PATH),
+            "--request-dir", str(output_dir.parent / "request"),
+            "--request-sha256", "a" * 64,
+            "--expected-main-sha", "d" * 40,
+            "--authorization-comment-id", "1234",
+            "--github-run-id", "5678",
+            "--output-dir", str(output_dir),
+        ]
+
+    def test_unexpected_runtime_exception_emits_bounded_sanitized_output(self) -> None:
+        fingerprints = []
+        for suffix in ("one", "two"):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / suffix
+                private_message = "private runtime detail /root/secret-token"
+                with (
+                    mock.patch.object(MODULE, "run_bridge", side_effect=RuntimeError(private_message)),
+                    mock.patch.object(sys, "argv", self._main_argv(out)),
+                ):
+                    rc = MODULE.main()
+                self.assertEqual(rc, 21)
+                result_text = (out / "sanitized-result.json").read_text(encoding="utf-8")
+                result = json.loads(result_text)
+                self.assertEqual(result["bounded_reason_code"], "bridge_unexpected_exception")
+                self.assertEqual(result["exception_category"], "runtime_error")
+                self.assertNotIn(private_message, result_text)
+                self.assertEqual(set(p.name for p in out.iterdir()), {"sanitized-result.json", "MANIFEST.sha256"})
+                fingerprints.append(result["reason_sha256"])
+        self.assertEqual(fingerprints[0], fingerprints[1])
+
+    def test_unknown_exception_class_uses_allowlisted_fallback(self) -> None:
+        class PrivateCustomFailure(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with (
+                mock.patch.object(MODULE, "run_bridge", side_effect=PrivateCustomFailure("private detail")),
+                mock.patch.object(sys, "argv", self._main_argv(out)),
+            ):
+                rc = MODULE.main()
+            self.assertEqual(rc, 21)
+            result = json.loads((out / "sanitized-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["exception_category"], "other_exception")
+            self.assertNotIn("PrivateCustomFailure", (out / "sanitized-result.json").read_text(encoding="utf-8"))
+
+    def test_base_exception_is_not_swallowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with (
+                mock.patch.object(MODULE, "run_bridge", side_effect=KeyboardInterrupt()),
+                mock.patch.object(sys, "argv", self._main_argv(out)),
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    MODULE.main()
+            self.assertFalse(out.exists())
+
+    def test_partial_success_write_failure_publishes_only_minimal_blocked_output(self) -> None:
+        success_result = {
+            "gate_a": {"a": 1},
+            "gate_b": {"b": 2},
+            "gate_c": {"c": 3},
+            "current_cycle": {"cycle": 1},
+            "two_cycle_result": None,
+            "decision": MODULE.FIRST_WEEK_DECISION,
+            "result_fingerprint": "f" * 64,
+            "production_canary_plan_ready": False,
+        }
+
+        def fail_after_partial(stage: Path, result: object) -> None:
+            (stage / "gate-a-result.json").write_text("private partial output", encoding="utf-8")
+            raise OSError("private output path failure")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with (
+                mock.patch.object(MODULE, "run_bridge", return_value=success_result),
+                mock.patch.object(MODULE, "_write_success_output_files", side_effect=fail_after_partial),
+                mock.patch.object(sys, "argv", self._main_argv(out)),
+            ):
+                rc = MODULE.main()
+            self.assertEqual(rc, 22)
+            self.assertEqual(set(p.name for p in out.iterdir()), {"sanitized-result.json", "MANIFEST.sha256"})
+            result_text = (out / "sanitized-result.json").read_text(encoding="utf-8")
+            result = json.loads(result_text)
+            self.assertEqual(result["bounded_reason_code"], "bridge_output_write_failed")
+            self.assertEqual(result["exception_category"], "os_error")
+            self.assertNotIn("private partial output", result_text)
+            self.assertNotIn("private output path failure", result_text)
+
+    def test_existing_bridge_error_path_remains_minimal_blocked_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with (
+                mock.patch.object(MODULE, "run_bridge", side_effect=MODULE.BridgeError("private validation detail")),
+                mock.patch.object(sys, "argv", self._main_argv(out)),
+            ):
+                rc = MODULE.main()
+            self.assertEqual(rc, 20)
+            result_text = (out / "sanitized-result.json").read_text(encoding="utf-8")
+            result = json.loads(result_text)
+            self.assertEqual(result["reason_code"], "bridge_validation_failed")
+            self.assertNotIn("private validation detail", result_text)
+            self.assertEqual(set(p.name for p in out.iterdir()), {"sanitized-result.json", "MANIFEST.sha256"})
+
+    def test_main_success_path_still_publishes_complete_manifested_output(self) -> None:
+        success_result = {
+            "gate_a": {"a": 1},
+            "gate_b": {"b": 2},
+            "gate_c": {"c": 3},
+            "current_cycle": {"cycle": 1},
+            "two_cycle_result": None,
+            "decision": MODULE.FIRST_WEEK_DECISION,
+            "result_fingerprint": "f" * 64,
+            "production_canary_plan_ready": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with (
+                mock.patch.object(MODULE, "run_bridge", return_value=success_result),
+                mock.patch.object(sys, "argv", self._main_argv(out)),
+            ):
+                rc = MODULE.main()
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                set(p.name for p in out.iterdir()),
+                {"gate-a-result.json", "gate-b-result.json", "gate-c-result.json", "cycle-evidence.json", "sanitized-result.json", "MANIFEST.sha256"},
+            )
 
 
 if __name__ == "__main__":

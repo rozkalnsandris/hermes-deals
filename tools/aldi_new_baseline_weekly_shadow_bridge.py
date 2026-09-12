@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import tempfile
 from typing import Any, Mapping
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -470,9 +471,43 @@ def run_bridge(*, request_dir: Path, request_sha256: str, expected_main_sha: str
     return result
 
 
-def write_outputs(output_dir: Path, result: Mapping[str, Any]) -> None:
+def unexpected_exception_category(exc: Exception) -> str:
+    categories = (
+        (OSError, "os_error"),
+        (RuntimeError, "runtime_error"),
+        (KeyError, "key_error"),
+        (TypeError, "type_error"),
+        (AssertionError, "assertion_error"),
+        (ValueError, "value_error"),
+    )
+    for exception_type, category in categories:
+        if isinstance(exc, exception_type):
+            return category
+    return "other_exception"
+
+
+def unexpected_exception_sha256(exc: Exception) -> str:
+    private_metadata = {
+        "exception_module": type(exc).__module__,
+        "exception_qualname": type(exc).__qualname__,
+        "message": str(exc),
+    }
+    return canonical_sha256(private_metadata)
+
+
+def _new_output_stage(output_dir: Path) -> Path:
     require(not output_dir.exists(), f"output directory already exists: {output_dir}")
-    output_dir.mkdir(parents=True, mode=0o700)
+    parent = output_dir.parent
+    require(parent.is_dir() and not parent.is_symlink(), f"output parent is missing or unsafe: {parent}")
+    return Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.staging-", dir=parent))
+
+
+def _publish_stage(stage: Path, output_dir: Path) -> None:
+    require(not output_dir.exists(), f"output directory already exists: {output_dir}")
+    stage.rename(output_dir)
+
+
+def _write_success_output_files(root: Path, result: Mapping[str, Any]) -> None:
     files = {
         "gate-a-result.json": result["gate_a"],
         "gate-b-result.json": result["gate_b"],
@@ -484,16 +519,20 @@ def write_outputs(output_dir: Path, result: Mapping[str, Any]) -> None:
         files["two-cycle-result.json"] = result["two_cycle_result"]
     lines = []
     for name, value in files.items():
-        path = output_dir / name
+        path = root / name
         path.write_bytes(canonical_bytes(value))
         lines.append(f"{file_sha256(path)}  {name}")
-    (output_dir / "MANIFEST.sha256").write_text("\n".join(sorted(lines)) + "\n", encoding="utf-8")
+    (root / "MANIFEST.sha256").write_text("\n".join(sorted(lines)) + "\n", encoding="utf-8")
 
 
-def write_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_main_sha: str, authorization_comment_id: int, github_run_id: int, reason: str) -> dict[str, Any]:
-    require(not output_dir.exists(), f"output directory already exists: {output_dir}")
-    output_dir.mkdir(parents=True, mode=0o700)
-    result = {
+def write_outputs(output_dir: Path, result: Mapping[str, Any]) -> None:
+    stage = _new_output_stage(output_dir)
+    _write_success_output_files(stage, result)
+    _publish_stage(stage, output_dir)
+
+
+def _blocked_result_base(*, request_sha256: str, expected_main_sha: str, authorization_comment_id: int, github_run_id: int) -> dict[str, Any]:
+    return {
         "schema_version": 1,
         "mode": MODE,
         "issue_number": ISSUE_NUMBER,
@@ -506,8 +545,6 @@ def write_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_mai
             "comment_id": authorization_comment_id if authorization_comment_id > 0 else None,
             "github_run_id": github_run_id if github_run_id > 0 else None,
         },
-        "reason_code": "bridge_validation_failed",
-        "reason_sha256": sha256(reason.encode("utf-8", errors="replace")).hexdigest(),
         "production_canary_plan_ready": False,
         "production_canary_authorized": False,
         "production_deploy_authorized": False,
@@ -518,10 +555,57 @@ def write_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_mai
         "automatic_approval_or_publication": False,
         "historical_issue_56_completion_claimed": False,
     }
-    path = output_dir / "sanitized-result.json"
+
+
+def _write_minimal_blocked_output(output_dir: Path, result: Mapping[str, Any]) -> None:
+    stage = _new_output_stage(output_dir)
+    path = stage / "sanitized-result.json"
     path.write_bytes(canonical_bytes(result))
-    (output_dir / "MANIFEST.sha256").write_text(f"{file_sha256(path)}  sanitized-result.json\n", encoding="utf-8")
+    (stage / "MANIFEST.sha256").write_text(f"{file_sha256(path)}  sanitized-result.json\n", encoding="utf-8")
+    _publish_stage(stage, output_dir)
+
+
+def write_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_main_sha: str, authorization_comment_id: int, github_run_id: int, reason: str) -> dict[str, Any]:
+    result = _blocked_result_base(
+        request_sha256=request_sha256,
+        expected_main_sha=expected_main_sha,
+        authorization_comment_id=authorization_comment_id,
+        github_run_id=github_run_id,
+    )
+    result.update({
+        "reason_code": "bridge_validation_failed",
+        "reason_sha256": sha256(reason.encode("utf-8", errors="replace")).hexdigest(),
+    })
+    _write_minimal_blocked_output(output_dir, result)
     return result
+
+
+def write_unexpected_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_main_sha: str, authorization_comment_id: int, github_run_id: int, reason_code: str, exc: Exception) -> dict[str, Any]:
+    require(reason_code in {"bridge_unexpected_exception", "bridge_output_write_failed"}, "unexpected bridge reason code")
+    result = _blocked_result_base(
+        request_sha256=request_sha256,
+        expected_main_sha=expected_main_sha,
+        authorization_comment_id=authorization_comment_id,
+        github_run_id=github_run_id,
+    )
+    result.update({
+        "reason_code": reason_code,
+        "bounded_reason_code": reason_code,
+        "exception_category": unexpected_exception_category(exc),
+        "reason_sha256": unexpected_exception_sha256(exc),
+    })
+    _write_minimal_blocked_output(output_dir, result)
+    return result
+
+
+def _print_blocked(blocked: Mapping[str, Any]) -> None:
+    print("ALDI_NEW_BASELINE_WEEKLY_SHADOW_BRIDGE=BLOCKED")
+    print(f"REASON_SHA256={blocked['reason_sha256']}")
+    print("PRODUCTION_DATABASE_WRITE=false")
+    print("REVIEW_PUBLICATION_WRITE=false")
+    print("SOURCE_MUTATION=false")
+    print("PRODUCTION_DEPLOY=false")
+    print("AUTOMATIC_SCHEDULE=false")
 
 
 def main() -> int:
@@ -541,7 +625,6 @@ def main() -> int:
             authorization_comment_id=args.authorization_comment_id,
             github_run_id=args.github_run_id,
         )
-        write_outputs(args.output_dir, result)
     except BridgeError as exc:
         blocked = write_blocked_outputs(
             args.output_dir,
@@ -551,14 +634,36 @@ def main() -> int:
             github_run_id=args.github_run_id,
             reason=str(exc),
         )
-        print("ALDI_NEW_BASELINE_WEEKLY_SHADOW_BRIDGE=BLOCKED")
-        print(f"REASON_SHA256={blocked['reason_sha256']}")
-        print("PRODUCTION_DATABASE_WRITE=false")
-        print("REVIEW_PUBLICATION_WRITE=false")
-        print("SOURCE_MUTATION=false")
-        print("PRODUCTION_DEPLOY=false")
-        print("AUTOMATIC_SCHEDULE=false")
+        _print_blocked(blocked)
         return 20
+    except Exception as exc:
+        blocked = write_unexpected_blocked_outputs(
+            args.output_dir,
+            request_sha256=args.request_sha256,
+            expected_main_sha=args.expected_main_sha,
+            authorization_comment_id=args.authorization_comment_id,
+            github_run_id=args.github_run_id,
+            reason_code="bridge_unexpected_exception",
+            exc=exc,
+        )
+        _print_blocked(blocked)
+        return 21
+
+    try:
+        write_outputs(args.output_dir, result)
+    except Exception as exc:
+        blocked = write_unexpected_blocked_outputs(
+            args.output_dir,
+            request_sha256=args.request_sha256,
+            expected_main_sha=args.expected_main_sha,
+            authorization_comment_id=args.authorization_comment_id,
+            github_run_id=args.github_run_id,
+            reason_code="bridge_output_write_failed",
+            exc=exc,
+        )
+        _print_blocked(blocked)
+        return 22
+
     print(f"ALDI_NEW_BASELINE_WEEKLY_SHADOW_BRIDGE={result['decision']}")
     print(f"RESULT_FINGERPRINT={result['result_fingerprint']}")
     print(f"PRODUCTION_CANARY_PLAN_READY={str(result['production_canary_plan_ready']).lower()}")
