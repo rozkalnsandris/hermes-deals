@@ -48,6 +48,17 @@ class AldiNewBaselineDispatcherOwnershipTest(unittest.TestCase):
                     text,
                 )
 
+    def test_acceptance_dispatcher_creates_bridge_workspace_as_execution_owner(self) -> None:
+        dispatcher = (ROOT / "tools/runner/aldi-new-baseline-weekly-shadow-dispatcher.sh").read_text(encoding="utf-8")
+        workspace = "/home/andris/hermes-deals-runner-evidence/aldi-new-baseline-weekly-shadow.XXXXXX"
+        self.assertIn(
+            f'tmp="$(runuser -u andris -- env -i PATH=/usr/bin:/bin mktemp -d {workspace})"',
+            dispatcher,
+        )
+        self.assertNotIn(f'tmp="$(mktemp -d {workspace})"', dispatcher)
+        self.assertIn('install -d -o andris -g andris -m 0700 "$tmp/input"', dispatcher)
+        self.assertIn('install -d -o andris -g andris -m 0700 "$tmp/output-parent"', dispatcher)
+
     def test_acceptance_installer_and_dispatcher_share_canonical_registration_contract(self) -> None:
         installer = (ROOT / "tools/runner/install-aldi-new-baseline-weekly-shadow-dispatcher.sh").read_text(encoding="utf-8")
         dispatcher = (ROOT / "tools/runner/aldi-new-baseline-weekly-shadow-dispatcher.sh").read_text(encoding="utf-8")
