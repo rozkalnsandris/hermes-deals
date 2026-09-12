@@ -79,7 +79,7 @@ REQUEST_FILE="$REQUEST_DIR/request.json"
 [[ "$(stat -c '%U:%G' "$REQUEST_FILE")" == 'root:root' ]] || fail_code REQUEST_JSON_OWNERSHIP_INVALID "request.json must be root-owned"
 [[ "$(sha256sum "$REQUEST_FILE" | awk '{print $1}')" == "$REQUEST_SHA256" ]] || fail_code REQUEST_SHA256_MISMATCH "request SHA256 mismatch"
 
-tmp="$(mktemp -d /home/andris/hermes-deals-runner-evidence/aldi-new-baseline-weekly-shadow.XXXXXX)"
+tmp="$(runuser -u andris -- env -i PATH=/usr/bin:/bin mktemp -d /home/andris/hermes-deals-runner-evidence/aldi-new-baseline-weekly-shadow.XXXXXX)"
 cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT
 
