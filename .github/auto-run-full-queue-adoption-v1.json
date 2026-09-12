@@ -1,8 +1,8 @@
 {
   "schema": "rozkalns.auto-run-full-queue-adoption.v1",
   "repository": "rozkalnsandris/hermes-deals",
-  "shared_contract_sha": "55c8f9a09a9ff33870fe1bb3d6800b49fa315f2a",
-  "adoption_phase": "LIVE_CANARY_READY",
+  "shared_contract_sha": "106908294d8515f74efa02d03321883db4b8ab79",
+  "adoption_phase": "SOURCE_ONLY_CANARY",
   "queue": {
     "command_active": true,
     "maximum_items": 10,
@@ -11,8 +11,18 @@
     "batch_merge_authority": true,
     "live_authority": false
   },
+  "source_canary": {
+    "status": "NOT_PROVEN",
+    "queue_id": null,
+    "controller_issue_number": null,
+    "ordered_issue_numbers": [],
+    "activation_main_sha": null,
+    "final_main_sha": null,
+    "authorization_receipt_sha256": null,
+    "completion_receipt_sha256": null
+  },
   "final_live": {
-    "mode": "SIMPLE_LIVE_OWNER_DRIVEN",
+    "mode": "DISABLED",
     "double_execution_paths_allowed": false,
     "deferred_rpi5_requires_live_auth_v1": true
   },
