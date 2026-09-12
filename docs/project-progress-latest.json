@@ -560,46 +560,22 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 257,
+  "completed_issue_count": 258,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-09-11T08:53:49.622203Z",
-  "generated_at_local": "2026-09-11T10:53:49.622203+02:00",
+  "generated_at": "2026-09-12T08:37:07.875234Z",
+  "generated_at_local": "2026-09-12T10:37:07.875234+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-09-10",
+  "previous_day": "2026-09-11",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 5,
+  "previous_day_completed_issue_count": 1,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-09-10T06:44:10Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/217",
-      "number": 217,
-      "title": "Integrate project logo into GitHub and Deals UI"
-    },
-    {
-      "closed_at": "2026-09-10T06:47:58Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/323",
-      "number": 323,
-      "title": "Add owner-only GitHub bridge for #307 Phase C dual-bind"
-    },
-    {
-      "closed_at": "2026-09-10T06:45:33Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/876",
-      "number": 876,
-      "title": "[MIGRATION] AUTO-RUN FULL Queue A7 source-only canary adoption"
-    },
-    {
-      "closed_at": "2026-09-10T06:46:42Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/879",
-      "number": 879,
-      "title": "[MIGRATION] AUTO-RUN FULL Queue A8 Simple LIVE canary source binding"
-    },
-    {
-      "closed_at": "2026-09-10T14:17:45Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/882",
-      "number": 882,
-      "title": "P1 Overnight AUTO-RUN batch: 10 bounded source/closeout packages — round 9"
+      "closed_at": "2026-09-11T18:02:09Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/886",
+      "number": 886,
+      "title": "P1 ALDI AUTO-RUN FULL batch: 10 bounded acceptance-recovery source jobs"
     }
   ],
   "previous_day_progress_units": 0,
