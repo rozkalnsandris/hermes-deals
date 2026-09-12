@@ -6,9 +6,10 @@ PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 export PATH
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+fail_code() { local code="$1"; shift; printf 'HERMES_WEEKLY_SHADOW_REASON_CODE=%s\n' "$code" >&2; fail "$@"; }
 
-[[ ${EUID:-$(id -u)} -eq 0 ]] || fail "dispatcher must run as root"
-[[ $# -eq 5 ]] || fail "usage: dispatcher <request-sha256> <expected-main-sha> <authorization-comment-id> <github-run-id> <artifact-dir>"
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail_code DISPATCHER_NOT_ROOT "dispatcher must run as root"
+[[ $# -eq 5 ]] || fail_code INVALID_ARGUMENT_COUNT "usage: dispatcher <request-sha256> <expected-main-sha> <authorization-comment-id> <github-run-id> <artifact-dir>"
 
 REQUEST_SHA256="$1"
 EXPECTED_MAIN_SHA="$2"
@@ -16,25 +17,26 @@ AUTHORIZATION_COMMENT_ID="$3"
 GITHUB_RUN_ID="$4"
 EXPORT_DIR="$5"
 
-[[ "$REQUEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "invalid request SHA256"
-[[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid expected main SHA"
-[[ "$AUTHORIZATION_COMMENT_ID" =~ ^[1-9][0-9]*$ ]] || fail "invalid authorization comment id"
-[[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "invalid GitHub run id"
+[[ "$REQUEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail_code INVALID_REQUEST_SHA256 "invalid request SHA256"
+[[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || fail_code INVALID_EXPECTED_MAIN_SHA "invalid expected main SHA"
+[[ "$AUTHORIZATION_COMMENT_ID" =~ ^[1-9][0-9]*$ ]] || fail_code INVALID_AUTHORIZATION_COMMENT_ID "invalid authorization comment id"
+[[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail_code INVALID_GITHUB_RUN_ID "invalid GitHub run id"
 
 CONF='/etc/hermes-deals-audits.d/aldi-new-baseline-weekly-shadow.conf'
 PRIMARY_REPO='/home/andris/hermes-deals'
-[[ -f "$CONF" && ! -L "$CONF" ]] || fail "registered dispatcher config missing or unsafe"
+[[ -f "$CONF" && ! -L "$CONF" ]] || fail_code REGISTRATION_CONFIG_INVALID "registered dispatcher config missing or unsafe"
 # shellcheck disable=SC1090
 source "$CONF"
 
 for var in registered_main_sha request_root bridge_path bridge_sha256 gate_a_sha256 gate_b_sha256 gate_c_sha256 two_cycle_sha256; do
-  [[ -n "${!var:-}" ]] || fail "registered config missing $var"
+  [[ -n "${!var:-}" ]] || fail_code REGISTRATION_CONFIG_FIELD_MISSING "registered config missing $var"
 done
 
-[[ "$registered_main_sha" == "$EXPECTED_MAIN_SHA" ]] || fail "registered main SHA drift"
-[[ "$request_root" == '/var/lib/hermes-deals/aldi-new-baseline-weekly-shadow-v01/requests' ]] || fail "request root drift"
-[[ "$bridge_path" == '/usr/local/libexec/hermes-deals-audits/aldi-new-baseline-weekly-shadow-v01/aldi_new_baseline_weekly_shadow_bridge.py' ]] || fail "bridge path drift"
-[[ "$(sha256sum "$bridge_path" | awk '{print $1}')" == "$bridge_sha256" ]] || fail "installed bridge hash drift"
+[[ "$registered_main_sha" == "$EXPECTED_MAIN_SHA" ]] || fail_code REGISTERED_MAIN_SHA_DRIFT "registered main SHA drift"
+[[ "$request_root" == '/var/lib/hermes-deals/aldi-new-baseline-weekly-shadow-v01/requests' ]] || fail_code REQUEST_ROOT_DRIFT "request root drift"
+[[ "$bridge_path" == '/usr/local/libexec/hermes-deals-audits/aldi-new-baseline-weekly-shadow-v01/aldi_new_baseline_weekly_shadow_bridge.py' ]] || fail_code BRIDGE_PATH_DRIFT "bridge path drift"
+[[ -f "$bridge_path" && ! -L "$bridge_path" ]] || fail_code BRIDGE_FILE_MISSING_OR_UNSAFE "installed bridge missing or unsafe"
+[[ "$(sha256sum "$bridge_path" | awk '{print $1}')" == "$bridge_sha256" ]] || fail_code BRIDGE_HASH_DRIFT "installed bridge hash drift"
 
 LIBEXEC="$(dirname "$bridge_path")"
 declare -A expected_hashes=(
@@ -45,11 +47,11 @@ declare -A expected_hashes=(
 )
 for name in "${!expected_hashes[@]}"; do
   path="$LIBEXEC/$name"
-  [[ -f "$path" && ! -L "$path" ]] || fail "installed gate missing or unsafe: $name"
-  [[ "$(sha256sum "$path" | awk '{print $1}')" == "${expected_hashes[$name]}" ]] || fail "installed gate hash drift: $name"
+  [[ -f "$path" && ! -L "$path" ]] || fail_code GATE_FILE_MISSING_OR_UNSAFE "installed gate missing or unsafe: $name"
+  [[ "$(sha256sum "$path" | awk '{print $1}')" == "${expected_hashes[$name]}" ]] || fail_code GATE_HASH_DRIFT "installed gate hash drift: $name"
 done
 
-[[ -d "$PRIMARY_REPO/.git" && ! -L "$PRIMARY_REPO/.git" ]] || fail "primary repository missing or unsafe"
+[[ -d "$PRIMARY_REPO/.git" && ! -L "$PRIMARY_REPO/.git" ]] || fail_code PRIMARY_REPOSITORY_MISSING_OR_UNSAFE "primary repository missing or unsafe"
 git_read() {
   runuser -u andris -- env -i \
     HOME=/home/andris USER=andris LOGNAME=andris \
@@ -57,25 +59,25 @@ git_read() {
     GIT_OPTIONAL_LOCKS=0 \
     git -C "$PRIMARY_REPO" "$@"
 }
-[[ "$(git_read branch --show-current)" == main ]] || fail "primary repository is not on main"
-[[ -z "$(git_read status --porcelain)" ]] || fail "primary repository is dirty"
-[[ "$(git_read rev-parse HEAD)" == "$EXPECTED_MAIN_SHA" ]] || fail "primary main drift"
+[[ "$(git_read branch --show-current)" == main ]] || fail_code PRIMARY_REPOSITORY_NOT_MAIN "primary repository is not on main"
+[[ -z "$(git_read status --porcelain)" ]] || fail_code PRIMARY_REPOSITORY_DIRTY "primary repository is dirty"
+[[ "$(git_read rev-parse HEAD)" == "$EXPECTED_MAIN_SHA" ]] || fail_code PRIMARY_MAIN_SHA_DRIFT "primary main drift"
 origin="$(git_read remote get-url origin)"
 case "$origin" in
   https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;;
-  *) fail "primary origin is not allowlisted" ;;
+  *) fail_code PRIMARY_ORIGIN_NOT_ALLOWLISTED "primary origin is not allowlisted" ;;
 esac
 
 REQUEST_DIR="$request_root/$REQUEST_SHA256"
-[[ -d "$REQUEST_DIR" && ! -L "$REQUEST_DIR" ]] || fail "request directory missing or unsafe"
-[[ "$(stat -c '%U:%G' "$REQUEST_DIR")" == 'root:root' ]] || fail "request directory must be root-owned"
+[[ -d "$REQUEST_DIR" && ! -L "$REQUEST_DIR" ]] || fail_code REQUEST_DIRECTORY_MISSING_OR_UNSAFE "request directory missing or unsafe"
+[[ "$(stat -c '%U:%G' "$REQUEST_DIR")" == 'root:root' ]] || fail_code REQUEST_DIRECTORY_OWNERSHIP_INVALID "request directory must be root-owned"
 mode="$(stat -c '%a' "$REQUEST_DIR")"
-(( (8#$mode & 0022) == 0 )) || fail "request directory must not be group/world writable"
+(( (8#$mode & 0022) == 0 )) || fail_code REQUEST_DIRECTORY_MODE_INVALID "request directory must not be group/world writable"
 
 REQUEST_FILE="$REQUEST_DIR/request.json"
-[[ -f "$REQUEST_FILE" && ! -L "$REQUEST_FILE" ]] || fail "request.json missing or unsafe"
-[[ "$(stat -c '%U:%G' "$REQUEST_FILE")" == 'root:root' ]] || fail "request.json must be root-owned"
-[[ "$(sha256sum "$REQUEST_FILE" | awk '{print $1}')" == "$REQUEST_SHA256" ]] || fail "request SHA256 mismatch"
+[[ -f "$REQUEST_FILE" && ! -L "$REQUEST_FILE" ]] || fail_code REQUEST_JSON_MISSING_OR_UNSAFE "request.json missing or unsafe"
+[[ "$(stat -c '%U:%G' "$REQUEST_FILE")" == 'root:root' ]] || fail_code REQUEST_JSON_OWNERSHIP_INVALID "request.json must be root-owned"
+[[ "$(sha256sum "$REQUEST_FILE" | awk '{print $1}')" == "$REQUEST_SHA256" ]] || fail_code REQUEST_SHA256_MISMATCH "request SHA256 mismatch"
 
 tmp="$(mktemp -d /home/andris/hermes-deals-runner-evidence/aldi-new-baseline-weekly-shadow.XXXXXX)"
 cleanup() { rm -rf -- "$tmp"; }
@@ -85,10 +87,10 @@ install -d -o andris -g andris -m 0700 "$tmp/input"
 for name in request.json gate-a-input.json gate-b-input.json gate-c-input.json execution-evidence.json prior-cycle.json observability-proofs.json; do
   src="$REQUEST_DIR/$name"
   [[ -e "$src" ]] || continue
-  [[ -f "$src" && ! -L "$src" ]] || fail "unsafe request member: $name"
-  [[ "$(stat -c '%U:%G' "$src")" == 'root:root' ]] || fail "request member must be root-owned: $name"
+  [[ -f "$src" && ! -L "$src" ]] || fail_code REQUEST_MEMBER_UNSAFE "unsafe request member: $name"
+  [[ "$(stat -c '%U:%G' "$src")" == 'root:root' ]] || fail_code REQUEST_MEMBER_OWNERSHIP_INVALID "request member must be root-owned: $name"
   file_mode="$(stat -c '%a' "$src")"
-  (( (8#$file_mode & 0022) == 0 )) || fail "request member must not be group/world writable: $name"
+  (( (8#$file_mode & 0022) == 0 )) || fail_code REQUEST_MEMBER_MODE_INVALID "request member must not be group/world writable: $name"
   install -o andris -g andris -m 0400 "$src" "$tmp/input/$name"
 done
 
@@ -110,11 +112,12 @@ runuser -u andris -- env -i \
 bridge_rc=$?
 set -e
 
-[[ -d "$OUTPUT_DIR" && ! -L "$OUTPUT_DIR" ]] || fail "bridge output missing"
+[[ -d "$OUTPUT_DIR" && ! -L "$OUTPUT_DIR" ]] || fail_code BRIDGE_OUTPUT_MISSING "bridge output missing"
 RESULT="$OUTPUT_DIR/sanitized-result.json"
 MANIFEST="$OUTPUT_DIR/MANIFEST.sha256"
-[[ -f "$RESULT" && -f "$MANIFEST" && ! -L "$RESULT" && ! -L "$MANIFEST" ]] || fail "sanitized result missing"
+[[ -f "$RESULT" && -f "$MANIFEST" && ! -L "$RESULT" && ! -L "$MANIFEST" ]] || fail_code SANITIZED_RESULT_MISSING "sanitized result missing"
 
+set +e
 python3 - "$OUTPUT_DIR" <<'PY'
 from __future__ import annotations
 import hashlib
@@ -187,16 +190,19 @@ for key in (
     if result.get(key) is not False:
         raise SystemExit(f"unsafe bridge output flag: {key}")
 PY
+validation_rc=$?
+set -e
+[[ "$validation_rc" -eq 0 ]] || fail_code SANITIZED_OUTPUT_VALIDATION_FAILED "sanitized output validation failed"
 
 EXPORT_DIR="$(readlink -f -- "$EXPORT_DIR")"
-[[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail "artifact directory missing or unsafe"
-[[ "$EXPORT_DIR" == "/home/github-runner/_work/_temp/aldi-new-baseline-weekly-shadow-$GITHUB_RUN_ID" ]] || fail "artifact directory outside runner temp allowlist"
-[[ "$(stat -c '%U:%G' "$EXPORT_DIR")" == 'github-runner:github-runner' ]] || fail "artifact directory ownership invalid"
-[[ "$(stat -c '%a' "$EXPORT_DIR")" == '700' ]] || fail "artifact directory permissions must be 0700"
-[[ -z "$(find "$EXPORT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]] || fail "artifact directory must start empty"
+[[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail_code ARTIFACT_DIRECTORY_MISSING_OR_UNSAFE "artifact directory missing or unsafe"
+[[ "$EXPORT_DIR" == "/home/github-runner/_work/_temp/aldi-new-baseline-weekly-shadow-$GITHUB_RUN_ID" ]] || fail_code ARTIFACT_DIRECTORY_OUTSIDE_ALLOWLIST "artifact directory outside runner temp allowlist"
+[[ "$(stat -c '%U:%G' "$EXPORT_DIR")" == 'github-runner:github-runner' ]] || fail_code ARTIFACT_DIRECTORY_OWNERSHIP_INVALID "artifact directory ownership invalid"
+[[ "$(stat -c '%a' "$EXPORT_DIR")" == '700' ]] || fail_code ARTIFACT_DIRECTORY_MODE_INVALID "artifact directory permissions must be 0700"
+[[ -z "$(find "$EXPORT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]] || fail_code ARTIFACT_DIRECTORY_NOT_EMPTY "artifact directory must start empty"
 while IFS= read -r -d '' src; do
   name="$(basename "$src")"
-  install -o github-runner -g github-runner -m 0400 "$src" "$EXPORT_DIR/$name"
+  install -o github-runner -g github-runner -m 0400 "$src" "$EXPORT_DIR/$name" || fail_code ARTIFACT_EXPORT_FAILED "sanitized artifact export failed"
 done < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -print0)
 
 printf 'DISPATCH_RESULT=%s\nREQUEST_SHA256=%s\nREGISTERED_MAIN_SHA=%s\nBRIDGE_EXIT_CODE=%s\nPRODUCTION_DATABASE_WRITE=false\nREVIEW_PUBLICATION_WRITE=false\nSOURCE_MUTATION=false\nPRODUCTION_DEPLOYMENT=false\nSCHEDULER_ACTIVATION=false\n' \
