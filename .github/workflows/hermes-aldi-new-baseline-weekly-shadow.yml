@@ -103,11 +103,23 @@ jobs:
           rc=$?
           set -e
           reason_code=none
+          marker=""
+          bridge_exit_class=none
+          bridge_diagnostic_sha256=none
           if [[ "$rc" != 0 ]]; then
             marker="$(grep -E '^HERMES_WEEKLY_SHADOW_REASON_CODE=[A-Z0-9_]+$' "$dispatcher_log" | tail -n 1 || true)"
             reason_code="${marker#HERMES_WEEKLY_SHADOW_REASON_CODE=}"
+            bridge_exit_marker="$(grep -E '^HERMES_WEEKLY_SHADOW_BRIDGE_EXIT_CLASS=[a-z_]+$' "$dispatcher_log" | tail -n 1 || true)"
+            bridge_exit_class="${bridge_exit_marker#HERMES_WEEKLY_SHADOW_BRIDGE_EXIT_CLASS=}"
+            bridge_diagnostic_marker="$(grep -E '^HERMES_WEEKLY_SHADOW_BRIDGE_DIAGNOSTIC_SHA256=[0-9a-f]{64}$' "$dispatcher_log" | tail -n 1 || true)"
+            bridge_diagnostic_sha256="${bridge_diagnostic_marker#HERMES_WEEKLY_SHADOW_BRIDGE_DIAGNOSTIC_SHA256=}"
+            case "$bridge_exit_class" in
+              expected_bridge_failure|startup_or_argument|failure_receipt_write|zero_without_output|signal|process_error) ;;
+              *) bridge_exit_class=none ;;
+            esac
+            [[ "$bridge_diagnostic_sha256" =~ ^[0-9a-f]{64}$ ]] || bridge_diagnostic_sha256=none
             case "$reason_code" in
-              DISPATCHER_NOT_ROOT|INVALID_ARGUMENT_COUNT|INVALID_REQUEST_SHA256|INVALID_EXPECTED_MAIN_SHA|INVALID_AUTHORIZATION_COMMENT_ID|INVALID_GITHUB_RUN_ID|REGISTRATION_CONFIG_INVALID|REGISTRATION_CONFIG_FIELD_MISSING|REGISTERED_MAIN_SHA_DRIFT|REQUEST_ROOT_DRIFT|BRIDGE_PATH_DRIFT|BRIDGE_FILE_MISSING_OR_UNSAFE|BRIDGE_HASH_DRIFT|GATE_FILE_MISSING_OR_UNSAFE|GATE_HASH_DRIFT|PRIMARY_REPOSITORY_MISSING_OR_UNSAFE|PRIMARY_REPOSITORY_NOT_MAIN|PRIMARY_REPOSITORY_DIRTY|PRIMARY_MAIN_SHA_DRIFT|PRIMARY_ORIGIN_NOT_ALLOWLISTED|REQUEST_DIRECTORY_MISSING_OR_UNSAFE|REQUEST_DIRECTORY_OWNERSHIP_INVALID|REQUEST_DIRECTORY_MODE_INVALID|REQUEST_JSON_MISSING_OR_UNSAFE|REQUEST_JSON_OWNERSHIP_INVALID|REQUEST_SHA256_MISMATCH|REQUEST_MEMBER_UNSAFE|REQUEST_MEMBER_OWNERSHIP_INVALID|REQUEST_MEMBER_MODE_INVALID|BRIDGE_OUTPUT_MISSING|SANITIZED_RESULT_MISSING|SANITIZED_OUTPUT_VALIDATION_FAILED|ARTIFACT_DIRECTORY_MISSING_OR_UNSAFE|ARTIFACT_DIRECTORY_OUTSIDE_ALLOWLIST|ARTIFACT_DIRECTORY_OWNERSHIP_INVALID|ARTIFACT_DIRECTORY_MODE_INVALID|ARTIFACT_DIRECTORY_NOT_EMPTY|ARTIFACT_EXPORT_FAILED) ;;
+              DISPATCHER_NOT_ROOT|INVALID_ARGUMENT_COUNT|INVALID_REQUEST_SHA256|INVALID_EXPECTED_MAIN_SHA|INVALID_AUTHORIZATION_COMMENT_ID|INVALID_GITHUB_RUN_ID|REGISTRATION_CONFIG_INVALID|REGISTRATION_CONFIG_FIELD_MISSING|REGISTERED_MAIN_SHA_DRIFT|REQUEST_ROOT_DRIFT|BRIDGE_PATH_DRIFT|BRIDGE_FILE_MISSING_OR_UNSAFE|BRIDGE_HASH_DRIFT|GATE_FILE_MISSING_OR_UNSAFE|GATE_HASH_DRIFT|PRIMARY_REPOSITORY_MISSING_OR_UNSAFE|PRIMARY_REPOSITORY_NOT_MAIN|PRIMARY_REPOSITORY_DIRTY|PRIMARY_MAIN_SHA_DRIFT|PRIMARY_ORIGIN_NOT_ALLOWLISTED|REQUEST_DIRECTORY_MISSING_OR_UNSAFE|REQUEST_DIRECTORY_OWNERSHIP_INVALID|REQUEST_DIRECTORY_MODE_INVALID|REQUEST_JSON_MISSING_OR_UNSAFE|REQUEST_JSON_OWNERSHIP_INVALID|REQUEST_SHA256_MISMATCH|REQUEST_MEMBER_UNSAFE|REQUEST_MEMBER_OWNERSHIP_INVALID|REQUEST_MEMBER_MODE_INVALID|BRIDGE_OUTPUT_MISSING|BRIDGE_STARTUP_OR_ARGUMENT_FAILURE|BRIDGE_FAILURE_RECEIPT_WRITE_FAILED|BRIDGE_EXPECTED_RECEIPT_MISSING|BRIDGE_PROCESS_SIGNALLED|BRIDGE_PROCESS_NO_OUTPUT|SANITIZED_RESULT_MISSING|SANITIZED_OUTPUT_VALIDATION_FAILED|ARTIFACT_DIRECTORY_MISSING_OR_UNSAFE|ARTIFACT_DIRECTORY_OUTSIDE_ALLOWLIST|ARTIFACT_DIRECTORY_OWNERSHIP_INVALID|ARTIFACT_DIRECTORY_MODE_INVALID|ARTIFACT_DIRECTORY_NOT_EMPTY|ARTIFACT_EXPORT_FAILED) ;;
               *) reason_code=UNEXPECTED_PRE_EVIDENCE_FAILURE ;;
             esac
           fi
@@ -116,14 +128,14 @@ jobs:
           if [[ "$rc" != 0 && ( -n "$marker" || ! ( -f "$artifact_dir/sanitized-result.json" && -f "$artifact_dir/MANIFEST.sha256" ) ) ]]; then
             failure_dir="$(mktemp -d "$RUNNER_TEMP/$artifact_name.failure.XXXXXX")"
             chmod 0700 "$failure_dir"
-            python3 - "$failure_dir" "$REQUEST_SHA256" "$EXPECTED_MAIN_SHA" "$AUTHORIZATION_COMMENT_ID" "$GH_RUN_ID" "$rc" "$reason_code" <<'PY'
+            python3 - "$failure_dir" "$REQUEST_SHA256" "$EXPECTED_MAIN_SHA" "$AUTHORIZATION_COMMENT_ID" "$GH_RUN_ID" "$rc" "$reason_code" "$bridge_exit_class" "$bridge_diagnostic_sha256" <<'PY'
           import hashlib
           import json
           from pathlib import Path
           import sys
 
           root = Path(sys.argv[1])
-          request_sha, main_sha, comment_id, run_id, dispatcher_rc, reason_code = sys.argv[2:]
+          request_sha, main_sha, comment_id, run_id, dispatcher_rc, reason_code, bridge_exit_class, bridge_diagnostic_sha256 = sys.argv[2:]
           identity = {
               "request_sha256": request_sha,
               "authorized_main_sha": main_sha,
@@ -132,6 +144,10 @@ jobs:
               "dispatcher_rc": int(dispatcher_rc),
               "bounded_reason_code": reason_code,
           }
+          if bridge_exit_class != "none":
+              identity["bridge_exit_code_class"] = bridge_exit_class
+          if bridge_diagnostic_sha256 != "none":
+              identity["bridge_diagnostic_sha256"] = bridge_diagnostic_sha256
           reason_sha = hashlib.sha256(
               (json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n").encode()
           ).hexdigest()

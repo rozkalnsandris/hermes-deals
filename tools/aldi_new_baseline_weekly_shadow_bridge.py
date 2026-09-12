@@ -15,10 +15,18 @@ TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-import aldi_new_immutable_baseline_gate as gate_a_module
-import aldi_new_baseline_page_card_parity as gate_b_module
-import aldi_new_baseline_gate_c_replay as gate_c_module
-import aldi_new_baseline_two_cycle_shadow_gate as two_cycle_module
+gate_a_module: Any | None = None
+gate_b_module: Any | None = None
+gate_c_module: Any | None = None
+two_cycle_module: Any | None = None
+_IMPORT_FAILURE: Exception | None = None
+try:
+    import aldi_new_immutable_baseline_gate as gate_a_module
+    import aldi_new_baseline_page_card_parity as gate_b_module
+    import aldi_new_baseline_gate_c_replay as gate_c_module
+    import aldi_new_baseline_two_cycle_shadow_gate as two_cycle_module
+except Exception as exc:
+    _IMPORT_FAILURE = exc
 
 MODE = "ALDI_NEW_BASELINE_WEEKLY_SHADOW_BRIDGE_V01"
 REQUEST_MODE = "ALDI_NEW_BASELINE_WEEKLY_SHADOW_REQUEST_V01"
@@ -26,7 +34,7 @@ ISSUE_NUMBER = 682
 OWNER_LOGIN = "rozkalnsandris"
 OWNER_ID = 277435981
 FIRST_WEEK_DECISION = "WEEKLY_SHADOW_EVIDENCE_ACCEPTED"
-TWO_WEEK_READY_DECISION = two_cycle_module.READY_DECISION
+TWO_WEEK_READY_DECISION = "READY_FOR_PRODUCTION_CANARY_PLAN"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{3,159}$")
@@ -45,6 +53,15 @@ OPTIONAL_FILES = {
 
 class BridgeError(ValueError):
     pass
+
+
+class BridgeArgumentError(ValueError):
+    pass
+
+
+class BridgeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise BridgeArgumentError(message)
 
 
 def require(condition: bool, message: str) -> None:
@@ -473,6 +490,7 @@ def run_bridge(*, request_dir: Path, request_sha256: str, expected_main_sha: str
 
 def unexpected_exception_category(exc: Exception) -> str:
     categories = (
+        (ImportError, "import_error"),
         (OSError, "os_error"),
         (RuntimeError, "runtime_error"),
         (KeyError, "key_error"),
@@ -581,7 +599,7 @@ def write_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_mai
 
 
 def write_unexpected_blocked_outputs(output_dir: Path, *, request_sha256: str, expected_main_sha: str, authorization_comment_id: int, github_run_id: int, reason_code: str, exc: Exception) -> dict[str, Any]:
-    require(reason_code in {"bridge_unexpected_exception", "bridge_output_write_failed"}, "unexpected bridge reason code")
+    require(reason_code in {"bridge_startup_import_failed", "bridge_unexpected_exception", "bridge_output_write_failed"}, "unexpected bridge reason code")
     result = _blocked_result_base(
         request_sha256=request_sha256,
         expected_main_sha=expected_main_sha,
@@ -608,15 +626,69 @@ def _print_blocked(blocked: Mapping[str, Any]) -> None:
     print("AUTOMATIC_SCHEDULE=false")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate one owner-authorized ALDI real-week shadow evidence family.")
+def _print_process_blocked(reason_code: str, exc: Exception) -> None:
+    allowed = {"bridge_argument_invalid", "bridge_failure_receipt_write_failed"}
+    bounded = reason_code if reason_code in allowed else "bridge_process_failure"
+    print("ALDI_NEW_BASELINE_WEEKLY_SHADOW_BRIDGE=BLOCKED")
+    print(f"BOUNDED_REASON_CODE={bounded}")
+    print(f"REASON_SHA256={unexpected_exception_sha256(exc)}")
+    print("PRODUCTION_DATABASE_WRITE=false")
+    print("REVIEW_PUBLICATION_WRITE=false")
+    print("SOURCE_MUTATION=false")
+    print("PRODUCTION_DEPLOY=false")
+    print("AUTOMATIC_SCHEDULE=false")
+
+
+def _build_argument_parser() -> BridgeArgumentParser:
+    parser = BridgeArgumentParser(
+        description="Validate one owner-authorized ALDI real-week shadow evidence family.",
+        exit_on_error=False,
+    )
     parser.add_argument("--request-dir", type=Path, required=True)
     parser.add_argument("--request-sha256", required=True)
     parser.add_argument("--expected-main-sha", required=True)
     parser.add_argument("--authorization-comment-id", type=int, required=True)
     parser.add_argument("--github-run-id", type=int, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def _unexpected_blocked_or_process_failure(
+    args: argparse.Namespace, *, reason_code: str, exc: Exception, return_code: int
+) -> int:
+    try:
+        blocked = write_unexpected_blocked_outputs(
+            args.output_dir,
+            request_sha256=args.request_sha256,
+            expected_main_sha=args.expected_main_sha,
+            authorization_comment_id=args.authorization_comment_id,
+            github_run_id=args.github_run_id,
+            reason_code=reason_code,
+            exc=exc,
+        )
+    except Exception as receipt_exc:
+        _print_process_blocked("bridge_failure_receipt_write_failed", receipt_exc)
+        return 24
+    _print_blocked(blocked)
+    return return_code
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_argument_parser()
+    try:
+        args = parser.parse_args(argv)
+    except (argparse.ArgumentError, BridgeArgumentError) as exc:
+        _print_process_blocked("bridge_argument_invalid", exc)
+        return 23
+
+    if _IMPORT_FAILURE is not None:
+        return _unexpected_blocked_or_process_failure(
+            args,
+            reason_code="bridge_startup_import_failed",
+            exc=_IMPORT_FAILURE,
+            return_code=23,
+        )
+
     try:
         result = run_bridge(
             request_dir=args.request_dir,
@@ -626,43 +698,37 @@ def main() -> int:
             github_run_id=args.github_run_id,
         )
     except BridgeError as exc:
-        blocked = write_blocked_outputs(
-            args.output_dir,
-            request_sha256=args.request_sha256,
-            expected_main_sha=args.expected_main_sha,
-            authorization_comment_id=args.authorization_comment_id,
-            github_run_id=args.github_run_id,
-            reason=str(exc),
-        )
+        try:
+            blocked = write_blocked_outputs(
+                args.output_dir,
+                request_sha256=args.request_sha256,
+                expected_main_sha=args.expected_main_sha,
+                authorization_comment_id=args.authorization_comment_id,
+                github_run_id=args.github_run_id,
+                reason=str(exc),
+            )
+        except Exception as receipt_exc:
+            _print_process_blocked("bridge_failure_receipt_write_failed", receipt_exc)
+            return 24
         _print_blocked(blocked)
         return 20
     except Exception as exc:
-        blocked = write_unexpected_blocked_outputs(
-            args.output_dir,
-            request_sha256=args.request_sha256,
-            expected_main_sha=args.expected_main_sha,
-            authorization_comment_id=args.authorization_comment_id,
-            github_run_id=args.github_run_id,
+        return _unexpected_blocked_or_process_failure(
+            args,
             reason_code="bridge_unexpected_exception",
             exc=exc,
+            return_code=21,
         )
-        _print_blocked(blocked)
-        return 21
 
     try:
         write_outputs(args.output_dir, result)
     except Exception as exc:
-        blocked = write_unexpected_blocked_outputs(
-            args.output_dir,
-            request_sha256=args.request_sha256,
-            expected_main_sha=args.expected_main_sha,
-            authorization_comment_id=args.authorization_comment_id,
-            github_run_id=args.github_run_id,
+        return _unexpected_blocked_or_process_failure(
+            args,
             reason_code="bridge_output_write_failed",
             exc=exc,
+            return_code=22,
         )
-        _print_blocked(blocked)
-        return 22
 
     print(f"ALDI_NEW_BASELINE_WEEKLY_SHADOW_BRIDGE={result['decision']}")
     print(f"RESULT_FINGERPRINT={result['result_fingerprint']}")

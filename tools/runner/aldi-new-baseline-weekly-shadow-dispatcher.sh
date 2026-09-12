@@ -97,6 +97,9 @@ done
 install -d -o andris -g andris -m 0700 "$tmp/output-parent"
 OUTPUT_DIR="$tmp/output-parent/evidence"
 
+BRIDGE_LOG="$tmp/bridge-private.log"
+: > "$BRIDGE_LOG"
+chmod 0600 "$BRIDGE_LOG"
 set +e
 runuser -u andris -- env -i \
   HOME=/home/andris \
@@ -108,11 +111,32 @@ runuser -u andris -- env -i \
     --expected-main-sha "$EXPECTED_MAIN_SHA" \
     --authorization-comment-id "$AUTHORIZATION_COMMENT_ID" \
     --github-run-id "$GITHUB_RUN_ID" \
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$OUTPUT_DIR" >"$BRIDGE_LOG" 2>&1
 bridge_rc=$?
 set -e
 
-[[ -d "$OUTPUT_DIR" && ! -L "$OUTPUT_DIR" ]] || fail_code BRIDGE_OUTPUT_MISSING "bridge output missing"
+if [[ ! -d "$OUTPUT_DIR" || -L "$OUTPUT_DIR" ]]; then
+  bridge_diagnostic_sha256="$(sha256sum "$BRIDGE_LOG" | awk '{print $1}')"
+  bridge_exit_code_class=process_error
+  bridge_reason_code=BRIDGE_PROCESS_NO_OUTPUT
+  case "$bridge_rc" in
+    20|21|22) bridge_exit_code_class=expected_bridge_failure; bridge_reason_code=BRIDGE_EXPECTED_RECEIPT_MISSING ;;
+    23) bridge_exit_code_class=startup_or_argument; bridge_reason_code=BRIDGE_STARTUP_OR_ARGUMENT_FAILURE ;;
+    24) bridge_exit_code_class=failure_receipt_write; bridge_reason_code=BRIDGE_FAILURE_RECEIPT_WRITE_FAILED ;;
+    0) bridge_exit_code_class=zero_without_output; bridge_reason_code=BRIDGE_PROCESS_NO_OUTPUT ;;
+    *)
+      if (( bridge_rc >= 128 )); then
+        bridge_exit_code_class=signal
+        bridge_reason_code=BRIDGE_PROCESS_SIGNALLED
+      fi
+      ;;
+  esac
+  printf 'HERMES_WEEKLY_SHADOW_BRIDGE_EXIT_CLASS=%s\n' "$bridge_exit_code_class" >&2
+  printf 'HERMES_WEEKLY_SHADOW_BRIDGE_DIAGNOSTIC_SHA256=%s\n' "$bridge_diagnostic_sha256" >&2
+  rm -f -- "$BRIDGE_LOG"
+  fail_code "$bridge_reason_code" "bridge process exited without sanitized output"
+fi
+rm -f -- "$BRIDGE_LOG"
 RESULT="$OUTPUT_DIR/sanitized-result.json"
 MANIFEST="$OUTPUT_DIR/MANIFEST.sha256"
 [[ -f "$RESULT" && -f "$MANIFEST" && ! -L "$RESULT" && ! -L "$MANIFEST" ]] || fail_code SANITIZED_RESULT_MISSING "sanitized result missing"
