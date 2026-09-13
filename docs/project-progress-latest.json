@@ -560,22 +560,40 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 258,
+  "completed_issue_count": 262,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-09-12T08:37:07.875234Z",
-  "generated_at_local": "2026-09-12T10:37:07.875234+02:00",
+  "generated_at": "2026-09-13T10:16:14.688090Z",
+  "generated_at_local": "2026-09-13T12:16:14.688090+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-09-11",
+  "previous_day": "2026-09-12",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 1,
+  "previous_day_completed_issue_count": 4,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-09-11T18:02:09Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/886",
-      "number": 886,
-      "title": "P1 ALDI AUTO-RUN FULL batch: 10 bounded acceptance-recovery source jobs"
+      "closed_at": "2026-09-12T15:42:45Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/889",
+      "number": 889,
+      "title": "P1 ALDI: remediate current-week visual week-view control discovery fail-closed blocker"
+    },
+    {
+      "closed_at": "2026-09-12T09:52:20Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/891",
+      "number": 891,
+      "title": "P1 ALDI: make weekly-shadow pre-evidence acceptance failures diagnosable"
+    },
+    {
+      "closed_at": "2026-09-12T15:42:57Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/894",
+      "number": 894,
+      "title": "P1 ALDI: make weekly-shadow bridge unexpected failures emit sanitized evidence"
+    },
+    {
+      "closed_at": "2026-09-12T15:19:16Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/898",
+      "number": 898,
+      "title": "[FAST] Reconcile Queue adoption with source-canary proof contract"
     }
   ],
   "previous_day_progress_units": 0,
