@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 
-PLANNER_VERSION = "lidl-weekly-gate-d-activation-plan-v1"
+PLANNER_VERSION = "lidl-weekly-gate-d-activation-plan-v2"
 SERVICE_UNIT = "hermes-lidl-weekly.service"
 TIMER_UNIT = "hermes-lidl-weekly.timer"
 ALERT_UNIT = "hermes-lidl-weekly-failure@.service"
@@ -77,7 +77,7 @@ def build_activation_plan(
     retry_window: str,
     max_attempts: int,
     timeout_start: str,
-    target: str = "current",
+    target: str = "next",
     discovery_dir: Path | None = None,
 ) -> dict[str, Any]:
     root = _prepare_output_dir(output_dir)
@@ -259,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-window", required=True)
     parser.add_argument("--max-attempts", type=int, required=True)
     parser.add_argument("--timeout-start", required=True)
-    parser.add_argument("--target", choices=("current", "next"), default="current")
+    parser.add_argument("--target", choices=("current", "next"), default="next")
     parser.add_argument("--discovery-dir", type=Path)
     return parser
 
