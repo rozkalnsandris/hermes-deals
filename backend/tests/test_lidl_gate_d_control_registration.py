@@ -43,13 +43,13 @@ def fixture_config(dispatcher, *, registration_sha: str = "b" * 40):
         "python_path": dispatcher.EXPECTED_PYTHON_PATH,
         "corpus_root": dispatcher.EXPECTED_CORPUS_ROOT,
         "evidence_root": dispatcher.EXPECTED_EVIDENCE_ROOT,
-        "target": "current",
+        "target": "next",
         "schedule": {
-            "on_calendar": "Mon *-*-* 06:15:00 Europe/Berlin",
-            "retry_delay": "30min",
-            "retry_window": "6h",
+            "on_calendar": "Sun *-*-* 00:10:00 Europe/Berlin",
+            "retry_delay": "15min",
+            "retry_window": "3h",
             "max_attempts": 3,
-            "timeout_start": "45min",
+            "timeout_start": "20min",
         },
         "units": {
             name: {
@@ -70,7 +70,7 @@ def fixture_config(dispatcher, *, registration_sha: str = "b" * 40):
     return config
 
 
-def test_dispatcher_accepts_only_exact_registered_semantic_plan():
+def test_dispatcher_accepts_only_exact_registered_v2_next_plan():
     dispatcher = load(DISPATCHER, "lidl_gate_d_control")
     config = fixture_config(dispatcher)
     dispatcher.validate_config_data(config, config["plan_fingerprint"])
@@ -91,8 +91,14 @@ def test_dispatcher_accepts_only_exact_registered_semantic_plan():
     with pytest.raises(dispatcher.ControlError, match="reviewed Gate D path"):
         dispatcher.validate_config_data(wrong, wrong["plan_fingerprint"])
 
+    stale = dict(config)
+    stale["target"] = "current"
+    stale["plan_fingerprint"] = dispatcher.plan_fingerprint(stale)
+    with pytest.raises(dispatcher.ControlError, match="target must be next"):
+        dispatcher.validate_config_data(stale, stale["plan_fingerprint"])
 
-def test_installer_and_dispatcher_share_exact_fingerprint_contract():
+
+def test_installer_and_dispatcher_share_exact_v2_fingerprint_contract():
     dispatcher = load(DISPATCHER, "lidl_gate_d_control_fingerprint")
     installer = load(INSTALLER, "install_lidl_gate_d_control")
     registration_sha = "c" * 40
@@ -103,45 +109,49 @@ def test_installer_and_dispatcher_share_exact_fingerprint_contract():
     }
     payload = installer.fingerprint_payload(
         registration_sha=registration_sha,
-        on_calendar="Mon *-*-* 06:15:00 Europe/Berlin",
-        retry_delay="30min",
-        retry_window="6h",
+        on_calendar="Sun *-*-* 00:10:00 Europe/Berlin",
+        retry_delay="15min",
+        retry_window="3h",
         max_attempts=3,
-        timeout_start="45min",
+        timeout_start="20min",
         unit_hashes=unit_hashes,
     )
+    assert payload["target"] == "next"
     expected = hashlib.sha256(installer.canonical_bytes(payload)).hexdigest()
     config = installer.build_config(
         registration_sha=registration_sha,
         fingerprint=expected,
-        on_calendar="Mon *-*-* 06:15:00 Europe/Berlin",
-        retry_delay="30min",
-        retry_window="6h",
+        on_calendar="Sun *-*-* 00:10:00 Europe/Berlin",
+        retry_delay="15min",
+        retry_window="3h",
         max_attempts=3,
-        timeout_start="45min",
+        timeout_start="20min",
         unit_hashes=unit_hashes,
         staged_root=installer.CONTROL_ROOT / registration_sha,
     )
+    assert config["target"] == "next"
     assert dispatcher.plan_fingerprint(config) == expected
     dispatcher.validate_config_data(config, expected)
 
 
-def test_installer_binds_exact_merged_gate_d_runtime_and_dispatcher_blob():
+def test_installer_binds_exact_merged_gate_d_v2_runtime_and_dispatcher_blob():
     installer = load(INSTALLER, "install_lidl_gate_d_control_blobs")
     assert installer.EXPECTED_BRIDGE_PR == 656
-    assert installer.EXPECTED_PLANNER_BLOB == "6cbb09daa3a770e80e37ba761a2f878cdd27e0c4"
+    assert installer.EXPECTED_PLANNER_BLOB == "abef76aae57827357708b820fec399f1d0e6853f"
     assert installer.EXPECTED_RUNTIME_BLOB == "7085fd9fe9656bdbbeb33e5c1c840cd01ffb32c2"
     assert installer.EXPECTED_DISPATCHER_BLOB == git_blob_oid(DISPATCHER)
 
 
-def test_registration_is_non_activating_and_schedule_is_operator_input():
+def test_registration_is_non_activating_and_v2_target_is_fixed_next():
     source = INSTALLER.read_text(encoding="utf-8")
     assert 'parser.add_argument("--on-calendar", required=True)' in source
     assert 'parser.add_argument("--retry-delay", required=True)' in source
     assert 'parser.add_argument("--retry-window", required=True)' in source
     assert 'parser.add_argument("--max-attempts", type=int, required=True)' in source
     assert 'parser.add_argument("--timeout-start", required=True)' in source
-    assert '"--target", "current"' in source
+    assert '"lidl-weekly-gate-d-activation-plan-v2"' in source
+    assert '"--target", "next"' in source
+    assert '"target": "next"' in source
     assert '"/usr/bin/systemd-analyze", "calendar"' in source
     assert '"/usr/bin/systemd-analyze", "verify"' in source
     assert "systemctl" not in source
@@ -165,6 +175,7 @@ def test_sudo_registration_is_fingerprint_specific_and_probe_hardened():
 def test_dispatcher_has_transactional_activation_and_exact_rollback_boundary():
     source = DISPATCHER.read_text(encoding="utf-8")
     assert 'OPERATIONS = {"activate", "disable", "rollback"}' in source
+    assert 'unattended Gate D target must be next' in source
     assert 'run_command(["/usr/bin/systemd-analyze", "calendar"' in source
     assert 'run_command(["/usr/bin/systemd-analyze", "verify"' in source
     assert 'run_command(["/usr/bin/systemctl", "enable", "--now", TIMER_UNIT])' in source

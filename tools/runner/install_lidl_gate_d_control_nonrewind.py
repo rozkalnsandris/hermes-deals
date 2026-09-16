@@ -21,8 +21,8 @@ INSTALLER_REL = "tools/runner/install_lidl_gate_d_control_nonrewind.py"
 DISPATCHER_REL = "tools/runner/lidl_gate_d_control.py"
 PLANNER_REL = "tools/lidl_weekly_gate_d_activation_plan.py"
 RUNTIME_REL = "tools/lidl_weekly_gate_d_runtime.py"
-EXPECTED_DISPATCHER_BLOB = "a96c8817e1e3d6bd386dcf36eb5cc1fe68c05b0f"
-EXPECTED_PLANNER_BLOB = "6cbb09daa3a770e80e37ba761a2f878cdd27e0c4"
+EXPECTED_DISPATCHER_BLOB = "2c54dfd19e8a8fad96813548eb64246e90bc4e1b"
+EXPECTED_PLANNER_BLOB = "abef76aae57827357708b820fec399f1d0e6853f"
 EXPECTED_RUNTIME_BLOB = "7085fd9fe9656bdbbeb33e5c1c840cd01ffb32c2"
 EXPECTED_BRIDGE_PR = 656
 EXPECTED_ISSUE_NUMBER = 24
@@ -154,8 +154,8 @@ def run(argv: list[str], *, check: bool = True) -> subprocess.CompletedProcess[s
 
 def validate_generated_plan(plan: Mapping[str, Any], *, registration_sha: str, on_calendar: str, retry_delay: str, retry_window: str, max_attempts: int, timeout_start: str, output_dir: Path) -> dict[str, str]:
     require(plan.get("schema_version") == 1, "Gate D plan schema mismatch")
-    require(plan.get("planner_version") == "lidl-weekly-gate-d-activation-plan-v1", "Gate D planner version mismatch")
-    require(plan.get("repo_sha") == registration_sha and plan.get("target") == "current", "Gate D plan runtime identity mismatch")
+    require(plan.get("planner_version") == "lidl-weekly-gate-d-activation-plan-v2", "Gate D planner version mismatch")
+    require(plan.get("repo_sha") == registration_sha and plan.get("target") == "next", "Gate D plan runtime identity mismatch")
     schedule = plan.get("schedule")
     require(isinstance(schedule, Mapping), "Gate D plan schedule missing")
     expected_schedule = {
@@ -209,7 +209,7 @@ def generate_plan(registration_sha: str, *, on_calendar: str, retry_delay: str, 
         "--retry-window", retry_window,
         "--max-attempts", str(max_attempts),
         "--timeout-start", timeout_start,
-        "--target", "current",
+        "--target", "next",
     ])
     require(result.stdout.strip().startswith("{"), "Gate D planner did not emit a plan")
     plan_path = output_dir / "activation-plan.json"
@@ -237,7 +237,7 @@ def fingerprint_payload(*, registration_sha: str, on_calendar: str, retry_delay:
     return {
         "schema_version": 1,
         "registration_sha": registration_sha,
-        "target": "current",
+        "target": "next",
         "repo_root": str(REPO_ROOT),
         "python_path": str(PYTHON_PATH),
         "corpus_root": str(CORPUS_ROOT),
@@ -325,7 +325,7 @@ def build_config(*, registration_sha: str, fingerprint: str, on_calendar: str, r
         "python_path": str(PYTHON_PATH),
         "corpus_root": str(CORPUS_ROOT),
         "evidence_root": str(EVIDENCE_ROOT),
-        "target": "current",
+        "target": "next",
         "schedule": {
             "on_calendar": on_calendar,
             "retry_delay": retry_delay,
@@ -453,7 +453,7 @@ def install_registration(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Register the non-activating Lidl Gate D owner-control trust root.")
+    parser = argparse.ArgumentParser(description="Register the non-activating Lidl Gate D v2 owner-control trust root.")
     parser.add_argument("--registration-sha", required=True)
     parser.add_argument("--on-calendar", required=True)
     parser.add_argument("--retry-delay", required=True)

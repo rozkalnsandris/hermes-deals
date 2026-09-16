@@ -139,7 +139,7 @@ def validate_config_data(config: Mapping[str, Any], expected_plan: str) -> None:
     require(config.get("bridge_pr") == EXPECTED_BRIDGE_PR, "control PR mismatch")
     registration_sha = str(config.get("registration_sha") or "")
     require(SHA40_RE.fullmatch(registration_sha) is not None, "registration SHA is invalid")
-    require(config.get("target") == "current", "unattended Gate D target must be current")
+    require(config.get("target") == "next", "unattended Gate D target must be next")
     expected_paths = {
         "repo_root": EXPECTED_REPO_ROOT,
         "python_path": EXPECTED_PYTHON_PATH,

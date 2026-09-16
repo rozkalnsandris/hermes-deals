@@ -17,7 +17,7 @@ SHA40_RE = re.compile(r"[0-9a-f]{40}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 COMMAND_RE = re.compile(
     r"/hermes-lidl gate-d (?P<operation>activate|disable|rollback) "
-    r"pr=(?P<pr>[1-9][0-9]*) plan=(?P<plan>[0-9a-f]{64})"
+    r"pr=(?P<pr>[1-9][0-9]*) sha=(?P<sha>[0-9a-f]{40}) plan=(?P<plan>[0-9a-f]{64})"
 )
 
 
@@ -29,6 +29,7 @@ class BridgeAuthorizationError(ValueError):
 class LidlGateDCommand:
     operation: str
     pr_number: int
+    registration_sha: str
     plan_fingerprint: str
 
 
@@ -41,12 +42,16 @@ def parse_comment(body: str) -> LidlGateDCommand:
     pr_number = int(match.group("pr"))
     if pr_number != EXPECTED_BRIDGE_PR:
         raise BridgeAuthorizationError("bridge PR is not the reviewed Lidl Gate D control PR")
+    registration_sha = match.group("sha")
+    if SHA40_RE.fullmatch(registration_sha) is None:
+        raise BridgeAuthorizationError("registration SHA is invalid")
     plan = match.group("plan")
     if SHA256_RE.fullmatch(plan) is None:
         raise BridgeAuthorizationError("plan fingerprint is invalid")
     return LidlGateDCommand(
         operation=match.group("operation"),
         pr_number=pr_number,
+        registration_sha=registration_sha,
         plan_fingerprint=plan,
     )
 
@@ -91,9 +96,12 @@ def authorize_event(
 
     comment = event.get("comment")
     if not isinstance(comment, Mapping):
-        raise BridgeAuthorizationError("comment payload is missing")
+        raise BridgeAuthorizationError("event comment is missing")
     if comment.get("author_association") != "OWNER":
-        raise BridgeAuthorizationError("comment author association is not OWNER")
+        raise BridgeAuthorizationError("comment author is not repository owner")
+    comment_id = comment.get("id")
+    if isinstance(comment_id, bool) or not isinstance(comment_id, int) or comment_id <= 0:
+        raise BridgeAuthorizationError("comment id is invalid")
     command = parse_comment(str(comment.get("body") or ""))
 
     pr = get_json(f"https://api.github.com/repos/{repository}/pulls/{command.pr_number}", token)
@@ -107,22 +115,29 @@ def authorize_event(
         raise BridgeAuthorizationError("pull request base repository is missing")
     if base.get("ref") != "main" or base_repo.get("full_name") != repository:
         raise BridgeAuthorizationError("control PR was not merged into repository main")
-
-    sha = str(pr.get("merge_commit_sha") or "")
-    if SHA40_RE.fullmatch(sha) is None:
+    bridge_sha = str(pr.get("merge_commit_sha") or "")
+    if SHA40_RE.fullmatch(bridge_sha) is None:
         raise BridgeAuthorizationError("control PR merge SHA is invalid")
-    comparison = get_json(f"https://api.github.com/repos/{repository}/compare/{sha}...main", token)
+    comparison = get_json(f"https://api.github.com/repos/{repository}/compare/{bridge_sha}...main", token)
     if not isinstance(comparison, Mapping) or comparison.get("status") not in {"ahead", "identical"}:
         raise BridgeAuthorizationError("reviewed Lidl Gate D merge is not reachable from current main")
 
-    comment_id = comment.get("id")
-    if isinstance(comment_id, bool) or not isinstance(comment_id, int) or comment_id <= 0:
-        raise BridgeAuthorizationError("comment ID is invalid")
+    branch = get_json(f"https://api.github.com/repos/{repository}/branches/main", token)
+    if not isinstance(branch, Mapping):
+        raise BridgeAuthorizationError("current main metadata is missing")
+    commit = branch.get("commit")
+    if not isinstance(commit, Mapping):
+        raise BridgeAuthorizationError("current main commit metadata is missing")
+    current_main = str(commit.get("sha") or "")
+    if SHA40_RE.fullmatch(current_main) is None:
+        raise BridgeAuthorizationError("current main SHA is invalid")
+    if command.registration_sha != current_main:
+        raise BridgeAuthorizationError("authorized registration SHA is not exact current main")
 
     return {
         "operation": command.operation,
         "pr_number": str(command.pr_number),
-        "sha": sha,
+        "sha": command.registration_sha,
         "plan_fingerprint": command.plan_fingerprint,
         "issue_number": str(EXPECTED_ISSUE_NUMBER),
         "comment_id": str(comment_id),

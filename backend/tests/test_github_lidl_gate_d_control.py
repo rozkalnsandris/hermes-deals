@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -11,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tools" / "github_lidl_gate_d_control.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "hermes-lidl-gate-d-control.yml"
 PLAN = "a" * 64
-MERGE_SHA = "b" * 40
+BRIDGE_SHA = "b" * 40
+CURRENT_MAIN = "c" * 40
 
 
 def load_module():
@@ -36,18 +36,20 @@ def fake_get(url: str, _token: str):
         return {
             "merged": True,
             "merged_at": "2026-08-14T18:00:00Z",
-            "merge_commit_sha": MERGE_SHA,
+            "merge_commit_sha": BRIDGE_SHA,
             "base": {"ref": "main", "repo": {"full_name": "rozkalnsandris/hermes-deals"}},
         }
-    if url.endswith(f"/compare/{MERGE_SHA}...main"):
-        return {"status": "identical"}
+    if url.endswith(f"/compare/{BRIDGE_SHA}...main"):
+        return {"status": "ahead"}
+    if url.endswith("/branches/main"):
+        return {"commit": {"sha": CURRENT_MAIN}}
     raise AssertionError(url)
 
 
 @pytest.mark.parametrize("operation", ["activate", "disable", "rollback"])
-def test_exact_owner_commands_authorize_only_reviewed_pr_and_plan(operation: str):
+def test_exact_owner_commands_bind_reviewed_bridge_current_main_and_plan(operation: str):
     module = load_module()
-    body = f"/hermes-lidl gate-d {operation} pr=656 plan={PLAN}"
+    body = f"/hermes-lidl gate-d {operation} pr=656 sha={CURRENT_MAIN} plan={PLAN}"
     values = module.authorize_event(
         event(body),
         repository="rozkalnsandris/hermes-deals",
@@ -57,7 +59,7 @@ def test_exact_owner_commands_authorize_only_reviewed_pr_and_plan(operation: str
     assert values == {
         "operation": operation,
         "pr_number": "656",
-        "sha": MERGE_SHA,
+        "sha": CURRENT_MAIN,
         "plan_fingerprint": PLAN,
         "issue_number": "24",
         "comment_id": "123456789",
@@ -68,12 +70,15 @@ def test_exact_owner_commands_authorize_only_reviewed_pr_and_plan(operation: str
 @pytest.mark.parametrize(
     "body",
     [
-        f"/hermes-lidl gate-d activate pr=655 plan={PLAN}",
-        f"/hermes-lidl gate-d Activate pr=656 plan={PLAN}",
-        f"/hermes-lidl gate-d activate pr=656 plan={'A' * 64}",
-        f"/hermes-lidl gate-d activate pr=656 plan={'a' * 63}",
-        f"/hermes-lidl gate-d activate pr=656 plan={PLAN} extra",
-        "/hermes-lidl gate-d activate pr=656 plan=$(id)",
+        f"/hermes-lidl gate-d activate pr=655 sha={CURRENT_MAIN} plan={PLAN}",
+        f"/hermes-lidl gate-d Activate pr=656 sha={CURRENT_MAIN} plan={PLAN}",
+        f"/hermes-lidl gate-d activate pr=656 plan={PLAN}",
+        f"/hermes-lidl gate-d activate pr=656 sha={'C' * 40} plan={PLAN}",
+        f"/hermes-lidl gate-d activate pr=656 sha={'c' * 39} plan={PLAN}",
+        f"/hermes-lidl gate-d activate pr=656 sha={CURRENT_MAIN} plan={'A' * 64}",
+        f"/hermes-lidl gate-d activate pr=656 sha={CURRENT_MAIN} plan={'a' * 63}",
+        f"/hermes-lidl gate-d activate pr=656 sha={CURRENT_MAIN} plan={PLAN} extra",
+        "/hermes-lidl gate-d activate pr=656 sha=$(id) plan=$(id)",
     ],
 )
 def test_command_parser_fails_closed(body: str):
@@ -84,7 +89,7 @@ def test_command_parser_fails_closed(body: str):
 
 def test_authorizer_rejects_wrong_owner_issue_or_association():
     module = load_module()
-    body = f"/hermes-lidl gate-d disable pr=656 plan={PLAN}"
+    body = f"/hermes-lidl gate-d disable pr=656 sha={CURRENT_MAIN} plan={PLAN}"
     bad = event(body)
     bad["sender"]["id"] = 1
     with pytest.raises(module.BridgeAuthorizationError, match="allowlisted owner"):
@@ -97,13 +102,13 @@ def test_authorizer_rejects_wrong_owner_issue_or_association():
 
     bad = event(body)
     bad["comment"]["author_association"] = "MEMBER"
-    with pytest.raises(module.BridgeAuthorizationError, match="OWNER"):
+    with pytest.raises(module.BridgeAuthorizationError, match="repository owner"):
         module.authorize_event(bad, repository=module.EXPECTED_REPOSITORY, token="x", get_json=fake_get)
 
 
-def test_authorizer_requires_merged_reachable_control_pr():
+def test_authorizer_requires_merged_reachable_control_bridge():
     module = load_module()
-    body = f"/hermes-lidl gate-d rollback pr=656 plan={PLAN}"
+    body = f"/hermes-lidl gate-d rollback pr=656 sha={CURRENT_MAIN} plan={PLAN}"
 
     def not_merged(url: str, _token: str):
         if url.endswith("/pulls/656"):
@@ -118,10 +123,10 @@ def test_authorizer_requires_merged_reachable_control_pr():
             return {
                 "merged": True,
                 "merged_at": "2026-08-14T18:00:00Z",
-                "merge_commit_sha": MERGE_SHA,
+                "merge_commit_sha": BRIDGE_SHA,
                 "base": {"ref": "main", "repo": {"full_name": module.EXPECTED_REPOSITORY}},
             }
-        if url.endswith(f"/compare/{MERGE_SHA}...main"):
+        if url.endswith(f"/compare/{BRIDGE_SHA}...main"):
             return {"status": "diverged"}
         raise AssertionError(url)
 
@@ -129,10 +134,18 @@ def test_authorizer_requires_merged_reachable_control_pr():
         module.authorize_event(event(body), repository=module.EXPECTED_REPOSITORY, token="x", get_json=diverged)
 
 
+def test_authorizer_rejects_stale_registration_sha():
+    module = load_module()
+    stale = "d" * 40
+    body = f"/hermes-lidl gate-d activate pr=656 sha={stale} plan={PLAN}"
+    with pytest.raises(module.BridgeAuthorizationError, match="exact current main"):
+        module.authorize_event(event(body), repository=module.EXPECTED_REPOSITORY, token="x", get_json=fake_get)
+
+
 def test_github_output_rejects_newlines(tmp_path: Path):
     module = load_module()
     values = module.authorize_event(
-        event(f"/hermes-lidl gate-d activate pr=656 plan={PLAN}"),
+        event(f"/hermes-lidl gate-d activate pr=656 sha={CURRENT_MAIN} plan={PLAN}"),
         repository=module.EXPECTED_REPOSITORY,
         token="x",
         get_json=fake_get,
