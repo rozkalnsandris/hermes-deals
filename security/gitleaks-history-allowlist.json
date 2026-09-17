@@ -173,5 +173,19 @@
     "line": 37,
     "commit": "2277a6aab8c0830639482a0458fb8cc162fd3962",
     "reason": "Same owner-verified public SHA-256 digest after PR #833 reached main via squash merge; immutable source identity evidence, not authentication material."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "tools/runner/hermes-deals-lidl-gate-d-registration-refresh-dispatch",
+    "line": 179,
+    "commit": "0ef9c7232e0bc1e626d8ef1655c557158ddf2165",
+    "reason": "Sudoers NOPASSWD command-alias syntax embedded in the Gate D prior-registration validator; not a password assignment or credential."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "tools/runner/hermes-deals-lidl-gate-d-registration-refresh-dispatch",
+    "line": 214,
+    "commit": "0ef9c7232e0bc1e626d8ef1655c557158ddf2165",
+    "reason": "Same sudoers NOPASSWD command-alias syntax embedded in the refreshed-registration validator; not a password assignment or credential."
   }
 ]
