@@ -112,6 +112,32 @@ def test_registration_refresh_validates_prior_identity_and_only_moves_forward():
     assert "cleanup_performed':False" in source
 
 
+def test_registration_refresh_legacy_schedule_migration_uses_prior_declared_schedule():
+    source = _text(REFRESH_DISPATCHER)
+    validator = source.split("inspect_config() {", 1)[1].split("\nPY\n}", 1)[0]
+    legacy_907f = {
+        "on_calendar": "Sun *-*-* 00:10:00 Europe/Berlin",
+        "retry_delay": "30min",
+        "retry_window": "6h",
+        "max_attempts": 3,
+        "timeout_start": "45min",
+    }
+    reviewed_next = {
+        "on_calendar": "Sun *-*-* 00:10:00 Europe/Berlin",
+        "retry_delay": "15min",
+        "retry_window": "3h",
+        "max_attempts": 3,
+        "timeout_start": "20min",
+    }
+    assert legacy_907f != reviewed_next
+    assert "schedule=x['schedule']" in validator
+    assert "Gate D schedule schema drift" in validator
+    assert "if mode == 'next' and schedule != requested_schedule" in validator
+    assert "if mode == 'legacy' and schedule != requested_schedule" not in validator
+    assert "'schedule':schedule" in validator
+    assert "if x['schedule'] != s" not in validator
+
+
 def test_registration_refresh_bootstrap_only_registers_fixed_bridge():
     installer = _text(REFRESH_INSTALLER)
     assert "REPO='/home/andris/hermes-deals'" in installer
