@@ -156,7 +156,12 @@ for rel in "$INSTALLER_REL" "$GATE_DISPATCHER_REL" "$PLANNER_REL" "$RUNTIME_REL"
   blob="$(git_as_andris -C "$REPO" rev-parse "$TARGET_SHA:$rel")" || block 'REVIEWED_SOURCE_IDENTITY_MISSING'
   [[ "$(git_as_andris -C "$REPO" hash-object "$REPO/$rel")" == "$blob" ]] || block 'REVIEWED_SOURCE_IDENTITY_DRIFT'
 done
-/usr/bin/python3 -m py_compile "$REPO/$INSTALLER_REL" || block 'INSTALLER_SYNTAX_INVALID'
+/usr/bin/python3 - "$REPO/$INSTALLER_REL" <<'PY_SYNTAX' || block 'INSTALLER_SYNTAX_INVALID'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+source = path.read_text(encoding='utf-8')
+compile(source, str(path), 'exec')
+PY_SYNTAX
 systemctl is-active --quiet "$RUNNER_SERVICE" || block 'RUNNER_SERVICE_NOT_ACTIVE'; RUNNER_ACTIVE='true'
 if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then RUNNER_HAS_DOCKER='true'; block 'RUNNER_DOCKER_GROUP_FORBIDDEN'; fi; RUNNER_HAS_DOCKER='false'
 
