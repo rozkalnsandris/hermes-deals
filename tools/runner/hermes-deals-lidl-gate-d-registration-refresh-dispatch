@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'; export PATH
+fail(){ printf 'ERROR: %s\n' "$*" >&2; exit 30; }
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'dispatcher must run as root through sudo'
+[[ $# -eq 2 ]] || fail 'usage: hermes-deals-lidl-gate-d-registration-refresh-dispatch <target-sha> <artifact-dir>'
+
+TARGET_SHA="$1"; RAW_EXPORT_DIR="$2"
+REPO='/home/andris/hermes-deals-audit-source-lidl'
+BRIDGE_CONFIG='/etc/hermes-deals-audits.d/lidl-gate-d-registration-refresh.conf'
+BRIDGE_DISPATCHER='/usr/local/sbin/hermes-deals-lidl-gate-d-registration-refresh-dispatch'
+RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
+INSTALLER_REL='tools/runner/install_lidl_gate_d_control_nonrewind.py'
+GATE_DISPATCHER_REL='tools/runner/lidl_gate_d_control.py'
+PLANNER_REL='tools/lidl_weekly_gate_d_activation_plan.py'
+RUNTIME_REL='tools/lidl_weekly_gate_d_runtime.py'
+GATE_CONFIG='/etc/hermes-deals-audits.d/lidl-gate-d-control.json'
+GATE_DISPATCHER='/usr/local/sbin/hermes-deals-lidl-gate-d-control'
+GATE_SUDOERS='/etc/sudoers.d/hermes-deals-lidl-gate-d-control'
+CONTROL_ROOT='/usr/local/libexec/hermes-deals-lidl-gate-d-control'
+ON_CALENDAR='Sun *-*-* 00:10:00 Europe/Berlin'
+RETRY_DELAY='15min'; RETRY_WINDOW='3h'; MAX_ATTEMPTS='3'; TIMEOUT_START='20min'
+[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'target SHA is invalid'
+for command in git id mv python3 readlink runuser sha256sum stat systemctl; do command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"; done
+
+EXPORT_DIR="$(readlink -f -- "$RAW_EXPORT_DIR")"
+[[ "$EXPORT_DIR" == "$RAW_EXPORT_DIR" ]] || fail 'artifact directory symlink or alias rejected'
+[[ -d "$EXPORT_DIR" && ! -L "$EXPORT_DIR" ]] || fail 'artifact directory is missing or unsafe'
+[[ "$EXPORT_DIR" == /home/github-runner/_work/_temp/lidl-gate-d-registration-refresh-* ]] || fail 'artifact directory outside runner temp allowlist'
+[[ "$(stat -c '%U:%G %a' "$EXPORT_DIR")" == 'github-runner:github-runner 700' ]] || fail 'artifact directory metadata invalid'
+RUN_KEY="$(basename -- "$EXPORT_DIR")"
+[[ "$RUN_KEY" =~ ^lidl-gate-d-registration-refresh-[1-9][0-9]*-[1-9][0-9]*$ ]] || fail 'unexpected runner artifact directory name'
+SUMMARY="$EXPORT_DIR/lidl-gate-d-registration-refresh-summary.json"
+[[ ! -e "$SUMMARY" ]] || fail 'registration summary already exists'
+
+[[ -f "$BRIDGE_CONFIG" && ! -L "$BRIDGE_CONFIG" ]] || fail 'registration-refresh bridge is not registered'
+[[ "$(stat -c '%U:%G %a' "$BRIDGE_CONFIG")" == 'root:root 644' ]] || fail 'bridge config metadata invalid'
+# shellcheck disable=SC1090
+source "$BRIDGE_CONFIG"
+[[ "${bridge_contract_version:-}" == 'hermes-deals-lidl-gate-d-registration-refresh-v1' ]] || fail 'bridge contract mismatch'
+[[ "${repo_path:-}" == "$REPO" ]] || fail 'registered repo path mismatch'
+[[ "${dispatcher_path:-}" == "$BRIDGE_DISPATCHER" ]] || fail 'registered dispatcher path mismatch'
+[[ "${registered_bridge_sha:-}" =~ ^[0-9a-f]{40}$ ]] || fail 'registered bridge SHA is invalid'
+[[ "${dispatcher_sha256:-}" =~ ^[0-9a-f]{64}$ ]] || fail 'registered dispatcher SHA-256 is invalid'
+[[ -f "$BRIDGE_DISPATCHER" && ! -L "$BRIDGE_DISPATCHER" ]] || fail 'installed dispatcher is missing or unsafe'
+[[ "$(stat -c '%U:%G %a' "$BRIDGE_DISPATCHER")" == 'root:root 755' ]] || fail 'installed dispatcher metadata invalid'
+[[ "$(sha256sum "$BRIDGE_DISPATCHER" | awk '{print $1}')" == "$dispatcher_sha256" ]] || fail 'installed dispatcher content drift'
+
+git_as_andris(){ runuser -u andris -- /usr/bin/env -i HOME=/home/andris USER=andris LOGNAME=andris PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null /usr/bin/git "$@"; }
+
+PRIOR_PRESENT='false'; PRIOR_SHA='none'; PRIOR_FP='none'; PRIOR_TARGET='none'; RETIRED='false'
+INSTALLER_ATTEMPTED='false'; INSTALLER_RC='none'; MUTATION_STARTED='false'
+AFTER_SHA='none'; AFTER_FP='none'; RUNNER_ACTIVE='false'; RUNNER_HAS_DOCKER='false'
+
+inspect_config() {
+  local mode="$1"
+  /usr/bin/python3 - "$GATE_CONFIG" "$CONTROL_ROOT" "$mode" "$ON_CALENDAR" "$RETRY_DELAY" "$RETRY_WINDOW" "$MAX_ATTEMPTS" "$TIMEOUT_START" <<'PY'
+import hashlib, json, os, pathlib, re, stat, sys
+path=pathlib.Path(sys.argv[1]); root=pathlib.Path(sys.argv[2]); mode=sys.argv[3]
+on_calendar,retry_delay,retry_window,max_attempts_raw,timeout_start=sys.argv[4:]
+if not path.is_file() or path.is_symlink(): raise SystemExit('Gate D config missing or unsafe')
+st=path.stat()
+if st.st_uid != 0 or st.st_gid != 0 or stat.S_IMODE(st.st_mode) != 0o600: raise SystemExit('Gate D config metadata drift')
+x=json.loads(path.read_text())
+false_flags={'production_write_authorized','database_write_authorized','review_write_authorized','publication_authorized','deployment_authorized'}
+required={'schema_version','control','issue_number','bridge_pr','registration_sha','plan_fingerprint','repo_root','python_path','corpus_root','evidence_root','target','schedule','units','activation_requires_explicit_owner_authorization','root_registration_only',*false_flags}
+if set(x) != required: raise SystemExit('Gate D config schema mismatch')
+if x['schema_version'] != 1 or x['control'] != 'lidl-gate-d-control' or x['issue_number'] != 24 or x['bridge_pr'] != 656: raise SystemExit('Gate D config identity drift')
+sha=str(x['registration_sha']); fp=str(x['plan_fingerprint']); target=str(x['target'])
+if re.fullmatch(r'[0-9a-f]{40}',sha) is None or re.fullmatch(r'[0-9a-f]{64}',fp) is None: raise SystemExit('Gate D registration identity invalid')
+if mode == 'legacy' and target not in {'current','next'}: raise SystemExit('legacy Gate D target invalid')
+if mode == 'next' and target != 'next': raise SystemExit('refreshed Gate D target is not next')
+paths={'repo_root':'/home/andris/hermes-deals-audit-source-lidl','python_path':'/usr/bin/python3','corpus_root':'/home/andris/hermes-deals-lidl-corpus','evidence_root':'/home/andris/hermes-deals-lidl-weekly-evidence'}
+for k,v in paths.items():
+    if x[k] != v: raise SystemExit(f'Gate D {k} drift')
+if x['activation_requires_explicit_owner_authorization'] is not True or x['root_registration_only'] is not True or any(x[k] is not False for k in false_flags): raise SystemExit('Gate D unsafe authority drift')
+s={'on_calendar':on_calendar,'retry_delay':retry_delay,'retry_window':retry_window,'max_attempts':int(max_attempts_raw),'timeout_start':timeout_start}
+if x['schedule'] != s: raise SystemExit('Gate D schedule drift')
+names=('hermes-lidl-weekly.service','hermes-lidl-weekly.timer','hermes-lidl-weekly-failure@.service')
+if set(x['units']) != set(names): raise SystemExit('Gate D unit set drift')
+unit_sha={}
+for name in names:
+    row=x['units'][name]
+    if set(row) != {'path','sha256'} or row['path'] != str(root/sha/name) or re.fullmatch(r'[0-9a-f]{64}',str(row['sha256'])) is None: raise SystemExit('Gate D unit config drift')
+    p=pathlib.Path(row['path'])
+    if not p.is_file() or p.is_symlink(): raise SystemExit('Gate D staged unit missing or unsafe')
+    st=p.stat()
+    if st.st_uid != 0 or st.st_gid != 0 or stat.S_IMODE(st.st_mode) != 0o444: raise SystemExit('Gate D staged unit metadata drift')
+    digest=hashlib.sha256(p.read_bytes()).hexdigest()
+    if digest != row['sha256']: raise SystemExit('Gate D staged unit content drift')
+    unit_sha[name]=digest
+payload={'schema_version':1,'registration_sha':sha,'target':target,'repo_root':x['repo_root'],'python_path':x['python_path'],'corpus_root':x['corpus_root'],'evidence_root':x['evidence_root'],'schedule':s,'unit_sha256':unit_sha}
+calc=hashlib.sha256((json.dumps(payload,sort_keys=True,separators=(',',':'))+'\n').encode()).hexdigest()
+if calc != fp: raise SystemExit('Gate D plan fingerprint drift')
+print(f'{sha}|{fp}|{target}')
+PY
+}
+
+write_summary(){
+  local status="$1" reason="$2"
+  /usr/bin/python3 - "$EXPORT_DIR" "$status" "$reason" "$registered_bridge_sha" "$TARGET_SHA" "$INSTALLER_ATTEMPTED" "$INSTALLER_RC" "$MUTATION_STARTED" "$PRIOR_PRESENT" "$PRIOR_SHA" "$PRIOR_FP" "$RETIRED" "$AFTER_SHA" "$AFTER_FP" "$RUNNER_ACTIVE" "$RUNNER_HAS_DOCKER" <<'PY'
+import json, os, pwd, re, stat, sys
+(a,status,reason_raw,bridge_sha,target,attempted,rc_raw,mutation,prior_present,prior_sha,prior_fp,retired,after_sha,after_fp,runner_active,runner_docker)=sys.argv[1:]
+reason=None if reason_raw=='none' else reason_raw
+if status not in {'PASS','BLOCKED'} or (reason is not None and re.fullmatch(r'[A-Z0-9_]{1,96}',reason) is None): raise SystemExit('invalid status/reason')
+def flag(v):
+    if v=='true': return True
+    if v=='false': return False
+    raise SystemExit('invalid bool')
+def optsha(v):
+    if v=='none': return None
+    if re.fullmatch(r'[0-9a-f]{40}',v) is None: raise SystemExit('invalid sha')
+    return v
+def optfp(v):
+    if v=='none': return None
+    if re.fullmatch(r'[0-9a-f]{64}',v) is None: raise SystemExit('invalid fingerprint')
+    return v
+def optrc(v):
+    if v=='none': return None
+    if re.fullmatch(r'[0-9]{1,3}',v) is None: raise SystemExit('invalid rc')
+    return int(v)
+payload={
+ 'bridge_schema_version':1,'bridge_contract_version':'hermes-deals-lidl-gate-d-registration-refresh-v1','bridge_execution_status':status,'reason_code':reason,
+ 'registered_bridge_sha':optsha(bridge_sha),'target_sha':optsha(target),'installer_attempted':flag(attempted),'installer_rc':optrc(rc_raw),'root_registration_mutation_started':flag(mutation),
+ 'prior_registration_present':flag(prior_present),'prior_registration_sha':optsha(prior_sha),'prior_plan_fingerprint':optfp(prior_fp),'prior_registration_retired':flag(retired),
+ 'after_registration_sha':optsha(after_sha),'after_plan_fingerprint':optfp(after_fp),'runner_service_active':flag(runner_active),'runner_has_docker_group':flag(runner_docker),
+ 'network_source_read_performed':False,'gate_d_runtime_performed':False,'collector_execution_performed':False,'production_database_write_performed':False,'review_write_performed':False,'publication_write_performed':False,'scheduler_change_performed':False,'systemd_change_performed':False,'timer_activation_performed':False,'container_mutation_performed':False,'production_deploy_performed':False,'rollback_performed':False,'cleanup_performed':False,
+}
+flags=os.O_RDONLY|getattr(os,'O_DIRECTORY',0)|getattr(os,'O_NOFOLLOW',0); d=os.open(a,flags)
+try:
+ st=os.fstat(d); runner=pwd.getpwnam('github-runner')
+ if st.st_uid!=runner.pw_uid or st.st_gid!=runner.pw_gid or stat.S_IMODE(st.st_mode)!=0o700: raise SystemExit('artifact metadata drift')
+ fd=os.open('lidl-gate-d-registration-refresh-summary.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600,dir_fd=d)
+ try:
+  body=(json.dumps(payload,indent=2,sort_keys=True)+'\n').encode(); os.write(fd,body); os.fsync(fd); os.fchown(fd,runner.pw_uid,runner.pw_gid); os.fchmod(fd,0o600)
+ finally: os.close(fd)
+finally: os.close(d)
+PY
+}
+block(){ local reason="$1"; systemctl is-active --quiet "$RUNNER_SERVICE" && RUNNER_ACTIVE='true' || RUNNER_ACTIVE='false'; if id -nG github-runner 2>/dev/null | tr ' ' '\n' | grep -Fxq docker; then RUNNER_HAS_DOCKER='true'; else RUNNER_HAS_DOCKER='false'; fi; if [[ -f "$GATE_CONFIG" && ! -L "$GATE_CONFIG" ]]; then set +e; row="$(inspect_config next 2>/dev/null)"; rc=$?; set -e; if [[ $rc -eq 0 ]]; then IFS='|' read -r AFTER_SHA AFTER_FP _ <<<"$row"; fi; fi; write_summary BLOCKED "$reason"; printf 'LIDL_GATE_D_REGISTRATION_REFRESH_STATUS=BLOCKED\nREASON_CODE=%s\nTARGET_SHA=%s\n' "$reason" "$TARGET_SHA"; exit 30; }
+
+id andris >/dev/null 2>&1 || block 'ANDRIS_USER_MISSING'; id github-runner >/dev/null 2>&1 || block 'RUNNER_USER_MISSING'
+[[ -d "$REPO" && ! -L "$REPO" && "$(readlink -f -- "$REPO")" == "$REPO" && "$(stat -c '%U:%G' "$REPO")" == 'andris:andris' ]] || block 'SOURCE_CHECKOUT_PATH_OR_OWNER_DRIFT'
+[[ -d "$REPO/.git" && ! -L "$REPO/.git" ]] || block 'SOURCE_GIT_DIR_UNSAFE'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-inside-work-tree)" == true ]] || block 'SOURCE_NOT_GIT_WORKTREE'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-shallow-repository)" == false ]] || block 'SHALLOW_CHECKOUT_UNSUPPORTED'
+[[ "$(git_as_andris -C "$REPO" branch --show-current)" == main ]] || block 'SOURCE_BRANCH_NOT_MAIN'
+[[ "$(git_as_andris -C "$REPO" rev-parse HEAD)" == "$TARGET_SHA" ]] || block 'SOURCE_HEAD_NOT_TARGET'
+[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || block 'SOURCE_CHECKOUT_DIRTY'
+case "$(git_as_andris -C "$REPO" remote get-url origin)" in https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;; *) block 'SOURCE_ORIGIN_MISMATCH';; esac
+for rel in "$INSTALLER_REL" "$GATE_DISPATCHER_REL" "$PLANNER_REL" "$RUNTIME_REL"; do
+  git_as_andris -C "$REPO" ls-files --error-unmatch "$rel" >/dev/null 2>&1 || block 'REVIEWED_SOURCE_NOT_TRACKED'
+  [[ -f "$REPO/$rel" && ! -L "$REPO/$rel" ]] || block 'REVIEWED_SOURCE_UNSAFE'
+  blob="$(git_as_andris -C "$REPO" rev-parse "$TARGET_SHA:$rel")" || block 'REVIEWED_SOURCE_IDENTITY_MISSING'
+  [[ "$(git_as_andris -C "$REPO" hash-object "$REPO/$rel")" == "$blob" ]] || block 'REVIEWED_SOURCE_IDENTITY_DRIFT'
+done
+/usr/bin/python3 -m py_compile "$REPO/$INSTALLER_REL" || block 'INSTALLER_SYNTAX_INVALID'
+systemctl is-active --quiet "$RUNNER_SERVICE" || block 'RUNNER_SERVICE_NOT_ACTIVE'; RUNNER_ACTIVE='true'
+if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then RUNNER_HAS_DOCKER='true'; block 'RUNNER_DOCKER_GROUP_FORBIDDEN'; fi; RUNNER_HAS_DOCKER='false'
+
+present=0; [[ -e "$GATE_CONFIG" || -L "$GATE_CONFIG" ]] && ((present+=1)); [[ -e "$GATE_DISPATCHER" || -L "$GATE_DISPATCHER" ]] && ((present+=1)); [[ -e "$GATE_SUDOERS" || -L "$GATE_SUDOERS" ]] && ((present+=1))
+[[ $present -eq 0 || $present -eq 3 ]] || block 'PARTIAL_GATE_D_REGISTRATION'
+if [[ $present -eq 3 ]]; then
+  PRIOR_PRESENT='true'
+  [[ -f "$GATE_DISPATCHER" && ! -L "$GATE_DISPATCHER" && "$(stat -c '%U:%G %a' "$GATE_DISPATCHER")" == 'root:root 755' ]] || block 'PRIOR_DISPATCHER_METADATA_DRIFT'
+  [[ -f "$GATE_SUDOERS" && ! -L "$GATE_SUDOERS" && "$(stat -c '%U:%G %a' "$GATE_SUDOERS")" == 'root:root 440' ]] || block 'PRIOR_SUDOERS_METADATA_DRIFT'
+  set +e; row="$(inspect_config legacy 2>/dev/null)"; inspect_rc=$?; set -e; [[ $inspect_rc -eq 0 ]] || block 'PRIOR_CONFIG_INVALID'
+  IFS='|' read -r PRIOR_SHA PRIOR_FP PRIOR_TARGET <<<"$row"
+  [[ "$(git_as_andris -C "$REPO" cat-file -t "$PRIOR_SHA" 2>/dev/null || true)" == commit ]] || block 'PRIOR_REGISTRATION_COMMIT_MISSING'
+  git_as_andris -C "$REPO" merge-base --is-ancestor "$PRIOR_SHA" "$TARGET_SHA" || block 'PRIOR_REGISTRATION_NOT_ANCESTOR'
+  old_blob="$(git_as_andris -C "$REPO" rev-parse "$PRIOR_SHA:$GATE_DISPATCHER_REL" 2>/dev/null)" || block 'PRIOR_DISPATCHER_BLOB_MISSING'
+  old_sha256="$(git_as_andris -C "$REPO" cat-file blob "$old_blob" | sha256sum | awk '{print $1}')"
+  [[ "$(sha256sum "$GATE_DISPATCHER" | awk '{print $1}')" == "$old_sha256" ]] || block 'PRIOR_DISPATCHER_CONTENT_DRIFT'
+  /usr/bin/python3 - "$GATE_SUDOERS" "$PRIOR_FP" <<'PY' || block 'PRIOR_SUDOERS_CONTENT_DRIFT'
+import pathlib, sys
+p=pathlib.Path(sys.argv[1]); fp=sys.argv[2]
+expected=f"Cmnd_Alias HERMES_DEALS_LIDL_GATE_D_CONTROL = /usr/local/sbin/hermes-deals-lidl-gate-d-control ^(activate|disable|rollback) {fp}$\ngithub-runner ALL=(root) NOPASSWD: HERMES_DEALS_LIDL_GATE_D_CONTROL\n"
+if p.read_text() != expected: raise SystemExit(1)
+PY
+fi
+
+if [[ "$PRIOR_PRESENT" == true && "$PRIOR_SHA" != "$TARGET_SHA" ]]; then
+  retired_suffix="retired-${PRIOR_SHA}-to-${TARGET_SHA}"
+  retired_dispatcher="/usr/local/sbin/.hermes-deals-lidl-gate-d-control.${retired_suffix}"
+  retired_config="/etc/hermes-deals-audits.d/.lidl-gate-d-control.json.${retired_suffix}"
+  retired_sudoers="/etc/sudoers.d/.hermes-deals-lidl-gate-d-control.${retired_suffix}"
+  [[ ! -e "$retired_dispatcher" && ! -L "$retired_dispatcher" && ! -e "$retired_config" && ! -L "$retired_config" && ! -e "$retired_sudoers" && ! -L "$retired_sudoers" ]] || block 'RETIREMENT_PATH_ALREADY_EXISTS'
+  MUTATION_STARTED='true'
+  mv -- "$GATE_SUDOERS" "$retired_sudoers" || block 'RETIRE_SUDOERS_FAILED'
+  mv -- "$GATE_CONFIG" "$retired_config" || block 'RETIRE_CONFIG_FAILED'
+  mv -- "$GATE_DISPATCHER" "$retired_dispatcher" || block 'RETIRE_DISPATCHER_FAILED'
+  RETIRED='true'
+fi
+
+MUTATION_STARTED='true'; INSTALLER_ATTEMPTED='true'
+set +e
+INSTALLER_OUTPUT="$(/usr/bin/python3 "$REPO/$INSTALLER_REL" --registration-sha "$TARGET_SHA" --on-calendar "$ON_CALENDAR" --retry-delay "$RETRY_DELAY" --retry-window "$RETRY_WINDOW" --max-attempts "$MAX_ATTEMPTS" --timeout-start "$TIMEOUT_START" 2>&1)"
+INSTALLER_RC=$?
+set -e
+[[ "$INSTALLER_RC" -eq 0 ]] || block 'GATE_D_INSTALLER_FAILED'
+installer_row="$(printf '%s\n' "$INSTALLER_OUTPUT" | /usr/bin/python3 -c 'import json,sys,re; x=json.loads(sys.stdin.readline()); assert x.get("registration_sha") and re.fullmatch(r"[0-9a-f]{40}",x["registration_sha"]); assert re.fullmatch(r"[0-9a-f]{64}",x.get("plan_fingerprint", "")); assert x.get("systemd_change_performed") is False and x.get("timer_activation_performed") is False and x.get("production_write_performed") is False and x.get("database_write_performed") is False and x.get("review_write_performed") is False and x.get("publication_performed") is False and x.get("deployment_performed") is False; print(x["registration_sha"]+"|"+x["plan_fingerprint"])' 2>/dev/null)" || block 'INSTALLER_RESULT_INVALID'
+IFS='|' read -r installer_sha installer_fp <<<"$installer_row"
+[[ "$installer_sha" == "$TARGET_SHA" ]] || block 'INSTALLER_TARGET_MISMATCH'
+row="$(inspect_config next 2>/dev/null)" || block 'REFRESHED_CONFIG_INVALID'; IFS='|' read -r AFTER_SHA AFTER_FP _ <<<"$row"
+[[ "$AFTER_SHA" == "$TARGET_SHA" && "$AFTER_FP" == "$installer_fp" ]] || block 'REFRESHED_IDENTITY_MISMATCH'
+new_blob="$(git_as_andris -C "$REPO" rev-parse "$TARGET_SHA:$GATE_DISPATCHER_REL")" || block 'REFRESHED_DISPATCHER_BLOB_MISSING'
+new_sha256="$(git_as_andris -C "$REPO" cat-file blob "$new_blob" | sha256sum | awk '{print $1}')"
+[[ -f "$GATE_DISPATCHER" && ! -L "$GATE_DISPATCHER" && "$(stat -c '%U:%G %a' "$GATE_DISPATCHER")" == 'root:root 755' && "$(sha256sum "$GATE_DISPATCHER" | awk '{print $1}')" == "$new_sha256" ]] || block 'REFRESHED_DISPATCHER_DRIFT'
+[[ -f "$GATE_SUDOERS" && ! -L "$GATE_SUDOERS" && "$(stat -c '%U:%G %a' "$GATE_SUDOERS")" == 'root:root 440' ]] || block 'REFRESHED_SUDOERS_METADATA_DRIFT'
+/usr/bin/python3 - "$GATE_SUDOERS" "$AFTER_FP" <<'PY' || block 'REFRESHED_SUDOERS_CONTENT_DRIFT'
+import pathlib,sys
+expected=f"Cmnd_Alias HERMES_DEALS_LIDL_GATE_D_CONTROL = /usr/local/sbin/hermes-deals-lidl-gate-d-control ^(activate|disable|rollback) {sys.argv[2]}$\ngithub-runner ALL=(root) NOPASSWD: HERMES_DEALS_LIDL_GATE_D_CONTROL\n"
+if pathlib.Path(sys.argv[1]).read_text()!=expected: raise SystemExit(1)
+PY
+write_summary PASS none
+printf 'LIDL_GATE_D_REGISTRATION_REFRESH_STATUS=PASS\nTARGET_SHA=%s\nPLAN_FINGERPRINT=%s\nSYSTEMD_CHANGE_PERFORMED=false\nTIMER_ACTIVATION_PERFORMED=false\nPRODUCTION_DEPLOY_PERFORMED=false\n' "$TARGET_SHA" "$AFTER_FP"
