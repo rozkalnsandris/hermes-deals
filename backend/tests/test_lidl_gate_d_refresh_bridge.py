@@ -88,6 +88,8 @@ def test_registration_refresh_is_fixed_existing_installer_and_reviewed_source_bo
     assert "--max-attempts \"$MAX_ATTEMPTS\"" in source
     assert "--timeout-start \"$TIMEOUT_START\"" in source
     assert "shell=True" not in source
+    assert "py_compile" not in source
+    assert "compile(source, str(path), 'exec')" in source
 
 
 def test_registration_refresh_validates_prior_identity_and_only_moves_forward():
