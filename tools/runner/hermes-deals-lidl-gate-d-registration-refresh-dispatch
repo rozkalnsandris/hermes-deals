@@ -76,8 +76,17 @@ paths={'repo_root':'/home/andris/hermes-deals-audit-source-lidl','python_path':'
 for k,v in paths.items():
     if x[k] != v: raise SystemExit(f'Gate D {k} drift')
 if x['activation_requires_explicit_owner_authorization'] is not True or x['root_registration_only'] is not True or any(x[k] is not False for k in false_flags): raise SystemExit('Gate D unsafe authority drift')
-s={'on_calendar':on_calendar,'retry_delay':retry_delay,'retry_window':retry_window,'max_attempts':int(max_attempts_raw),'timeout_start':timeout_start}
-if x['schedule'] != s: raise SystemExit('Gate D schedule drift')
+requested_schedule={'on_calendar':on_calendar,'retry_delay':retry_delay,'retry_window':retry_window,'max_attempts':int(max_attempts_raw),'timeout_start':timeout_start}
+schedule=x['schedule']
+if not isinstance(schedule,dict) or set(schedule) != set(requested_schedule): raise SystemExit('Gate D schedule schema drift')
+calendar=schedule['on_calendar']
+if not isinstance(calendar,str) or '\n' in calendar or '\r' in calendar or re.fullmatch(r'[A-Za-z0-9*:/.,~+_ -]{1,160}',calendar) is None: raise SystemExit('Gate D schedule calendar invalid')
+span_re=r'[1-9][0-9]*(?:ms|s|min|h|d|w)'
+for key in ('retry_delay','retry_window','timeout_start'):
+    if not isinstance(schedule[key],str) or re.fullmatch(span_re,schedule[key]) is None: raise SystemExit(f'Gate D schedule {key} invalid')
+attempts=schedule['max_attempts']
+if isinstance(attempts,bool) or not isinstance(attempts,int) or not 2 <= attempts <= 5: raise SystemExit('Gate D schedule max_attempts invalid')
+if mode == 'next' and schedule != requested_schedule: raise SystemExit('Gate D schedule drift')
 names=('hermes-lidl-weekly.service','hermes-lidl-weekly.timer','hermes-lidl-weekly-failure@.service')
 if set(x['units']) != set(names): raise SystemExit('Gate D unit set drift')
 unit_sha={}
@@ -91,7 +100,7 @@ for name in names:
     digest=hashlib.sha256(p.read_bytes()).hexdigest()
     if digest != row['sha256']: raise SystemExit('Gate D staged unit content drift')
     unit_sha[name]=digest
-payload={'schema_version':1,'registration_sha':sha,'target':target,'repo_root':x['repo_root'],'python_path':x['python_path'],'corpus_root':x['corpus_root'],'evidence_root':x['evidence_root'],'schedule':s,'unit_sha256':unit_sha}
+payload={'schema_version':1,'registration_sha':sha,'target':target,'repo_root':x['repo_root'],'python_path':x['python_path'],'corpus_root':x['corpus_root'],'evidence_root':x['evidence_root'],'schedule':schedule,'unit_sha256':unit_sha}
 calc=hashlib.sha256((json.dumps(payload,sort_keys=True,separators=(',',':'))+'\n').encode()).hexdigest()
 if calc != fp: raise SystemExit('Gate D plan fingerprint drift')
 print(f'{sha}|{fp}|{target}')
