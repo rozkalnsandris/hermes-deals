@@ -1,0 +1,151 @@
+name: Owner-gated Lidl Gate D registration refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: Exact current main SHA approved for Lidl Gate D registration refresh
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hermes-lidl-gate-d-registration-refresh
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize exact current main registration target
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.gate.outputs.sha }}
+      ci_run_id: ${{ steps.gate.outputs.ci_run_id }}
+    steps:
+      - name: Validate owner, exact current main and CI
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EXPECTED_OWNER_LOGIN: rozkalnsandris
+          EXPECTED_OWNER_ID: "277435981"
+          REQUESTED_SHA: ${{ inputs.expected_main_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re, urllib.parse, urllib.request
+          repo=os.environ['REPOSITORY']
+          if repo!='rozkalnsandris/hermes-deals': raise SystemExit('unexpected repository')
+          if os.environ['WORKFLOW_REF']!='refs/heads/main': raise SystemExit('workflow must execute from main')
+          event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text()); sender=event.get('sender') or {}
+          if sender.get('login')!=os.environ['EXPECTED_OWNER_LOGIN'] or sender.get('id')!=int(os.environ['EXPECTED_OWNER_ID']): raise SystemExit('workflow_dispatch actor is not allowlisted owner')
+          requested=os.environ['REQUESTED_SHA'].strip()
+          if re.fullmatch(r'[0-9a-f]{40}',requested) is None: raise SystemExit('expected_main_sha must be one exact lowercase SHA')
+          headers={'Accept':'application/vnd.github+json','Authorization':f"Bearer {os.environ['GH_TOKEN']}",'User-Agent':'hermes-lidl-gate-d-registration-refresh','X-GitHub-Api-Version':'2022-11-28'}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as r: return json.load(r)
+          main=get(f'https://api.github.com/repos/{repo}/branches/main'); current=str((main.get('commit') or {}).get('sha') or '')
+          if current!=requested: raise SystemExit('requested SHA is not exact current main')
+          q=urllib.parse.urlencode({'head_sha':requested,'event':'push','status':'completed','per_page':20})
+          runs=get(f'https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{q}').get('workflow_runs') or []
+          matches=[r for r in runs if r.get('head_sha')==requested and r.get('head_branch')=='main' and r.get('event')=='push' and r.get('conclusion')=='success' and r.get('name')=='Hermes Deals CI checks']
+          if not matches: raise SystemExit('exact current main has no successful push CI run')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h: h.write(f'sha={requested}\nci_run_id={max(int(r["id"]) for r in matches)}\n')
+          PY
+
+  refresh-rpi5:
+    name: Refresh fixed Lidl Gate D root registration
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      - name: Run fixed root-owned Lidl Gate D registration dispatcher
+        id: dispatch
+        env:
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/lidl-gate-d-registration-refresh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ ! -e "$artifact_dir" ]]
+          install -d -m 0700 "$artifact_dir"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
+          set +e
+          sudo --non-interactive /usr/local/sbin/hermes-deals-lidl-gate-d-registration-refresh-dispatch "$APPROVED_SHA" "$artifact_dir"
+          rc=$?
+          set -e
+          echo "runner_rc=$rc" >> "$GITHUB_OUTPUT"
+      - name: Inspect sanitized registration receipt
+        id: inspect
+        if: always()
+        env:
+          ARTIFACT_DIR: ${{ steps.dispatch.outputs.artifact_dir }}
+          EXPECTED_SHA: ${{ needs.authorize.outputs.sha }}
+          RUNNER_RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: python
+        run: |
+          import json, os, pathlib, re
+          p=pathlib.Path(os.environ.get('ARTIFACT_DIR') or '.')/'lidl-gate-d-registration-refresh-summary.json'
+          rc_raw=os.environ.get('RUNNER_RC') or '1'; rc=int(rc_raw) if re.fullmatch(r'-?[0-9]+',rc_raw) else 1
+          status='BLOCKED'; reason='SANITIZED_SUMMARY_MISSING'; after_sha='unavailable'; after_fp='unavailable'
+          if p.is_file() and not p.is_symlink():
+              x=json.loads(p.read_text())
+              fields={'bridge_schema_version','bridge_contract_version','bridge_execution_status','reason_code','registered_bridge_sha','target_sha','installer_attempted','installer_rc','root_registration_mutation_started','prior_registration_present','prior_registration_sha','prior_plan_fingerprint','prior_registration_retired','after_registration_sha','after_plan_fingerprint','runner_service_active','runner_has_docker_group','network_source_read_performed','gate_d_runtime_performed','collector_execution_performed','production_database_write_performed','review_write_performed','publication_write_performed','scheduler_change_performed','systemd_change_performed','timer_activation_performed','container_mutation_performed','production_deploy_performed','rollback_performed','cleanup_performed'}
+              if set(x)!=fields: raise SystemExit('registration summary field set mismatch')
+              if x['bridge_schema_version']!=1 or x['bridge_contract_version']!='hermes-deals-lidl-gate-d-registration-refresh-v1': raise SystemExit('registration summary contract mismatch')
+              if x['target_sha']!=os.environ['EXPECTED_SHA'] or re.fullmatch(r'[0-9a-f]{40}',x['registered_bridge_sha'] or '') is None: raise SystemExit('registration target/bridge mismatch')
+              unsafe={'network_source_read_performed','gate_d_runtime_performed','collector_execution_performed','production_database_write_performed','review_write_performed','publication_write_performed','scheduler_change_performed','systemd_change_performed','timer_activation_performed','container_mutation_performed','production_deploy_performed','rollback_performed','cleanup_performed'}
+              if any(x[f] is not False for f in unsafe): raise SystemExit('registration receipt contains forbidden mutation')
+              status=str(x['bridge_execution_status']); reason='none' if x['reason_code'] is None else str(x['reason_code']); after_sha=str(x['after_registration_sha'] or 'unavailable'); after_fp=str(x['after_plan_fingerprint'] or 'unavailable')
+              if status not in {'PASS','BLOCKED'} or re.fullmatch(r'(?:none|[A-Z0-9_]{1,96})',reason) is None: raise SystemExit('invalid receipt status/reason')
+              if rc==0:
+                  if status!='PASS' or x['reason_code'] is not None or x['installer_attempted'] is not True or x['installer_rc']!=0 or x['root_registration_mutation_started'] is not True: raise SystemExit('successful refresh mutation attestation missing')
+                  if after_sha!=os.environ['EXPECTED_SHA'] or re.fullmatch(r'[0-9a-f]{64}',after_fp) is None: raise SystemExit('successful refresh identity mismatch')
+                  if x['runner_service_active'] is not True or x['runner_has_docker_group'] is not False: raise SystemExit('runner trust boundary violated')
+              elif status!='BLOCKED': raise SystemExit('dispatcher failure/status mismatch')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as h: h.write(f'bridge_status={status}\nreason_code={reason}\nafter_sha={after_sha}\nafter_plan_fingerprint={after_fp}\n')
+      - name: Upload sanitized registration evidence
+        if: always() && steps.dispatch.outputs.artifact_dir != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lidl-gate-d-registration-refresh-${{ needs.authorize.outputs.sha }}-run-${{ github.run_id }}
+          path: ${{ steps.dispatch.outputs.artifact_dir }}/lidl-gate-d-registration-refresh-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Record registration safety boundary
+        if: always()
+        env:
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+          CI_RUN_ID: ${{ needs.authorize.outputs.ci_run_id }}
+          STATUS: ${{ steps.inspect.outputs.bridge_status }}
+          REASON: ${{ steps.inspect.outputs.reason_code }}
+          PLAN: ${{ steps.inspect.outputs.after_plan_fingerprint }}
+        shell: bash
+        run: |
+          {
+            echo '## Lidl Gate D registration refresh'
+            echo "- Approved target: \`${APPROVED_SHA}\`"
+            echo "- Exact-main CI run: \`${CI_RUN_ID}\`"
+            echo "- Bridge execution: \`${STATUS:-UNAVAILABLE}\`"
+            echo "- Reason code: \`${REASON:-none}\`"
+            echo "- Fresh target=next plan fingerprint: \`${PLAN:-unavailable}\`"
+            echo '- Gate D activation/systemd/timer/runtime/publication/deploy: **not performed / not authorized**'
+            echo '- Dedicated checkout source sync: **not chained**'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Enforce registration execution
+        if: always()
+        env:
+          STATUS: ${{ steps.inspect.outputs.bridge_status }}
+          AFTER_SHA: ${{ steps.inspect.outputs.after_sha }}
+          APPROVED_SHA: ${{ needs.authorize.outputs.sha }}
+          RC: ${{ steps.dispatch.outputs.runner_rc }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RC" == 0 && "$STATUS" == PASS && "$AFTER_SHA" == "$APPROVED_SHA" ]]
