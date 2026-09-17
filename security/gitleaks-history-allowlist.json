@@ -187,5 +187,19 @@
     "line": 214,
     "commit": "0ef9c7232e0bc1e626d8ef1655c557158ddf2165",
     "reason": "Same sudoers NOPASSWD command-alias syntax embedded in the refreshed-registration validator; not a password assignment or credential."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "tools/runner/hermes-deals-lidl-gate-d-registration-refresh-dispatch",
+    "line": 184,
+    "commit": "1110a654293c3c2f7243cb3411f1310b3d251000",
+    "reason": "Same reviewed sudoers NOPASSWD command-alias syntax after squash merge #911; not a password assignment or credential."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "tools/runner/hermes-deals-lidl-gate-d-registration-refresh-dispatch",
+    "line": 219,
+    "commit": "1110a654293c3c2f7243cb3411f1310b3d251000",
+    "reason": "Same reviewed sudoers NOPASSWD command-alias syntax after squash merge #911; not a password assignment or credential."
   }
 ]
