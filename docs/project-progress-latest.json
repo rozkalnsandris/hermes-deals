@@ -560,22 +560,28 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 263,
+  "completed_issue_count": 265,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-09-16T09:16:37.107454Z",
-  "generated_at_local": "2026-09-16T11:16:37.107454+02:00",
+  "generated_at": "2026-09-18T08:59:00.746995Z",
+  "generated_at_local": "2026-09-18T10:59:00.746995+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-09-15",
+  "previous_day": "2026-09-17",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 1,
+  "previous_day_completed_issue_count": 2,
   "previous_day_completed_issues": [
     {
-      "closed_at": "2026-09-15T19:30:35Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/904",
-      "number": 904,
-      "title": "P1 Lidl: restore weekly freshness and bounded safe-partition publication handoff"
+      "closed_at": "2026-09-17T13:51:44Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/910",
+      "number": 910,
+      "title": "P1 Lidl AUTO-RUN FULL: dedicated checkout sync + Gate D registration-refresh bridge"
+    },
+    {
+      "closed_at": "2026-09-17T14:26:01Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/913",
+      "number": 913,
+      "title": "P1 Lidl CI: allowlist #911 post-squash Gate D sudoers gitleaks identities"
     }
   ],
   "previous_day_progress_units": 0,
