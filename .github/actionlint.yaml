@@ -1,0 +1,66 @@
+# Baseline for the legacy workflow findings observed on PR #917 at
+# 41ee5cfd97428c2ccb8fbac07da8bfd50a79c882.
+#
+# Custom runner labels below describe existing repository runner semantics;
+# they are not suppressions. Path-scoped ignore regexes baseline only the
+# exact ShellCheck fingerprints already present. Any new rule, line/column,
+# or workflow path remains blocking.
+
+self-hosted-runner:
+  labels:
+    - hermes-deals-audit
+    - hermes-deals-release
+
+paths:
+  ".github/workflows/hermes-aldi-new-baseline-weekly-shadow.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2024:warning:13:19:'
+  ".github/workflows/hermes-deals-307-bridge.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2024:warning:41:52:'
+      - '^shellcheck reported issue in this script: SC2024:warning:60:44:'
+      - '^shellcheck reported issue in this script: SC2024:warning:77:49:'
+      - '^shellcheck reported issue in this script: SC2024:warning:84:48:'
+      - '^shellcheck reported issue in this script: SC2024:warning:109:50:'
+      - '^shellcheck reported issue in this script: SC2024:warning:42:56:'
+      - '^shellcheck reported issue in this script: SC2024:warning:65:48:'
+      - '^shellcheck reported issue in this script: SC2024:warning:80:56:'
+  ".github/workflows/hermes-edeka-weekly-monitor-control.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2024:warning:14:30:'
+  ".github/workflows/hermes-lidl-gate-d-control.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2024:warning:7:3:'
+  ".github/workflows/netto-heldout-github-capture-v2.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2251:info:4:1:'
+  ".github/workflows/netto-heldout-github-capture.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2251:info:4:1:'
+  ".github/workflows/netto-missing-normal-price-nonroot-preflight-v2.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2015:info:9:21:'
+      - '^shellcheck reported issue in this script: SC2015:info:12:32:'
+      - '^shellcheck reported issue in this script: SC2015:info:14:25:'
+      - '^shellcheck reported issue in this script: SC2015:info:15:25:'
+      - '^shellcheck reported issue in this script: SC2015:info:35:26:'
+  ".github/workflows/netto-missing-normal-price-nonroot-preflight.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2251:info:4:1:'
+  ".github/workflows/netto-object-card-graph-rpi5-audit.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2006:style:4:19:'
+  ".github/workflows/netto-weekly-transition-state.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2251:info:4:1:'
+  ".github/workflows/project-progress.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2034:warning:2:1:'
+  ".github/workflows/w4-serving-preview.yml":
+    ignore:
+      - '^shellcheck reported issue in this script: SC2251:info:77:1:'
+      - '^shellcheck reported issue in this script: SC2251:info:96:1:'
+      - '^shellcheck reported issue in this script: SC2251:info:98:1:'
+      - '^shellcheck reported issue in this script: SC2251:info:99:1:'
+      - '^shellcheck reported issue in this script: SC2251:info:100:1:'
+      - '^shellcheck reported issue in this script: SC2251:info:145:1:'
