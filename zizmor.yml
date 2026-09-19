@@ -1,0 +1,49 @@
+# Baseline for the legacy medium-or-higher zizmor findings observed on PR #917
+# at 41ee5cfd97428c2ccb8fbac07da8bfd50a79c882.
+#
+# Every ignore is audit- and line-scoped. Moving/fixing an existing finding,
+# or introducing a new finding anywhere else, remains blocking.
+
+rules:
+  excessive-permissions:
+    ignore:
+      - aldi-a30-authoritative-cycle-rpi5.yml:13
+      - aldi-a30-authoritative-cycle-rpi5.yml:14
+      - aldi-gate-d1-evidence-discovery-overlay-v2.yml:13
+      - aldi-gate-d1-evidence-discovery-overlay-v2.yml:14
+      - aldi-gate-d1-evidence-discovery-rpi5.yml:13
+      - aldi-gate-d1-evidence-discovery-rpi5.yml:14
+      - aldi-gate-d2-legacy-family-diagnostic-rpi5.yml:13
+      - aldi-gate-d2-legacy-family-diagnostic-rpi5.yml:14
+      - edeka-accounted-live-provenance-derivation.yml:14
+      - edeka-live-provenance-derivation.yml:15
+  template-injection:
+    ignore:
+      - hermes-aldi-new-baseline-weekly-shadow-producer.yml:36
+      - hermes-aldi-visual-card-bridge-v2.yml:36
+      - hermes-aldi-visual-identity-carrier-diagnostic.yml:36
+  dangerous-triggers:
+    ignore:
+      - netto-card-region-topology-rpi5-audit.yml:3
+      - netto-geometry-rpi5-replay.yml:3
+      - netto-heldout-adjudication.yml:3
+      - netto-heldout-github-capture-v2.yml:3
+      - netto-heldout-github-capture.yml:3
+      - netto-heldout-review-pack.yml:3
+      - netto-heldout-source-truth-ledger.yml:3
+      - netto-hz33-adjudication-evidence-freeze.yml:3
+      - netto-hz33-completed-truth-import-v3.yml:3
+      - netto-hz33-disagreement-taxonomy-v2.yml:3
+      - netto-hz34-blind-review-pack.yml:3
+      - netto-hz34-completed-truth-import.yml:3
+      - netto-hz37-blind-review-pack.yml:3
+      - netto-hz37-completed-truth-import.yml:3
+      - netto-hz37-v2-adjudication.yml:3
+      - netto-local-span-hz33-training.yml:3
+      - netto-missing-normal-price-nonroot-preflight-v2.yml:3
+      - netto-missing-normal-price-nonroot-preflight.yml:3
+      - netto-missing-normal-price-rpi5-audit.yml:3
+      - netto-object-card-graph-rpi5-audit.yml:3
+      - netto-ownership-separator-rpi5-audit.yml:3
+      - netto-parent-unit-hz33-audit.yml:3
+      - netto-shadow-rpi5-audit.yml:3

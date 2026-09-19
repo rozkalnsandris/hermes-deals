@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+      - "zizmor.yml"
       - "renovate.json"
   workflow_dispatch:
 
