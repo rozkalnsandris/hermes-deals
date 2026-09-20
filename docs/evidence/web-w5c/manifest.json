@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "issue": 922,
+  "capture_date": "2026-09-20",
+  "browser": {
+    "product": "Chrome/153.0.8010.52",
+    "protocol_version": "1.3"
+  },
+  "viewports": {
+    "desktop": [
+      1365,
+      768
+    ],
+    "mobile": [
+      390,
+      844
+    ]
+  },
+  "flows": [
+    "weekly",
+    "deals",
+    "shopping-list-drawer",
+    "deal-detail"
+  ],
+  "privacy": {
+    "cookies_recorded": false,
+    "storage_recorded": false,
+    "request_headers_recorded": false,
+    "response_bodies_recorded": false,
+    "query_strings_recorded": false
+  },
+  "deployed_release_baseline": {
+    "git_sha": "4a4ec0ae1ec4501d7de9262302bc3ee43a7ab120",
+    "api_image_id": "sha256:10b588cc165fb845509cd2e9bdc68dd9cab5c13b7aa81509b75a126d5f5775b5",
+    "api_image_tag": "hermes-deals-api:main-4a4ec0ae1ec4",
+    "rpi5_checkout_sha": "75bd01b54459c72bc5bed90a3ee3f6e80b271371",
+    "ui_release": "reference-v1",
+    "ui_bundle": "minimal-v2",
+    "ui_base": "control-room-v1",
+    "capture_origin": "http://127.0.0.1:19128",
+    "transport": "Lenovo loopback SSH local-forward to RPi5 127.0.0.1:9128; read-only browser interactions",
+    "coverage": {
+      "desktop": {
+        "total_css_bytes": 153096,
+        "coverage_entries": 394,
+        "used_entries": 394,
+        "unused_entries": 0,
+        "observed_rule_bytes": 67104,
+        "used_rule_bytes": 67104
+      },
+      "mobile": {
+        "total_css_bytes": 153096,
+        "coverage_entries": 714,
+        "used_entries": 714,
+        "unused_entries": 0,
+        "observed_rule_bytes": 82550,
+        "used_rule_bytes": 82550
+      },
+      "union_unique_entries": 590,
+      "union_used_entries": 590,
+      "union_unused_entries": 0,
+      "union_observed_rule_bytes": 83490,
+      "stylesheet_total_bytes": 153096,
+      "unclassified_or_non_rule_bytes": 69606
+    },
+    "files": [
+      {
+        "file": "desktop-coverage.json",
+        "bytes": 108806,
+        "sha256": "24fcfc84c71b838ab223ee355e0758bc8c676163f2efbf64bb6c406608021f24"
+      },
+      {
+        "file": "desktop-deals.png",
+        "bytes": 130931,
+        "sha256": "8227f3e05b7ad52500468f30caf744037feb3383b9ee4e2771027a06d3666eab"
+      },
+      {
+        "file": "desktop-detail.png",
+        "bytes": 170984,
+        "sha256": "03cb9a0e81eabd62b93be6dfdb629bc38c9b4a9ae98f53011d7eaa610b20a8ea"
+      },
+      {
+        "file": "desktop-interaction.json",
+        "bytes": 1078,
+        "sha256": "2a70bdc576fb0b8255e17014d09553a00b358e9b7a06c2043433d3c61ef58675"
+      },
+      {
+        "file": "desktop-list.png",
+        "bytes": 128080,
+        "sha256": "c3e835635deb13ffe01e4fc924a9310b2d573384057af291ed200f562028521d"
+      },
+      {
+        "file": "desktop-weekly.png",
+        "bytes": 117851,
+        "sha256": "95e1a0cd3ea41db82e8b120445c0ea4d1e7c4505060334f52ed6d858bca47d73"
+      },
+      {
+        "file": "mobile-coverage.json",
+        "bytes": 168957,
+        "sha256": "0ba69facc6e552c4c8371b63e5a42cbdf254a1c43711bbcc472f836ac8fc0ed5"
+      },
+      {
+        "file": "mobile-deals.png",
+        "bytes": 66811,
+        "sha256": "0cf9c2418ee13dc3a6b4a104935da741e273e13aee293463a75701e1afbc0631"
+      },
+      {
+        "file": "mobile-detail.png",
+        "bytes": 72403,
+        "sha256": "9a57adb19492333aae681773de8eb2f5eb2a7efc1555b51d74118ed3cf82a96c"
+      },
+      {
+        "file": "mobile-interaction.json",
+        "bytes": 1068,
+        "sha256": "cd7f64abb0252bd05c9969ca5e221923e9e6749698c74d329c80a259f608b4bc"
+      },
+      {
+        "file": "mobile-list.png",
+        "bytes": 29202,
+        "sha256": "d29b2a592d906f6ad0f47c474a168e10f485ca7ae27608a680678157d5012bd6"
+      },
+      {
+        "file": "mobile-weekly.png",
+        "bytes": 63467,
+        "sha256": "26c7d7a00be6447d610da937cf95951c475971384c6503d7a621ecffb2a79df5"
+      }
+    ]
+  },
+  "current_main_presentation": {
+    "git_sha": "924bc354df8516443b3939599448b6c8c93328b9",
+    "production_bundle_sha256": "88e056cc5c5097c520ebb2e3f784eac845aff76a37e6a218ecdcb2f7d20507ad",
+    "production_bundle_bytes": 302626,
+    "ui_release": "reference-v1",
+    "ui_bundle": "minimal-v2",
+    "ui_base": "control-room-v1",
+    "capture_origin": "http://127.0.0.1:19129",
+    "transport": "Lenovo exact-main production bundle served locally; GET/HEAD-only proxy to RPi5 API via loopback forward; write methods rejected with HTTP 405",
+    "coverage": {
+      "desktop": {
+        "total_css_bytes": 153555,
+        "coverage_entries": 396,
+        "used_entries": 396,
+        "unused_entries": 0,
+        "observed_rule_bytes": 67553,
+        "used_rule_bytes": 67553
+      },
+      "mobile": {
+        "total_css_bytes": 153555,
+        "coverage_entries": 716,
+        "used_entries": 716,
+        "unused_entries": 0,
+        "observed_rule_bytes": 82999,
+        "used_rule_bytes": 82999
+      },
+      "union_unique_entries": 592,
+      "union_used_entries": 592,
+      "union_unused_entries": 0,
+      "union_observed_rule_bytes": 83939,
+      "stylesheet_total_bytes": 153555,
+      "unclassified_or_non_rule_bytes": 69616
+    },
+    "files": [
+      {
+        "file": "desktop-coverage.json",
+        "bytes": 109462,
+        "sha256": "6eae2191faefb31fdbe271bd72681a76d3e89c522268d1f6d50c3cfbdbb5cb94"
+      },
+      {
+        "file": "desktop-deals.png",
+        "bytes": 130023,
+        "sha256": "c7ccd0276b8aca7b38b9987355e9b66bb37d7321cfde829f19192f753f4259ef"
+      },
+      {
+        "file": "desktop-detail.png",
+        "bytes": 170789,
+        "sha256": "b5c4e780543283e86b9ca1f378d6cc29fbf2bbd69df573b99e94cce5135127d7"
+      },
+      {
+        "file": "desktop-interaction.json",
+        "bytes": 1078,
+        "sha256": "927ad737ef61ea275a28c5a28d06d636b0eade824a45597cd4a03e3cc63e9e86"
+      },
+      {
+        "file": "desktop-list.png",
+        "bytes": 127961,
+        "sha256": "94b8a66991cfbff4ba1d553f0cfce14516ca190775fbe4c4da57f5ff47b0975d"
+      },
+      {
+        "file": "desktop-weekly.png",
+        "bytes": 130521,
+        "sha256": "98170dbbab551c90b6f5b3abb0beb829c5c2103b4bd1cb815de02ac3106147f3"
+      },
+      {
+        "file": "mobile-coverage.json",
+        "bytes": 169613,
+        "sha256": "da7e6e3bba427f32adbf70889c021f34b734cc21219a13e958ce063f5232d04a"
+      },
+      {
+        "file": "mobile-deals.png",
+        "bytes": 66081,
+        "sha256": "3e61874597ebf53249f8d079a3e6dcfa71ede90d320ec6c78512fcdae2d38afb"
+      },
+      {
+        "file": "mobile-detail.png",
+        "bytes": 72403,
+        "sha256": "9a57adb19492333aae681773de8eb2f5eb2a7efc1555b51d74118ed3cf82a96c"
+      },
+      {
+        "file": "mobile-interaction.json",
+        "bytes": 1068,
+        "sha256": "d044018fd09a7a8b1614509dd399af260da7b93519fabab45a0c75bb232f8ef4"
+      },
+      {
+        "file": "mobile-list.png",
+        "bytes": 29195,
+        "sha256": "31a4af39d67d7cd3f8336c65900669c230bd4eaa126fb3d4a7b5b6d3f5e315d9"
+      },
+      {
+        "file": "mobile-weekly.png",
+        "bytes": 60354,
+        "sha256": "e2a1474d47c7c1dfc41ff9b167c291bc017a27bc98181adec8c2367d72de6839"
+      }
+    ]
+  },
+  "interpretation": {
+    "unused_means": "not observed used during a captured interaction path",
+    "globally_dead_claimed": false,
+    "destructive_cleanup_authorized": false,
+    "cleanup_outcome": "no destructive CSS cleanup is justified by W5C evidence; unobserved bytes remain unknown/not exercised or non-rule bytes"
+  }
+}

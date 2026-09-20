@@ -1,0 +1,43 @@
+{
+  "label": "mobile",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "release": {
+    "release": "reference-v1",
+    "bundle": "minimal-v2",
+    "base": "control-room-v1",
+    "production_bundle": "inline-v1",
+    "title": "Hermes Deals",
+    "url": "http://127.0.0.1:19128/ui?mode=deals&date=2026-09-19"
+  },
+  "interactions": [
+    "weekly-visible",
+    "deals-mode",
+    "list-drawer-open",
+    "deal-detail-open"
+  ],
+  "screenshots": [
+    {
+      "file": "mobile-weekly.png",
+      "sha256": "26c7d7a00be6447d610da937cf95951c475971384c6503d7a621ecffb2a79df5",
+      "bytes": 63467
+    },
+    {
+      "file": "mobile-deals.png",
+      "sha256": "0cf9c2418ee13dc3a6b4a104935da741e273e13aee293463a75701e1afbc0631",
+      "bytes": 66811
+    },
+    {
+      "file": "mobile-list.png",
+      "sha256": "d29b2a592d906f6ad0f47c474a168e10f485ca7ae27608a680678157d5012bd6",
+      "bytes": 29202
+    },
+    {
+      "file": "mobile-detail.png",
+      "sha256": "9a57adb19492333aae681773de8eb2f5eb2a7efc1555b51d74118ed3cf82a96c",
+      "bytes": 72403
+    }
+  ]
+}

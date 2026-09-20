@@ -201,5 +201,12 @@
     "line": 219,
     "commit": "1110a654293c3c2f7243cb3411f1310b3d251000",
     "reason": "Same reviewed sudoers NOPASSWD command-alias syntax after squash merge #911; not a password assignment or credential."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "docs/WEB_W5C_BROWSER_EVIDENCE.md",
+    "line": 15,
+    "commit": "793a7037d6ccd48f969688f75027d81bd59fb870",
+    "reason": "Public OCI image SHA-256 digest recorded as immutable deployed-runtime provenance; not authentication material."
   }
 ]
