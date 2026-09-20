@@ -208,5 +208,12 @@
     "line": 15,
     "commit": "793a7037d6ccd48f969688f75027d81bd59fb870",
     "reason": "Public OCI image SHA-256 digest recorded as immutable deployed-runtime provenance; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": "docs/WEB_W5C_BROWSER_EVIDENCE.md",
+    "line": 15,
+    "commit": "401e8f4f046a3ebc59e527430e52208269b5a974",
+    "reason": "Same public OCI image SHA-256 provenance digest after PR #923 reached main via squash merge; not authentication material."
   }
 ]
