@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "status": "canonical",
+  "decision_date": "2026-09-20",
+  "repository": "rozkalnsandris/hermes-deals",
+  "human_contract": "docs/WEB_ARCHITECTURE.md",
+  "system_architecture": "docs/ARCHITECTURE.md",
+  "execution_tracker_issue": 319,
+  "goal": "Online family grocery-deals and price-comparison Web application with server-side truth, immutable retailer provenance and real-time synchronization.",
+  "canonical_stack": {
+    "application": "FastAPI",
+    "database": "PostgreSQL",
+    "templates": "Jinja",
+    "interaction": "HTMX",
+    "markup": "semantic HTML",
+    "styling": "plain CSS",
+    "client_javascript": "minimal Vanilla JS for browser-specific behavior only",
+    "realtime": "Server-Sent Events (SSE)",
+    "public_access": "Cloudflare Access/Tunnel"
+  },
+  "truth_boundaries": {
+    "application_source_of_truth": "PostgreSQL",
+    "retailer_provenance": "immutable source evidence",
+    "domain_logic": "shared Python services",
+    "html_and_json_must_share_domain_services": true,
+    "browser_business_state_is_authoritative": false,
+    "sse_events_are_authoritative": false,
+    "browser_business_rules_allowed": false
+  },
+  "online_only": {
+    "required": true,
+    "offline_application_behavior": false,
+    "indexeddb_application_state": false,
+    "dexie": false,
+    "offline_outbox": false,
+    "background_sync": false,
+    "offline_mutation_reconciliation": false,
+    "service_worker_business_state_cache": false,
+    "web_app_manifest_may_be_used_for_installability": true
+  },
+  "realtime_contract": {
+    "write_transport": "authenticated HTTP",
+    "server_to_client_transport": "SSE",
+    "sse_role": "invalidation/update notification",
+    "client_must_reread_authoritative_state_after_consequential_event": true,
+    "polling_allowed_when_simpler": true,
+    "websocket_default_allowed": false,
+    "websocket_requires_explicit_owner_architecture_decision": true
+  },
+  "presentation_contract": {
+    "full_pages": "Jinja",
+    "partial_updates": "HTMX",
+    "css": "plain CSS",
+    "javascript_scope": [
+      "focus lifecycle",
+      "dialogs and narrowly scoped browser UI behavior",
+      "mobile navigation behavior not cleanly expressible with HTML/HTMX",
+      "narrow browser APIs such as Wake Lock when justified"
+    ],
+    "javascript_must_not_be_domain_state_machine": true,
+    "full_page_navigation_fallback_preferred": true
+  },
+  "comparison_capabilities": {
+    "current_price_comparison": true,
+    "historical_price_comparison": true,
+    "unit_price_comparison": true,
+    "package_compatibility": true,
+    "validity_windows": true,
+    "app_coupon_loyalty_constraints": true,
+    "preferred_store_constraints": true,
+    "historical_baseline_signals": true,
+    "store_trip_friction": true,
+    "shopping_list_aggregation": true,
+    "basket_store_optimization": true,
+    "implementation_boundary": "shared Python/PostgreSQL domain services"
+  },
+  "noncanonical_defaults": [
+    "SvelteKit",
+    "React",
+    "Vue",
+    "Angular",
+    "other SPA frameworks",
+    "Tailwind as canonical styling layer",
+    "Node production application server",
+    "client-side SPA state management",
+    "IndexedDB/Dexie application state",
+    "offline outbox",
+    "Background Sync",
+    "offline mutation reconciliation",
+    "service-worker business-state caching for offline behavior",
+    "mandatory WebSocket transport",
+    "duplicated browser-side pricing/comparison/matching/validity/Review logic"
+  ],
+  "build_policy": {
+    "small_deterministic_build_only_tooling_allowed": true,
+    "must_be_pinned": true,
+    "must_be_reproducible": true,
+    "may_create_second_production_application_runtime": false
+  },
+  "css_target_order": [
+    "tokens",
+    "base",
+    "layout",
+    "controls",
+    "components",
+    "features",
+    "responsive",
+    "utilities"
+  ],
+  "migration_order": [
+    "freeze architecture contracts",
+    "collect representative W5C browser/Coverage/interaction evidence",
+    "extract shared Python services where needed",
+    "Jinja/HTMX Deals vertical slice",
+    "Weekly migration",
+    "product/detail and price-comparison migration",
+    "shopping-list migration",
+    "Review migration",
+    "add SSE only for concrete realtime needs",
+    "retire legacy browser rendering after parity evidence",
+    "complete accessibility/cache/CSP/performance hardening",
+    "final production proof from exact deployed release"
+  ],
+  "change_gate": {
+    "requires_explicit_owner_architecture_decision": [
+      "canonical framework/runtime model",
+      "online-only requirement",
+      "source-of-truth boundary",
+      "HTTP plus SSE realtime model",
+      "introduction of offline application state",
+      "Node production application runtime"
+    ],
+    "must_update_together": [
+      "docs/ARCHITECTURE.md",
+      "docs/WEB_ARCHITECTURE.md",
+      ".github/web-architecture-v1.json",
+      "GitHub issue #319"
+    ],
+    "merge_implies_live_authority": false
+  }
+}

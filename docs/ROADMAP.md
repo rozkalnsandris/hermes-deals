@@ -1,6 +1,6 @@
 # Hermes Deals roadmap
 
-_Last updated: 2026-08-19 (Europe/Berlin)_
+_Last updated: 2026-09-20 (Europe/Berlin)_
 
 ## Progress model contract
 
@@ -10,6 +10,23 @@ _Last updated: 2026-08-19 (Europe/Berlin)_
 - **Kaufland is not weighted in V2.** The visible V2 overall percentage therefore describes the legacy four-store weighted baseline, not a five-store completion percentage.
 - Adding Kaufland to the weighted overall percentage requires an explicit **Project Progress V3 rebaseline** with reviewed weights and migration rules; no V3 weights are invented in this remediation.
 - Detailed scope and migration rules: [`docs/PROJECT_PROGRESS_SCOPE.md`](PROJECT_PROGRESS_SCOPE.md).
+
+## Canonical Web direction
+
+The canonical Hermes Deals Web target is server-driven and online-only:
+
+`FastAPI + PostgreSQL + Jinja + HTMX + semantic HTML + plain CSS + minimal Vanilla JS + SSE + Cloudflare Access/Tunnel`.
+
+Normative Web contracts:
+
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — system-level architecture;
+- [`docs/WEB_ARCHITECTURE.md`](WEB_ARCHITECTURE.md) — detailed Web contract and migration plan;
+- [`.github/web-architecture-v1.json`](../.github/web-architecture-v1.json) — machine-readable invariants;
+- GitHub issue #319 — active execution roadmap.
+
+The former SvelteKit/Tailwind/IndexedDB/Dexie/offline-first/WebSocket-default direction is superseded. Hermes Deals Web requires connectivity and uses ordinary authenticated HTTP writes plus SSE for server-to-client real-time invalidation/update signals. Price comparison, price history, unit/package comparison, app/coupon/validity constraints and future basket/store optimization remain shared Python/PostgreSQL domain responsibilities, not browser business logic.
+
+Architecture drift to a SPA framework, Node production application server, offline application state or WebSocket-default design requires a new explicit owner architecture decision and synchronized updates to all canonical Web contracts.
 
 ## Current remediation sequence
 
@@ -42,6 +59,5 @@ Production deploys, production DB/Review/publication writes, source apply, retai
 - Phase 3D: reviewed canonical-product seeding + controlled confirmed links + derived price-history API — done
 - Phase 3E: first read-only mobile UI vertical slice for products, offers and price history — done
 - Phase 4: basic basket comparison — done; family preferences, deal scoring and store-trip optimization remain
-- Phase 5: Current/Upcoming family deal UI and auditable Lidl Review workflow — delivered incrementally; household authentication, shared multi-user state and offline/realtime PWA remain
-- Stability 0.3.13: exact-running-image verification, Alembic metadata parity, server-side deal pagination, clean test-client lifecycle and Netto PDF validity fallback — done in repository; production deployment remains a separate controlled gate
+- Phase 5: Current/Upcoming family deal UI and auditable Lidl Review workflow — delivered incrementally; household authentication, shared multi-user online state, Jinja/HTMX migration and SSE real-time synchronization remain
 - Phase 6: recipes + meal planner + ingredient aggregation
