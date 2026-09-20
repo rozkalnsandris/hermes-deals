@@ -134,8 +134,18 @@
       "docs/ARCHITECTURE.md",
       "docs/WEB_ARCHITECTURE.md",
       ".github/web-architecture-v1.json",
-      "GitHub issue #319"
+      "GitHub issue #319",
+      "README.md",
+      "AGENTS.md"
     ],
     "merge_implies_live_authority": false
+  },
+  "operator_contract": "AGENTS.md",
+  "project_entrypoint": "README.md",
+  "ci_guard": {
+    "validator": "scripts/validate-web-architecture.py",
+    "workflow": ".github/workflows/web-architecture-guard.yml",
+    "must_pass_on_pull_request": true,
+    "guard_scope": "canonical contract consistency; legacy terms may remain only as explicitly non-canonical migration context"
   }
 }

@@ -13,6 +13,8 @@
   ·
   <a href="docs/ARCHITECTURE.md">Architecture</a>
   ·
+  <a href="docs/WEB_ARCHITECTURE.md">Web architecture</a>
+  ·
   <a href="docs/ROADMAP.md">Roadmap</a>
   ·
   <a href="docs/PROJECT_PROGRESS.md">Progress model</a>
@@ -32,7 +34,8 @@ identities, and turns the result into a practical shopping UI for the household.
 | | |
 |---|---|
 | **Retailers** | Netto Marken-Discount · Lidl · ALDI Nord · EDEKA Patzer |
-| **Stack** | FastAPI · PostgreSQL · SQLAlchemy · Nginx · Docker Compose |
+| **Current runtime** | FastAPI · PostgreSQL · SQLAlchemy · Nginx · Docker Compose |
+| **Canonical Web target** | FastAPI + PostgreSQL + Jinja + HTMX + semantic HTML + plain CSS + minimal Vanilla JS + SSE + Cloudflare Access/Tunnel |
 | **Runtime** | Raspberry Pi 5 · Cloudflare Access-protected public app |
 | **Principles** | immutable evidence · source-bound identity · fail-closed review · auditable writes |
 
@@ -103,7 +106,7 @@ links; fuzzy similarity remains candidate evidence only.
 - Lidl Review UI, provenance-bound previews and controlled approval gates
 - current/upcoming deal API with server-side pagination
 - canonical product links, derived price history and basket comparison
-- Nginx single-origin `/`, `/api`, `/ws` layout
+- current migration runtime still exposes the Nginx single-origin `/`, `/api`, `/ws` layout; `/ws` is legacy migration surface, while the canonical real-time target is authenticated HTTP plus SSE
 - Docker Compose on Raspberry Pi 5
 - regression/unit tests and exact-running-image verification gates
 
@@ -119,7 +122,7 @@ links; fuzzy similarity remains candidate evidence only.
 - retailer/store identity and validity dates must come from explicit source
   evidence, never URL-number or calendar-week inference.
 
-See `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, and `docs/CODE_REVIEW_2026-07-24.md`.
+See `docs/ARCHITECTURE.md`, `docs/WEB_ARCHITECTURE.md`, `docs/ROADMAP.md`, and `docs/CODE_REVIEW_2026-07-24.md`.
 
 ### Product identity
 
