@@ -28,30 +28,38 @@ The former SvelteKit/Tailwind/IndexedDB/Dexie/offline-first/WebSocket-default di
 
 Architecture drift to a SPA framework, Node production application server, offline application state or WebSocket-default design requires a new explicit owner architecture decision and synchronized updates to all canonical Web contracts.
 
-## Current remediation sequence
+## Current continuity / priority gates
 
-Current exact repository baseline after the Kaufland K2 preflight merge: `f47d91778b272210124d050fef4f5a1e25d8071f`.
+Mutable execution state is deliberately **not pinned to an old repository SHA in this roadmap**. Before acting, re-read the current GitHub state and use these live continuity trackers together:
 
-1. **Progress / roadmap alignment — COMPLETE** — PR #723 squash-merged as `9143a2f41c4885f3f211821542aaa369dea3803c`. V2 remains the historical four-store weighted model; Kaufland remains unweighted until an explicit V3 rebaseline.
-2. **Security self-hosted action remediation — COMPLETE** — child PRs #599 → #598 → #725 were merged, then scanner PR #581 was refreshed on the combined `main` and squash-merged as `c2d105969ae793ffeb8d9fc78540362135f510c3`. Final scanner result: `PUBLIC_SELF_HOSTED_MUTABLE_ACTION_COUNT=0` with full CI PASS.
-3. **Kaufland K0-K1 — COMPLETE IN SOURCE** — PR #718 squash-merged as `44e2ae511f3ead4c5720f550d0718faf29eca551` after the exact-store live probe passed for Dortmund-Aplerbeck / store `1503`.
-4. **Kaufland K2 source/freeze-identity preflight — COMPLETE IN SOURCE** — PR #726 squash-merged as `f47d91778b272210124d050fef4f5a1e25d8071f`. The dedicated live preflight proved 4 exact-store validity families and deterministic freeze identities while keeping retained evidence, raw material, corpus, production DB/Review/publication/deploy, scheduler and systemd writes disabled.
-5. **Kaufland K2 retained immutable evidence freeze — NEXT OWNER-ONLY GATE** — issue #701 acceptance still requires retaining the exact evidence bytes/manifest in an explicitly reviewed safe retained location with create-once semantics. This is a write boundary and must not run from generic `turpini`; it requires separate explicit owner authorization bound to the then-current reviewed `main` and approved freeze scope.
-6. **ALDI runtime alignment — HOLD** — do not reuse the older exact-SHA RPi5 authorization after `main` moved. Any checkout/registration/root/host action requires a new separately explicit authorization bound to the then-current reviewed SHA.
+- issue #35 — project sequencing / next steps;
+- issue #39 — retailer source-truth tracker;
+- issue #319 — server-driven Web migration roadmap;
+- the exact current child issue/PR and its current-head checks/reviews.
 
-Production deploys, production DB/Review/publication writes, source apply, retained evidence/corpus writes, scheduler/systemd activation and host/root changes remain separate explicit-authorization gates.
+Current audited continuation on 2026-09-20:
+
+1. **Lidl — validated baseline complete; maintenance priority.** Preserve full physical-store booklet correctness, provenance and UI visibility. Do not regress the completed Lidl baseline while advancing other lanes.
+2. **Netto #28 — EVIDENCE-WAIT.** The source workflow has genuine unattended Sunday/Monday `00:10 Europe/Berlin` schedule observations. Only real `schedule` evidence and distinct qualifying transitions satisfy acceptance; manual dispatch, synthetic history, replay or canary does not substitute. Do not manufacture evidence to accelerate the gate.
+3. **Netto #321 — BLOCKED_DEPENDENCY at an owner/LIVE host gate.** The original Lillet/Melitta/Softlan/Veltins normal-price anchors still lack one exact integrated source/replay/finalizer proof. The remaining authoritative frozen-corpus path requires the already-defined host/root finalizer or an explicit permissions redesign. Do not guess parser heuristics. Any host/root/permission mutation requires separate LIVE authorization.
+4. **Kaufland #701 — CLOSED / COMPLETED.** The old roadmap wording that treated the K2 retained-evidence freeze as the next owner-only gate is retired; #701 is no longer a current gate.
+5. **Web W5C — COMPLETE via #922 / PR #923.** Representative desktop/mobile Chrome Coverage and interaction/visual evidence found no basis for destructive CSS deletion. Preserve the surviving cascade; unobserved bytes remain unknown/not-exercised or non-rule evidence, not globally dead CSS.
+6. **Web M1 — NEXT UNBLOCKED SOURCE/EVIDENCE LANE while Netto waits/is blocked.** Reconcile the already-merged #812 / PR #822 mobile/accessibility source baseline against current `main` with representative browser evidence: five-action mobile navigation, desktop/mobile responsive behavior, keyboard traversal, drawer/detail focus lifecycle, visible focus, reduced motion and absence of the retired legacy zoom workaround. Make only bounded fixes for evidence-proven regressions. If M1 acceptance passes, continue to M2 rather than re-implementing the existing M1 source baseline.
+7. **Other retailer/runtime lanes** remain subordinate to #35/#39 and their own evidence/owner/LIVE boundaries; an old exact-SHA runtime authorization must never be reused after `main` moves.
+
+Production deploys, production DB/Review/publication writes, source apply, retained evidence/corpus writes, scheduler/systemd activation, host/root changes, permissions changes and other LIVE mutations remain separate explicit-authorization gates.
 
 ## Delivery roadmap
 
 - Phase 1: foundation + source feasibility — done
-- Phase 2A: Netto parser + persisted offers — done
+- Phase 2A: Netto parser + persisted offers — done; #28 unattended-transition acceptance remains evidence-wait and #321 original four-anchor proof remains owner/LIVE-blocked
 - Phase 2B1–2B18: Lidl discovery, OCR, precision, shadow mapping and immutable source binding — done
 - Phase 2B19–2B27: Lidl controlled persistence + idempotence/concurrency/read-isolation hardening — done
 - Phase 2B42: controlled fifth Lidl offer (Penne Rigate) with corrected-price/name provenance — done
 - Phase 2C: ALDI Nord structured collector + persistence — done; scheduled-run acceptance remains an operational audit
 - Phase 2D: EDEKA Patzer store-aware collector + persistence — done; scheduled-run acceptance remains an operational audit
 - Phase 2K0–K1: Kaufland Dortmund-Aplerbeck source feasibility and exact-store live-source binding — done in source via #718
-- Phase 2K2-preflight: Kaufland exact-store overlapping-campaign identity, validity separation, stable manifest/freeze identity and create-once collision semantics — done in source via #726; actual retained immutable evidence freeze remains the next owner-only #701 gate
+- Phase 2K2: Kaufland exact-store overlapping-campaign identity, validity separation, stable manifest/freeze identity and immutable evidence-freeze lineage — completed through #701; do not treat the retired pre-#701 owner gate as current
 - Phase 3A: production data / price-history / cross-store matching design audit — done
 - Phase 3B0: product-identity truth sync + GTIN/identifier evidence + schema ADR — done
 - Phase 3B: versioned offer normalization + canonical products + match-candidate history + confirmed-link schema — done
@@ -59,5 +67,5 @@ Production deploys, production DB/Review/publication writes, source apply, retai
 - Phase 3D: reviewed canonical-product seeding + controlled confirmed links + derived price-history API — done
 - Phase 3E: first read-only mobile UI vertical slice for products, offers and price history — done
 - Phase 4: basic basket comparison — done; family preferences, deal scoring and store-trip optimization remain
-- Phase 5: Current/Upcoming family deal UI and auditable Lidl Review workflow — delivered incrementally; household authentication, shared multi-user online state, Jinja/HTMX migration and SSE real-time synchronization remain
+- Phase 5: Current/Upcoming family deal UI and auditable Lidl Review workflow — delivered incrementally; canonical server-driven Web migration is active. W5C evidence is complete, M1 is an acceptance/reconciliation gate over the existing mobile/accessibility baseline, then M2–M8 proceed as bounded child work before M9 production proof
 - Phase 6: recipes + meal planner + ingredient aggregation
