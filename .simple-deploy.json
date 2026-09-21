@@ -1,0 +1,41 @@
+{
+  "schema": "rozkalns.simple-deploy.consumer.v1",
+  "repository": "rozkalnsandris/hermes-deals",
+  "image": "ghcr.io/rozkalnsandris/hermes-deals",
+  "build": {
+    "context": "backend",
+    "dockerfile": "backend/Dockerfile",
+    "architecture": "linux/arm64"
+  },
+  "target": {
+    "alias": "hermes-deals",
+    "runtime_class": "rpi5-compose"
+  },
+  "compose": {
+    "project": "hermes-deals",
+    "file": "docker-compose.yml",
+    "service": "api"
+  },
+  "health": {
+    "liveness_path": "/api/health",
+    "readiness": {
+      "state": "not-applicable"
+    }
+  },
+  "persistence": {
+    "volumes": [
+      "hermes_deals_pgdata"
+    ]
+  },
+  "registry": {
+    "pull_profile": "public-anonymous-pull"
+  },
+  "forbidden_operations": [
+    "database-schema-data-mutation",
+    "destructive-recovery",
+    "secrets-credentials-permissions",
+    "cloudflare-dns-network",
+    "private-provider-activation",
+    "unrelated-host-control"
+  ]
+}
