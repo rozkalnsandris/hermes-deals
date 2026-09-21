@@ -29,6 +29,7 @@ def _noop_stage_recorder(_name: str, _started: float) -> None:
     return None
 
 
+@dataclass(frozen=True)
 class _OfferMeta:
     id: UUID
     source_chain: str
