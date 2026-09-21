@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "ref": "bc82c09c861fe5ce15891ca9fe7de9e23d0a41eb",
+    "htmlSha256": "88e056cc5c5097c520ebb2e3f784eac845aff76a37e6a218ecdcb2f7d20507ad"
+  },
+  "browser": {
+    "product": "Chrome/153.0.8010.52",
+    "protocolVersion": "1.3",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36"
+  },
+  "mobile": {
+    "initial": {
+      "viewport": [
+        390,
+        844
+      ],
+      "bodyZoom": "1",
+      "drawerInert": true,
+      "drawerHidden": "true",
+      "bottomLabels": [
+        "Pārskats",
+        "Piedāvājumi",
+        "Salīdzināt",
+        "Pārskatīšana",
+        "Saraksts"
+      ],
+      "focusOutline": {
+        "tag": "A",
+        "id": "",
+        "style": "solid",
+        "width": "3px",
+        "color": "rgb(31, 122, 80)"
+      }
+    },
+    "drawer": {
+      "opened": {
+        "open": true,
+        "inert": false,
+        "hidden": "false",
+        "activeId": "closeList"
+      },
+      "closed": {
+        "open": false,
+        "inert": true,
+        "hidden": "true",
+        "focusReturned": true
+      }
+    },
+    "detail": {
+      "opened": {
+        "inert": false,
+        "hidden": "false",
+        "role": "dialog",
+        "modal": "true",
+        "activeId": "closeDetail"
+      },
+      "closed": {
+        "inert": true,
+        "hidden": "true",
+        "focusReturned": true
+      }
+    },
+    "reducedMotion": {
+      "match": true,
+      "transitionDuration": "1e-05s",
+      "animationDuration": "1e-05s",
+      "scrollBehavior": "auto"
+    }
+  },
+  "desktop": {
+    "initial": {
+      "viewport": [
+        1365,
+        768
+      ],
+      "bodyZoom": "1",
+      "mainCount": 1
+    },
+    "tabTrap": {
+      "first": "closeList",
+      "last": "clearList",
+      "forward": "closeList",
+      "backward": "clearList"
+    }
+  },
+  "acceptance": {
+    "checks": {
+      "fiveMobileActions": true,
+      "initialDrawerInert": true,
+      "visibleFocus": true,
+      "drawerLifecycle": true,
+      "detailLifecycle": true,
+      "reducedMotion": true,
+      "oneMainLandmark": true,
+      "tabTrap": true,
+      "effectiveZoomOne": true
+    },
+    "pass": true,
+    "failed": []
+  }
+}
