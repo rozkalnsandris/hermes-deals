@@ -18,7 +18,6 @@ BOT_ACTOR = "github-actions[bot]"
 CONTROL_APP_ACTOR = "rozkalns-control[bot]"
 CONTROL_APP_ACTOR_ID = 316106438
 COMMAND_RE = re.compile(r"/hermes-deploy current-main sha=(?P<sha>[0-9a-f]{40})")
-CONTROL_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{15,127}")
 
 
 class DeployMainAuthorizationError(ValueError):
@@ -31,7 +30,6 @@ class AuthorizedDeployMain:
     ci_run_id: int
     authorization_mode: str
     authorization_comment_id: int | None
-    control_request_id: str | None
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -85,12 +83,25 @@ def _validate_bot_comment(
     return comment_id
 
 
+def _validate_control_app_actor(
+    *, actor: str, token: str, get_json: Callable[[str, str], Any],
+) -> None:
+    encoded_actor = urllib.parse.quote(actor, safe="")
+    principal = get_json(f"https://api.github.com/users/{encoded_actor}", token)
+    if not isinstance(principal, Mapping):
+        raise DeployMainAuthorizationError("Control App principal metadata is invalid")
+    if (
+        principal.get("login") != CONTROL_APP_ACTOR
+        or principal.get("id") != CONTROL_APP_ACTOR_ID
+        or principal.get("type") != "Bot"
+    ):
+        raise DeployMainAuthorizationError("Control App principal identity mismatch")
+
+
 def authorize_deploy_main(
     *, repository: str, repository_owner: str, event_name: str, event_ref: str,
-    workflow_ref: str, actor: str, actor_id: str, triggering_actor: str,
-    run_attempt: str, target_sha: str, confirmation: str,
-    authorization_issue: str, authorization_comment_id: str,
-    control_action: str, expected_main_sha: str, control_request_id: str,
+    workflow_ref: str, actor: str, triggering_actor: str, target_sha: str,
+    confirmation: str, authorization_issue: str, authorization_comment_id: str,
     token: str, get_json: Callable[[str, str], Any] = _default_get_json,
 ) -> AuthorizedDeployMain:
     if repository != EXPECTED_REPOSITORY or repository_owner != EXPECTED_OWNER:
@@ -99,51 +110,30 @@ def authorize_deploy_main(
         raise DeployMainAuthorizationError("production deploy requires main workflow_dispatch")
     if workflow_ref != EXPECTED_WORKFLOW_REF:
         raise DeployMainAuthorizationError("production deploy workflow ref is not exact main")
+    if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+        raise DeployMainAuthorizationError("target SHA must be exact lowercase 40-character SHA")
+    if confirmation != f"DEPLOY {target_sha}":
+        raise DeployMainAuthorizationError("typed production confirmation does not match target SHA")
 
     comment_id: int | None = None
-    bound_control_request_id: str | None = None
-    control_fields = (control_action, expected_main_sha, control_request_id)
-
     if actor == EXPECTED_OWNER and triggering_actor == EXPECTED_OWNER:
-        if any(control_fields):
-            raise DeployMainAuthorizationError("manual owner dispatch must not include Control inputs")
         if authorization_issue or authorization_comment_id:
             raise DeployMainAuthorizationError("manual owner dispatch must not include comment authorization")
-        requested_sha = target_sha
         mode = "manual_owner"
     elif actor == BOT_ACTOR and triggering_actor == BOT_ACTOR:
-        if any(control_fields):
-            raise DeployMainAuthorizationError("owner-comment dispatch must not include Control inputs")
-        requested_sha = target_sha
         comment_id = _validate_bot_comment(
-            repository=repository, target_sha=requested_sha,
+            repository=repository, target_sha=target_sha,
             authorization_issue=authorization_issue,
             authorization_comment_id=authorization_comment_id, token=token, get_json=get_json,
         )
         mode = "owner_comment_via_bot"
     elif actor == CONTROL_APP_ACTOR and triggering_actor == CONTROL_APP_ACTOR:
-        if actor_id != str(CONTROL_APP_ACTOR_ID):
-            raise DeployMainAuthorizationError("Control App actor ID mismatch")
-        if run_attempt != "1":
-            raise DeployMainAuthorizationError("Control App dispatch reruns are not authorized")
-        if target_sha or confirmation or authorization_issue or authorization_comment_id:
-            raise DeployMainAuthorizationError("Control App dispatch mixed legacy deploy inputs")
-        if control_action != "LIVE":
-            raise DeployMainAuthorizationError("Control App action is not LIVE")
-        if not re.fullmatch(r"[0-9a-f]{40}", expected_main_sha):
-            raise DeployMainAuthorizationError("Control expected main SHA is invalid")
-        if CONTROL_REQUEST_ID_RE.fullmatch(control_request_id) is None:
-            raise DeployMainAuthorizationError("Control request ID is invalid")
-        requested_sha = expected_main_sha
-        bound_control_request_id = control_request_id
+        if authorization_issue or authorization_comment_id:
+            raise DeployMainAuthorizationError("Control App dispatch must not include comment authorization")
+        _validate_control_app_actor(actor=actor, token=token, get_json=get_json)
         mode = "control_app"
     else:
         raise DeployMainAuthorizationError("workflow actor is not an allowed deploy authorization path")
-
-    if not re.fullmatch(r"[0-9a-f]{40}", requested_sha):
-        raise DeployMainAuthorizationError("target SHA must be exact lowercase 40-character SHA")
-    if mode != "control_app" and confirmation != f"DEPLOY {requested_sha}":
-        raise DeployMainAuthorizationError("typed production confirmation does not match target SHA")
 
     main = get_json(f"https://api.github.com/repos/{repository}/branches/main", token)
     if not isinstance(main, Mapping):
@@ -152,17 +142,17 @@ def authorize_deploy_main(
     if not re.fullmatch(r"[0-9a-f]{40}", current_main):
         raise DeployMainAuthorizationError("current main SHA is invalid")
     if mode in {"owner_comment_via_bot", "control_app"}:
-        if requested_sha != current_main:
+        if target_sha != current_main:
             raise DeployMainAuthorizationError("externally authorized target is not exact current main")
-    elif requested_sha != current_main:
+    elif target_sha != current_main:
         comparison = get_json(
-            f"https://api.github.com/repos/{repository}/compare/{requested_sha}...{current_main}", token
+            f"https://api.github.com/repos/{repository}/compare/{target_sha}...{current_main}", token
         )
         merge_base = str((comparison.get("merge_base_commit") or {}).get("sha") or "")
-        if comparison.get("status") != "ahead" or merge_base != requested_sha:
+        if comparison.get("status") != "ahead" or merge_base != target_sha:
             raise DeployMainAuthorizationError("target SHA is not an ancestor of current main")
 
-    encoded = urllib.parse.quote(requested_sha, safe="")
+    encoded = urllib.parse.quote(target_sha, safe="")
     runs = get_json(
         f"https://api.github.com/repos/{repository}/actions/workflows/ci.yml/runs"
         f"?branch=main&head_sha={encoded}&status=completed&per_page=100", token
@@ -173,13 +163,12 @@ def authorize_deploy_main(
         row for row in (runs.get("workflow_runs") or [])
         if isinstance(row, Mapping)
         and row.get("event") == "push" and row.get("head_branch") == "main"
-        and row.get("head_sha") == requested_sha and row.get("status") == "completed"
+        and row.get("head_sha") == target_sha and row.get("status") == "completed"
         and row.get("conclusion") == "success" and isinstance(row.get("id"), int)
     ]
     if not successful:
         raise DeployMainAuthorizationError("target SHA has no successful main push CI run")
     return AuthorizedDeployMain(
-        sha=requested_sha, ci_run_id=max(int(row["id"]) for row in successful),
+        sha=target_sha, ci_run_id=max(int(row["id"]) for row in successful),
         authorization_mode=mode, authorization_comment_id=comment_id,
-        control_request_id=bound_control_request_id,
     )
