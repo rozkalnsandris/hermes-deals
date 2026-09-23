@@ -8,7 +8,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.github_deploy_main_authorization import (
-    BOT_ACTOR, DeployMainAuthorizationError, EXPECTED_WORKFLOW_REF, authorize_deploy_main,
+    BOT_ACTOR,
+    CONTROL_APP_ACTOR,
+    CONTROL_APP_ACTOR_ID,
+    DeployMainAuthorizationError,
+    EXPECTED_WORKFLOW_REF,
+    authorize_deploy_main,
 )
 
 SHA = "a" * 40
@@ -29,6 +34,12 @@ def _get_json(url: str, token: str):
             "issue_url": "https://api.github.com/repos/rozkalnsandris/hermes-deals/issues/553",
             "user": {"login": "rozkalnsandris", "id": 277435981},
             "body": f"/hermes-deploy current-main sha={SHA}",
+        }
+    if url.endswith("/users/rozkalns-control%5Bbot%5D"):
+        return {
+            "login": CONTROL_APP_ACTOR,
+            "id": CONTROL_APP_ACTOR_ID,
+            "type": "Bot",
         }
     if url.endswith("/branches/main"):
         return {"commit": {"sha": SHA}}
@@ -72,6 +83,74 @@ def test_bot_dispatch_requires_and_verifies_exact_owner_comment() -> None:
     )
     assert result.authorization_mode == "owner_comment_via_bot"
     assert result.authorization_comment_id == 12345
+
+
+def test_control_app_dispatch_reuses_exact_sha_confirmation_and_ci_contract() -> None:
+    result = _authorize(actor=CONTROL_APP_ACTOR, triggering_actor=CONTROL_APP_ACTOR)
+    assert result.sha == SHA
+    assert result.ci_run_id == 99
+    assert result.authorization_mode == "control_app"
+    assert result.authorization_comment_id is None
+
+
+def test_control_app_dispatch_pins_immutable_bot_principal() -> None:
+    def wrong_principal_json(url: str, token: str):
+        if url.endswith("/users/rozkalns-control%5Bbot%5D"):
+            return {"login": CONTROL_APP_ACTOR, "id": 1, "type": "Bot"}
+        raise AssertionError(url)
+
+    try:
+        _authorize(
+            actor=CONTROL_APP_ACTOR,
+            triggering_actor=CONTROL_APP_ACTOR,
+            get_json=wrong_principal_json,
+        )
+    except DeployMainAuthorizationError as exc:
+        assert "principal identity mismatch" in str(exc)
+    else:
+        raise AssertionError("wrong Control App bot ID accepted")
+
+
+def test_control_app_dispatch_rejects_human_rerun_or_comment_binding() -> None:
+    for overrides in (
+        {"actor": CONTROL_APP_ACTOR, "triggering_actor": "rozkalnsandris"},
+        {
+            "actor": CONTROL_APP_ACTOR,
+            "triggering_actor": CONTROL_APP_ACTOR,
+            "authorization_issue": "553",
+            "authorization_comment_id": "12345",
+        },
+    ):
+        try:
+            _authorize(**overrides)
+        except DeployMainAuthorizationError:
+            pass
+        else:
+            raise AssertionError(overrides)
+
+
+def test_control_app_dispatch_rejects_stale_exact_main() -> None:
+    def stale_json(url: str, token: str):
+        if url.endswith("/users/rozkalns-control%5Bbot%5D"):
+            return {
+                "login": CONTROL_APP_ACTOR,
+                "id": CONTROL_APP_ACTOR_ID,
+                "type": "Bot",
+            }
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": "b" * 40}}
+        raise AssertionError(url)
+
+    try:
+        _authorize(
+            actor=CONTROL_APP_ACTOR,
+            triggering_actor=CONTROL_APP_ACTOR,
+            get_json=stale_json,
+        )
+    except DeployMainAuthorizationError as exc:
+        assert "exact current main" in str(exc)
+    else:
+        raise AssertionError("stale Control App SHA accepted")
 
 
 def test_bot_dispatch_rejects_missing_wrong_or_stale_comment_binding() -> None:
@@ -134,7 +213,13 @@ def test_bot_dispatch_rejects_wrong_comment_owner_issue_body_or_id() -> None:
 
 
 def test_mixed_or_untrusted_actors_fail_closed() -> None:
-    for actor, triggering in ((BOT_ACTOR, "rozkalnsandris"), ("rozkalnsandris", BOT_ACTOR), ("someone", "someone")):
+    for actor, triggering in (
+        (BOT_ACTOR, "rozkalnsandris"),
+        ("rozkalnsandris", BOT_ACTOR),
+        (CONTROL_APP_ACTOR, "rozkalnsandris"),
+        ("rozkalnsandris", CONTROL_APP_ACTOR),
+        ("someone", "someone"),
+    ):
         try:
             _authorize(actor=actor, triggering_actor=triggering)
         except DeployMainAuthorizationError:
