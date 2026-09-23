@@ -2,6 +2,16 @@
   "schema_version": 3,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
+  "visual_verification": {
+    "canonical_policy": "rozkalnsandris/RPi5_main@main:docs/VISUAL_VERIFICATION.md",
+    "default_host_tool": "~/.local/bin/ui-proof",
+    "engine": "playwright-system-chromium",
+    "desktop_viewport": "1440x900",
+    "mobile_model": "SM-A556B",
+    "mobile_viewport": "412x892",
+    "inspection_bridge": "RDC_IMAGE_READ",
+    "rule": "When pixel-level visual inspection of this RPi5-hosted UI is needed, read the canonical RPi5_main visual-verification policy and use ui-proof by default. Runtime execution still requires applicable current LIVE authority."
+  },
   "lane_roles": {
     "FAST-LANE v2.2": "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION",
     "AUTO-RUN-FULL": "NORMAL_ISSUE_SCOPED_IMPLEMENTATION",
