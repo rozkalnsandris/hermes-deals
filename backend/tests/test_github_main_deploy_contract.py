@@ -25,7 +25,7 @@ def workflow_trigger() -> dict:
     return data.get("on") or data.get(True) or {}
 
 
-def test_workflow_accepts_only_explicit_legacy_or_control_live_dispatch() -> None:
+def test_workflow_keeps_one_explicit_deploy_contract_with_control_principal() -> None:
     text = read(WORKFLOW)
     helper = read(ROOT / "tools" / "github_deploy_main_authorization.py")
     trigger = workflow_trigger()
@@ -37,23 +37,17 @@ def test_workflow_accepts_only_explicit_legacy_or_control_live_dispatch() -> Non
         "confirmation",
         "authorization_issue",
         "authorization_comment_id",
-        "control_action",
-        "expected_main_sha",
-        "control_request_id",
     }
-    for input_name in inputs:
-        assert inputs[input_name]["required"] is False
+    assert inputs["target_sha"]["required"] is True
+    assert inputs["confirmation"]["required"] is True
+    assert inputs["authorization_issue"]["required"] is False
+    assert inputs["authorization_comment_id"]["required"] is False
 
     for marker in (
         "ORIGINAL_ACTOR: ${{ github.actor }}",
-        "ORIGINAL_ACTOR_ID: ${{ github.actor_id }}",
         "TRIGGERING_ACTOR: ${{ github.triggering_actor }}",
-        "RUN_ATTEMPT: ${{ github.run_attempt }}",
         "AUTHORIZATION_ISSUE: ${{ inputs.authorization_issue }}",
         "AUTHORIZATION_COMMENT_ID: ${{ inputs.authorization_comment_id }}",
-        "CONTROL_ACTION: ${{ inputs.control_action }}",
-        "EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}",
-        "CONTROL_REQUEST_ID: ${{ inputs.control_request_id }}",
         "from tools.github_deploy_main_authorization import authorize_deploy_main",
         "issues: read",
         "persist-credentials: false",
@@ -73,22 +67,20 @@ def test_workflow_accepts_only_explicit_legacy_or_control_live_dispatch() -> Non
         'BOT_ACTOR = "github-actions[bot]"',
         'CONTROL_APP_ACTOR = "rozkalns-control[bot]"',
         "CONTROL_APP_ACTOR_ID = 316106438",
-        "CONTROL_REQUEST_ID_RE",
         "issues/comments/{comment_id}",
         'comment.get("issue_url") != expected_issue_url',
         'user.get("login") != EXPECTED_OWNER',
         'user.get("id") != EXPECTED_OWNER_ID',
         "COMMAND_RE.fullmatch(body.strip())",
-        'actor_id != str(CONTROL_APP_ACTOR_ID)',
-        'run_attempt != "1"',
-        'control_action != "LIVE"',
-        'CONTROL_REQUEST_ID_RE.fullmatch(control_request_id)',
+        'principal.get("login") != CONTROL_APP_ACTOR',
+        'principal.get("id") != CONTROL_APP_ACTOR_ID',
+        'principal.get("type") != "Bot"',
         'mode in {"owner_comment_via_bot", "control_app"}',
         "target SHA is not an ancestor of current main",
         "actions/workflows/ci.yml/runs",
         'row.get("event") == "push"',
         'row.get("head_branch") == "main"',
-        'row.get("head_sha") == requested_sha',
+        'row.get("head_sha") == target_sha',
         'row.get("status") == "completed"',
         'row.get("conclusion") == "success"',
     ):
