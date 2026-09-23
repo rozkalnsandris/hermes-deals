@@ -26,28 +26,26 @@ def test_successful_main_ci_cannot_trigger_production_deploy() -> None:
     assert "workflow_run" not in trigger
 
 
-def test_manual_and_control_deploys_share_one_fail_closed_authorizer() -> None:
+def test_manual_and_control_deploys_share_existing_explicit_input_contract() -> None:
     text = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
     helper = AUTHORIZER.read_text(encoding="utf-8")
     deploy = yaml.safe_load(text)
     inputs = _workflow_trigger(deploy)["workflow_dispatch"]["inputs"]
 
-    assert inputs["target_sha"]["required"] is False
-    assert inputs["confirmation"]["required"] is False
+    assert set(inputs) == {
+        "target_sha",
+        "confirmation",
+        "authorization_issue",
+        "authorization_comment_id",
+    }
+    assert inputs["target_sha"]["required"] is True
+    assert inputs["confirmation"]["required"] is True
     assert inputs["authorization_issue"]["required"] is False
     assert inputs["authorization_comment_id"]["required"] is False
-    assert inputs["control_action"]["required"] is False
-    assert inputs["expected_main_sha"]["required"] is False
-    assert inputs["control_request_id"]["required"] is False
 
     for marker in (
         "ORIGINAL_ACTOR: ${{ github.actor }}",
-        "ORIGINAL_ACTOR_ID: ${{ github.actor_id }}",
         "TRIGGERING_ACTOR: ${{ github.triggering_actor }}",
-        "RUN_ATTEMPT: ${{ github.run_attempt }}",
-        "CONTROL_ACTION: ${{ inputs.control_action }}",
-        "EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}",
-        "CONTROL_REQUEST_ID: ${{ inputs.control_request_id }}",
         'event_ref=os.environ["EVENT_REF"]',
         "from tools.github_deploy_main_authorization import authorize_deploy_main",
         "AUTHORIZATION_ISSUE: ${{ inputs.authorization_issue }}",
@@ -57,13 +55,13 @@ def test_manual_and_control_deploys_share_one_fail_closed_authorizer() -> None:
         assert marker in text
 
     for marker in (
-        'if actor == EXPECTED_OWNER and triggering_actor == EXPECTED_OWNER:',
-        'manual owner dispatch must not include Control inputs',
+        'CONTROL_APP_ACTOR = "rozkalns-control[bot]"',
+        "CONTROL_APP_ACTOR_ID = 316106438",
         'elif actor == CONTROL_APP_ACTOR and triggering_actor == CONTROL_APP_ACTOR:',
-        'CONTROL_APP_ACTOR_ID = 316106438',
-        'Control App dispatch reruns are not authorized',
-        'Control App action is not LIVE',
-        'mode != "control_app" and confirmation != f"DEPLOY {requested_sha}"',
+        'Control App dispatch must not include comment authorization',
+        'https://api.github.com/users/{encoded_actor}',
+        'principal.get("id") != CONTROL_APP_ACTOR_ID',
+        'confirmation != f"DEPLOY {target_sha}"',
         'mode in {"owner_comment_via_bot", "control_app"}',
     ):
         assert marker in helper
