@@ -2,6 +2,11 @@
   "schema_version": 3,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
+  "github_api_access": {
+    "manifest": ".github/github-api-access-v1.json",
+    "shared_revision": "3bb0740b5f0a8ce631d2ff79f1acc4999ff6ed2c",
+    "rule": "For START, SYNC, turpini and PR continuation, apply the GitHub API access manifest: serial minimum-sufficient reads, changed-file inspection on demand, no tight polling, compact exact-head pre-mutation evidence, fail-closed reconciliation after ambiguous writes, never duplicate a mutation after dispatch ambiguity, and use exact-main minimal reconciliation after confirmed success. Repository-local stricter authority remains unchanged."
+  },
   "visual_verification": {
     "canonical_policy": "rozkalnsandris/RPi5_main@main:docs/VISUAL_VERIFICATION.md",
     "default_host_tool": "~/.local/bin/ui-proof",
