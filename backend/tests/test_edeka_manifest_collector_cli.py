@@ -42,7 +42,7 @@ class _SessionContext:
 
 
 class EdekaManifestCollectorCliTest(unittest.TestCase):
-    def test_unchanged_source_returns_before_parse_and_offer_write(self) -> None:
+    def test_unchanged_source_replays_and_verifies_offer_write(self) -> None:
         import app.edeka_collector_cli as cli
 
         snapshot = SimpleNamespace(
@@ -50,12 +50,20 @@ class EdekaManifestCollectorCliTest(unittest.TestCase):
             success=True,
             snapshot_path="/immutable/edeka-manifest.json",
             sha256="a" * 64,
+            source_url=SOURCE_URL,
+            final_url=SOURCE_URL,
+            collected_at=COLLECTED_AT,
             error=None,
             http_status=200,
         )
         session = _SessionContext()
-        parse_snapshot = Mock()
-        save_offers = Mock()
+        offers = [SimpleNamespace(
+            parser_version="edeka-v1",
+            valid_from=date(2026, 8, 3),
+            valid_until=date(2026, 8, 8),
+        )]
+        parse_snapshot = Mock(return_value=offers)
+        save_offers = Mock(return_value=0)
         with (
             patch.object(cli, "_edeka_source", return_value=_source()),
             patch.object(cli, "SessionLocal", return_value=session),
@@ -74,11 +82,11 @@ class EdekaManifestCollectorCliTest(unittest.TestCase):
             ),
             patch.object(cli, "save_offer_candidates", save_offers),
         ):
-            result = cli.collect_edeka(150)
+            result = cli.collect_edeka(1)
 
         self.assertEqual(result, 0)
-        parse_snapshot.assert_not_called()
-        save_offers.assert_not_called()
+        parse_snapshot.assert_called_once()
+        save_offers.assert_called_once_with(session.db, offers)
 
     def test_new_manifest_parses_then_persists_after_minimum_gate(self) -> None:
         import app.edeka_collector_cli as cli
