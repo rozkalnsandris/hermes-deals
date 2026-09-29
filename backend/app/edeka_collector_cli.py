@@ -44,14 +44,9 @@ def collect_edeka(min_offers: int) -> int:
             )
             return 2
 
-        if result.unchanged:
-            print(
-                "[collect] edeka unchanged source; safe no-op "
-                f"snapshot={snapshot.id}",
-                flush=True,
-            )
-            return 0
-
+        # An unchanged source may belong to an interrupted import. Revalidate
+        # and persist its offers; save_offer_candidates verifies existing rows
+        # and returns zero only when the complete immutable set already exists.
         context = EdekaParserContext(
             snapshot_id=snapshot.id,
             source_url=snapshot.final_url or snapshot.source_url,
