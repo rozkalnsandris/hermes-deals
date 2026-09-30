@@ -30,10 +30,13 @@ export async function loadHealth(fetchJson, health = $("health")) {
 }
 
 export async function loadOverview(fetchJson, asOf) {
-  const payload = await fetchJson(`/api/v1/ui/overview?as_of=${encodeURIComponent(asOf)}`);
+  const [payload, deals] = await Promise.all([
+    fetchJson(`/api/v1/ui/overview?as_of=${encodeURIComponent(asOf)}`),
+    fetchJson(`/api/v1/deals/current?as_of=${encodeURIComponent(asOf)}&limit=1`),
+  ]);
   $("statProducts").textContent = payload.total_products;
   $("statCurrent").textContent = payload.products_with_current_offers;
-  $("statOffers").textContent = payload.current_offer_count;
+  $("statOffers").textContent = deals.available_count;
   $("statCompare").textContent = payload.comparison_ready_products;
   $("scopeNote").textContent = `${payload.retailer_count} canonical veikali · ${payload.timezone}`;
   return payload;

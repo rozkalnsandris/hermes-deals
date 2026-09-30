@@ -28,6 +28,9 @@ class _FakeBind:
 
 
 class _FakeDb:
+    def scalars(self, statement):
+        return SimpleNamespace(all=lambda: [])
+
     def get_bind(self):
         return _FakeBind()
 
