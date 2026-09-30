@@ -307,7 +307,65 @@ def disable_units() -> None:
     require(not timer_is_active(), "timer remains active after disable")
 
 
+# Exact installed triplet attested in #908 on 2026-09-27 and rechecked
+# on 2026-09-30. This is a forward-only migration, not a drift allowlist.
+LEGACY_UNIT_HASHES = {
+    SERVICE_UNIT: "6e6749ef4b9a5e941903419e48da8afa48e702787d59516511ff809804bba5c8",
+    TIMER_UNIT: "beedb229d2203ab239f10de2772e086de58e4b7032e705897d064978aa840597",
+    ALERT_UNIT: "d3b0d215f05d0e4c94df47633310bd464701f4243bdf34631f76c4bd8526a43e",
+}
+
+
+def legacy_installed() -> bool:
+    return all(
+        regular_root_file(UNIT_DIR / name, 0o644)
+        and sha_file(UNIT_DIR / name) == digest
+        for name, digest in LEGACY_UNIT_HASHES.items()
+    )
+
+
+def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dict[str, Any]:
+    # All preconditions precede the first mutation. A failure after that point
+    # leaves the timer stopped and evidence intact; no automatic rollback/retry.
+    require(legacy_installed(), "legacy unit triplet drift")
+    for name in UNIT_NAMES:
+        result = run_command(["/usr/bin/systemctl", "show", name, "--property=DropInPaths", "--value"])
+        require(not result.stdout.strip(), f"unit drop-ins present: {name}")
+    state = run_command(["/usr/bin/systemctl", "show", SERVICE_UNIT, "--property=ActiveState", "--value"])
+    require(state.stdout.strip() in {"inactive", "failed"}, "legacy service is running")
+    root = Path(str(config["evidence_root"]))
+    require(root.is_dir() and not root.is_symlink(), "legacy evidence root missing or unsafe")
+    # Activation must not launch a mismatched checkout even if registration is valid.
+    head = run_command(["/usr/bin/git", "-c", f"safe.directory={config['repo_root']}", "-C", str(config["repo_root"]), "rev-parse", "HEAD"])
+    require(head.stdout.strip() == config["registration_sha"], "legacy migration checkout SHA drift")
+    for name in UNIT_NAMES:
+        dst = UNIT_DIR / name
+        backup = UNIT_DIR / f".{name}.legacy-{LEGACY_UNIT_HASHES[name]}"
+        require(not backup.exists() and not backup.is_symlink(), f"legacy backup already exists: {name}")
+    run_command(["/usr/bin/systemctl", "stop", TIMER_UNIT])
+    require(not timer_is_active(), "legacy timer remains active")
+    state = run_command(["/usr/bin/systemctl", "show", SERVICE_UNIT, "--property=ActiveState", "--value"])
+    require(state.stdout.strip() in {"inactive", "failed"}, "legacy service started during migration")
+    require(legacy_installed(), "legacy units changed before replacement")
+    for name in UNIT_NAMES:
+        dst = UNIT_DIR / name
+        require(regular_root_file(dst, 0o644) and sha_file(dst) == LEGACY_UNIT_HASHES[name], f"legacy unit changed: {name}")
+        # Preserve the exact old bytes before installing the reviewed successor.
+        backup = UNIT_DIR / f".{name}.legacy-{LEGACY_UNIT_HASHES[name]}"
+        os.link(dst, backup, follow_symlinks=False)
+        dst.unlink()
+        install_exclusive(staged[name], dst)
+        require(regular_root_file(dst, 0o644) and sha_file(dst) == config["units"][name]["sha256"], f"migrated unit invalid: {name}")
+    run_command(["/usr/bin/systemctl", "daemon-reload"])
+    installed_state(config)
+    run_command(["/usr/bin/systemctl", "enable", "--now", TIMER_UNIT])
+    require(timer_is_enabled() and timer_is_active(), "migrated timer did not activate")
+    return {"installed_unit_count": len(UNIT_NAMES), "evidence_root_created": False, "legacy_forward_migration": True}
+
+
 def activate(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dict[str, Any]:
+    if legacy_installed():
+        return migrate_legacy(config, staged)
     existing = installed_state(config)
     created: list[Path] = []
     evidence_created = False

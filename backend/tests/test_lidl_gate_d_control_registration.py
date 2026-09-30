@@ -184,3 +184,103 @@ def test_dispatcher_has_transactional_activation_and_exact_rollback_boundary():
     assert '"rollback_preserves_evidence_root": True' in source
     assert '"deployment_authorized": False' in source
     assert "shell=True" not in source
+
+
+def migration_fixture(tmp_path, monkeypatch):
+    dispatcher = load(DISPATCHER, 'lidl_migration_test')
+    unit_dir = tmp_path / 'units'
+    unit_dir.mkdir()
+    staged_dir = tmp_path / 'staged'
+    staged_dir.mkdir()
+    evidence = tmp_path / 'evidence'
+    evidence.mkdir()
+    config = fixture_config(dispatcher)
+    config['evidence_root'] = str(evidence)
+    staged = {}
+    hashes = {}
+    for name in dispatcher.UNIT_NAMES:
+        old = unit_dir / name
+        old.write_text('old ' + name)
+        hashes[name] = dispatcher.sha_file(old)
+        staged[name] = staged_dir / name
+        staged[name].write_text('new ' + name)
+        config['units'][name]['sha256'] = dispatcher.sha_file(staged[name])
+    monkeypatch.setattr(dispatcher, 'UNIT_DIR', unit_dir)
+    monkeypatch.setattr(dispatcher, 'LEGACY_UNIT_HASHES', hashes)
+    monkeypatch.setattr(dispatcher, 'regular_root_file', lambda p, mode: p.is_file() and not p.is_symlink())
+    def install(src, dst):
+        with dst.open('xb') as target:
+            target.write(src.read_bytes())
+    monkeypatch.setattr(dispatcher, 'install_exclusive', install)
+    commands = []
+    active = [True]
+    def run(argv, **kwargs):
+        import subprocess
+        commands.append(argv)
+        output = ''
+        if '--property=ActiveState' in argv:
+            output = 'failed'
+        if 'rev-parse' in argv:
+            output = config['registration_sha']
+        if argv[1:2] == ['stop']:
+            active[0] = False
+        if argv[1:2] == ['enable']:
+            active[0] = True
+        return subprocess.CompletedProcess(argv, 0, stdout=output, stderr='')
+    monkeypatch.setattr(dispatcher, 'run_command', run)
+    monkeypatch.setattr(dispatcher, 'timer_is_active', lambda: active[0])
+    monkeypatch.setattr(dispatcher, 'timer_is_enabled', lambda: True)
+    return dispatcher, config, staged, commands
+
+
+def test_exact_legacy_migrates_and_preserves_original_bytes(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    result = d.activate(config, staged)
+    assert result['legacy_forward_migration'] is True
+    for name in d.UNIT_NAMES:
+        assert (d.UNIT_DIR / name).read_bytes() == staged[name].read_bytes()
+        backup = d.UNIT_DIR / f'.{name}.legacy-{d.LEGACY_UNIT_HASHES[name]}'
+        assert backup.read_text() == 'old ' + name
+    assert any(c[1:3] == ['stop', d.TIMER_UNIT] for c in commands)
+    assert commands[-1][1:3] == ['enable', '--now']
+
+
+def test_unknown_legacy_content_is_rejected_without_mutation(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    (d.UNIT_DIR / d.SERVICE_UNIT).write_text('untrusted')
+    with pytest.raises(d.ControlError, match='content drift'):
+        d.activate(config, staged)
+    assert commands == []
+    assert (d.UNIT_DIR / d.SERVICE_UNIT).read_text() == 'untrusted'
+
+
+def test_migration_failure_does_not_restart_or_rollback(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    def fail(src, dst):
+        raise OSError('simulated disk failure')
+    monkeypatch.setattr(d, 'install_exclusive', fail)
+    with pytest.raises(OSError, match='disk failure'):
+        d.activate(config, staged)
+    assert not d.timer_is_active()
+    assert not any(c[1:2] in [['enable'], ['start'], ['reset-failed']] for c in commands)
+    assert (d.UNIT_DIR / f'.{d.SERVICE_UNIT}.legacy-{d.LEGACY_UNIT_HASHES[d.SERVICE_UNIT]}').exists()
+
+
+@pytest.mark.parametrize('blocker', ['dropin', 'running', 'checkout'])
+def test_migration_preconditions_prevent_host_mutation(tmp_path, monkeypatch, blocker):
+    import subprocess
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    original = d.run_command
+    def run(argv, **kwargs):
+        if blocker == 'dropin' and '--property=DropInPaths' in argv:
+            return subprocess.CompletedProcess(argv, 0, stdout='/etc/override.conf')
+        if blocker == 'running' and '--property=ActiveState' in argv:
+            return subprocess.CompletedProcess(argv, 0, stdout='active')
+        if blocker == 'checkout' and 'rev-parse' in argv:
+            return subprocess.CompletedProcess(argv, 0, stdout='a' * 40)
+        return original(argv, **kwargs)
+    monkeypatch.setattr(d, 'run_command', run)
+    with pytest.raises(d.ControlError):
+        d.activate(config, staged)
+    assert not any(c[1:2] == ['stop'] for c in commands)
+    assert all((d.UNIT_DIR / n).read_text() == 'old ' + n for n in d.UNIT_NAMES)
