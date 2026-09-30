@@ -32,9 +32,8 @@ _RANK_SUBSTAGE_METRICS = (
     ("materialize", "current-deals-materialize"),
 )
 
-# Keep the public response/filtering implementation in one place while
-# replacing its expensive all-history Python loader with the SQL-ranked path.
-fast_route._load_newest_state_rows = load_sql_ranked_state_rows
+# Keep transport/cache behavior in the route wrapper while injecting the
+# production SQL-ranked loader explicitly into the shared Deals service.
 fast_route._CACHE_TTL_SECONDS = _CACHE_TTL_SECONDS
 
 
@@ -112,7 +111,7 @@ def installed_fast_current_deals(
     with fast_route.capture_current_deals_timings() as timings:
         with capture_rank_substage_timings() as rank_timings:
             with materialize_only(view):
-                payload = fast_route.fast_current_deals(
+                payload = fast_route.cached_current_deals(
                     as_of=as_of,
                     q=q,
                     retailer=retailer,
@@ -125,6 +124,7 @@ def installed_fast_current_deals(
                     offset=offset,
                     limit=limit,
                     db=db,
+                    state_row_loader=load_sql_ranked_state_rows,
                 )
     duration_ms = (perf_counter() - started) * 1000
     response.headers["Server-Timing"] = _server_timing_header(
