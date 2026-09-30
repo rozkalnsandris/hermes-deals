@@ -106,6 +106,10 @@ def _wrapped_app() -> FastAPI:
     def review() -> PlainTextResponse:
         return PlainTextResponse("review-ui")
 
+    @app.get("/ui/assets/deals-logo.svg")
+    def branding_asset() -> PlainTextResponse:
+        return PlainTextResponse("<svg>branding</svg>", media_type="image/svg+xml")
+
     return app
 
 
@@ -130,6 +134,10 @@ def test_inline_w3_is_passthrough_and_hashed_namespace_is_closed(tmp_path: Path)
     assert client.get("/ui").text == "inline-w3"
     assert client.get("/ui/app.js").text == "legacy-app"
     assert client.get("/ui/review").text == "review-ui"
+    branding = client.get("/ui/assets/deals-logo.svg")
+    assert branding.status_code == 200
+    assert branding.text == "<svg>branding</svg>"
+    assert client.get("/ui/assets/not-allowlisted.txt").status_code == 404
     missing = client.get(f"/ui/{js_relative}")
     assert missing.status_code == 404
     assert "immutable" not in missing.headers.get("cache-control", "").casefold()
@@ -164,10 +172,13 @@ def test_hashed_w4_serves_only_package_proven_assets_and_keeps_rollback_endpoint
     assert "HERMES_UI_STYLE_OPEN:" in css.text
 
     missing = client.get("/ui/assets/not-in-package.js")
+    branding = client.get("/ui/assets/deals-logo.svg")
     traversal = client.get("/ui/assets/../w4-shadow-package.json")
     assert missing.status_code == 404
+    assert branding.status_code == 404
     assert traversal.status_code == 404
     assert "immutable" not in missing.headers.get("cache-control", "").casefold()
+    assert "immutable" not in branding.headers.get("cache-control", "").casefold()
     assert "immutable" not in traversal.headers.get("cache-control", "").casefold()
     assert client.get("/ui/app.js").text == "legacy-app"
     assert client.get("/ui/review").text == "review-ui"
