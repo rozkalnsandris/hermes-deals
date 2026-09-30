@@ -31,6 +31,7 @@ def _snapshot() -> SimpleNamespace:
         source_url="https://www.netto-online.de/",
         final_url="https://www.netto-online.de/",
         collected_at=NOW,
+        strategy_hint="netto_store_prospect",
     )
 
 

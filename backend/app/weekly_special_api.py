@@ -27,6 +27,8 @@ from app.completeness_rescue_read import (
 )
 from app.db import get_db
 from app.models import OfferCandidateRecord, SourceSnapshot
+from app.netto_html_collector import STRATEGY as NETTO_HTML_STRATEGY
+from app.netto_html_read import verified_html_rows
 from app.netto_daily_special_api import (
     _assert_read_only_session,
     _cached_snapshot_offers,
@@ -198,6 +200,7 @@ def _week_dates(week_start: date) -> tuple[date, ...]:
 
 def _qualifying_windows(
     row: OfferCandidateRecord,
+    *, verified_netto_html: bool = False,
 ) -> tuple[tuple[date, date, str], ...]:
     windows: list[tuple[date, date, str]] = []
 
@@ -208,7 +211,7 @@ def _qualifying_windows(
         if span <= _SPECIAL_MAX_DAYS:
             windows.append((start, end, kind))
 
-    if row.source_chain == "netto":
+    if row.source_chain == "netto" and not verified_netto_html:
         return ()
     add(row.valid_from, row.valid_until, "base")
     if row.app_price_eur is not None:
@@ -295,6 +298,7 @@ def _ordinary_output(
 def _ordinary_days(
     rows: list[OfferCandidateRecord],
     week_start: date,
+    *, verified_netto_html: bool = False,
 ) -> dict[date, list[WeeklyDealOut]]:
     result = {day: [] for day in _week_dates(week_start)}
     for day in result:
@@ -305,7 +309,7 @@ def _ordinary_days(
         for row in rows:
             if row.source_offer_id is None:
                 continue
-            windows = _qualifying_windows(row)
+            windows = _qualifying_windows(row, verified_netto_html=verified_netto_html)
             if not any(start <= day <= end for start, end, _ in windows):
                 continue
             key = (
@@ -537,6 +541,22 @@ def _build_payload(
     week_end = week_start + timedelta(days=_WEEK_DAYS - 1)
     rows = _query_week_rows(db, week_start, week_end)
     ordinary = _ordinary_days(rows, week_start)
+    # Only immutable, hash-verified HTML imports may bypass the legacy Netto
+    # exclusion. A broken snapshot is reported by retailer state, never repaired.
+    html_rows = []
+    for snapshot in _snapshot_rows(db):
+        if snapshot.strategy_hint != NETTO_HTML_STRATEGY:
+            continue
+        try:
+            start, end = _snapshot_manifest_window(snapshot)
+            if start <= week_end and end >= week_start:
+                html_rows.extend(verified_html_rows(db, snapshot))
+                break  # latest full HTML observation supersedes older imports
+        except (HTTPException, OSError, ValueError, KeyError, TypeError):
+            break  # never disguise broken latest evidence with older offers
+    html_days = _ordinary_days(html_rows, week_start, verified_netto_html=True)
+    for day in ordinary:
+        ordinary[day].extend(html_days[day])
     explicit = _explicit_daily_specials(db, week_start, week_end)
     days = _merge_days(ordinary, explicit, week_start)
     retailers = [

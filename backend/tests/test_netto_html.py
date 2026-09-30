@@ -253,6 +253,70 @@ class NettoHtmlImportTest(unittest.TestCase):
         # HTML short periods are persisted ordinary offers, not invented PDF rows.
         self.assertTrue(self.db.scalar(select(OfferCandidateRecord).where(OfferCandidateRecord.valid_from==date(2026,9,30))))
 
+    def test_weekly_html_shows_short_periods_with_persisted_ids(self):
+        from datetime import date
+        from app.weekly_special_api import _build_payload, _normalize_ui_payload
+        production_source = replace(SOURCE, store_name="Netto Marken-Discount — Dortmund, Rauschenbuschstr. 1")
+        collect_html(self.db, production_source, Path(self.tmp.name), 1, now=NOW)
+        before = self.count()
+        payload = _build_payload(self.db, date(2026,9,28))
+        rows = list(self.db.scalars(select(OfferCandidateRecord)).all())
+        expected = {r.id for r in rows if r.valid_from == date(2026,9,30)}
+        self.assertTrue(expected)
+        for day in payload.days:
+            ids = {d.offer_candidate_id for d in day.deals}
+            self.assertEqual(ids, expected if date(2026,9,30)<=day.date<=date(2026,10,2) else set())
+            self.assertTrue(all(not d.is_daily_special and not d.shadow_only for d in day.deals))
+        self.assertEqual(next(r for r in payload.retailers if r.retailer_key=='netto').state,'offers')
+        self.assertEqual(len(_normalize_ui_payload(payload).deals),len(expected))
+        self.assertEqual(self.count(),before)
+        self.assertFalse(self.db.new or self.db.dirty or self.db.deleted)
+
+    def test_weekly_html_rejects_changed_evidence_and_changed_rows(self):
+        from datetime import date
+        from app.weekly_special_api import _build_payload
+        production_source = replace(SOURCE, store_name="Netto Marken-Discount — Dortmund, Rauschenbuschstr. 1")
+        collect_html(self.db, production_source, Path(self.tmp.name), 1, now=NOW)
+        snap = self.db.scalar(select(SourceSnapshot))
+        manifest = json.loads(Path(snap.snapshot_path).read_text())
+        path = Path(manifest['pages'][0]['path'])
+        original = path.read_bytes()
+        path.write_bytes(original+b'changed')
+        payload = _build_payload(self.db,date(2026,9,28))
+        self.assertEqual(payload.count,0)
+        self.assertEqual(next(r for r in payload.retailers if r.retailer_key=='netto').state,'source_unavailable')
+        path.write_bytes(original)
+        row = self.db.scalar(select(OfferCandidateRecord))
+        row.price_eur += Decimal('1');self.db.commit()
+        payload = _build_payload(self.db,date(2026,9,28))
+        self.assertEqual(payload.count,0)
+        self.assertEqual(next(r for r in payload.retailers if r.retailer_key=='netto').state,'source_unavailable')
+
+    def test_weekly_html_latest_observation_does_not_fall_back_to_old_specials(self):
+        from datetime import date, timedelta
+        from app.weekly_special_api import _build_payload
+        production_source = replace(SOURCE, store_name="Netto Marken-Discount — Dortmund, Rauschenbuschstr. 1")
+        collect_html(self.db, production_source, Path(self.tmp.name), 1, now=NOW)
+        self.pages[:] = [HtmlPage(LISTING_URL,LISTING_URL,WEEK)]
+        collect_html(self.db, production_source, Path(self.tmp.name), 1, now=NOW+timedelta(hours=1))
+        self.assertEqual(_build_payload(self.db,date(2026,9,28)).count,0)
+        latest = self.db.scalar(select(SourceSnapshot).order_by(SourceSnapshot.collected_at.desc()))
+        manifest = json.loads(Path(latest.snapshot_path).read_text())
+        Path(manifest['pages'][0]['path']).write_bytes(b'broken latest evidence')
+        payload = _build_payload(self.db,date(2026,9,28))
+        self.assertEqual(payload.count,0)
+        self.assertEqual(next(r for r in payload.retailers if r.retailer_key=='netto').state,'source_unavailable')
+
+    def test_weekly_html_verified_without_short_periods_is_no_offers(self):
+        from datetime import date
+        from app.weekly_special_api import _build_payload
+        self.pages[:] = [HtmlPage(LISTING_URL,LISTING_URL,WEEK)]
+        production_source = replace(SOURCE, store_name="Netto Marken-Discount — Dortmund, Rauschenbuschstr. 1")
+        collect_html(self.db, production_source, Path(self.tmp.name), 1, now=NOW)
+        payload = _build_payload(self.db,date(2026,9,28))
+        self.assertEqual(payload.count,0)
+        self.assertEqual(next(r for r in payload.retailers if r.retailer_key=='netto').state,'no_offers')
+
 
 
 class NettoHtmlFetchTest(unittest.TestCase):

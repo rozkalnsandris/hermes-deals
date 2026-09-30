@@ -15,6 +15,8 @@ from app.aldi_nord_daily_special import (
     cached_aldi_nord_daily_specials,
 )
 from app.models import SourceSnapshot
+from app.netto_html_collector import STRATEGY as NETTO_HTML_STRATEGY
+from app.netto_html_read import verified_html_rows
 from app.netto_daily_special_api import (
     _cached_snapshot_offers,
     _snapshot_manifest_window,
@@ -124,14 +126,17 @@ def _netto_evidence(
     if relevant:
         snapshot, valid_from, valid_until = max(relevant, key=lambda row: row[0].collected_at)
         try:
-            offers = _cached_snapshot_offers(
-                str(snapshot.id),
-                snapshot.snapshot_path or "",
-                snapshot.sha256 or "",
-                snapshot.source_url,
-                snapshot.final_url or snapshot.source_url,
-                snapshot.collected_at.isoformat(),
-            )
+            if snapshot.strategy_hint == NETTO_HTML_STRATEGY:
+                offers = verified_html_rows(db, snapshot)
+            else:
+                offers = _cached_snapshot_offers(
+                    str(snapshot.id),
+                    snapshot.snapshot_path or "",
+                    snapshot.sha256 or "",
+                    snapshot.source_url,
+                    snapshot.final_url or snapshot.source_url,
+                    snapshot.collected_at.isoformat(),
+                )
         except Exception:
             return RetailerEvidence(
                 state="source_unavailable",
@@ -149,8 +154,12 @@ def _netto_evidence(
             and offer.valid_until is not None
             and offer.valid_from <= week_end
             and offer.valid_until >= week_start
-            and offer.raw_payload.get("is_daily_special") is True
-            and offer.raw_payload.get("special_confidence") == "high"
+            and (
+                (snapshot.strategy_hint == NETTO_HTML_STRATEGY
+                 and (offer.valid_until - offer.valid_from).days < 3)
+                or (offer.raw_payload.get("is_daily_special") is True
+                    and offer.raw_payload.get("special_confidence") == "high")
+            )
         )
         if relevant_offer_count:
             return RetailerEvidence(
