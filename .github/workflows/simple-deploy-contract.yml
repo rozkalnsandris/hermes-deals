@@ -1,0 +1,35 @@
+name: SIMPLE-DEPLOY consumer contract
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate SIMPLE-DEPLOY manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Hermes Deals source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Checkout accepted shared SIMPLE-DEPLOY contract
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: rozkalnsandris/ops-workflows
+          ref: e05ed760791a127c7c9628696806ef39c9fe329c
+          path: .simple-deploy-shared
+          persist-credentials: false
+
+      - name: Validate Hermes Deals consumer manifest
+        run: >-
+          python3 .simple-deploy-shared/scripts/validate_simple_deploy.py
+          --manifest .simple-deploy.json
+          --expected-repository rozkalnsandris/hermes-deals

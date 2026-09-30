@@ -19,6 +19,7 @@ services:
     networks: [internal]
 
   api:
+    image: ghcr.io/rozkalnsandris/hermes-deals:production
     build:
       context: ./backend
     restart: unless-stopped

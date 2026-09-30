@@ -15,6 +15,8 @@ EXPECTED_WORKFLOW_REF = (
     "rozkalnsandris/hermes-deals/.github/workflows/deploy-main.yml@refs/heads/main"
 )
 BOT_ACTOR = "github-actions[bot]"
+CONTROL_APP_ACTOR = "rozkalns-control[bot]"
+CONTROL_APP_ACTOR_ID = 316106438
 COMMAND_RE = re.compile(r"/hermes-deploy current-main sha=(?P<sha>[0-9a-f]{40})")
 
 
@@ -81,6 +83,21 @@ def _validate_bot_comment(
     return comment_id
 
 
+def _validate_control_app_actor(
+    *, actor: str, token: str, get_json: Callable[[str, str], Any],
+) -> None:
+    encoded_actor = urllib.parse.quote(actor, safe="")
+    principal = get_json(f"https://api.github.com/users/{encoded_actor}", token)
+    if not isinstance(principal, Mapping):
+        raise DeployMainAuthorizationError("Control App principal metadata is invalid")
+    if (
+        principal.get("login") != CONTROL_APP_ACTOR
+        or principal.get("id") != CONTROL_APP_ACTOR_ID
+        or principal.get("type") != "Bot"
+    ):
+        raise DeployMainAuthorizationError("Control App principal identity mismatch")
+
+
 def authorize_deploy_main(
     *, repository: str, repository_owner: str, event_name: str, event_ref: str,
     workflow_ref: str, actor: str, triggering_actor: str, target_sha: str,
@@ -110,6 +127,11 @@ def authorize_deploy_main(
             authorization_comment_id=authorization_comment_id, token=token, get_json=get_json,
         )
         mode = "owner_comment_via_bot"
+    elif actor == CONTROL_APP_ACTOR and triggering_actor == CONTROL_APP_ACTOR:
+        if authorization_issue or authorization_comment_id:
+            raise DeployMainAuthorizationError("Control App dispatch must not include comment authorization")
+        _validate_control_app_actor(actor=actor, token=token, get_json=get_json)
+        mode = "control_app"
     else:
         raise DeployMainAuthorizationError("workflow actor is not an allowed deploy authorization path")
 
@@ -119,9 +141,9 @@ def authorize_deploy_main(
     current_main = str((main.get("commit") or {}).get("sha") or "")
     if not re.fullmatch(r"[0-9a-f]{40}", current_main):
         raise DeployMainAuthorizationError("current main SHA is invalid")
-    if mode == "owner_comment_via_bot":
+    if mode in {"owner_comment_via_bot", "control_app"}:
         if target_sha != current_main:
-            raise DeployMainAuthorizationError("comment-authorized target is not exact current main")
+            raise DeployMainAuthorizationError("externally authorized target is not exact current main")
     elif target_sha != current_main:
         comparison = get_json(
             f"https://api.github.com/repos/{repository}/compare/{target_sha}...{current_main}", token

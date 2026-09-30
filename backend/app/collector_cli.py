@@ -7,7 +7,6 @@ from pathlib import Path
 
 from app.db import SessionLocal
 from app.offer_store import save_offer_candidates
-from app.netto_store_prospect import collect_netto_store_prospect, parse_netto_store_prospect_snapshot
 from app.aldi_current_policy import apply_aldi_current_page_policy
 from app.lidl_inspector import inspect_lidl_source
 from app.lidl_bundle_inspector import inspect_lidl_bundle
@@ -18,7 +17,6 @@ from app.lidl_candidate_precision import audit_candidate_precision
 from app.lidl_offer_candidate_shadow import map_strict_ready_offer_candidates
 from app.lidl_source_provenance import bind_lidl_source_snapshot
 from app.lidl_offer_persistence import persist_lidl_strict_ready_offers
-from app.parsers.netto import NettoParserContext, parse_netto_snapshot
 from app.parsers.aldi_nord import AldiNordParserContext, parse_aldi_nord_snapshot
 from app.parsers.edeka import EdekaParserContext, parse_edeka_snapshot
 from app.probe import probe_source, snapshot_as_dict
@@ -73,42 +71,16 @@ def _probe(args: argparse.Namespace) -> int:
 
 
 def _collect_netto(min_offers: int) -> int:
+    from app.netto_html_collector import collect_html
+
     source = _source_by_name("netto")
     with SessionLocal() as db:
-        snapshot = collect_netto_store_prospect(db, source)
-        if not snapshot.success or not snapshot.snapshot_path:
-            print(
-                f"ERROR: Netto store/prospect snapshot failed: "
-                f"{snapshot.error or snapshot.http_status}",
-                file=sys.stderr,
-            )
-            return 2
-
-        context = NettoParserContext(
-            snapshot_id=snapshot.id,
-            source_url=source.url,
-            collected_at=snapshot.collected_at,
-            store_external_id=source.store_external_id,
-            store_name=source.store_name,
-        )
-        offers = parse_netto_store_prospect_snapshot(Path(snapshot.snapshot_path), context)
-        if len(offers) < min_offers:
-            print(
-                f"ERROR: Netto parser produced only {len(offers)} offers; "
-                f"minimum gate={min_offers}. No offers were written.",
-                file=sys.stderr,
-            )
-            return 3
-        if any(x.valid_from is None or x.valid_until is None for x in offers):
-            print("ERROR: Netto validity incomplete; no offers written.", file=sys.stderr)
-            return 4
-
-        count = save_offer_candidates(db, offers)
-        windows=sorted({(str(x.valid_from),str(x.valid_until)) for x in offers})
-        print(
-            f"[collect] netto parser={offers[0].parser_version} "
-            f"saved={count} snapshot={snapshot.id} windows={windows}"
-        )
+        result = collect_html(db, source, get_settings().raw_snapshot_dir, min_offers)
+    print(
+        f"[collect] netto html saved={result.saved} offers={result.offers} "
+        f"cards={result.cards} rejected={result.rejected} snapshot={result.snapshot_id}",
+        flush=True,
+    )
     return 0
 
 

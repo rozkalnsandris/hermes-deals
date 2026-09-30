@@ -2,6 +2,21 @@
   "schema_version": 3,
   "repository": "rozkalnsandris/hermes-deals",
   "default_continuation_mode": "FAST-LANE v2.2",
+  "github_api_access": {
+    "manifest": ".github/github-api-access-v1.json",
+    "shared_revision": "3bb0740b5f0a8ce631d2ff79f1acc4999ff6ed2c",
+    "rule": "For START, SYNC, turpini and PR continuation, apply the GitHub API access manifest: serial minimum-sufficient reads, changed-file inspection on demand, no tight polling, compact exact-head pre-mutation evidence, fail-closed reconciliation after ambiguous writes, never duplicate a mutation after dispatch ambiguity, and use exact-main minimal reconciliation after confirmed success. Repository-local stricter authority remains unchanged."
+  },
+  "visual_verification": {
+    "canonical_policy": "rozkalnsandris/RPi5_main@main:docs/VISUAL_VERIFICATION.md",
+    "default_host_tool": "~/.local/bin/ui-proof",
+    "engine": "playwright-system-chromium",
+    "desktop_viewport": "1440x900",
+    "mobile_model": "SM-A556B",
+    "mobile_viewport": "412x892",
+    "inspection_bridge": "RDC_IMAGE_READ",
+    "rule": "When pixel-level visual inspection of this RPi5-hosted UI is needed, read the canonical RPi5_main visual-verification policy and use ui-proof by default. Runtime execution still requires applicable current LIVE authority."
+  },
   "lane_roles": {
     "FAST-LANE v2.2": "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION",
     "AUTO-RUN-FULL": "NORMAL_ISSUE_SCOPED_IMPLEMENTATION",

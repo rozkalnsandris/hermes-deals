@@ -1,0 +1,31 @@
+[
+  {
+    "file": "netto-listing-20260929.html",
+    "raw_html_sha256": "5b407f7cad23c3ff8bb5870600bc25eb97d8ff44ece57760328a9f7fdaa047e1",
+    "card_indexes": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      14,
+      60,
+      168
+    ],
+    "transform": "Retain address, period and selected full cards; remove decorative SVG only. No session cookies or session-bearing navigation URLs."
+  },
+  {
+    "file": "netto-specials-20260929.html",
+    "raw_html_sha256": "848ca7756e5aa7ec49dd6dfda76915dec1bb106cb9261f1363ef601518372caf",
+    "card_indexes": [
+      0,
+      1
+    ],
+    "transform": "Retain address, period and selected full cards; remove decorative SVG only. No session cookies or session-bearing navigation URLs."
+  }
+]

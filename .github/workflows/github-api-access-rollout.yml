@@ -1,0 +1,119 @@
+name: GitHub API access rollout contract
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-deals-github-api-access-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Validate GitHub API access rollout contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('.github/github-api-access-v1.json').read_text(encoding='utf-8'))
+          routing = json.loads(Path('.github/start-mode-routing.json').read_text(encoding='utf-8'))
+
+          assert manifest['schema'] == 'rozkalns.github-api-access-consumer.v1'
+          assert manifest['status'] == 'ROLLOUT_SOURCE_ONLY'
+          assert manifest['repository'] == 'rozkalnsandris/hermes-deals'
+          assert manifest['canonical_repository'] == 'rozkalnsandris/ops-workflows'
+          assert manifest['tracking'] == {'rollout_issue': 112, 'umbrella_issue': 108}
+          assert manifest['shared_contract']['revision'] == '3bb0740b5f0a8ce631d2ff79f1acc4999ff6ed2c'
+
+          read_plan = manifest['read_plan']
+          assert read_plan['serial_by_default_per_repository_lane'] is True
+          assert read_plan['minimum_sufficient_retrieval_required'] is True
+          assert read_plan['changed_files_on_demand_only'] is True
+          assert read_plan['event_or_state_driven_continuation_preferred'] is True
+          assert read_plan['tight_polling_allowed'] is False
+          assert read_plan['historical_workflow_runs_by_default'] is False
+          assert read_plan['reuse_same_step_evidence_when_sufficient'] is True
+
+          assert set(manifest['rate_limit_dispositions']) == {
+              'PRIMARY_RATE_LIMIT_EXHAUSTED',
+              'SECONDARY_RATE_LIMIT_SUSPECTED',
+              'RETRY_AFTER_REQUIRED',
+              'RESET_WAIT_REQUIRED',
+              'READ_BACKOFF_REQUIRED',
+              'TRANSPORT_RATE_LIMIT_METADATA_UNAVAILABLE',
+          }
+
+          mutation = manifest['mutation_boundary']
+          assert mutation['final_pre_mutation_budget_class'] == 'FINAL_PREMERGE_COMPACT'
+          assert mutation['expected_head_binding_required_when_supported'] is True
+          assert mutation['authorization_consumed_when_mutation_dispatched'] is True
+          for key in (
+              'automatic_duplicate_mutation_after_403',
+              'automatic_duplicate_mutation_after_429',
+              'automatic_duplicate_mutation_after_timeout',
+              'automatic_duplicate_mutation_after_transport_error',
+          ):
+              assert mutation[key] is False
+          assert mutation['post_dispatch_uncertainty_fail_closed'] is True
+          assert mutation['minimal_read_only_reconciliation_only'] is True
+          assert mutation['stop_after_ambiguous_outcome'] is True
+          assert mutation['confirmed_success_budget_class'] == 'EXACT_MAIN_MINIMAL'
+          assert mutation['merge_success_implies_live_or_deploy_authority'] is False
+
+          scenarios = manifest['synthetic_acceptance']
+          assert scenarios['intentionally_exhaust_real_quota'] is False
+          expected = {
+              'post_dispatch_429': 'MUTATION_OUTCOME_UNKNOWN_RATE_LIMIT',
+              'post_dispatch_timeout': 'MUTATION_OUTCOME_UNKNOWN_TIMEOUT',
+              'post_dispatch_transport_error': 'MUTATION_OUTCOME_UNKNOWN_TRANSPORT',
+          }
+          for scenario, disposition in expected.items():
+              evidence = scenarios[scenario]
+              assert evidence['disposition'] == disposition
+              assert evidence['automatic_duplicate_mutation_allowed'] is False
+              assert evidence['requires_reconciliation'] is True
+              assert evidence['stop'] is True
+
+          local = manifest['local_stricter_rules']
+          assert local['fast_merge_requires_explicit_owner_decision'] is True
+          assert local['auto_run_full_requires_explicit_issue_scoped_activation'] is True
+          assert local['auto_run_full_queue_requires_explicit_batch_activation'] is True
+          assert local['live_runtime_requires_exact_authority'] is True
+          assert local['production_database_or_evidence_writes_require_exact_authority'] is True
+          assert local['scheduler_host_container_cloudflare_mutations_require_exact_authority'] is True
+          assert local['repository_local_persistence_and_provenance_rules_unchanged'] is True
+
+          api_access = routing['github_api_access']
+          assert api_access['manifest'] == '.github/github-api-access-v1.json'
+          assert api_access['shared_revision'] == manifest['shared_contract']['revision']
+          rule = api_access['rule']
+          for marker in (
+              'serial minimum-sufficient reads',
+              'changed-file inspection on demand',
+              'no tight polling',
+              'compact exact-head pre-mutation evidence',
+              'never duplicate a mutation after dispatch ambiguity',
+              'exact-main minimal reconciliation',
+              'Repository-local stricter authority remains unchanged',
+          ):
+              assert marker in rule
+
+          print('GITHUB_API_ACCESS_ROLLOUT=PASS')
+          PY

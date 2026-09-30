@@ -23,6 +23,11 @@ _VALID_FROM_RE = re.compile(
     r"Gültig\s+ab\s+(?P<value>\d{2}\.\d{2}\.\d{4})",
     re.IGNORECASE,
 )
+_WEEKLY_RANGE_RE = re.compile(
+    r"Gültig\s+vom\s+(?P<start>\d{2}\.\d{2}\.\d{4})\s+"
+    r"bis\s+zum\s+(?P<end>\d{2}\.\d{2}\.\d{4})\s*\.?",
+    re.IGNORECASE,
+)
 _VALID_UNTIL_RE = re.compile(
     r"Alle\s+Angebote\s+gültig\s+bis"
     r"(?:\s+[A-Za-zÄÖÜäöüß]+,)?\s+den\s+"
@@ -117,8 +122,10 @@ def _single_page_date(
     pattern: re.Pattern[str],
     *,
     label: str,
+    additional_values: set[str] | None = None,
 ) -> date:
     values = {match.group("value") for match in pattern.finditer(text)}
+    values.update(additional_values or ())
     if len(values) != 1:
         raise ValueError(
             f"EDEKA expected exactly one distinct {label} date, found "
@@ -127,10 +134,53 @@ def _single_page_date(
     return _date_de(next(iter(values)))
 
 
-def _page_validity(soup: BeautifulSoup) -> tuple[date, date]:
+def _weekly_header_dates(
+    soup: BeautifulSoup,
+    context: EdekaParserContext,
+) -> tuple[set[str], set[str]]:
+    starts: set[str] = set()
+    ends: set[str] = set()
+    # Only the market-bound weekly header supplies the new range grammar.
+    # Product dialogs, coupons and unrelated page dates cannot supply it.
+    for block in soup.select("filter-results > .autoformat"):
+        heading = block.find("h2", recursive=False)
+        if heading is None:
+            continue
+        expected_heading = f"Angebote der Woche bei {context.store_name}"
+        actual_heading = _norm(heading.get_text(" ", strip=True))
+        if actual_heading.casefold() != expected_heading.casefold():
+            raise ValueError(
+                "EDEKA weekly header is not bound to the configured market"
+            )
+        if block.find("a", href=f"/maerkte/{context.public_market_id}/") is None:
+            raise ValueError("EDEKA weekly header has no configured market link")
+        ranges = []
+        for paragraph in block.find_all("p"):
+            match = _WEEKLY_RANGE_RE.fullmatch(
+                _norm(paragraph.get_text(" ", strip=True))
+            )
+            if match is not None:
+                ranges.append(match)
+        if not ranges:
+            raise ValueError("EDEKA weekly header has no complete validity range")
+        starts.update(match.group("start") for match in ranges)
+        ends.update(match.group("end") for match in ranges)
+    return starts, ends
+
+
+def _page_validity(
+    soup: BeautifulSoup,
+    context: EdekaParserContext,
+) -> tuple[date, date]:
     text = _norm(soup.get_text(" ", strip=True))
-    valid_from = _single_page_date(text, _VALID_FROM_RE, label="valid_from")
+    starts, ends = _weekly_header_dates(soup, context)
+    valid_from = _single_page_date(
+        text, _VALID_FROM_RE, label="valid_from", additional_values=starts,
+    )
+    # Keep the existing footer mandatory and require the header to agree.
     valid_until = _single_page_date(text, _VALID_UNTIL_RE, label="valid_until")
+    if any(_date_de(value) != valid_until for value in ends):
+        raise ValueError("EDEKA weekly header and footer validity disagree")
     if valid_until < valid_from:
         raise ValueError("EDEKA valid_until is earlier than valid_from")
     if (valid_until - valid_from).days + 1 > _MAX_CAMPAIGN_LENGTH_DAYS:
@@ -559,7 +609,7 @@ def parse_edeka_html(
             f"{page_title!r}"
         )
 
-    valid_from, valid_until = _page_validity(soup)
+    valid_from, valid_until = _page_validity(soup, context)
     _validate_campaign_freshness(
         context,
         valid_from,
