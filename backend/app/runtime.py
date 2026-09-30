@@ -256,7 +256,7 @@ class UiAssetModeApp:
 
         if path.startswith("/ui/assets/"):
             if self.mode != HASHED_W4:
-                await Response(status_code=404)(scope, receive, send)
+                await self.wrapped_app(scope, receive, send)
                 return
             asset = self._assets.get(path)
             if asset is None:
