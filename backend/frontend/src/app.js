@@ -1,5 +1,6 @@
 import * as weeklyPayloadBridge from "./core/weekly-payload-bridge.js";
 import { BOOTSTRAP_CONTRACT, bootstrapUi } from "./bootstrap.js";
+import { installImageFallbacks } from "./ui/image-fallbacks.js";
 
 // W3's production artifact is a classic self-contained inline script. The
 // source graph remains native ES modules, but this entry deliberately exports
@@ -9,6 +10,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   // so tree-shaking cannot silently remove the markers verified by ui_bundle.py.
   document.documentElement.dataset.hermesUiScript = "HERMES_UI_SCRIPT_OPEN:";
   document.documentElement.dataset.hermesUiBootstrap = BOOTSTRAP_CONTRACT;
+  installImageFallbacks(document);
   weeklyPayloadBridge.installWeeklyPayloadBridge(window);
   bootstrapUi();
 }
