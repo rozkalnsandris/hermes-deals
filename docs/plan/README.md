@@ -6,7 +6,9 @@ Cenu serviss un esošā detaļu loga integrācija ir atsevišķā [PR #959](http
 
 **Tagad piegādāts kodā:** pilns lokālais UI ar izolētiem piemēra datiem; viena piedāvājuma cenu vēstures/salīdzinājuma lasīšanas serviss; esošā piedāvājuma detaļu loga pieslēgums šim servisam. Viena veikala vēsture vairs neprasa starpveikalu produkta saiti. Pilnam salīdzinājumam saglabājas prasība pēc apstiprināta vienāda produkta. Skatīt [cenu datu robežas](https://github.com/rozkalnsandris/hermes-deals/blob/codex/offer-price-intelligence/docs/PRICE_INTELLIGENCE_PLAN.md).
 
-**Vēl jāpieslēdz:** īstie servisi jaunajam panelim, mājsaimniecības/saraksta/favorītu saglabāšana, reāli veikalu grozi un recepšu/plāna persistence. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
+**Nākamais piegādātais koda posms:** [datubāzes pieslēgums un kopīgais saraksts](DATA_AND_HOUSEHOLD.md) jaunajā `/ui/home/` skatā. Piedāvājumi, cenu detaļas, favorīti un filiāļu grozi izmanto esošos datus; saraksts un izvēles saglabājas serverī.
+
+**Vēl jāpieslēdz:** recepšu/plāna saglabāšana un sastāvdaļu plūsma; pēc tam izvēlētās filiāles, lietotņu izvēles un vienkārša divu veikalu alternatīva. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
 
 | Secība | Tehniskā daļa | UI daļa paralēli |
 |---|---|---|
@@ -23,4 +25,4 @@ Priekšskatījuma testus palaist pēc `pytest` un `httpx` uzstādīšanas tā vi
 PYTHONPATH=backend .venv-preview/bin/python -m pytest backend/tests/test_north_star_preview.py -q
 ```
 
-Produkcijas cenu servisa testi ir `backend/tests/test_offer_price_intelligence_api.py`, frontend integrācijas testi — `backend/frontend/tests/storage-details.test.mjs`. Standarta CI bez Jinja izlaiž tikai atsevišķā priekšskatījuma testus; pirms UI piegādes tie jāpalaiž priekšskatījuma vidē.
+Produkcijas cenu servisa testi ir `backend/tests/test_offer_price_intelligence_api.py`, frontend integrācijas testi — `backend/frontend/tests/storage-details.test.mjs`. Jinja tagad ir piesaistīta arī servera atkarībām. Datubāzes plūsmas testi ir `backend/tests/test_north_star_live.py`; atsevišķais demonstrācijas serveris paliek pieejams.

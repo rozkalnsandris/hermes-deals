@@ -96,8 +96,8 @@ def test_w3_preferences_filters_and_deal_details_are_explicit_boundaries() -> No
     assert "export function normalizeSortForMode" in filters
     assert "export function activeFilterLabels" in filters
     assert "export function initDealDetails" in details
-    assert "Canonical identitāte apstiprināta" in details
-    assert "Tikai retailer deal" in details
+    assert "/price-intelligence?as_of=" in details
+    assert "Vēl nav apstiprināts vienāds produkts citos veikalos." in details
     assert 'from "./features/details.js"' in bootstrap
     assert 'from "./ui/filters.js"' in bootstrap
     assert 'from "./ui/status.js"' in bootstrap
@@ -111,4 +111,5 @@ def test_w3_bootstrap_node_tests_exist() -> None:
     assert "bootstrap source preserves legacy startup boundary" in tests
     assert "mode-specific sort normalization preserves legacy rules" in tests
     assert "view preferences fail closed to supported modes retailers sorts" in details_tests
-    assert "retailer detail canonical requests remain exactly two" in details_tests
+    assert "retailer details use one date-scoped request even without canonical identity" in details_tests
+    assert "unmapped deal loads history end to end using one offer request" in details_tests
