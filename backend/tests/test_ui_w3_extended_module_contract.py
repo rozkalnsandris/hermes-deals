@@ -24,12 +24,13 @@ def test_w3_catalog_module_preserves_canonical_trust_and_request_contracts() -> 
         "/api/v1/canonical-products/",
         "/current-offers?as_of=",
         "/price-history?limit=60",
-        "Salīdzinājums tiek rādīts tikai apstiprinātai canonical produkta identitātei",
         "Canonical produkts",
         "Cenu vēsture",
     ):
         assert marker in catalog
         assert marker in legacy
+    assert "Vienāda produkta cenas izvēlētajā datumā." in catalog
+    assert "Salīdzinājums tiek rādīts tikai apstiprinātai canonical produkta identitātei" in legacy
 
 
 def test_w3_navigation_module_preserves_public_url_state_contract() -> None:
