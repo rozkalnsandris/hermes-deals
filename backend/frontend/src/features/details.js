@@ -13,19 +13,13 @@ import {
 } from "./deals.js";
 
 export function rawDealDetailUrls(deal, asOf) {
-  const canonicalId = deal.canonical_product_id || deal.canonical_id || null;
-  if (!canonicalId) return [];
-  return [
-    `/api/v1/canonical-products/${canonicalId}/current-offers?as_of=${encodeURIComponent(asOf)}`,
-    `/api/v1/canonical-products/${canonicalId}/price-history?limit=60`,
-  ];
+  if (!deal.offer_candidate_id) return [];
+  return [`/api/v1/offers/${encodeURIComponent(deal.offer_candidate_id)}/price-intelligence?as_of=${encodeURIComponent(asOf)}&limit=200`];
 }
 
 export function rawDealDetailStatus(deal) {
-  const canonicalId = deal.canonical_product_id || deal.canonical_id || null;
-  if (canonicalId) return "Canonical identitāte apstiprināta";
-  if (deal.canonical_comparable) return "Canonical salīdzināms";
-  return "Tikai retailer deal";
+  return deal.canonical_product_id || deal.canonical_id
+    ? "Produkts atpazīts" : "Veikala piedāvājums";
 }
 
 export function initDealDetails(app) {
@@ -50,23 +44,28 @@ export function initDealDetails(app) {
 
     const primary = dealPrimaryPrice(deal, { euro });
     const inList = Boolean(getItems()[dealListId(deal)]);
-    const canonicalId = deal.canonical_product_id || deal.canonical_id || null;
     let canonicalOffers = [];
     let historyRows = [];
-    let historyCopy = "Cenu vēsture būs pieejama pēc tam, kad šis retailer piedāvājums būs droši sasaistīts ar canonical produktu.";
-
-    if (canonicalId) {
+    let historyBasis = null;
+    let historyTruncated = false;
+    let historyCopy = "Šim piedāvājumam vēl nav saglabātu cenu novērojumu.";
+    let comparisonEmpty = "Vēl nav apstiprināts vienāds produkts citos veikalos.";
+    const [detailUrl] = rawDealDetailUrls(deal, getAsOf());
+    if (detailUrl) {
       try {
-        const [currentUrl, historyUrl] = rawDealDetailUrls(deal, getAsOf());
-        const [current, history] = await Promise.all([
-          fetchJson(currentUrl),
-          fetchJson(historyUrl),
-        ]);
-        canonicalOffers = current.offers || [];
-        historyRows = history.observations || [];
-        historyCopy = "Šim canonical produktam vēl nav saglabātu cenu novērojumu.";
+        const data = await fetchJson(detailUrl);
+        canonicalOffers = data.offers || [];
+        historyRows = data.observations || [];
+        historyBasis = data.history_basis;
+        comparisonEmpty = {
+          identity_conflict: "Produkta atbilstība vēl jāpārbauda.",
+          unsupported_price_basis: "Šim piedāvājumam salīdzini cenu par vienību; iepakojumu summas nav salīdzināmas.",
+          no_current_offers: "Izvēlētajā datumā nav salīdzināmu cenu.",
+        }[data.comparison_status] || comparisonEmpty;
+        historyTruncated = Boolean(data.history_truncated);
       } catch (error) {
-        historyCopy = `Canonical cenu vēsturi neizdevās ielādēt: ${error.message}`;
+        historyCopy = `Cenu datus neizdevās ielādēt: ${error.message}`;
+        comparisonEmpty = historyCopy;
       }
     }
 
@@ -77,11 +76,8 @@ export function initDealDetails(app) {
     const sourceLink = deal.source_url
       ? `<a class="btn" href="${esc(deal.source_url)}" target="_blank" rel="noopener">Atvērt avotu</a>`
       : "";
-    const comparisonEmpty = canonicalId
-      ? "Šajā datumā nav citu aktuālu veikalu cenu."
-      : "Salīdzinājums nav pieejams, jo retailer piedāvājumam nav apstiprinātas canonical identitātes.";
 
-    dealDetailBody.innerHTML = `<div class="detail-shell"><div class="detail-grid">${detailImageHtml(deal.source_image_url, deal.product_name_raw)}<div class="detail-content"><h2>${esc(deal.product_name_raw)}</h2><div class="detail-sub">${esc(deal.brand_raw || retailerName(deal.source_chain))} · ${esc(rawPackage(deal))}</div><div class="detail-price-hero"><div class="detail-price-value">${primary[0]}</div><div class="detail-price-note">${esc(primary[1])}</div></div><div class="detail-facts"><div class="detail-fact"><span>Veikals</span><strong>${esc(retailerName(deal.source_chain))}</strong></div><div class="detail-fact"><span>Derīgums</span><strong>${esc(fmtDate(deal.valid_from))}–${esc(fmtDate(deal.valid_until))}</strong></div><div class="detail-fact"><span>Parastā cena</span><strong>${esc(regular)}</strong></div><div class="detail-fact"><span>Statuss</span><strong>${esc(status)}</strong></div></div><div class="detail-actions"><button class="btn primary deal-detail-add" type="button">${inList ? "Sarakstā ✓" : "Pievienot sarakstam"}</button>${sourceLink}</div></div></div>${detailComparisonHtml(canonicalOffers, comparisonEmpty, { euro, fmtDate })}${detailHistoryHtml(historyRows, historyCopy, { euro, fmtDate })}</div>`;
+    dealDetailBody.innerHTML = `<div class="detail-shell"><div class="detail-grid">${detailImageHtml(deal.source_image_url, deal.product_name_raw)}<div class="detail-content"><h2>${esc(deal.product_name_raw)}</h2><div class="detail-sub">${esc(deal.brand_raw || retailerName(deal.source_chain))} · ${esc(rawPackage(deal))}</div><div class="detail-price-hero"><div class="detail-price-value">${primary[0]}</div><div class="detail-price-note">${esc(primary[1])}</div></div><div class="detail-facts"><div class="detail-fact"><span>Veikals</span><strong>${esc(retailerName(deal.source_chain))}</strong></div><div class="detail-fact"><span>Derīgums</span><strong>${esc(fmtDate(deal.valid_from))}–${esc(fmtDate(deal.valid_until))}</strong></div><div class="detail-fact"><span>Parastā cena</span><strong>${esc(regular)}</strong></div><div class="detail-fact"><span>Statuss</span><strong>${esc(status)}</strong></div></div><div class="detail-actions"><button class="btn primary deal-detail-add" type="button">${inList ? "Sarakstā ✓" : "Pievienot sarakstam"}</button>${sourceLink}</div></div></div>${detailComparisonHtml(canonicalOffers, comparisonEmpty, { euro, fmtDate })}${detailHistoryHtml(historyRows, historyCopy, { euro, fmtDate, sourceHistory: true, historyBasis, historyTruncated })}</div>`;
 
     dealDetailBody.querySelector(".deal-detail-add")?.addEventListener("click", (event) => {
       event.preventDefault();
