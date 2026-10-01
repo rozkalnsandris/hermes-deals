@@ -201,3 +201,17 @@ def test_comparison_as_of_does_not_replace_known_price_with_future_observation(d
     assert body["lowest_price_eur"] == "2.09"
     assert {row["price_eur"] for row in body["offers"]} == {"2.19", "2.09"}
     assert client.get(f"/api/v1/offers/{old.id}/price-intelligence?as_of=9999-12-31").status_code == 422
+
+
+@pytest.mark.parametrize("window", [
+    {"app_valid_until": date(2026, 9, 20)},
+    {"app_valid_from": date(2026, 10, 1)},
+])
+def test_required_app_window_must_cover_selected_day(data, window):
+    db, client = data
+    row = offer(db, requires_app=True, **window)
+    link(db, row, product(db))
+    body = get(client, row)
+    assert body["comparison_status"] == "no_current_offers"
+    assert body["offers"] == []
+    assert len(body["observations"]) == 1

@@ -154,6 +154,11 @@ def build_offer_price_intelligence(
                 # Conditional prices must never beat an unrestricted price silently.
                 if (candidate.requires_app, candidate.coupon_required) != (row.requires_app, row.coupon_required):
                     continue
+                if candidate.requires_app or candidate.coupon_required:
+                    if candidate.app_valid_from and as_of < candidate.app_valid_from:
+                        continue
+                    if candidate.app_valid_until and as_of > candidate.app_valid_until:
+                        continue
                 offers.append(candidate)
             if offers:
                 scopes = {(offer.source_chain, offer.source_store_external_id) for offer in offers}
