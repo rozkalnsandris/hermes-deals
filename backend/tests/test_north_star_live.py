@@ -72,7 +72,7 @@ def test_real_pages_never_fall_back_to_demo(data, view):
     assert response.headers["Referrer-Policy"] == "same-origin"
     assert "SAGLABĀTIE DATI" in response.text
     assert "DEMONSTRĀCIJAS DATI" not in response.text
-    assert "Vistas tortiljas" not in response.text
+    assert "2,46 € / porcija" not in response.text
     assert 'href="/ui/home/static/north-star.css"' in response.text
     assert db.scalar(select(func.count()).select_from(HouseholdState)) == 0  # GET does not create state.
 
@@ -276,3 +276,91 @@ def test_public_https_origin_survives_tls_termination(data, monkeypatch):
                            headers={"Origin": "https://deals.example.test", "Cookie": f"__Host-hermes_home_csrf={csrf}"}, follow_redirects=False)
     assert response.status_code == 303
     assert read_household(db, "test-family")[0]["shopping"][0]["name"] == "Proxy test"
+
+
+def test_meal_plan_persists_portions_and_aggregates_without_duplicate_purchases(data):
+    db, first, engine = data
+    assert post(first, "meal_plan", day="0", recipe_id="tortillas", servings="4").status_code == 200
+    assert post(first, "meal_plan", day="2", recipe_id="pasta", servings="2").status_code == 200
+    with TestClient(app) as second:
+        assert "Vistas tortiljas" in second.get("/ui/home/?view=planner&date=2026-10-01").text
+        assert post(second, "meal_sync").status_code == 200
+        state, _ = read_household(db, "test-family")
+        chicken = next(row for row in state["shopping"] if row["ingredient_id"] == "chicken")
+        assert Decimal(chicken["amount"]) == 700
+        assert chicken["unit"] == "g" and chicken["product_id"] is None
+        ids = [row["item_id"] for row in state["shopping"]]
+        post(second, "toggle", item_id=chicken["item_id"])
+        post(second, "meal_sync")
+        state, _ = read_household(db, "test-family")
+        assert [row["item_id"] for row in state["shopping"]] == ids
+        assert next(row for row in state["shopping"] if row["ingredient_id"] == "chicken")["checked"]
+        post(second, "clear_checked")
+        post(second, "meal_sync")
+        state, _ = read_household(db, "test-family")
+        assert not any(row["ingredient_id"] == "chicken" for row in state["shopping"])
+        context = build_live_context(db, "test-family", DAY, view="list")
+        assert all(row["price_label"] == "—" for row in context["shopping"]["rows"])
+        assert context["best_store"] is None
+        assert context["shopping"]["total_label"] == "—"
+
+
+def test_plan_changes_replace_only_generated_week_and_keep_manual_items(data):
+    db, client, _ = data
+    post(client, "add", name="Vistas fileja")
+    post(client, "meal_plan", day="0", recipe_id="tortillas", servings="4")
+    post(client, "meal_sync")
+    post(client, "meal_plan", day="0", recipe_id="tortillas", servings="8")
+    post(client, "meal_sync")
+    state, _ = read_household(db, "test-family")
+    chicken = next(r for r in state["shopping"] if r.get("ingredient_id") == "chicken")
+    assert Decimal(chicken["amount"]) == 1000
+    assert len([r for r in state["shopping"] if r["name"] == "Vistas fileja"]) == 2
+    response = post(client, "quantity", item_id=chicken["item_id"], quantity="3")
+    assert response.status_code == 422
+    assert "porcijas" in response.text
+    post(client, "meal_plan", day="0", recipe_id="", servings="4")
+    post(client, "meal_sync")
+    state, _ = read_household(db, "test-family")
+    assert len(state["shopping"]) == 1 and not state["shopping"][0].get("meal_week")
+
+
+def test_weeks_units_and_existing_households_remain_independent(data):
+    db, client, _ = data
+    from app.meal_service import change_meals, meal_context
+    state = {"settings": {"people": 4}, "shopping": [], "favorites": []}
+    assert meal_context(state, DAY)["meal_count"] == 0
+    for selected in ("2026-10-01", "2026-10-08"):
+        form = {"date": selected, "day": "0", "recipe_id": "omelette", "servings": "2"}
+        change_meals(state, "meal_plan", form)
+        change_meals(state, "meal_sync", form)
+    assert len(state["shopping"]) == 8
+    assert {r["meal_week"] for r in state["shopping"]} == {"2026-09-28", "2026-10-05"}
+    assert {r["unit"] for r in state["shopping"]} == {"g", "ml", "gab."}
+    assert all(Decimal(r["amount"]) == 4 for r in state["shopping"] if r["ingredient_id"] == "eggs")
+
+
+@pytest.mark.parametrize("values", [
+    {"day": "7", "recipe_id": "pasta", "servings": "4"},
+    {"day": "0", "recipe_id": "made-up", "servings": "4"},
+    {"day": "0", "recipe_id": "pasta", "servings": "0"},
+    {"day": "0", "recipe_id": "pasta", "servings": "13"},
+    {"day": "0", "recipe_id": "pasta", "servings": "NaN"},
+])
+def test_invalid_meal_plan_is_not_saved(data, values):
+    db, client, _ = data
+    assert post(client, "meal_plan", **values).status_code == 422
+    assert read_household(db, "test-family")[1] == 0
+
+
+def test_recipe_and_planner_forms_render_with_no_demo_price_claim(data):
+    _, client, _ = data
+    recipes = client.get("/ui/home/?view=recipes&date=2026-10-01")
+    assert recipes.status_code == 200
+    assert "500 g" in recipes.text
+    assert "Cenas vēl nav piesaistītas sastāvdaļām" in recipes.text
+    assert 'action="/ui/home/actions/meal_plan"' in recipes.text
+    planner = client.get("/ui/home/?view=planner&date=2026-10-01")
+    assert planner.status_code == 200
+    assert planner.text.count('name="day"') == 7
+    assert 'action="/ui/home/actions/meal_sync"' in planner.text

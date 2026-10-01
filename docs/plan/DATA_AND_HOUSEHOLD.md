@@ -37,4 +37,4 @@ Parastas HTML formas un pārlāde ir sākotnējā plūsma. Nav pārlūka biznesa
 
 `backend/tests/test_north_star_live.py` pārbauda divus klientus, saglabāšanu, konfliktus, formas, filtrus, cenu derīgumu, nezināmas cenas, filiāļu nošķiršanu, apstiprinātu salīdzinājumu, migrācijas struktūru un HTTPS starpniekservera gadījumu. Pārlūka pierādījumi izmanto tikai izolētu testu datubāzi ar redzamu marķējumu; tie nepierāda produkcijas cenu svaigumu vai PostgreSQL migrācijas pielietojumu.
 
-Nākamā saistītā plūsma ir receptes → porcijas → nedēļas plāns → tas pats saglabātais saraksts. Tās pilnais izskats ir demonstrācijā; datubāzes skatā pagaidām ir skaidrs nepabeigtas sadaļas stāvoklis. Filiāļu/lojalitātes izvēles un divu veikalu alternatīva vēl nav realizētas. Atrašanās vietas teksts iestatījumos pats nemaina avota veikala izvēli.
+Pēc šī posma pievienota [recepšu, porciju un nedēļas plāna saglabāšana](MEALS.md) tam pašam sarakstam. Sastāvdaļu cenu piesaiste vēl nav gatava. Filiāļu/lojalitātes izvēles un divu veikalu alternatīva vēl nav realizētas. Atrašanās vietas teksts iestatījumos pats nemaina avota veikala izvēli.
