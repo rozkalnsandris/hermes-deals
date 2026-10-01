@@ -2,7 +2,9 @@
 
 Mērķis ir [GOAL.md](../GOAL.md), nevis tehnisko piedāvājumu katalogs. Gaišais [UI priekšskatījums](UI.md) rāda pilno ģimenes darbplūsmu, kamēr [tehniskais slānis](TECHNICAL.md) pieslēdz īstos datus. [Esošo spēju audits](CAPABILITIES.md) pasaka, ko atkārtoti izmantot un kā vēl trūkst.
 
-**Tagad piegādāts kodā:** pilns lokālais UI ar izolētiem piemēra datiem; viena piedāvājuma cenu vēstures/salīdzinājuma lasīšanas serviss; esošā piedāvājuma detaļu loga pieslēgums šim servisam. Viena veikala vēsture vairs neprasa starpveikalu produkta saiti. Pilnam salīdzinājumam saglabājas prasība pēc apstiprināta vienāda produkta. Skatīt [cenu datu robežas](../PRICE_INTELLIGENCE_PLAN.md).
+Cenu serviss un esošā detaļu loga integrācija ir atsevišķā [PR #959](https://github.com/rozkalnsandris/hermes-deals/pull/959). Šī UI piegāde ir [PR #960](https://github.com/rozkalnsandris/hermes-deals/pull/960), balstīta uz mērķa dokumenta [PR #957](https://github.com/rozkalnsandris/hermes-deals/pull/957).
+
+**Tagad piegādāts kodā:** pilns lokālais UI ar izolētiem piemēra datiem; viena piedāvājuma cenu vēstures/salīdzinājuma lasīšanas serviss; esošā piedāvājuma detaļu loga pieslēgums šim servisam. Viena veikala vēsture vairs neprasa starpveikalu produkta saiti. Pilnam salīdzinājumam saglabājas prasība pēc apstiprināta vienāda produkta. Skatīt [cenu datu robežas](https://github.com/rozkalnsandris/hermes-deals/blob/codex/offer-price-intelligence/docs/PRICE_INTELLIGENCE_PLAN.md).
 
 **Vēl jāpieslēdz:** īstie servisi jaunajam panelim, mājsaimniecības/saraksta/favorītu saglabāšana, reāli veikalu grozi un recepšu/plāna persistence. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
 
