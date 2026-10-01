@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.current_deals_service import build_current_deals
 from app.current_deals_sql_loader import load_sql_ranked_state_rows, materialize_only
 from app.household_service import read_household
+from app.meal_service import meal_context, quantity_label
 from app.models import OfferCandidateRecord
 from app.price_intelligence import build_offer_price_intelligence, _series_predicate
 
@@ -131,7 +132,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         row = latest.get(item["product_id"])
         quote = offer_view(row, day) if row else None
         amount = quote["pack_price"] if quote else None
-        shopping_rows.append({**item, "package": quote["package"] if quote else "Brīvs ieraksts",
+        shopping_rows.append({**item, "package": quantity_label(item["amount"], item["unit"]) if item.get("meal_week") else quote["package"] if quote else "Brīvs ieraksts",
                               "retailer": quote["retailer"] if quote else "Cena nav zināma",
                               "price_label": money(amount * item["quantity"]) if amount is not None else "—"})
         if item["checked"]:
@@ -177,12 +178,12 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     history_product = next((latest[key] for key in state["favorites"] if key in latest), None) if view == "overview" else None
     overview_history = history_view(detail(history_product)) if history_product else None
     start = day - timedelta(days=day.weekday())
-    return {"demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
+    return {**meal_context(state, day), "demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
             "selected_date": day.isoformat(), "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),
             "settings": state["settings"], "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
-                         "total_label": money(total), "unknown_count": unknown, "required": required},
+                         "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": next((s for s in ranked if s["complete"]), None),
             "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
             "query": query, "retailer": retailer, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,

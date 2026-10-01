@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdState, OfferCandidateRecord
+from app.meal_service import change_meals
 
 
 class HouseholdConflict(ValueError):
@@ -45,7 +46,9 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
     if expected_version != version:
         raise HouseholdConflict("Sarakstu tikko mainīja citā ierīcē. Pārlādē lapu un atkārto savu darbību.")
     items = state["shopping"]
-    if action == "add":
+    if action in {"meal_plan", "meal_sync"}:
+        change_meals(state, action, form)
+    elif action == "add":
         name = str(form.get("name", "")).strip()[:120]
         offer_id = form.get("product_id", "")
         if offer_id:
@@ -70,6 +73,8 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
         elif action == "remove":
             items.remove(item)
         else:
+            if item.get("meal_week"):
+                raise ValueError("Sastāvdaļu daudzumu maini ēdienkartē, izvēloties porcijas un atjaunojot sarakstu.")
             try:
                 quantity = int(form.get("quantity", ""))
             except (ValueError, TypeError):

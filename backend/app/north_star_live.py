@@ -114,7 +114,7 @@ def home(request: Request, db: Session = Depends(get_db)):
         log.warning("North-star data read failed; check database and migration 0008")
         return render(request, error_context(day, view, "Pārbaudi datubāzes savienojumu un mājsaimniecības datu sagatavošanu."), status=503)
     if params.get("saved") == "1":
-        context["notice"] = "Izmaiņas saglabātas ģimenes sarakstā."
+        context["notice"] = "Izmaiņas saglabātas."
     return render(request, context)
 
 
