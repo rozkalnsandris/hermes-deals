@@ -55,7 +55,7 @@ Iestatījumos glabāt tikai vajadzīgo: ģimenes izvēlētie veikali/filiāles, 
 
 Rakstīšana ar parastu HTTP un DB transakciju. Pirmajā kopīgajā versijā pietiek ar pārlādi/polling; SSE pievienot, kad vajag tūlītēju citas ierīces atjaunošanu. SSE paziņo par izmaiņu, klients pārlasa servera rezultātu. Vienlaicīgu labojumu konfliktu nedrīkst klusi pārrakstīt; pietiek ar vienkāršu versijas pārbaudi. Nav offline rindas vai otrās datubāzes pārlūkā.
 
-Repo pēdējā atrastā migrācija ir `0007_comparison_family_pricing`. Pirms jaunas persistence implementācijas pārbaudīt aktuālo Alembic head un pievienot jaunu migrāciju; esošās nemainīt. Šis dokuments nepārbauda migrāciju pielietojumu produkcijā.
+Koda posms [DATA_AND_HOUSEHOLD.md](DATA_AND_HOUSEHOLD.md) pievieno `0008_household_state` pēc `0007_comparison_family_pricing`. Tā glabā vienas ģimenes sarakstu, favorītus un pamata izvēles vienā versētā dokumentā. Migrācijas pielietojums produkcijā nav pārbaudīts vai izpildīts.
 
 ## Pārbaude bez liekas ceremonijas
 

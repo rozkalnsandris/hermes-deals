@@ -12,7 +12,9 @@ INSTALLER = ROOT / "tools/runner/install_edeka_production_canary_control_nonrewi
 WORKFLOW = ROOT / ".github/workflows/hermes-edeka-production-canary-control.yml"
 EXECUTOR = ROOT / "backend/app/edeka_production_canary.py"
 PLAN = ROOT / "config/edeka-production-canary-v01.json"
-RUNTIME_LOCK = ROOT / "backend/locks/runtime-py313.txt"
+# Historical canary registration stays pinned; a UI dependency update must not
+# silently authorize a different canary runtime. Active locks have their own contract.
+RUNTIME_LOCK = ROOT / "backend/tests/fixtures/edeka/registered-runtime-py313.txt"
 
 EXPECTED_EXECUTOR_BLOB = "4760fefb3f5de67798b52d7b5d30021fb8bf2ba7"
 EXPECTED_PLAN_BLOB = "4c4674534dfc29957a9cc9f05b0df99ca5378b50"
@@ -167,3 +169,40 @@ def test_existing_bridge_still_passes_only_normalized_operation_sha_and_export_d
     control = workflow.split("  control:", 1)[1].split("  report:", 1)[0]
     assert "actions/checkout" not in control
     assert "GH_TOKEN" not in control
+
+
+def test_registration_rejects_new_application_lock(tmp_path, monkeypatch) -> None:
+    import subprocess
+    import pytest
+
+    namespace = run_path(str(INSTALLER))
+    validate = namespace["validate_source_repo"]
+    environment = validate.__globals__
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git/index").write_bytes(b"isolated test index")
+    installer_path = tmp_path / environment["INSTALLER_REL"]
+    installer_path.parent.mkdir(parents=True)
+    installer_path.write_text("# isolated installer location")
+    monkeypatch.setitem(environment, "SOURCE_REPO", tmp_path)
+    monkeypatch.setitem(environment, "__file__", str(installer_path))
+    sha = "a" * 40
+    expected = {
+        environment["DISPATCHER_REL"]: environment["EXPECTED_DISPATCHER_BLOB"],
+        environment["EXECUTOR_REL"]: EXPECTED_EXECUTOR_BLOB,
+        environment["PLAN_REL"]: EXPECTED_PLAN_BLOB,
+    }
+    def git_text(*args):
+        if args == ("branch", "--show-current"):
+            return "main"
+        if args == ("rev-parse", "HEAD"):
+            return sha
+        if args == ("remote", "get-url", "origin"):
+            return "https://github.com/rozkalnsandris/hermes-deals.git"
+        path = args[1].split(":", 1)[1]
+        if path == environment["RUNTIME_LOCK_REL"]:
+            return _blob(ROOT / path)
+        return expected[path]
+    monkeypatch.setitem(environment, "git_text", git_text)
+    monkeypatch.setitem(environment, "git", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, b"", b""))
+    with pytest.raises(RuntimeError, match="reviewed Git blob mismatch: backend/locks/runtime-py313.txt"):
+        validate(sha)

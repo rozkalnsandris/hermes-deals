@@ -1,5 +1,8 @@
-// Browser behavior only. Prices, history and all demo state live on the server.
+// Browser behavior only. Prices, history and all application state live on the server.
 (() => {
+  document.addEventListener('error', event => {
+    if (event.target.matches?.('.product-picture img')) event.target.remove();
+  }, true);
   const sidebar = document.getElementById('sidebar');
   const openers = [...document.querySelectorAll('[data-menu-open]')];
   const mobile = window.matchMedia('(max-width: 760px)');

@@ -33,6 +33,7 @@ from app.review_queue import (
 
 from app.lidl_weekly_review_bridge import create_review_from_page_alert_hint
 from app.price_intelligence import router as price_intelligence_router
+from app.north_star_live import install as install_north_star
 from app.netto_daily_special_api import router as netto_daily_special_router
 from app.weekly_special_api import router as weekly_special_router
 from app.lidl_review_preview import ReviewPreviewUnavailable, resolve_review_preview
@@ -49,6 +50,8 @@ app = FastAPI(
 app.include_router(netto_daily_special_router)
 app.include_router(weekly_special_router)
 app.include_router(price_intelligence_router)
+
+install_north_star(app)
 
 
 @app.get("/api/health")
