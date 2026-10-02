@@ -560,24 +560,17 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 269,
+  "completed_issue_count": 270,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-10-01T10:55:22.718134Z",
-  "generated_at_local": "2026-10-01T12:55:22.718134+02:00",
+  "generated_at": "2026-10-02T10:28:50.942937Z",
+  "generated_at_local": "2026-10-02T12:28:50.942937+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-09-30",
+  "previous_day": "2026-10-01",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 1,
-  "previous_day_completed_issues": [
-    {
-      "closed_at": "2026-09-30T13:54:26Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/927",
-      "number": 927,
-      "title": "Web M2: extract shared current-deals Python service boundary"
-    }
-  ],
+  "previous_day_completed_issue_count": 0,
+  "previous_day_completed_issues": [],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
