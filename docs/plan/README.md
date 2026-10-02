@@ -14,7 +14,9 @@ Cenu serviss un esošā detaļu loga integrācija ir atsevišķā [PR #959](http
 
 **Veikalu plāns kodā:** [saglabāta veikalu izvēle un pilna divu filiāļu alternatīva](STORE_PLANS.md), ar precēm un iepakojumiem katrai vietai.
 
-**Vēl jāpieslēdz:** individuālas filiāļu preferences un lietotņu/kuponu piemērojamības izvēle. Produkcijas ieviešana un datu pārklājuma pārbaude joprojām ir atsevišķi soļi. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
+**Filiāļu izvēle kodā:** konkrētas saraksta cenu avotu filiāles var izslēgt no ieteikumiem un vēlāk atjaunot; izvēle saglabājas ģimenei.
+
+**Vēl jāpieslēdz:** lietotņu/kuponu piemērojamības izvēle. Produkcijas ieviešana un datu pārklājuma pārbaude joprojām ir atsevišķi soļi. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
 
 | Secība | Tehniskā daļa | UI daļa paralēli |
 |---|---|---|

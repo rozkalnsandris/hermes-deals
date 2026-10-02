@@ -479,3 +479,26 @@ def test_shared_stylesheet_is_css_not_a_template(data):
     assert response.headers["content-type"].startswith("text/css")
     assert "{%" not in response.text and "<section" not in response.text
     assert ":root{" in response.text and ".app-layout{" in response.text
+
+
+def test_branch_preferences_preserve_other_branches_and_restore(data):
+    db, client, _ = data
+    a = offer(db, name="First branch", sku="first-branch", store="L:one", price="1")
+    b = offer(db, name="Second branch", sku="second-branch", store="L-two", price="2")
+    post(client, "add", product_id=str(a.id))
+    post(client, "add", product_id=str(b.id))
+    assert build_live_context(db, "test-family", DAY)["two_store_plan"]
+    assert post(client, "branch_preference", chain="lidl", store="L:one", enabled="0").status_code == 200
+    context = build_live_context(db, "test-family", DAY)
+    assert context["two_store_plan"] is None
+    assert [s["store_id"] for s in context["ranked_stores"]] == ["L-two"]
+    assert len(context["shopping"]["rows"]) == 2
+    assert any(not b["enabled"] and b["store_id"] == "L:one" for b in context["branch_options"])
+    # Excluded branches remain reversible after the shopping list is cleared.
+    for item in context["shopping"]["rows"]:
+        post(client, "remove", item_id=item["item_id"])
+    page = client.get("/ui/home/?view=settings&date=2026-10-01")
+    assert 'Iekļaut LIDL L:one' in page.text
+    assert post(client, "branch_preference", chain="lidl", store="L:one", enabled="1").status_code == 200
+    assert read_household(db, "test-family")[0]["excluded_branches"] == []
+    assert post(client, "branch_preference", chain="lidl", store="invented", enabled="0").status_code == 422

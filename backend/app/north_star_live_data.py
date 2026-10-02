@@ -121,6 +121,11 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     offers = [offer_view(row, day, favorite_id=favorite_latest.get(str(row.offer_candidate_id))) for row in current.deals]
     favorites = [offer_view(latest[key], day, favorite_id=key) for key in state["favorites"] if key in latest]
     preferred = state.get("preferred_retailers", [key for key, _ in STORES])
+    excluded_branches = set(state.get("excluded_branches", []))
+    branch_options = {}
+    for key in excluded_branches:
+        chain, store_id = key.split(":", 1)
+        branch_options[key] = {"chain": chain, "store_id": store_id, "name": dict(STORES).get(chain, chain), "enabled": False}
     basket_lines = []
     shopping_rows, total, unknown = [], D(0), 0
     buckets = {key: {"id": key, "name": name, "total": D(0), "coverage": 0} for key, name in STORES}
@@ -181,9 +186,12 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             # Do not blend branches of a chain into an imaginary single-store basket.
             for (chain, store_id), option in by_store.items():
                 price = option["price"]
-                if not store_id or chain not in preferred:
+                if not store_id:
                     continue
-                key = f"{chain}:{store_id or ''}"
+                key = f"{chain}:{store_id}"
+                branch_options[key] = {"chain": chain, "store_id": store_id, "name": dict(STORES).get(chain, chain), "enabled": key not in excluded_branches}
+                if chain not in preferred or key in excluded_branches:
+                    continue
                 bucket = buckets.setdefault(key, {"id": chain, "name": dict(STORES).get(chain, chain), "store_id": store_id,
                                                    "total": D(0), "coverage": 0})
                 basket_line["prices"][key] = price
@@ -243,7 +251,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             "settings": state["settings"], "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
-            "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred,
+            "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
             "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
             "query": query, "retailer": retailer, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
