@@ -36,8 +36,12 @@ def test_finalizer_is_syntax_valid_and_pins_reviewed_bootstrap() -> None:
     assert f"EXPECTED_N9_SHA='{EXPECTED_N9_SHA}'" in text
     assert f"EXPECTED_N10_SHA='{EXPECTED_N10_SHA}'" in text
     assert "source PR merge SHA mismatch" in text
+    assert "source PR head repository mismatch" in text
     assert 'merge-base --is-ancestor "$TARGET_SHA" origin/main' in text
-    assert "exact source SHA has no successful main-push CI" in text
+    assert "CI_MODE='merge_push_ci'" in text
+    assert "neither merge SHA nor exact PR head has successful CI" in text
+    assert "tested PR head tree differs from squash merge tree" in text
+    assert "CI_MODE='tree_equivalent_pr_head_ci'" in text
 
 
 def test_finalizer_preserves_primary_and_uses_exact_detached_worktree() -> None:
@@ -115,6 +119,7 @@ def test_finalizer_verifies_registered_runtime_and_safety_markers() -> None:
         "REVIEW_WRITE=false",
         "APPROVAL_PUBLICATION=false",
         "PRODUCTION_DEPLOY=false",
+        "CI_MODE=%s",
         "OWNER_FINALIZER_RESULT=PASS",
     ):
         assert marker in text
