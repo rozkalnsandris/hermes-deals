@@ -8,7 +8,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -49,6 +49,20 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
     items = state["shopping"]
     if action == "store_preferences":
         state["preferred_retailers"] = [key for key in ("lidl", "netto", "aldi_nord", "edeka") if form.get("store_" + key) == "1"]
+    elif action == "branch_preference":
+        chain, store = form.get("chain", ""), form.get("store", "")
+        key = f"{chain}:{store}"
+        excluded = set(state.get("excluded_branches", []))
+        known = db.scalar(select(OfferCandidateRecord.id).where(
+            OfferCandidateRecord.source_chain == chain,
+            OfferCandidateRecord.source_store_external_id == store).limit(1))
+        if not store or (known is None and key not in excluded):
+            raise ValueError("Filiāle nav atrasta avota datos.")
+        if form.get("enabled") == "1":
+            excluded.discard(key)
+        else:
+            excluded.add(key)
+        state["excluded_branches"] = sorted(excluded)
     elif action == "ingredient_bind":
         key = form.get("ingredient_id", "")
         if key not in INGREDIENTS:

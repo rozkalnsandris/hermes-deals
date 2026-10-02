@@ -33,6 +33,18 @@
 {% elif view == 'settings' %}
 <section class="panel"><div class="panel-heading"><h2>Ģimenes iestatījumi</h2></div><form method="post" action="{{ base_path }}/actions/settings" class="settings-form">{{ fields(view,selected_date,csrf_token) }}<label>Ģimenes nosaukums<input name="household" value="{{ settings.household }}" required maxlength="60"></label><label>Atrašanās vieta<input name="location" value="{{ settings.location }}" maxlength="80"></label><label>Cilvēki mājsaimniecībā<input name="people" type="number" min="1" max="12" value="{{ settings.people }}" required></label><p class="fine-print">Vietas nosaukums ir tava piezīme. Tas nemaina veikalu avotu vai filiāļu atlasi.</p><button class="button button-primary">Saglabāt</button></form></section>
 <section class="panel"><div class="panel-heading"><h2>Veikali groza salīdzinājumam</h2></div><form method="post" action="{{ base_path }}/actions/store_preferences" class="store-preferences">{{ fields(view,selected_date,csrf_token) }}{% for s in retailers %}<label><input type="checkbox" name="store_{{ s.id }}" value="1" {% if s.id in preferred_retailers %}checked{% endif %}>{{ s.name }}</label>{% endfor %}<button class="button button-primary">Saglabāt veikalu izvēli</button></form><p class="fine-print">Salīdzina tikai izvēlēto veikalu saglabātās filiāļu cenas. Izvēle nemaina veikalu datu iegūšanu vai atrašanās vietu.</p>{% if not preferred_retailers %}<p>Nav izvēlēts neviens veikals. Atzīmē vismaz vienu, lai saņemtu groza ieteikumus.</p>{% endif %}</section>
+<section class="panel"><div class="panel-heading"><h2>Filiāles iepirkumu plānam</h2></div>
+<p class="fine-print">Šeit redzamas atlikušā saraksta cenu avotu filiāles un iepriekš izslēgtās filiāles. Izslēdz vietas, uz kurām nevēlies doties. Jaunas filiāles sākotnēji ir iekļautas. Veikalu ķēžu izvēle joprojām ir spēkā.</p>
+{% for branch in branch_options %}
+<form method="post" action="{{ base_path }}/actions/branch_preference" class="branch-preference">
+{{ fields(view,selected_date,csrf_token) }}
+<input type="hidden" name="chain" value="{{ branch.chain }}"><input type="hidden" name="store" value="{{ branch.store_id }}"><input type="hidden" name="enabled" value="{{ '0' if branch.enabled else '1' }}">
+<div><strong>{{ branch.name }}</strong><small>Avota filiāle: {{ branch.store_id }} · {{ 'Iekļauta' if branch.enabled else 'Izslēgta' }}</small></div>
+<button class="button button-secondary" aria-label="{{ 'Izslēgt' if branch.enabled else 'Iekļaut' }} {{ branch.name }} {{ branch.store_id }}">{{ 'Izslēgt' if branch.enabled else 'Iekļaut' }}</button>
+</form>
+{% else %}<p>Pievieno sarakstam piedāvājumu ar zināmu filiāli, lai izvēlētos pirkuma vietas.</p>{% endfor %}
+</section>
+
 {% elif view == 'statistics' %}
 <div class="stat-grid"><section class="panel stat-card"><p>Vēl jānopērk</p><strong>{{ shopping.total_label }}</strong><small>Zināmas cenas · {{ shopping.unknown_count }} produktiem cena nav zināma</small></section><section class="panel stat-card"><p>Atzīmēts kā nopirkts</p><strong>{{ shopping.checked_count }} / {{ shopping.count }}</strong><small>Kopīgajā sarakstā</small></section></div><p class="fine-print">Plānotā summa nav reģistrēti tēriņi. Faktisko pirkumu statistika vēl nav pieslēgta.</p>
 {% else %}

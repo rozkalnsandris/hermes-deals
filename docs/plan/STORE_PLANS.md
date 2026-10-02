@@ -10,4 +10,10 @@ UI rāda preces pa filiālēm, katras rindas cenu, iepakojumu skaitu/izmēru un 
 
 Nezināma cena vai nezināma filiāle nevar kļūt par nulles cenu. Ja kaut vienai atlikušajai precei nav cenas izvēlētajos veikalos, pilnu kombināciju nerāda. Nopirktās rindas izslēdz. Netiek minētas ceļa izmaksas, attālumi vai krājumu pieejamība. Pie vairāk nekā 30 kandidātfiliālēm kombināciju aprēķinu izlaiž ar skaidru paskaidrojumu; nerāda slepeni saīsinātas atlases uzvarētāju.
 
-Tests aptver lētāku kombināciju, savstarpēji papildinošus veikalus, trūkstošas cenas, vienādas summas, trīs filiāļu nepieciešamību, ierobežojumu un saglabātu izvēli faktiskajā HTML plūsmā. Nav jaunas migrācijas, pakalpojuma vai produkcijas mutācijas. Lietotņu/kuponu piemērojamības izvēle un individuālu filiāļu preferences vēl nav ieviestas; nosacītās cenas joprojām netiek pieņemtas kā visiem pieejamas.
+Tests aptver lētāku kombināciju, savstarpēji papildinošus veikalus, trūkstošas cenas, vienādas summas, trīs filiāļu nepieciešamību, ierobežojumu un saglabātu izvēli faktiskajā HTML plūsmā. Nav jaunas migrācijas, pakalpojuma vai produkcijas mutācijas. Lietotņu/kuponu piemērojamības izvēle vēl nav ieviesta; nosacītās cenas joprojām netiek pieņemtas kā visiem pieejamas.
+
+## Konkrētu filiāļu izvēle
+
+Turpinājums pēc #968: iestatījumos redzamas atlikušā saraksta cenu iespējās atrastās filiāles un agrāk izslēgtās filiāles. Katru var izslēgt/iekļaut ar vienu pogu. Izvēle glabājas tajā pašā mājsaimniecības dokumentā un ierobežo gan viena, gan divu veikalu plānu; tā nemaina saraksta preces, cenas vai savācējus. Jaunas filiāles noklusēti ir iekļautas, taču joprojām jābūt izvēlētai attiecīgajai ķēdei. Izslēgto filiāli var atjaunot arī pēc saraksta iztukšošanas.
+
+Parādītais filiāles identifikators nāk no avota. Tas nav ģeogrāfiskās adreses vai attāluma pieņēmums. Iestatījumi nav pilns pilsētas veikalu katalogs. Katrai pogai ir atsevišķa īsa forma ar esošo CSRF un versijas pārbaudi; nav liela visu filiāļu POST vai jauna API/slāņa. Nezināmu filiāli nevar izveidot ar formas pieprasījumu.

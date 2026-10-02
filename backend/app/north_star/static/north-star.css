@@ -17,3 +17,5 @@
 .ingredient-choice{font-size:12px;color:var(--muted);align-items:center}.ingredient-choice span{flex:1;min-width:0}.ingredient-choice form{margin:0}
 
 .two-store-summary{display:grid;gap:6px;padding:16px;margin-top:16px;background:var(--green-soft);border-radius:12px;color:var(--green-dark)}.two-store-plan{margin:20px 0;padding:16px;background:var(--green-soft);border-radius:12px}.two-store-plan ul{padding:0;list-style:none}.two-store-plan li{display:flex;justify-content:space-between;gap:16px;padding:8px 0}.two-store-plan small{display:block;color:var(--muted)}.store-preferences{display:flex;gap:18px;flex-wrap:wrap;align-items:center}.store-preferences label{display:flex;gap:8px;align-items:center}.store-preferences input{width:18px;height:18px}
+
+.branch-preference{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}.branch-preference div{min-width:0;overflow-wrap:anywhere}.branch-preference small{display:block;color:var(--muted);margin-top:4px}.branch-preference button{flex-shrink:0}
