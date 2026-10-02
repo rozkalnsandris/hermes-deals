@@ -10,7 +10,7 @@ UI rāda preces pa filiālēm, katras rindas cenu, iepakojumu skaitu/izmēru un 
 
 Nezināma cena vai nezināma filiāle nevar kļūt par nulles cenu. Ja kaut vienai atlikušajai precei nav cenas izvēlētajos veikalos, pilnu kombināciju nerāda. Nopirktās rindas izslēdz. Netiek minētas ceļa izmaksas, attālumi vai krājumu pieejamība. Pie vairāk nekā 30 kandidātfiliālēm kombināciju aprēķinu izlaiž ar skaidru paskaidrojumu; nerāda slepeni saīsinātas atlases uzvarētāju.
 
-Tests aptver lētāku kombināciju, savstarpēji papildinošus veikalus, trūkstošas cenas, vienādas summas, trīs filiāļu nepieciešamību, ierobežojumu un saglabātu izvēli faktiskajā HTML plūsmā. Nav jaunas migrācijas, pakalpojuma vai produkcijas mutācijas. Lietotņu/kuponu piemērojamības izvēle vēl nav ieviesta; nosacītās cenas joprojām netiek pieņemtas kā visiem pieejamas.
+Tests aptver lētāku kombināciju, savstarpēji papildinošus veikalus, trūkstošas cenas, vienādas summas, trīs filiāļu nepieciešamību, ierobežojumu un saglabātu izvēli faktiskajā HTML plūsmā. Nav jaunas migrācijas, pakalpojuma vai produkcijas mutācijas. Nosacītās cenas netiek pieņemtas kā visiem pieejamas; [atsevišķais ģimenes apstiprinājums](PRICE_ELIGIBILITY.md) ļauj tās izmantot konkrēta piedāvājuma aprēķinā.
 
 ## Konkrētu filiāļu izvēle
 

@@ -49,6 +49,14 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
     items = state["shopping"]
     if action == "store_preferences":
         state["preferred_retailers"] = [key for key in ("lidl", "netto", "aldi_nord", "edeka") if form.get("store_" + key) == "1"]
+    elif action == "price_eligibility":
+        offer = _offer(db, form.get("product_id"))
+        eligibility = state.setdefault("price_eligibility", {})
+        flags = {key: True for key in ("app", "coupon") if form.get(key) == "1"}
+        if flags:
+            eligibility[str(offer.id)] = flags
+        else:
+            eligibility.pop(str(offer.id), None)
     elif action == "branch_preference":
         chain, store = form.get("chain", ""), form.get("store", "")
         key = f"{chain}:{store}"

@@ -502,3 +502,66 @@ def test_branch_preferences_preserve_other_branches_and_restore(data):
     assert post(client, "branch_preference", chain="lidl", store="L:one", enabled="1").status_code == 200
     assert read_household(db, "test-family")[0]["excluded_branches"] == []
     assert post(client, "branch_preference", chain="lidl", store="invented", enabled="0").status_code == 422
+
+
+def test_price_eligibility_requires_each_condition_and_can_be_revoked(data):
+    db, client, _ = data
+    row = offer(db, requires_app=True, coupon_required=True, price="2")
+    post(client, "add", product_id=str(row.id))
+    assert build_live_context(db, "test-family", DAY)["shopping"]["total_label"] == "—"
+    post(client, "price_eligibility", product_id=str(row.id), app="1")
+    assert build_live_context(db, "test-family", DAY)["shopping"]["total_label"] == "—"
+    response = post(client, "price_eligibility", product_id=str(row.id), app="1", coupon="1")
+    assert response.status_code == 200 and response.url.params["product"] == str(row.id)
+    context = build_live_context(db, "test-family", DAY)
+    assert context["shopping"]["total_label"] == "2,00 €"
+    assert context["shopping"]["rows"][0]["conditional_price_used"]
+    assert context["best_store"]["total_label"] == "2,00 €"
+    post(client, "price_eligibility", product_id=str(row.id))
+    assert build_live_context(db, "test-family", DAY)["shopping"]["total_label"] == "—"
+
+
+def test_app_price_selection_respects_dates_and_does_not_transfer_to_new_observation(data):
+    db, client, _ = data
+    row = offer(db, price="3", app_price_eur=Decimal("2"), app_valid_from=DAY, app_valid_until=DAY)
+    post(client, "add", product_id=str(row.id))
+    assert build_live_context(db, "test-family", DAY)["shopping"]["total_label"] == "3,00 €"
+    post(client, "price_eligibility", product_id=str(row.id), app="1")
+    context = build_live_context(db, "test-family", DAY, product=str(row.id))
+    assert context["shopping"]["total_label"] == "2,00 €"
+    assert context["selected_product"]["price_label"] == "3,00 €"  # Source price stays intact.
+    assert context["selected_product"]["history"]["series"][0]["price_label"] == "3,00 €"
+    assert build_live_context(db, "test-family", date(2026,10,2))["shopping"]["total_label"] == "3,00 €"
+    newer = offer(db, price="4", collected_day=2, app_price_eur=Decimal("1"), app_valid_from=DAY, app_valid_until=date(2026,10,4))
+    assert build_live_context(db, "test-family", date(2026,10,2))["shopping"]["total_label"] == "4,00 €"
+
+
+def test_eligible_recipe_price_still_requires_known_quantity(data):
+    db, client, _ = data
+    row = offer(db, package_text_raw="500 g", requires_app=True, price="3")
+    post(client, "ingredient_bind", ingredient_id="chicken", product_id=str(row.id))
+    post(client, "price_eligibility", product_id=str(row.id), app="1")
+    context = build_live_context(db, "test-family", DAY)
+    assert context["recipes"][0]["price_coverage"] == "1/4"
+    row.pricing_mode = "unit_price_only"
+    db.commit()
+    assert build_live_context(db, "test-family", DAY)["recipes"][0]["price_coverage"] == "0/4"
+
+
+def test_comparison_requires_confirmation_for_each_offer(data):
+    db, client, _ = data
+    a = offer(db, requires_app=True, price="3")
+    b = offer(db, requires_app=True, chain="netto", store="N", price="2")
+    canonical = CanonicalProduct(display_name="Test", normalized_name="test", item_quantity_value=1, item_quantity_unit="l", pack_count=1)
+    db.add(canonical)
+    db.flush()
+    for row in (a, b):
+        db.add(OfferProductLink(offer_candidate_id=row.id, canonical_product_id=canonical.id, link_method="reviewed-test", confidence=Decimal("1")))
+    db.commit()
+    post(client, "add", product_id=str(a.id))
+    post(client, "price_eligibility", product_id=str(a.id), app="1")
+    assert build_live_context(db, "test-family", DAY)["best_store"]["id"] == "lidl"
+    post(client, "price_eligibility", product_id=str(b.id), app="1")
+    context = build_live_context(db, "test-family", DAY)
+    assert context["best_store"]["id"] == "netto"
+    assert context["best_store"]["total_label"] == "2,00 €"

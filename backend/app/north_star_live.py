@@ -154,7 +154,10 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
     except SQLAlchemyError:
         db.rollback()
         return render(request, error_context(day, view, "Izmaiņas neizdevās saglabāt. Pārlādē lapu un pārbaudi sarakstu."), status=503)
-    return finish(RedirectResponse(BASE_PATH + "/?" + urlencode({"view": view, "date": day.isoformat(), "saved": "1"}), status_code=303), request, token)
+    destination = {"view": view, "date": day.isoformat(), "saved": "1"}
+    if action == "price_eligibility":
+        destination["product"] = form["product_id"]
+    return finish(RedirectResponse(BASE_PATH + "/?" + urlencode(destination), status_code=303), request, token)
 
 
 def install(app):
