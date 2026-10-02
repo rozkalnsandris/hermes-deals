@@ -10,7 +10,9 @@ Cenu serviss un esošā detaļu loga integrācija ir atsevišķā [PR #959](http
 
 **Receptes un plāns kodā:** [saglabāta nedēļas ēdienkarte, porcijas un sastāvdaļas kopīgajā sarakstā](MEALS.md).
 
-**Vēl jāpieslēdz:** apstiprinātas recepšu sastāvdaļu saites ar veikalu produktiem un izmaksas; izvēlētās filiāles, lietotņu izvēles un vienkārša divu veikalu alternatīva. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
+**Maltīšu izmaksas kodā:** [ģimenes izvēlēti veikalu produkti, sastāvdaļu vērtība un pilnu iepakojumu izmaksas](MEAL_PRICES.md).
+
+**Vēl jāpieslēdz:** izvēlētās filiāles, lietotņu izvēles un vienkārša divu veikalu alternatīva. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
 
 | Secība | Tehniskā daļa | UI daļa paralēli |
 |---|---|---|
