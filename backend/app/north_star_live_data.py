@@ -39,7 +39,7 @@ def valid_window(start, end, day):
     return bool(start and end and start <= day <= end)
 
 
-def offer_view(row, day, *, favorite_id=None):
+def offer_view(row, day, *, favorite_id=None, eligibility=None):
     fixed = row.pricing_mode in {None, "fixed_package"}
     observed = row.collected_at.replace(tzinfo=timezone.utc) if row.collected_at.tzinfo is None else row.collected_at
     known = observed.astimezone(ZoneInfo("Europe/Berlin")).date() <= day
@@ -57,6 +57,15 @@ def offer_view(row, day, *, favorite_id=None):
     amount = row.price_eur if base_current else row.app_price_eur if app_current else None
     if row.pricing_mode in UNIT_MODES:
         amount = row.unit_price_eur if base_current or app_current else None
+    approved = (eligibility or {}).get(str(getattr(row, "offer_candidate_id", None) or row.id), {})
+    coupon_ok = not row.coupon_required or approved.get("coupon", False)
+    candidates = []
+    if base_current and coupon_ok and (not row.requires_app or approved.get("app")) and row.price_eur is not None:
+        candidates.append((row.price_eur, bool(row.requires_app or row.coupon_required)))
+    if app_current and coupon_ok and approved.get("app"):
+        candidates.append((row.app_price_eur, True))
+    usable = min(candidates) if candidates and fixed and (row.package_text_raw or "").strip() else None
+    # Keep source display and history separate from household eligibility.
     regular = row.regular_price_eur if fixed and base_current else None
     savings = regular - amount if regular is not None and amount is not None and regular > amount and not conditions else None
     row_id = getattr(row, "offer_candidate_id", None) or row.id
@@ -71,7 +80,12 @@ def offer_view(row, day, *, favorite_id=None):
             "condition": " · ".join(conditions), "favorite": bool(favorite_id), "favorite_id": favorite_id or str(row_id),
             "valid_label": f"{row.valid_from:%d.%m.%Y}–{row.valid_until:%d.%m.%Y}" if row.valid_from and row.valid_until else "Derīgums nav norādīts",
             "app_price_label": money(row.app_price_eur) if app_current else None, "app_condition": "Ar veikala lietotni / kuponu",
-            "pack_price": amount if fixed and base_current and row.package_text_raw and row.package_text_raw.strip() and not row.requires_app and not row.coupon_required else None,
+            "pack_price": usable[0] if usable else None,
+            "household_price_label": money(usable[0]) if usable else "—",
+            "conditional_price_used": bool(usable and usable[1]),
+            "has_price_conditions": bool(row.requires_app or row.coupon_required or row.app_price_eur is not None),
+            "needs_app": bool(row.requires_app or row.app_price_eur is not None), "needs_coupon": bool(row.coupon_required),
+            "app_approved": bool(approved.get("app")), "coupon_approved": bool(approved.get("coupon")),
             "regular_price": regular, "collected_label": observed.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " (Berlīne)"}
 
 
@@ -108,6 +122,9 @@ def history_view(details):
 
 def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", product=None, offset=0):
     state, version = read_household(db, household_id)
+    def quote_for(row, *, favorite_id=None):
+        return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
+
     # Same Python service as JSON; no HTTP call to our own API and no browser pricing rules.
     with materialize_only("current"):
         current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
@@ -118,8 +135,8 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     originals = {str(row.id): row for row in db.scalars(select(OfferCandidateRecord).where(OfferCandidateRecord.id.in_([UUID(key) for key in references])))} if references else {}
     latest = {key: latest_series(db, row, day) for key, row in originals.items()}
     favorite_latest = {str(latest[key].id): key for key in state["favorites"] if key in latest}
-    offers = [offer_view(row, day, favorite_id=favorite_latest.get(str(row.offer_candidate_id))) for row in current.deals]
-    favorites = [offer_view(latest[key], day, favorite_id=key) for key in state["favorites"] if key in latest]
+    offers = [quote_for(row, favorite_id=favorite_latest.get(str(row.offer_candidate_id))) for row in current.deals]
+    favorites = [quote_for(latest[key], favorite_id=key) for key in state["favorites"] if key in latest]
     preferred = state.get("preferred_retailers", [key for key, _ in STORES])
     excluded_branches = set(state.get("excluded_branches", []))
     branch_options = {}
@@ -140,7 +157,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
 
     for item in state["shopping"]:
         row = latest.get(bindings.get(item.get("ingredient_id")) if item.get("meal_week") else item["product_id"])
-        quote = offer_view(row, day) if row else None
+        quote = quote_for(row) if row else None
         amount = quote["pack_price"] if quote else None
         quantity = item["quantity"]
         measured = requirement_price(row, item["amount"], item["unit"], amount) if row and item.get("meal_week") else None
@@ -148,7 +165,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             quantity = measured["packs"] if measured else 1
             amount = amount if measured else None
         shopping_rows.append({**item, "purchase_note": f"{quantity} iepak. · {quote['name']} ({quote['package']})" if measured else "", "package": quantity_label(item["amount"], item["unit"]) if item.get("meal_week") else quote["package"] if quote else "Brīvs ieraksts",
-                              "retailer": quote["retailer"] if quote else "Cena nav zināma",
+                              "retailer": quote["retailer"] if quote else "Cena nav zināma", "conditional_price_used": bool(quote and quote["conditional_price_used"]),
                               "price_label": money(amount * quantity) if amount is not None else "—"})
         if item["checked"]:
             continue
@@ -162,23 +179,23 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             comparisons = detail(row).offers
             by_store = {}
             # Selected source price remains useful even without a cross-store link.
-            candidates = [(row.source_chain, row.source_store_external_id, amount * quantity, f"{quantity} × {row.package_text_raw}", str(row.id))]
+            candidates = [(row.source_chain, row.source_store_external_id, amount * quantity, f"{quantity} × {row.package_text_raw}" + (" · apstiprināta nosacītā cena" if quote["conditional_price_used"] else ""), str(row.id))]
             for compared in comparisons:
-                if compared.requires_app or compared.coupon_required:
-                    continue
                 compared_row = db.get(OfferCandidateRecord, compared.offer_candidate_id)
+                compared_quote = quote_for(compared_row)
+                if compared_quote["pack_price"] is None:
+                    continue
                 if not item.get("meal_week") and compared_row.package_text_raw != row.package_text_raw:
                     continue
-                line_price = compared.price_eur * quantity
+                line_price = compared_quote["pack_price"] * quantity
                 compared_quantity = quantity
                 if item.get("meal_week"):
-                    compared_quote = offer_view(compared_row, day)
                     measured_comparison = requirement_price(compared_row, item["amount"], item["unit"], compared_quote["pack_price"])
                     if measured_comparison is None:
                         continue
                     line_price = measured_comparison["purchase_cost"]
                     compared_quantity = measured_comparison["packs"]
-                candidates.append((compared.source_chain, compared.source_store_external_id, line_price, f"{compared_quantity} × {compared_row.package_text_raw}", str(compared.offer_candidate_id)))
+                candidates.append((compared.source_chain, compared.source_store_external_id, line_price, f"{compared_quantity} × {compared_row.package_text_raw}" + (" · apstiprināta nosacītā cena" if compared_quote["conditional_price_used"] else ""), str(compared.offer_candidate_id)))
             for chain, store_id, price, note, offer_id in candidates:
                 key = (chain, store_id)
                 if key not in by_store or price < by_store[key]["price"]:
@@ -218,8 +235,8 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             selected_row = None
         if selected_row:
             data = detail(selected_row)
-            selected = {**offer_view(selected_row, day, favorite_id=favorite_latest.get(str(selected_row.id))),
-                        "comparison": [offer_view(db.get(OfferCandidateRecord, o.offer_candidate_id), day) for o in data.offers],
+            selected = {**quote_for(selected_row, favorite_id=favorite_latest.get(str(selected_row.id))),
+                        "comparison": [quote_for(db.get(OfferCandidateRecord, o.offer_candidate_id)) for o in data.offers],
                         "comparison_status": data.comparison_status, "history": history_view(data)}
     history_product = next((latest[key] for key in state["favorites"] if key in latest), None) if view == "overview" else None
     overview_history = history_view(detail(history_product)) if history_product else None
@@ -229,9 +246,10 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     for key, reference in bindings.items():
         row = latest.get(reference)
         if row:
-            ingredient_quotes[key] = (row, offer_view(row, day))
+            ingredient_quotes[key] = (row, quote_for(row))
     for recipe in meals["recipes"] + [d["recipe"] for d in meals["planner"] if d["recipe"]]:
         used, purchase, covered = D(0), D(0), 0
+        conditional_used = False
         for ingredient in recipe["ingredients"]:
             selection = ingredient_quotes.get(ingredient["id"])
             price = requirement_price(selection[0], ingredient["amount"], ingredient["unit"], selection[1]["pack_price"]) if selection else None
@@ -239,12 +257,13 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
                               price_label=money(price["used_cost"]) if price else "—")
             if price:
                 covered += 1
+                conditional_used = conditional_used or selection[1]["conditional_price_used"]
                 used += price["used_cost"]
                 purchase += price["purchase_cost"]
         complete = covered == len(recipe["ingredients"])
         recipe.update(cost_label=money(used / recipe["servings"]) if complete else "—",
                       purchase_label=money(purchase) if complete else "—", known_cost_label=money(used) if covered else "—",
-                      price_coverage=f"{covered}/{len(recipe['ingredients'])}", price_complete=complete)
+                      price_coverage=f"{covered}/{len(recipe['ingredients'])}", price_complete=complete, conditional_price_used=conditional_used)
     return {**meals, "ingredient_choices": list(INGREDIENTS.values()), "demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
             "selected_date": day.isoformat(), "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),

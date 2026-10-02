@@ -16,7 +16,7 @@ Cenu serviss un esošā detaļu loga integrācija ir atsevišķā [PR #959](http
 
 **Filiāļu izvēle kodā:** konkrētas saraksta cenu avotu filiāles var izslēgt no ieteikumiem un vēlāk atjaunot; izvēle saglabājas ģimenei.
 
-**Vēl jāpieslēdz:** lietotņu/kuponu piemērojamības izvēle. Produkcijas ieviešana un datu pārklājuma pārbaude joprojām ir atsevišķi soļi. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
+**Nosacītās cenas kodā:** [konkrēta piedāvājuma lietotnes/kupona apstiprinājums](PRICE_ELIGIBILITY.md) groza un recepšu aprēķinam. Produkcijas ieviešana un datu pārklājuma pārbaude joprojām ir atsevišķi soļi. Šis darbs nepierāda jaunu reālu cenu datu pārklājumu, neaizpilda trūkstošu vēsturi, neapstiprina produktu saites un nav izvietots produkcijā.
 
 | Secība | Tehniskā daļa | UI daļa paralēli |
 |---|---|---|
