@@ -254,6 +254,47 @@ def test_unknown_legacy_content_is_rejected_without_mutation(tmp_path, monkeypat
     assert (d.UNIT_DIR / d.SERVICE_UNIT).read_text() == 'untrusted'
 
 
+def test_migration_preflight_uses_concrete_alert_instances_not_bare_template(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    d.activate(config, staged)
+    dropin_checks = [
+        command[2]
+        for command in commands
+        if command[1:2] == ['show'] and '--property=DropInPaths' in command
+    ]
+    assert d.ALERT_UNIT not in dropin_checks
+    assert dropin_checks == [d.SERVICE_UNIT, d.TIMER_UNIT, *d.ALERT_INSTANCE_UNITS]
+
+
+@pytest.mark.parametrize(
+    'alert_instance',
+    [
+        'hermes-lidl-weekly-failure@hermes-lidl-weekly.service.service',
+        'hermes-lidl-weekly-failure@hermes-lidl-weekly.timer.service',
+    ],
+)
+def test_alert_instance_dropin_blocks_migration_before_mutation(tmp_path, monkeypatch, alert_instance):
+    import subprocess
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    original = d.run_command
+
+    def run(argv, **kwargs):
+        if (
+            argv[1:2] == ['show']
+            and argv[2:3] == [alert_instance]
+            and '--property=DropInPaths' in argv
+        ):
+            commands.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout='/etc/systemd/system/override.conf', stderr='')
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(d, 'run_command', run)
+    with pytest.raises(d.ControlError, match='unit drop-ins present'):
+        d.activate(config, staged)
+    assert not any(command[1:2] == ['stop'] for command in commands)
+    assert all((d.UNIT_DIR / name).read_text() == 'old ' + name for name in d.UNIT_NAMES)
+
+
 def test_migration_failure_does_not_restart_or_rollback(tmp_path, monkeypatch):
     d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
     def fail(src, dst):
