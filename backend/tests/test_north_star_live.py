@@ -358,9 +358,93 @@ def test_recipe_and_planner_forms_render_with_no_demo_price_claim(data):
     recipes = client.get("/ui/home/?view=recipes&date=2026-10-01")
     assert recipes.status_code == 200
     assert "500 g" in recipes.text
-    assert "Cenas vēl nav piesaistītas sastāvdaļām" in recipes.text
+    assert "kurai sastāvdaļai to izmantot" in recipes.text
     assert 'action="/ui/home/actions/meal_plan"' in recipes.text
     planner = client.get("/ui/home/?view=planner&date=2026-10-01")
     assert planner.status_code == 200
     assert planner.text.count('name="day"') == 7
     assert 'action="/ui/home/actions/meal_sync"' in planner.text
+
+
+def test_ingredient_selection_prices_used_amount_and_whole_packs(data):
+    db, client, _ = data
+    chicken = offer(db, name="Vista", package_text_raw="500 g", price="3.00")
+    assert post(client, "ingredient_bind", ingredient_id="chicken", product_id=str(chicken.id)).status_code == 200
+    post(client, "meal_plan", day="0", recipe_id="tortillas", servings="6")
+    post(client, "meal_sync")
+    context = build_live_context(db, "test-family", DAY)
+    row = next(r for r in context["shopping"]["rows"] if r.get("ingredient_id") == "chicken")
+    assert row["price_label"] == "6,00 €"  # 750 g requires two 500 g packs.
+    assert row["purchase_note"].startswith("2 iepak.")
+    assert context["shopping"]["total_label"] == "6,00 €"
+    recipe = context["planner"][0]["recipe"]
+    assert recipe["known_cost_label"] == "4,50 €"
+    assert recipe["cost_label"] == "—" and recipe["price_coverage"] == "1/4"
+    assert db.scalar(select(func.count()).select_from(OfferProductLink)) == 0
+    assert post(client, "ingredient_bind", ingredient_id="chicken", product_id="").status_code == 200
+    assert build_live_context(db, "test-family", DAY)["shopping"]["total_label"] == "—"
+
+
+def test_complete_recipe_prices_use_selected_products_without_global_matching(data):
+    db, client, _ = data
+    for key, pack, price in [("chicken", "500 g", "3"), ("tortilla", "8 Stück", "2"), ("pepper", "250 g", "1"), ("salad", "150 g", "2")]:
+        row = offer(db, name=key, sku=key, package_text_raw=pack, price=price)
+        assert post(client, "ingredient_bind", ingredient_id=key, product_id=str(row.id)).status_code == 200
+    context = build_live_context(db, "test-family", DAY)
+    recipe = next(r for r in context["recipes"] if r["id"] == "tortillas")
+    assert recipe["price_complete"] and recipe["cost_label"] == "2,00 €"
+    assert recipe["purchase_label"] == "8,00 €"
+
+
+@pytest.mark.parametrize("pack,mode,key", [("1 l",None,"chicken"),("400 g / 500 g",None,"chicken"),("500 g","unit_price_only","chicken"),(None,None,"chicken")])
+def test_ingredient_selection_rejects_unknown_or_incompatible_package(data,pack,mode,key):
+    db,client,_ = data
+    row=offer(db,package_text_raw=pack,pricing_mode=mode)
+    assert post(client,"ingredient_bind",ingredient_id=key,product_id=str(row.id)).status_code == 422
+    assert read_household(db,"test-family")[1] == 0
+
+
+def test_selected_ingredient_expiry_and_conditional_price_stay_unknown(data):
+    db,client,_ = data
+    row=offer(db,package_text_raw="500 g",requires_app=True)
+    post(client,"ingredient_bind",ingredient_id="chicken",product_id=str(row.id))
+    context=build_live_context(db,"test-family",DAY)
+    assert context["recipes"][0]["price_coverage"] == "0/4"
+    row.requires_app=False
+    row.valid_until=date(2026,9,30)
+    db.commit()
+    assert build_live_context(db,"test-family",DAY)["recipes"][0]["price_coverage"] == "0/4"
+
+
+def test_multipack_and_piece_conversion():
+    from types import SimpleNamespace
+    from app.meal_pricing import requirement_price
+    row=SimpleNamespace(package_text_raw="4 x 250 g",pricing_mode="fixed_package")
+    assert requirement_price(row,"1500","g",Decimal("4"))["purchase_cost"] == 8
+    row.package_text_raw="6 Stück"
+    assert requirement_price(row,"8","gab.",Decimal("3"))["packs"] == 2
+    row.package_text_raw="1 l"
+    assert requirement_price(row,"100","ml",Decimal("2"))["used_cost"] == Decimal("0.2")
+
+
+def test_measured_basket_compares_whole_packs_and_selection_resets_check(data):
+    db, client, _ = data
+    a = offer(db, name="Chicken test", package_text_raw="500 g", price="3")
+    b = offer(db, name="Chicken test", package_text_raw="1 kg", chain="netto", store="netto-one", price="2")
+    canonical = CanonicalProduct(display_name="Chicken test", normalized_name="chicken test", item_quantity_value=500, item_quantity_unit="g", pack_count=1)
+    db.add(canonical)
+    db.flush()
+    for row in (a,b):
+        db.add(OfferProductLink(offer_candidate_id=row.id, canonical_product_id=canonical.id, link_method="reviewed-test", confidence=Decimal("1")))
+    db.commit()
+    post(client, "ingredient_bind", ingredient_id="chicken", product_id=str(a.id))
+    post(client, "meal_plan", day="0", recipe_id="tortillas", servings="6")
+    post(client, "meal_sync")
+    context = build_live_context(db, "test-family", DAY)
+    assert {s["id"]:s["total_label"] for s in context["ranked_stores"]} == {"lidl":"6,00 €", "netto":"2,00 €"}
+    assert context["best_store"] is None  # Three recipe ingredients are still unknown.
+    chicken = next(r for r in context["shopping"]["rows"] if r.get("ingredient_id") == "chicken")
+    post(client, "toggle", item_id=chicken["item_id"])
+    post(client, "ingredient_bind", ingredient_id="chicken", product_id=str(b.id))
+    state, _ = read_household(db,"test-family")
+    assert not next(r for r in state["shopping"] if r.get("ingredient_id") == "chicken")["checked"]

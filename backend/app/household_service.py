@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import HouseholdState, OfferCandidateRecord
 from app.meal_service import change_meals
+from app.meal_pricing import INGREDIENTS, package_amount
 
 
 class HouseholdConflict(ValueError):
@@ -46,7 +47,22 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
     if expected_version != version:
         raise HouseholdConflict("Sarakstu tikko mainīja citā ierīcē. Pārlādē lapu un atkārto savu darbību.")
     items = state["shopping"]
-    if action in {"meal_plan", "meal_sync"}:
+    if action == "ingredient_bind":
+        key = form.get("ingredient_id", "")
+        if key not in INGREDIENTS:
+            raise ValueError("Sastāvdaļa nav atrasta.")
+        bindings = state.setdefault("ingredient_offers", {})
+        if form.get("product_id"):
+            offer = _offer(db, form["product_id"])
+            if package_amount(offer, INGREDIENTS[key]["unit"]) is None:
+                raise ValueError("Šī iepakojuma daudzumu nevar droši pārrēķināt sastāvdaļas vienībā.")
+            bindings[key] = str(offer.id)
+        else:
+            bindings.pop(key, None)
+        for item in items:
+            if item.get("ingredient_id") == key:
+                item["checked"] = False
+    elif action in {"meal_plan", "meal_sync"}:
         change_meals(state, action, form)
     elif action == "add":
         name = str(form.get("name", "")).strip()[:120]
