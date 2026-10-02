@@ -448,3 +448,34 @@ def test_measured_basket_compares_whole_packs_and_selection_resets_check(data):
     post(client, "ingredient_bind", ingredient_id="chicken", product_id=str(b.id))
     state, _ = read_household(db,"test-family")
     assert not next(r for r in state["shopping"] if r.get("ingredient_id") == "chicken")["checked"]
+
+
+def test_household_store_preferences_limit_complete_two_store_plan(data):
+    db, client, _ = data
+    a=offer(db,name="Pirmais",sku="first",price="1",chain="lidl",store="L")
+    b=offer(db,name="Otrais",sku="second",price="2",chain="netto",store="N")
+    post(client,"add",product_id=str(a.id))
+    post(client,"add",product_id=str(b.id))
+    context=build_live_context(db,"test-family",DAY)
+    assert context["best_store"] is None
+    assert context["two_store_plan"]["total_label"]=="3,00 €"
+    assert len(context["two_store_plan"]["lines"])==2
+    assert all(r["purchase_note"]=="1 × 1 l" for r in context["two_store_plan"]["lines"])
+    response=client.get("/ui/home/?view=list&date=2026-10-01")
+    assert "Ar diviem veikaliem" in response.text and str(a.id) in response.text
+    assert post(client,"store_preferences",store_lidl="1").status_code==200
+    context=build_live_context(db,"test-family",DAY)
+    assert context["preferred_retailers"]==["lidl"] and context["two_store_plan"] is None
+    assert {s["id"] for s in context["ranked_stores"]}=={"lidl"}
+    post(client,"store_preferences")
+    assert not build_live_context(db,"test-family",DAY)["ranked_stores"]
+    assert "Nav izvēlēts neviens veikals" in client.get("/ui/home/?view=settings&date=2026-10-01").text
+
+
+def test_shared_stylesheet_is_css_not_a_template(data):
+    _, client, _ = data
+    response = client.get("/ui/home/static/north-star.css")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/css")
+    assert "{%" not in response.text and "<section" not in response.text
+    assert ":root{" in response.text and ".app-layout{" in response.text

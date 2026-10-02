@@ -47,7 +47,9 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
     if expected_version != version:
         raise HouseholdConflict("Sarakstu tikko mainīja citā ierīcē. Pārlādē lapu un atkārto savu darbību.")
     items = state["shopping"]
-    if action == "ingredient_bind":
+    if action == "store_preferences":
+        state["preferred_retailers"] = [key for key in ("lidl", "netto", "aldi_nord", "edeka") if form.get("store_" + key) == "1"]
+    elif action == "ingredient_bind":
         key = form.get("ingredient_id", "")
         if key not in INGREDIENTS:
             raise ValueError("Sastāvdaļa nav atrasta.")

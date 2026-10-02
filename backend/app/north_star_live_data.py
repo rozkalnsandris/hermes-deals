@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.basket_plan import best_two_store_plan
 from app.current_deals_service import build_current_deals
 from app.current_deals_sql_loader import load_sql_ranked_state_rows, materialize_only
 from app.household_service import read_household
@@ -119,6 +120,8 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     favorite_latest = {str(latest[key].id): key for key in state["favorites"] if key in latest}
     offers = [offer_view(row, day, favorite_id=favorite_latest.get(str(row.offer_candidate_id))) for row in current.deals]
     favorites = [offer_view(latest[key], day, favorite_id=key) for key in state["favorites"] if key in latest]
+    preferred = state.get("preferred_retailers", [key for key, _ in STORES])
+    basket_lines = []
     shopping_rows, total, unknown = [], D(0), 0
     buckets = {key: {"id": key, "name": name, "total": D(0), "coverage": 0} for key, name in STORES}
     required = sum(not item["checked"] for item in state["shopping"])
@@ -148,33 +151,43 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             unknown += 1
         else:
             total += amount * quantity
+        basket_line = {"item_id": item["item_id"], "name": item["name"], "prices": {}, "details": {}}
+        basket_lines.append(basket_line)
         if row and amount is not None:
             comparisons = detail(row).offers
             by_store = {}
             # Selected source price remains useful even without a cross-store link.
-            candidates = [(row.source_chain, row.source_store_external_id, amount * quantity)]
+            candidates = [(row.source_chain, row.source_store_external_id, amount * quantity, f"{quantity} × {row.package_text_raw}", str(row.id))]
             for compared in comparisons:
                 if compared.requires_app or compared.coupon_required:
                     continue
+                compared_row = db.get(OfferCandidateRecord, compared.offer_candidate_id)
+                if not item.get("meal_week") and compared_row.package_text_raw != row.package_text_raw:
+                    continue
                 line_price = compared.price_eur * quantity
+                compared_quantity = quantity
                 if item.get("meal_week"):
-                    compared_row = db.get(OfferCandidateRecord, compared.offer_candidate_id)
                     compared_quote = offer_view(compared_row, day)
                     measured_comparison = requirement_price(compared_row, item["amount"], item["unit"], compared_quote["pack_price"])
                     if measured_comparison is None:
                         continue
                     line_price = measured_comparison["purchase_cost"]
-                candidates.append((compared.source_chain, compared.source_store_external_id, line_price))
-            for chain, store_id, price in candidates:
+                    compared_quantity = measured_comparison["packs"]
+                candidates.append((compared.source_chain, compared.source_store_external_id, line_price, f"{compared_quantity} × {compared_row.package_text_raw}", str(compared.offer_candidate_id)))
+            for chain, store_id, price, note, offer_id in candidates:
                 key = (chain, store_id)
-                by_store[key] = min(by_store.get(key, price), price)
+                if key not in by_store or price < by_store[key]["price"]:
+                    by_store[key] = {"price": price, "purchase_note": note, "offer_id": offer_id}
             # Do not blend branches of a chain into an imaginary single-store basket.
-            for (chain, store_id), price in by_store.items():
-                if not store_id:
+            for (chain, store_id), option in by_store.items():
+                price = option["price"]
+                if not store_id or chain not in preferred:
                     continue
                 key = f"{chain}:{store_id or ''}"
                 bucket = buckets.setdefault(key, {"id": chain, "name": dict(STORES).get(chain, chain), "store_id": store_id,
                                                    "total": D(0), "coverage": 0})
+                basket_line["prices"][key] = price
+                basket_line["details"][key] = option
                 bucket["total"] += price
                 bucket["coverage"] += 1
     ranked = [value for key, value in buckets.items() if ":" in key]
@@ -182,6 +195,13 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         bucket.update(required=required, complete=bool(required) and bucket["coverage"] == required,
                       total_label=money(bucket["total"]), savings_label="—", short="")
     ranked.sort(key=lambda s: (not s["complete"], -s["coverage"], s["total"]))
+    best_single = next((s for s in ranked if s["complete"]), None)
+    pair, pair_status = best_two_store_plan(basket_lines, buckets, best_single["total"] if best_single else None)
+    if pair:
+        pair.update(total_label=money(pair["total"]), savings_label=money(pair["savings"]))
+        for line in pair["lines"]:
+            line["price_label"] = money(line["price"])
+            line["store"] = buckets[line["store_key"]]
     selected = None
     if product:
         try:
@@ -223,7 +243,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             "settings": state["settings"], "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
-            "ranked_stores": ranked, "best_store": next((s for s in ranked if s["complete"]), None),
+            "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred,
             "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
             "query": query, "retailer": retailer, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
