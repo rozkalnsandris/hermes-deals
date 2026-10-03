@@ -18,6 +18,10 @@ RUN npm test \
     && npm run build:check \
     && npm run build:w4:check
 
+ARG HTMX_COMMIT=fa978b24e75fb03c137bf2cdae4fef0e711cf8a1
+ARG HTMX_BLOB_SHA1=e6b8394acb5cda3281a68b4078775ec348d8eafc
+RUN HTMX_COMMIT="${HTMX_COMMIT}" HTMX_BLOB_SHA1="${HTMX_BLOB_SHA1}" node -e 'const crypto=require("node:crypto");const fs=require("node:fs");const commit=process.env.HTMX_COMMIT;const expected=process.env.HTMX_BLOB_SHA1;const url=`https://raw.githubusercontent.com/bigskysoftware/htmx/${commit}/dist/htmx.min.js`;fetch(url).then(async r=>{if(!r.ok)throw new Error(`HTMX fetch failed: ${r.status}`);const body=Buffer.from(await r.arrayBuffer());const gitHeader=Buffer.from(`blob ${body.length}\0`);const actual=crypto.createHash("sha1").update(gitHeader).update(body).digest("hex");if(actual!==expected)throw new Error(`HTMX Git blob mismatch: ${actual}`);fs.writeFileSync("/ui/htmx.min.js",body);}).catch(error=>{console.error(error);process.exit(1);});'
+
 FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -37,6 +41,7 @@ RUN python -m pip install \
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
+COPY --from=ui-build /ui/htmx.min.js /app/app/ui_deals/assets/htmx.min.js
 
 # Preserve the current W3 serving contract exactly: the deterministic IIFE
 # replaces reviewed source app.js and is then inlined into the immutable /ui
