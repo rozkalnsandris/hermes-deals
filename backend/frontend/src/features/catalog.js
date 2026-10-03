@@ -87,17 +87,22 @@ export function detailImageHtml(url, name) {
     : '<div class="detail-image"><div class="detail-placeholder"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><circle cx="9" cy="10" r="2"></circle><path d="m5 17 4-4 3 3 3-3 4 4"></path></svg><span>Attēls nav pieejams</span></div></div>';
 }
 
-export function detailHistoryHtml(rows, unavailableCopy = "", { euro = EURO, fmtDate = (value) => value } = {}) {
+export function detailHistoryHtml(rows, unavailableCopy = "", { euro = EURO, fmtDate = (value) => value, sourceHistory = false, historyBasis = "package", historyTruncated = false } = {}) {
   const observations = rows || [];
   if (!observations.length) {
     return `<section class="detail-section detail-history"><h3 class="detail-section-title">Cenu vēsture</h3><p class="detail-section-copy">Iepriekšējo cenu novērojumi palīdz novērtēt, vai pašreizējā cena tiešām ir izdevīga.</p><div class="detail-empty-note">${esc(unavailableCopy || "Šim produktam vēl nav pietiekami daudz cenu novērojumu.")}</div></section>`;
   }
-  return `<section class="detail-section detail-history"><h3 class="detail-section-title">Cenu vēsture · ${observations.length} novērojumi</h3><p class="detail-section-copy">Grafiks un pēdējie novērojumi ir balstīti saglabātajā canonical cenu vēsturē.</p><div class="chart">${chartSvg(observations)}</div><div class="history-table">${observations.slice(0, 16).map((row) => `<div class="history-row"><span>${esc(retailerName(row.source_chain))}</span><span class="muted">${esc(fmtDate(row.valid_from))}–${esc(fmtDate(row.valid_until))}</span><strong>${euro.format(Number(row.price_eur))}</strong></div>`).join("")}</div></section>`;
+  const plotted = sourceHistory
+    ? observations.filter((row) => row.comparison_price_eur != null).map((row) => ({ ...row, price_eur: row.comparison_price_eur }))
+    : observations;
+  const basisLabel = historyBasis === "package" ? "par iepakojumu" : historyBasis ? `par ${historyBasis}` : "cenas bāze nav zināma";
+  const description = sourceHistory ? `Tā paša veikala un produkta saglabātie novērojumi · ${basisLabel}.` : "Saglabātie cenu novērojumi.";
+  return `<section class="detail-section detail-history"><h3 class="detail-section-title">Cenu vēsture · ${observations.length} novērojumi</h3><p class="detail-section-copy">${esc(description)}${historyTruncated ? " Rādīti pēdējie 200 novērojumi." : ""}</p><div class="chart">${chartSvg(plotted)}</div><div class="history-table">${observations.map((row) => `<div class="history-row"><span>${esc(retailerName(row.source_chain))}</span><span class="muted">${esc(fmtDate(row.collected_at))} · ${esc(row.package_text_raw || "")} · derīgs ${esc(fmtDate(row.valid_from))}–${esc(fmtDate(row.valid_until))}${row.requires_app ? " · lietotne" : ""}${row.coupon_required ? " · kupons" : ""}</span><strong>${euro.format(Number(sourceHistory ? row.comparison_price_eur ?? row.price_eur : row.price_eur))}${sourceHistory && historyBasis && historyBasis !== "package" ? `/${esc(historyBasis)}` : ""}</strong></div>`).join("")}</div></section>`;
 }
 
 export function detailComparisonHtml(offers, emptyCopy = "", options = {}) {
   const rows = offers || [];
-  return `<section class="detail-section detail-comparison"><h3 class="detail-section-title">Veikalu cenu salīdzinājums</h3><p class="detail-section-copy">Salīdzinājums tiek rādīts tikai apstiprinātai canonical produkta identitātei izvēlētajā datumā.</p>${rows.length ? `<div class="detail-offers">${rows.map((offer) => offerHtml(offer, options)).join("")}</div>` : `<div class="detail-empty-note">${esc(emptyCopy || "Šajā datumā nav salīdzināmu veikalu cenu.")}</div>`}</section>`;
+  return `<section class="detail-section detail-comparison"><h3 class="detail-section-title">Veikalu cenu salīdzinājums</h3><p class="detail-section-copy">Vienāda produkta cenas izvēlētajā datumā. Lietotnes un kupona nosacījumi norādīti pie cenas.</p>${rows.length ? `<div class="detail-offers">${rows.map((offer) => offerHtml(offer, options)).join("")}</div>` : `<div class="detail-empty-note">${esc(emptyCopy || "Šajā datumā nav salīdzināmu veikalu cenu.")}</div>`}</section>`;
 }
 
 export function initCatalog(app) {

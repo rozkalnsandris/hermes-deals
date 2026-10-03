@@ -101,6 +101,7 @@ def load_current_offers_by_product(
     canonical_product_ids: Iterable[UUID],
     *,
     as_of: date,
+    collected_before: datetime | None = None,
 ) -> dict[UUID, list[CanonicalCurrentOfferOut]]:
     product_ids = tuple(dict.fromkeys(canonical_product_ids))
     offers_by_product: dict[UUID, list[CanonicalCurrentOfferOut]] = {
@@ -172,6 +173,7 @@ def load_current_offers_by_product(
             OfferCandidateRecord.valid_until.is_not(None),
             OfferCandidateRecord.valid_from <= as_of,
             OfferCandidateRecord.valid_until >= as_of,
+            *([OfferCandidateRecord.collected_at < collected_before] if collected_before else []),
         )
         .subquery("ranked_canonical_current_offers")
     )

@@ -10,7 +10,7 @@
   "locks": {
     "runtime-py313.txt": {
       "python": "3.13",
-      "sha256": "4883e62179069afc662e4846c5cc1a67d3954c56f0846aeb5a650a63267935d7"
+      "sha256": "ef1aae7b653c5a28029c67bb150701d4c52ab138528cbfad7682c1ccea711f5d"
     },
     "ci-py313.txt": {
       "python": "3.13",
