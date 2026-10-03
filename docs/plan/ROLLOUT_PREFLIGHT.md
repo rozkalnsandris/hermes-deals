@@ -4,7 +4,7 @@
 
 ## Faktiski nolasītais RPi5 stāvoklis
 
-- Darbinātais attēls: `hermes-deals-api:main-64682d602749`, healthy.
+- Darbinātās versijas tags: `main-64682d602749`, healthy.
 
   Docker attēla SHA256:
 
