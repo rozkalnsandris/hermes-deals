@@ -72,6 +72,38 @@ class OfferPriceIntelligence(BaseModel):
     offers: list[CanonicalCurrentOfferOut]
 
 
+def summarize_price_history(details: OfferPriceIntelligence):
+    """Describe observed prices through the selected observation, never a deal score."""
+    if not details.history_basis:
+        return None
+
+    def stamp(row):
+        value = row.collected_at
+        return (value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value).astimezone(ZoneInfo("Europe/Berlin"))
+
+    selected = next((row for row in details.observations
+                     if row.offer_candidate_id == details.offer_candidate_id and row.comparison_price_eur is not None), None)
+    if selected is None:
+        return None
+    selected_stamp = stamp(selected)
+    rows = [row for row in details.observations
+            if row.comparison_price_eur is not None and stamp(row) <= selected_stamp]
+    days = {stamp(row).date() for row in rows}
+    # Intra-day duplicate snapshots are not another day of price history.
+    earlier = [row for row in rows if stamp(row).date() < selected_stamp.date()]
+    previous_stamp = max((stamp(row) for row in earlier), default=None)
+    previous_prices = {row.comparison_price_eur for row in earlier if stamp(row) == previous_stamp}
+    previous = next(iter(previous_prices)) if len(previous_prices) == 1 else None
+    price = selected.comparison_price_eur
+    return {"price": price, "minimum": min(row.comparison_price_eur for row in rows),
+            "maximum": max(row.comparison_price_eur for row in rows), "observation_count": len(rows),
+            "day_count": len(days), "start": min(days), "end": max(days),
+            "previous": previous, "previous_day": previous_stamp.date() if previous is not None else None,
+            "change": price - previous if previous is not None else None,
+            "requires_app": selected.requires_app, "coupon_required": selected.coupon_required,
+            "truncated": details.history_truncated}
+
+
 def _series_predicate(row: OfferCandidateRecord):
     """Conservative continuation: exact identity, package, basis and conditions."""
     fixed = row.pricing_mode in _FIXED

@@ -15,7 +15,7 @@ from app.household_service import read_household
 from app.meal_service import meal_context, quantity_label
 from app.meal_pricing import INGREDIENTS, requirement_price
 from app.models import OfferCandidateRecord
-from app.price_intelligence import build_offer_price_intelligence, _series_predicate
+from app.price_intelligence import build_offer_price_intelligence, summarize_price_history, _series_predicate
 
 D = Decimal
 STORES = [("lidl", "LIDL"), ("netto", "Netto"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA")]
@@ -97,6 +97,13 @@ def latest_series(db, original, day):
 
 
 def history_view(details):
+    summary = summarize_price_history(details)
+    if summary:
+        change = summary["change"]
+        summary = {**summary, "price_label": money(summary["price"]), "minimum_label": money(summary["minimum"]),
+                   "maximum_label": money(summary["maximum"]), "change_label": money(abs(change)) if change is not None else None,
+                   "start_label": summary["start"].strftime("%d.%m.%Y"), "end_label": summary["end"].strftime("%d.%m.%Y"),
+                   "previous_day_label": summary["previous_day"].strftime("%d.%m.%Y") if summary["previous_day"] else None}
     def local_stamp(value):
         aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
         return aware.astimezone(ZoneInfo("Europe/Berlin"))
@@ -117,7 +124,7 @@ def history_view(details):
     return {"series": [{"name": rows[-1].product_name_raw, "color": "#32895d", "points": " ".join(points),
                          "price_label": money(rows[-1].comparison_price_eur), "observations": observations}] if rows else [],
             "labels": labels, "max_label": money(maximum), "min_label": "0 €", "basis": details.history_basis,
-            "truncated": details.history_truncated}
+            "truncated": details.history_truncated, "summary": summary}
 
 
 def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", product=None, offset=0):

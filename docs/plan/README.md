@@ -38,3 +38,5 @@ Produkcijas cenu servisa testi ir `backend/tests/test_offer_price_intelligence_a
 **Kopējais audits (2026-10-03):** [kas atbilst sākotnējam mērķim un kas vēl paliek](ACCEPTANCE_AUDIT.md). Izlabota vajadzības piesaiste piedāvājumam tajā pašā saraksta rindā; saglabājas nosaukums un daudzums.
 
 **Personīgais pārskats:** nenopirktie saraksta produkti, favorīti un receptēm izvēlētie produkti tiek atlasīti no to jaunākajiem zināmajiem novērojumiem neatkarīgi no kataloga pirmās lapas. Redzams atlases iemesls; tas nav automātisks atlaides vai izdevīguma vērtējums.
+
+**Vēstures kopsavilkums:** piedāvājuma detaļās redzams saglabāto cenu diapazons, novērojumu dienu skaits un izmaiņa pret pēdējo viennozīmīgo novērojumu agrākā dienā. Tas salīdzina avota cenu, nevis ģimenes atļauto atsevišķo lietotnes cenu, un neizmanto novērojumus pēc izvēlētā piedāvājuma.
