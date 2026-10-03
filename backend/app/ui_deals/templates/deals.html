@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="lv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hermes Deals — aktuālie piedāvājumi</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    main { width: min(72rem, 100%); margin: 0 auto; padding: 1rem; }
+    h1 { margin-block: .25rem 1rem; font-size: clamp(1.6rem, 5vw, 2.4rem); }
+    .controls { display: grid; gap: .75rem; margin-block-end: 1rem; }
+    .panel { border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: .75rem; padding: .85rem; }
+    .row { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; }
+    label { display: grid; gap: .25rem; min-width: 9rem; }
+    input, select, button, .button { min-height: 2.75rem; font: inherit; border-radius: .45rem; border: 1px solid color-mix(in srgb, CanvasText 35%, transparent); padding: .55rem .7rem; background: Canvas; color: CanvasText; }
+    input[type="checkbox"] { min-height: auto; }
+    .checks label { display: flex; min-width: auto; align-items: center; gap: .4rem; }
+    button, .button { cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+    .deals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: .8rem; }
+    .deal { border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: .75rem; padding: .9rem; }
+    .deal h2 { margin: 0 0 .35rem; font-size: 1.05rem; }
+    .price { font-weight: 750; font-size: 1.25rem; }
+    .muted { opacity: .72; }
+    .badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .55rem; }
+    .badge { border: 1px solid currentColor; border-radius: 999px; padding: .15rem .45rem; font-size: .8rem; }
+    nav { display: flex; justify-content: space-between; gap: .75rem; margin-top: 1rem; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+  </style>
+  <script src="/ui/deals/assets/htmx.min.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>Aktuālie piedāvājumi</h1>
+  <div class="controls">
+    <form class="panel row" action="/ui/deals" method="get" hx-get="/ui/deals" hx-target="#deal-results" hx-swap="outerHTML" hx-push-url="true">
+      <label>Meklēt
+        <input type="search" name="q" value="{{ q or '' }}" minlength="1" maxlength="100" placeholder="Produkts vai zīmols">
+      </label>
+      {% if as_of %}<input type="hidden" name="as_of" value="{{ as_of.isoformat() }}">{% endif %}
+      {% if retailer %}<input type="hidden" name="retailer" value="{{ retailer }}">{% endif %}
+      {% if view != 'current' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+      {% if app_only %}<input type="hidden" name="app_only" value="true">{% endif %}
+      {% if coupon_only %}<input type="hidden" name="coupon_only" value="true">{% endif %}
+      {% if discount_only %}<input type="hidden" name="discount_only" value="true">{% endif %}
+      {% if image_only %}<input type="hidden" name="image_only" value="true">{% endif %}
+      {% if sort != 'name' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+      {% if limit != 250 %}<input type="hidden" name="limit" value="{{ limit }}">{% endif %}
+      <button type="submit">Meklēt</button>
+      {% if q %}<a class="button" href="{{ clear_search_url }}">Notīrīt meklēšanu</a>{% endif %}
+    </form>
+
+    <form class="panel" action="/ui/deals" method="get" hx-get="/ui/deals" hx-target="#deal-results" hx-swap="outerHTML" hx-push-url="true">
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+      <div class="row">
+        <label>Datums
+          <input type="date" name="as_of" value="{{ as_of.isoformat() if as_of else '' }}">
+        </label>
+        <label>Veikals
+          <select name="retailer">
+            <option value="">Visi</option>
+            {% for chain in retailers %}<option value="{{ chain }}"{% if chain == retailer %} selected{% endif %}>{{ chain }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Skats
+          <select name="view">
+            <option value="current"{% if view == 'current' %} selected{% endif %}>Aktuālie</option>
+            <option value="upcoming"{% if view == 'upcoming' %} selected{% endif %}>Gaidāmie</option>
+          </select>
+        </label>
+        <label>Kārtot
+          <select name="sort">
+            <option value="name"{% if sort == 'name' %} selected{% endif %}>Nosaukums</option>
+            <option value="price_asc"{% if sort == 'price_asc' %} selected{% endif %}>Cena ↑</option>
+            <option value="price_desc"{% if sort == 'price_desc' %} selected{% endif %}>Cena ↓</option>
+            <option value="newest"{% if sort == 'newest' %} selected{% endif %}>Jaunākie</option>
+            <option value="discount_desc"{% if sort == 'discount_desc' %} selected{% endif %}>Atlaide</option>
+          </select>
+        </label>
+        <label>Lapā
+          <select name="limit">
+            {% for size in [25, 50, 100, 250, 500] %}<option value="{{ size }}"{% if size == limit %} selected{% endif %}>{{ size }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="row checks">
+        <label><input type="checkbox" name="app_only" value="true"{% if app_only %} checked{% endif %}> Tikai lietotnē</label>
+        <label><input type="checkbox" name="coupon_only" value="true"{% if coupon_only %} checked{% endif %}> Kupons</label>
+        <label><input type="checkbox" name="discount_only" value="true"{% if discount_only %} checked{% endif %}> Ar atlaidi</label>
+        <label><input type="checkbox" name="image_only" value="true"{% if image_only %} checked{% endif %}> Ar attēlu</label>
+      </div>
+      <div class="row" style="margin-top:.75rem">
+        <button type="submit">Lietot filtrus</button>
+        <a class="button" href="/ui/deals">Atiestatīt</a>
+      </div>
+    </form>
+  </div>
+
+  {% include "_results.html" %}
+</main>
+</body>
+</html>
