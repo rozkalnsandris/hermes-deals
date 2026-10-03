@@ -1,6 +1,6 @@
 # Hermes Deals — product goal and Web UI north star
 
-> **Status:** product-vision / UX north-star document.  
+> **Status:** product-vision / UX north-star document.
 > This document describes **why Hermes Deals exists** and **what the family-facing product should ultimately enable**. It does **not** override the canonical technical Web architecture in [`WEB_ARCHITECTURE.md`](WEB_ARCHITECTURE.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), `.github/web-architecture-v1.json`, or the active GitHub execution roadmap.
 
 ## Product thesis
@@ -154,22 +154,22 @@ The exact navigation may evolve, especially on mobile, but these capabilities de
 
 The original roadmap maps naturally to the dashboard vision:
 
-1. **Trustworthy retailer evidence and offer persistence**  
+1. **Trustworthy retailer evidence and offer persistence**
    Collect real local offers and preserve immutable source provenance.
 
-2. **Canonical products + price history**  
+2. **Canonical products + price history**
    Separate retailer observations from reviewed product identity so prices can be compared over time and across stores.
 
-3. **Family preferences + deal scoring**  
+3. **Family preferences + deal scoring**
    Move from “what is on sale?” to “what matters to this household?”
 
-4. **Basket/store comparison**  
+4. **Basket/store comparison**
    Evaluate the whole shopping need rather than independent product cards.
 
-5. **Shared shopping list**  
+5. **Shared shopping list**
    Turn household intent into a practical, synchronized shopping workflow.
 
-6. **Recipes + meal planner + ingredient aggregation**  
+6. **Recipes + meal planner + ingredient aggregation**
    Connect current offers to real meal decisions and roll ingredients back into the basket.
 
 ## Core product loop

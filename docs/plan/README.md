@@ -40,3 +40,5 @@ Produkcijas cenu servisa testi ir `backend/tests/test_offer_price_intelligence_a
 **Personīgais pārskats:** nenopirktie saraksta produkti, favorīti un receptēm izvēlētie produkti tiek atlasīti no to jaunākajiem zināmajiem novērojumiem neatkarīgi no kataloga pirmās lapas. Redzams atlases iemesls; tas nav automātisks atlaides vai izdevīguma vērtējums.
 
 **Vēstures kopsavilkums:** piedāvājuma detaļās redzams saglabāto cenu diapazons, novērojumu dienu skaits un izmaiņa pret pēdējo viennozīmīgo novērojumu agrākā dienā. Tas salīdzina avota cenu, nevis ģimenes atļauto atsevišķo lietotnes cenu, un neizmanto novērojumus pēc izvēlētā piedāvājuma.
+
+**Vienotā piegāde:** [integrācija ar main un pārbaudes](INTEGRATION.md) apvieno visus iepriekšējos posmus vienā zarā. Produkcijas ieviešana paliek atsevišķs precīzas versijas lēmums.
