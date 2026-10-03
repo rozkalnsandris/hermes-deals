@@ -49,6 +49,11 @@ def change_household(db: Session, household_id: str, expected_version: int, acti
     items = state["shopping"]
     if action == "store_preferences":
         state["preferred_retailers"] = [key for key in ("lidl", "netto", "aldi_nord", "edeka") if form.get("store_" + key) == "1"]
+    elif action == "shopping_bind":
+        item = next((item for item in items if item["item_id"] == form.get("item_id")), None)
+        if item is None or item.get("meal_week") or item["checked"]:
+            raise ValueError("Izvēlies nenopirktu saraksta ierakstu. Ēdienkartes produktus izvēlas pie sastāvdaļām.")
+        item["product_id"] = str(_offer(db, form.get("product_id")).id)
     elif action == "price_eligibility":
         offer = _offer(db, form.get("product_id"))
         eligibility = state.setdefault("price_eligibility", {})

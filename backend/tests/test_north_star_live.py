@@ -565,3 +565,39 @@ def test_comparison_requires_confirmation_for_each_offer(data):
     context = build_live_context(db, "test-family", DAY)
     assert context["best_store"]["id"] == "netto"
     assert context["best_store"]["total_label"] == "2,00 €"
+
+
+def test_free_text_need_can_bind_and_replace_offer_without_duplicate(data):
+    db, client, _ = data
+    a = offer(db, name="Piens izvēlei", price="2")
+    b = offer(db, name="Cits piens", sku="other-milk", price="3")
+    post(client, "add", name="Piens & maize")
+    item = read_household(db, "test-family")[0]["shopping"][0]
+    post(client, "quantity", item_id=item["item_id"], quantity="2")
+    page = client.get("/ui/home/?view=list&date=2026-10-01")
+    assert 'Atrast piedāvājumu' in page.text and 'q=Piens%20%26%20maize' in page.text
+    for row, total in ((a, "4,00 €"), (b, "6,00 €")):
+        response = post(client, "shopping_bind", item_id=item["item_id"], product_id=str(row.id))
+        assert response.status_code == 200
+        context = build_live_context(db, "test-family", DAY)
+        assert len(context["shopping"]["rows"]) == 1
+        selected = context["shopping"]["rows"][0]
+        assert selected["item_id"] == item["item_id"] and selected["name"] == "Piens & maize"
+        assert selected["quantity"] == 2 and selected["offer_name"] == row.product_name_raw
+        assert context["shopping"]["total_label"] == total
+        assert db.scalar(select(func.count()).select_from(OfferProductLink)) == 0
+    post(client, "toggle", item_id=item["item_id"])
+    assert post(client, "shopping_bind", item_id=item["item_id"], product_id=str(a.id)).status_code == 422
+
+
+def test_shopping_bind_rejects_unknown_offer_and_meal_row(data):
+    db, client, _ = data
+    row = offer(db)
+    post(client, "add", name="Need")
+    item = read_household(db, "test-family")[0]["shopping"][0]
+    assert post(client, "shopping_bind", item_id=item["item_id"], product_id="not-an-offer").status_code == 422
+    assert read_household(db, "test-family")[0]["shopping"][0]["product_id"] is None
+    post(client, "meal_plan", day="0", recipe_id="tortillas", servings="4")
+    post(client, "meal_sync")
+    meal = next(item for item in read_household(db, "test-family")[0]["shopping"] if item.get("meal_week"))
+    assert post(client, "shopping_bind", item_id=meal["item_id"], product_id=str(row.id)).status_code == 422
