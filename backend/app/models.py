@@ -435,3 +435,17 @@ class OfferReviewRevision(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+class HouseholdState(Base):
+    """One small shared household document, updated with optimistic locking."""
+    __tablename__ = "household_states"
+    __table_args__ = (CheckConstraint("version > 0", name="ck_household_state_version"),)
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
