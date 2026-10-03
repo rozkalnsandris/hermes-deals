@@ -4,7 +4,12 @@
 
 ## Faktiski nolasītais RPi5 stāvoklis
 
-- API: `hermes-deals-api:main-64682d602749`, image ID `sha256:69d865fc8becf18395ed7bb38d4a62ff6f0b057033bc3bd5747858f7c410d55c`, healthy.
+- Darbinātais attēls: `hermes-deals-api:main-64682d602749`, healthy.
+
+  Docker attēla SHA256:
+
+  `69d865fc8becf18395ed7bb38d4a62ff6f0b057033bc3bd5747858f7c410d55c`
+
 - Primārā checkout HEAD: `f1a8d0759f65a85209765af5313eab032d1016d2`. Tas nav pierādījums API darbinātajam avotam; faktiskā attēla identitāte ir atsevišķa.
 - PostgreSQL read-only transakcija: `alembic_version = 0007_comparison_family_pricing`; `to_regclass('public.household_states')` atgriež NULL.
 - Konteinerā `APP_ENV=production`; `HERMES_HOUSEHOLD_ID` un `HERMES_PUBLIC_ORIGIN` nav definēti.
