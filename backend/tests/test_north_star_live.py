@@ -601,3 +601,34 @@ def test_shopping_bind_rejects_unknown_offer_and_meal_row(data):
     post(client, "meal_sync")
     meal = next(item for item in read_household(db, "test-family")[0]["shopping"] if item.get("meal_week"))
     assert post(client, "shopping_bind", item_id=meal["item_id"], product_id=str(row.id)).status_code == 422
+
+
+def test_personal_overview_uses_explicit_choices_not_catalogue_page(data):
+    db, client, _ = data
+    a = offer(db, name="Z selected", sku="personal-a", package_text_raw="500 g")
+    b = offer(db, name="A favorite", sku="personal-b")
+    offer(db, name="Unrelated", sku="unrelated")
+    post(client, "add", product_id=str(a.id))
+    post(client, "favorite", product_id=str(a.id))
+    post(client, "ingredient_bind", ingredient_id="chicken", product_id=str(a.id))
+    post(client, "favorite", product_id=str(b.id))
+    context = build_live_context(db, "test-family", DAY, offset=60)
+    assert not context["offers"]
+    assert [o["id"] for o in context["personal_offers"]] == [str(a.id), str(b.id)]
+    assert context["personal_offers"][0]["reasons"] == ["Tavā sarakstā", "Saglabāts favorītos", "Izvēlēts receptēm"]
+    page = client.get('/ui/home/?view=overview&date=2026-10-01')
+    assert "Tavas ģimenes izvēlētie produkti" in page.text and "Tavā sarakstā · Saglabāts favorītos" in page.text
+
+
+def test_personal_overview_excludes_expired_future_and_purchased_only_choices(data):
+    db, client, _ = data
+    expired = offer(db, sku="expired", valid_until=date(2026,9,30))
+    future = offer(db, sku="future", collected_day=2)
+    bought = offer(db, sku="bought")
+    post(client, "favorite", product_id=str(expired.id))
+    post(client, "favorite", product_id=str(future.id))
+    post(client, "add", product_id=str(bought.id))
+    item = read_household(db, "test-family")[0]["shopping"][0]
+    post(client, "toggle", item_id=item["item_id"])
+    assert not build_live_context(db, "test-family", DAY)["personal_offers"]
+    assert "Izvēlētās dienas piedāvājumi" in client.get('/ui/home/?view=overview&date=2026-10-01').text

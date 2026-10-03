@@ -69,7 +69,7 @@ def offer_view(row, day, *, favorite_id=None, eligibility=None):
     regular = row.regular_price_eur if fixed and base_current else None
     savings = regular - amount if regular is not None and amount is not None and regular > amount and not conditions else None
     row_id = getattr(row, "offer_candidate_id", None) or row.id
-    return {"id": str(row_id), "name": row.product_name_raw, "package": row.package_text_raw or "Iepakojums nav norādīts",
+    return {"is_current": bool((base_current or app_current) and amount is not None), "id": str(row_id), "name": row.product_name_raw, "package": row.package_text_raw or "Iepakojums nav norādīts",
             "category": "food", "emoji": "🛒", "image_url": safe_url(row.source_image_url), "source_url": safe_url(row.source_url),
             "retailer_id": row.source_chain, "retailer": dict(STORES).get(row.source_chain, row.source_chain),
             "store_name": row.source_store_name, "store_id": row.source_store_external_id,
@@ -137,6 +137,24 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     favorite_latest = {str(latest[key].id): key for key in state["favorites"] if key in latest}
     offers = [quote_for(row, favorite_id=favorite_latest.get(str(row.offer_candidate_id))) for row in current.deals]
     favorites = [quote_for(latest[key], favorite_id=key) for key in state["favorites"] if key in latest]
+    # Explicit household choices only; independent of the first catalogue page.
+    personal = {}
+    choices = [(item["product_id"], "Tavā sarakstā", 0) for item in state["shopping"]
+               if item["product_id"] and not item["checked"] and not item.get("meal_week")]
+    choices += [(key, "Saglabāts favorītos", 1) for key in state["favorites"]]
+    choices += [(key, "Izvēlēts receptēm", 2) for key in bindings.values()]
+    for reference, reason, priority in choices:
+        row = latest.get(reference)
+        if row is None:
+            continue
+        quote = quote_for(row, favorite_id=favorite_latest.get(str(row.id)))
+        if not quote["is_current"]:
+            continue
+        entry = personal.setdefault(quote["id"], {**quote, "reasons": [], "priority": priority})
+        if reason not in entry["reasons"]:
+            entry["reasons"].append(reason)
+        entry["priority"] = min(entry["priority"], priority)
+    personal_offers = sorted(personal.values(), key=lambda row: (row["priority"], row["name"].casefold(), row["id"]))
     preferred = state.get("preferred_retailers", [key for key, _ in STORES])
     excluded_branches = set(state.get("excluded_branches", []))
     branch_options = {}
@@ -267,7 +285,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     return {**meals, "ingredient_choices": list(INGREDIENTS.values()), "demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
             "selected_date": day.isoformat(), "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),
-            "settings": state["settings"], "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
+            "settings": state["settings"], "personal_offers": personal_offers, "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],

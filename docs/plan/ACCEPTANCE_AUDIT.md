@@ -9,7 +9,7 @@
 | Kopīgs saraksts | Serverī saglabāts saraksts, daudzumi, nopirkts, konflikta pārbaude | Citas ierīces izmaiņām vajag pārlādi; vecā pārlūka saraksta imports nav ieviests |
 | Kur pirkt | Pilna viena filiāles groza un divu filiāļu alternatīva, izvēlētās ķēdes/filiāles, nosacītās cenas tikai pēc konkrēta apstiprinājuma | Nav attālumu/maršrutu vai krājumu apliecinājuma |
 | Cenu vēsture/salīdzinājums | Avota novērojumi bez obligātas canonical saites; starpveikalu cenas tikai ar apstiprinātu identitāti, datumu un saderīgiem nosacījumiem | Nav gatava vērtējuma “neparasti laba cena”; reālais vēstures un identitāšu segums vēl jāpārbauda |
-| Ģimenei nozīmīgi piedāvājumi | Favorīti un saraksta/recepšu izvēlētie produkti ir saglabāti | Pārskata piedāvājumi vēl ir kataloga atlase; personalizēta kārtošana vēl nav ieviesta |
+| Ģimenei nozīmīgi piedāvājumi | Favorīti un saraksta/recepšu izvēlētie produkti ir saglabāti | Pārskatā tagad prioritāte nenopirktajiem produktiem, favorītiem un recepšu izvēlēm ar atlases iemeslu; nav automātiski izsecinātu gaumju vai izdevīguma reitinga |
 | Receptes → nedēļa → saraksts | Četras receptes, porcijas, sastāvdaļu apvienošana, izvēlēti produkti un izmaksu segums | Nav automātiskas lētāko maltīšu kārtošanas; katalogs apzināti mazs |
 | Statistika | Atlikušo zināmo cenu summa un atzīmēto pirkumu skaits | Nav faktisko čeku/tēriņu un pierādītu realizēto ietaupījumu |
 | Produkcija | Avota izmaiņas ir secīgos Draft PR; migrācija ir kodā | Nav merge/deploy/migrācijas vai svaiga visu veikalu pārklājuma apstiprinājuma |
@@ -20,7 +20,7 @@ No saraksta ieraksta `Atrast piedāvājumu` atver esošo meklēšanu. Piedāvāj
 
 ## Nākamā vienkāršā secība
 
-1. Pārskatā izcelt saglabātos/izvēlētos produktus un skaidri paskaidrot atlases pamatu.
+1. Pabeigts kodā: pārskatā izcelti saglabātie/izvēlētie produkti ar skaidru atlases pamatu.
 2. Pievienot cenas novērojumu kopsavilkumu, kad salīdzināšanai tiešām ir pietiekami saderīgu datu; neizdomāt reitingu.
 3. Atsevišķi sagatavot visas PR ķēdes integrācijas pārbaudi un produkcijas ieviešanas lēmumu. Faktisko tēriņu statistika un maršruti nav pirmās darba plūsmas priekšnoteikums.
 

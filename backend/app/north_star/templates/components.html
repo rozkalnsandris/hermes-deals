@@ -38,7 +38,7 @@
 {% macro deal_table(rows, view, date, token, compact=false) -%}
 <div class="table-scroll"><table class="deal-table"><thead><tr><th>Produkts</th><th>Veikals</th><th>Cena</th><th class="discount-column">Atlaide</th><th class="savings-column">Ietaupījums</th><th><span class="sr-only">Darbības</span></th></tr></thead><tbody>
 {% for p in rows %}<tr>
-<td><a class="product-link" href="{{ base_path|default('') }}/?view={{ view }}&date={{ date }}&product={{ p.id }}">{{ product_picture(p) }}<span><strong>{{ p.name }}</strong><small>{{ p.package }}</small></span></a></td>
+<td><a class="product-link" href="{{ base_path|default('') }}/?view={{ view }}&date={{ date }}&product={{ p.id }}">{{ product_picture(p) }}<span><strong>{{ p.name }}</strong><small>{{ p.package }}</small>{% if p.reasons|default(false) %}<small>{{ p.reasons|join(" · ") }}</small>{% endif %}</span></a></td>
 <td>{{ store(p.retailer, p.retailer_id) }}<span class="sr-only">{{ p.retailer }}</span></td>
 <td class="price-cell"><strong>{{ p.price_label }}</strong>{% if p.reference_label %}<del>{{ p.reference_label }}</del>{% endif %}{% if p.condition %}<small class="condition">{{ p.condition }}</small>{% endif %}</td>
 <td class="discount-column">{% if p.discount %}<span class="discount">−{{ p.discount }}%</span>{% else %}<span class="muted">—</span>{% endif %}</td>
