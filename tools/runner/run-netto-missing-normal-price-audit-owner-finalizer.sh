@@ -141,14 +141,26 @@ printf 'PRIMARY_BRANCH_BEFORE=%s\nPRIMARY_HEAD_BEFORE=%s\nPRIMARY_STATUS_SHA256_
   "${PRIMARY_BRANCH:-DETACHED}" "$PRIMARY_HEAD" "$PRIMARY_STATUS_SHA"
 
 gh auth status >/dev/null
-PR_META="$(gh api "repos/$REPOSITORY/pulls/$SOURCE_PR" --jq '[.merged_at // "", .merge_commit_sha // "", .base.ref // ""] | @tsv')"
-IFS=$'\t' read -r PR_MERGED_AT PR_MERGE_SHA PR_BASE <<< "$PR_META"
+PR_META="$(gh api "repos/$REPOSITORY/pulls/$SOURCE_PR" --jq '[.merged_at // "", .merge_commit_sha // "", .base.ref // "", .head.sha // "", (.head.repo.full_name // "")] | @tsv')"
+IFS=$'\t' read -r PR_MERGED_AT PR_MERGE_SHA PR_BASE PR_HEAD_SHA PR_HEAD_REPOSITORY <<< "$PR_META"
 [[ -n "$PR_MERGED_AT" ]] || fail 'source PR is not merged'
 [[ "$PR_MERGE_SHA" == "$TARGET_SHA" ]] || fail 'source PR merge SHA mismatch'
 [[ "$PR_BASE" == main ]] || fail 'source PR base is not main'
+[[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'source PR head SHA invalid'
+[[ "$PR_HEAD_REPOSITORY" == "$REPOSITORY" ]] || fail 'source PR head repository mismatch'
 
-CI_OK="$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$TARGET_SHA&event=push&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.head_sha == "'"$TARGET_SHA"'" and .head_branch == "main" and .event == "push" and .name == "Hermes Deals CI checks" and .conclusion == "success")] | length')"
-[[ "$CI_OK" -ge 1 ]] || fail 'exact source SHA has no successful main-push CI'
+CI_MODE='merge_push_ci'
+MERGE_CI_OK="$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$TARGET_SHA&event=push&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.head_sha == "'"$TARGET_SHA"'" and .head_branch == "main" and .event == "push" and .name == "Hermes Deals CI checks" and .conclusion == "success")] | length')"
+if [[ "$MERGE_CI_OK" -lt 1 ]]; then
+  HEAD_CI_OK="$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$PR_HEAD_SHA&event=pull_request&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.head_sha == "'"$PR_HEAD_SHA"'" and .event == "pull_request" and .name == "Hermes Deals CI checks" and .conclusion == "success")] | length')"
+  [[ "$HEAD_CI_OK" -ge 1 ]] || fail 'neither merge SHA nor exact PR head has successful CI'
+  MERGE_TREE="$(gh api "repos/$REPOSITORY/git/commits/$TARGET_SHA" --jq '.tree.sha // ""')"
+  HEAD_TREE="$(gh api "repos/$REPOSITORY/git/commits/$PR_HEAD_SHA" --jq '.tree.sha // ""')"
+  [[ "$MERGE_TREE" =~ ^[0-9a-f]{40}$ ]] || fail 'source merge tree SHA invalid'
+  [[ "$HEAD_TREE" =~ ^[0-9a-f]{40}$ ]] || fail 'source PR head tree SHA invalid'
+  [[ "$MERGE_TREE" == "$HEAD_TREE" ]] || fail 'tested PR head tree differs from squash merge tree'
+  CI_MODE='tree_equivalent_pr_head_ci'
+fi
 
 git -C "$PRIMARY" fetch --prune origin main
 verify_primary_unchanged
@@ -239,6 +251,7 @@ verify_primary_unchanged
 
 printf 'BOOTSTRAP_RESULT=PASS\n'
 printf 'REGISTERED_COMMIT=%s\n' "$TARGET_SHA"
+printf 'CI_MODE=%s\n' "$CI_MODE"
 printf 'N9_MANIFEST_SHA256=%s\n' "$EXPECTED_N9_SHA"
 printf 'N10_LEDGER_SHA256=%s\n' "$EXPECTED_N10_SHA"
 printf 'PYMUPDF_VERSION=%s\nPYMUPDF_RUNTIME_USER=andris\nPYMUPDF_PYTHON=/usr/bin/python3\n' "$PYMUPDF_VERSION"

@@ -21,6 +21,11 @@ SERVICE_UNIT = "hermes-lidl-weekly.service"
 TIMER_UNIT = "hermes-lidl-weekly.timer"
 ALERT_UNIT = "hermes-lidl-weekly-failure@.service"
 UNIT_NAMES = (SERVICE_UNIT, TIMER_UNIT, ALERT_UNIT)
+ALERT_INSTANCE_UNITS = (
+    f"hermes-lidl-weekly-failure@{SERVICE_UNIT}.service",
+    f"hermes-lidl-weekly-failure@{TIMER_UNIT}.service",
+)
+MIGRATION_PREFLIGHT_UNITS = (SERVICE_UNIT, TIMER_UNIT, *ALERT_INSTANCE_UNITS)
 CONFIG = Path("/etc/hermes-deals-audits.d/lidl-gate-d-control.json")
 UNIT_DIR = Path("/etc/systemd/system")
 CONTROL_ROOT = Path("/usr/local/libexec/hermes-deals-lidl-gate-d-control")
@@ -328,7 +333,7 @@ def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dic
     # All preconditions precede the first mutation. A failure after that point
     # leaves the timer stopped and evidence intact; no automatic rollback/retry.
     require(legacy_installed(), "legacy unit triplet drift")
-    for name in UNIT_NAMES:
+    for name in MIGRATION_PREFLIGHT_UNITS:
         result = run_command(["/usr/bin/systemctl", "show", name, "--property=DropInPaths", "--value"])
         require(not result.stdout.strip(), f"unit drop-ins present: {name}")
     state = run_command(["/usr/bin/systemctl", "show", SERVICE_UNIT, "--property=ActiveState", "--value"])
