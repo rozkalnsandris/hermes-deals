@@ -164,7 +164,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         if item.get("meal_week"):
             quantity = measured["packs"] if measured else 1
             amount = amount if measured else None
-        shopping_rows.append({**item, "purchase_note": f"{quantity} iepak. · {quote['name']} ({quote['package']})" if measured else "", "package": quantity_label(item["amount"], item["unit"]) if item.get("meal_week") else quote["package"] if quote else "Brīvs ieraksts",
+        shopping_rows.append({**item, "offer_id": quote["id"] if quote else None, "offer_name": quote["name"] if quote else None, "purchase_note": f"{quantity} iepak. · {quote['name']} ({quote['package']})" if measured else "", "package": quantity_label(item["amount"], item["unit"]) if item.get("meal_week") else quote["package"] if quote else "Brīvs ieraksts",
                               "retailer": quote["retailer"] if quote else "Cena nav zināma", "conditional_price_used": bool(quote and quote["conditional_price_used"]),
                               "price_label": money(amount * quantity) if amount is not None else "—"})
         if item["checked"]:
@@ -271,7 +271,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
-            "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
+            "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
             "query": query, "retailer": retailer, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
             "notice": "", "read_error": False}
