@@ -39,15 +39,15 @@ jobs:
 
     steps:
       - name: Checkout default-branch inspector code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0 (previously actions/checkout@v5)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (previously actions/checkout@v5)
         with:
           ref: main
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0 (previously actions/setup-python@v6)
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0 (previously actions/setup-python@v6)
         with:
-          python-version: '3.11'
+          python-version: '3.14'
 
       - name: Install narrow discovery dependency
         shell: bash
