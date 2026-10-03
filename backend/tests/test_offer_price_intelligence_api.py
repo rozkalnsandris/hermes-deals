@@ -215,3 +215,36 @@ def test_required_app_window_must_cover_selected_day(data, window):
     assert body["comparison_status"] == "no_current_offers"
     assert body["offers"] == []
     assert len(body["observations"]) == 1
+
+
+def test_history_summary_describes_prior_days_not_later_observations(data):
+    from app.price_intelligence import build_offer_price_intelligence, summarize_price_history
+    db, client = data
+    a = offer(db, day=1, price="3")
+    b = offer(db, day=2, price="2")
+    offer(db, day=3, price="1")
+    # Selecting an older observation must not compare it against later prices.
+    details = build_offer_price_intelligence(db, b.id, as_of=date(2026,9,3))
+    summary = summarize_price_history(details)
+    assert summary["day_count"] == 2
+    assert (summary["minimum"], summary["maximum"], summary["change"]) == (Decimal("2"), Decimal("3"), Decimal("-1"))
+    assert summary["previous_day"] == date(2026,9,1)
+    first = summarize_price_history(build_offer_price_intelligence(db, a.id, as_of=date(2026,9,3)))
+    assert first["change"] is None and first["day_count"] == 1
+
+
+def test_history_summary_does_not_infer_trend_from_intraday_or_ambiguous_prices(data):
+    from app.price_intelligence import build_offer_price_intelligence, summarize_price_history
+    db, client = data
+    offer(db, day=1, price="3")
+    offer(db, day=1, price="4")  # Conflicting prices at the same source timestamp.
+    selected = offer(db, day=2, price="2")
+    summary = summarize_price_history(build_offer_price_intelligence(db, selected.id, as_of=date(2026,9,2)))
+    assert summary["change"] is None and summary["day_count"] == 2
+    selected.package_text_raw = "500 ml"  # Another package is another series.
+    db.flush()
+    summary = summarize_price_history(build_offer_price_intelligence(db, selected.id, as_of=date(2026,9,2)))
+    assert summary["day_count"] == 1 and summary["minimum"] == Decimal("2")
+    selected.pricing_mode = "unknown"
+    db.flush()
+    assert summarize_price_history(build_offer_price_intelligence(db, selected.id, as_of=date(2026,9,2))) is None

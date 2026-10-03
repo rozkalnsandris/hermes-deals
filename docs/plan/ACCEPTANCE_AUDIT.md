@@ -8,7 +8,7 @@
 | Vajadzība → pirkums | Brīvs ieraksts saglabājas; tagad meklēšana no rindas un piedāvājuma piesaiste tai pašai rindai, bez jauna ieraksta | Meklēšana ir teksta meklēšana, nevis automātiska tulkošana vai aizvietotāju atpazīšana |
 | Kopīgs saraksts | Serverī saglabāts saraksts, daudzumi, nopirkts, konflikta pārbaude | Citas ierīces izmaiņām vajag pārlādi; vecā pārlūka saraksta imports nav ieviests |
 | Kur pirkt | Pilna viena filiāles groza un divu filiāļu alternatīva, izvēlētās ķēdes/filiāles, nosacītās cenas tikai pēc konkrēta apstiprinājuma | Nav attālumu/maršrutu vai krājumu apliecinājuma |
-| Cenu vēsture/salīdzinājums | Avota novērojumi bez obligātas canonical saites; starpveikalu cenas tikai ar apstiprinātu identitāti, datumu un saderīgiem nosacījumiem | Nav gatava vērtējuma “neparasti laba cena”; reālais vēstures un identitāšu segums vēl jāpārbauda |
+| Cenu vēsture/salīdzinājums | Avota novērojumi bez obligātas canonical saites; starpveikalu cenas tikai ar apstiprinātu identitāti, datumu un saderīgiem nosacījumiem | Ir novērojumu diapazona un izmaiņas kopsavilkums; “neparasti laba cena” reitings netiek izdomāts. Reālais vēstures un identitāšu segums vēl jāpārbauda |
 | Ģimenei nozīmīgi piedāvājumi | Favorīti un saraksta/recepšu izvēlētie produkti ir saglabāti | Pārskatā tagad prioritāte nenopirktajiem produktiem, favorītiem un recepšu izvēlēm ar atlases iemeslu; nav automātiski izsecinātu gaumju vai izdevīguma reitinga |
 | Receptes → nedēļa → saraksts | Četras receptes, porcijas, sastāvdaļu apvienošana, izvēlēti produkti un izmaksu segums | Nav automātiskas lētāko maltīšu kārtošanas; katalogs apzināti mazs |
 | Statistika | Atlikušo zināmo cenu summa un atzīmēto pirkumu skaits | Nav faktisko čeku/tēriņu un pierādītu realizēto ietaupījumu |
@@ -21,7 +21,7 @@ No saraksta ieraksta `Atrast piedāvājumu` atver esošo meklēšanu. Piedāvāj
 ## Nākamā vienkāršā secība
 
 1. Pabeigts kodā: pārskatā izcelti saglabātie/izvēlētie produkti ar skaidru atlases pamatu.
-2. Pievienot cenas novērojumu kopsavilkumu, kad salīdzināšanai tiešām ir pietiekami saderīgu datu; neizdomāt reitingu.
+2. Pabeigts kodā: cenas novērojumu diapazons un izmaiņa pret iepriekšējās dienas novērojumu; bez izdomāta reitinga.
 3. Atsevišķi sagatavot visas PR ķēdes integrācijas pārbaudi un produkcijas ieviešanas lēmumu. Faktisko tēriņu statistika un maršruti nav pirmās darba plūsmas priekšnoteikums.
 
 Pārbaude: 71 fokusēts tests; pilna regresija 3208 izturēti, 4 izlaisti. Pārlūka pierādījumi: `docs/evidence/north-star-shopping-intent/`.
