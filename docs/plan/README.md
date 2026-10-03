@@ -36,3 +36,5 @@ PYTHONPATH=backend .venv-preview/bin/python -m pytest backend/tests/test_north_s
 Produkcijas cenu servisa testi ir `backend/tests/test_offer_price_intelligence_api.py`, frontend integrācijas testi — `backend/frontend/tests/storage-details.test.mjs`. Jinja tagad ir piesaistīta arī servera atkarībām. Datubāzes plūsmas testi ir `backend/tests/test_north_star_live.py`; atsevišķais demonstrācijas serveris paliek pieejams.
 
 **Kopējais audits (2026-10-03):** [kas atbilst sākotnējam mērķim un kas vēl paliek](ACCEPTANCE_AUDIT.md). Izlabota vajadzības piesaiste piedāvājumam tajā pašā saraksta rindā; saglabājas nosaukums un daudzums.
+
+**Personīgais pārskats:** nenopirktie saraksta produkti, favorīti un receptēm izvēlētie produkti tiek atlasīti no to jaunākajiem zināmajiem novērojumiem neatkarīgi no kataloga pirmās lapas. Redzams atlases iemesls; tas nav automātisks atlaides vai izdevīguma vērtējums.
