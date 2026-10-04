@@ -1,6 +1,7 @@
 """Real provider + durable household workflow over an isolated test database."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from html import unescape
 import re
 
 from fastapi.testclient import TestClient
@@ -119,6 +120,46 @@ def test_favorite_tracks_same_source_product_without_recycled_package(data):
     assert len(overview["overview_history"]["series"][0]["observations"]) == 2
     post(client, "favorite", product_id=str(old.id))
     assert not read_household(db, "test-family")[0]["favorites"]
+
+
+def test_overview_keeps_up_to_three_selected_price_histories_separate(data):
+    db, client, _ = data
+    milk = offer(db, price="1.49", collected_day=1)
+    bread = offer(db, name="Maize testam", sku="bread", price="2.49", collected_day=1)
+    post(client, "favorite", product_id=str(milk.id))
+    post(client, "favorite", product_id=str(bread.id))
+    offer(db, price="1.19", collected_day=2)
+    offer(db, name="Maize testam", sku="bread", price="1.99", collected_day=2)
+
+    context = build_live_context(db, "test-family", date(2026, 10, 3), view="overview")
+
+    history = context["overview_history"]
+    assert [series["name"] for series in history["series"]] == ["Piens testam", "Maize testam"]
+    assert [series["color"] for series in history["series"]] == ["#32895d", "#3977c6"]
+    assert history["labels"] == ["01.10.2026", "02.10.2026"]
+    assert history["summary"] is None
+    assert len(context["history_product_ids"]) == 2
+    assert len(set(context["history_product_ids"])) == 2
+    page = client.get("/ui/home/?view=overview&date=2026-10-03")
+    assert "Katras preces vēsture norādītajam iepakojumam vai mērvienībai" in page.text
+    legend = page.text.split('<div class="chart-legend">', 1)[1].split('</div>', 1)[0]
+    for product_id in context["history_product_ids"]:
+        assert f'href="/ui/home/?view=history&date=2026-10-03&product={product_id}"' in unescape(legend)
+
+
+def test_overview_history_retains_units_and_shared_time_axis(data):
+    db, client, _ = data
+    milk = offer(db, collected_day=1)
+    post(client, "favorite", product_id=str(milk.id))
+    weighted = offer(db, name="Āboli", sku="apples", collected_day=2,
+                     pricing_mode="unit_price_only", unit_label="kg", unit_price_eur=Decimal("2.50"))
+    post(client, "favorite", product_id=str(weighted.id))
+    offer(db, collected_day=3)
+    history = build_live_context(db, "test-family", date(2026, 10, 3))["overview_history"]
+    assert history["series"][0]["basis_label"] == "1 l"
+    assert history["series"][1]["price_label"] == "2,50 €/kg"
+    assert history["series"][1]["basis_label"] == "par kg"
+    assert history["series"][1]["points"].split(",")[0] == "300.0"
 
 
 def test_unmapped_offer_detail_renders_source_history(data):
