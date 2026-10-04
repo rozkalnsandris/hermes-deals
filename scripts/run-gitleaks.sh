@@ -10,7 +10,7 @@ fail() {
   exit 1
 }
 
-[[ -d "$ROOT/.git" ]] || fail 'not-a-git-repository'
+git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail 'not-a-git-repository'
 [[ -f "$ROOT/.gitleaks.toml" ]] || fail 'missing-config'
 [[ -f "$ALLOWLIST" ]] || fail 'missing-history-allowlist'
 command -v docker >/dev/null 2>&1 || fail 'docker-not-available'
@@ -50,15 +50,16 @@ if [[ "$status" -gt 1 ]]; then
   fail "scanner-exit-${status}"
 fi
 
-if [[ ! -s "$work/history.json" ]]; then
-  if [[ "$status" -ne 0 ]]; then
-    sed -n '1,120p' "$work/stderr" >&2
-    fail 'scanner-reported-findings-without-report'
-  fi
+if [[ "$status" -eq 0 && ( ! -s "$work/history.json" || "$(tr -d '[:space:]' < "$work/history.json")" == '[]' ) ]]; then
   printf 'GITLEAKS_FINDING_COUNT=0\n'
   printf 'GITLEAKS_KNOWN_FALSE_POSITIVE_COUNT=0\n'
   printf 'GITLEAKS_HISTORY_SCAN=PASS\n'
   exit 0
+fi
+
+if [[ ! -s "$work/history.json" ]]; then
+  sed -n '1,120p' "$work/stderr" >&2
+  fail 'scanner-reported-findings-without-report'
 fi
 
 set +e
@@ -141,8 +142,6 @@ if [[ "$review_status" -ne 0 ]]; then
   fail 'unreviewed-history-findings'
 fi
 
-if [[ "$status" -eq 0 ]]; then
-  fail 'scanner-status-zero-with-nonempty-report'
-fi
+[[ "$status" -eq 1 ]] || fail "unexpected-scanner-status-${status}"
 
 printf 'GITLEAKS_HISTORY_SCAN=PASS\n'
