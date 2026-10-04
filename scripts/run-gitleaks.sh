@@ -11,6 +11,10 @@ fail() {
 }
 
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail 'not-a-git-repository'
+# Only ROOT is mounted in Docker. A linked worktree's .git file points outside
+# that mount, so a successful host Git check does not prove scanner access.
+[[ -d "$ROOT/.git" ]] || fail 'linked-worktree-requires-standalone-clone'
+git -C "$ROOT" rev-parse --verify HEAD >/dev/null 2>&1 || fail 'missing-history'
 [[ -f "$ROOT/.gitleaks.toml" ]] || fail 'missing-config'
 [[ -f "$ALLOWLIST" ]] || fail 'missing-history-allowlist'
 command -v docker >/dev/null 2>&1 || fail 'docker-not-available'
