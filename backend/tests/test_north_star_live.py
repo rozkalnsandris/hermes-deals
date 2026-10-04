@@ -121,6 +121,28 @@ def test_favorite_tracks_same_source_product_without_recycled_package(data):
     assert not read_household(db, "test-family")[0]["favorites"]
 
 
+def test_overview_keeps_up_to_three_selected_price_histories_separate(data):
+    db, client, _ = data
+    milk = offer(db, price="1.49", collected_day=1)
+    bread = offer(db, name="Maize testam", sku="bread", price="2.49", collected_day=1)
+    post(client, "favorite", product_id=str(milk.id))
+    post(client, "favorite", product_id=str(bread.id))
+    offer(db, price="1.19", collected_day=2)
+    offer(db, name="Maize testam", sku="bread", price="1.99", collected_day=2)
+
+    context = build_live_context(db, "test-family", date(2026, 10, 3), view="overview")
+
+    history = context["overview_history"]
+    assert [series["name"] for series in history["series"]] == ["Piens testam", "Maize testam"]
+    assert [series["color"] for series in history["series"]] == ["#32895d", "#3977c6"]
+    assert history["labels"] == ["01.10.2026", "02.10.2026"]
+    assert history["summary"] is None
+    assert len(context["history_product_ids"]) == 2
+    assert len(set(context["history_product_ids"])) == 2
+    page = client.get("/ui/home/?view=overview&date=2026-10-03")
+    assert "Katras izvēlētās preces cena savā iepakojumā" in page.text
+
+
 def test_unmapped_offer_detail_renders_source_history(data):
     db, client, _ = data
     row = offer(db)
