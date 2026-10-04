@@ -1,6 +1,7 @@
 """Real provider + durable household workflow over an isolated test database."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from html import unescape
 import re
 
 from fastapi.testclient import TestClient
@@ -140,9 +141,25 @@ def test_overview_keeps_up_to_three_selected_price_histories_separate(data):
     assert len(context["history_product_ids"]) == 2
     assert len(set(context["history_product_ids"])) == 2
     page = client.get("/ui/home/?view=overview&date=2026-10-03")
-    assert "Katras izvēlētās preces cena savā iepakojumā" in page.text
+    assert "Katras preces vēsture norādītajam iepakojumam vai mērvienībai" in page.text
+    legend = page.text.split('<div class="chart-legend">', 1)[1].split('</div>', 1)[0]
     for product_id in context["history_product_ids"]:
-        assert f"product={product_id}" in page.text
+        assert f'href="/ui/home/?view=history&date=2026-10-03&product={product_id}"' in unescape(legend)
+
+
+def test_overview_history_retains_units_and_shared_time_axis(data):
+    db, client, _ = data
+    milk = offer(db, collected_day=1)
+    post(client, "favorite", product_id=str(milk.id))
+    weighted = offer(db, name="Āboli", sku="apples", collected_day=2,
+                     pricing_mode="unit_price_only", unit_label="kg", unit_price_eur=Decimal("2.50"))
+    post(client, "favorite", product_id=str(weighted.id))
+    offer(db, collected_day=3)
+    history = build_live_context(db, "test-family", date(2026, 10, 3))["overview_history"]
+    assert history["series"][0]["basis_label"] == "1 l"
+    assert history["series"][1]["price_label"] == "2,50 €/kg"
+    assert history["series"][1]["basis_label"] == "par kg"
+    assert history["series"][1]["points"].split(",")[0] == "300.0"
 
 
 def test_unmapped_offer_detail_renders_source_history(data):

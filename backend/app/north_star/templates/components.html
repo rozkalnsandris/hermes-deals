@@ -54,7 +54,7 @@
 <path class="chart-grid" d="M0 20H600M0 65H600M0 110H600M0 160H600"/>
 {% for series in h.series %}{% for point in series.points.split() %}<circle cx="{{ point.split(',')[0] }}" cy="{{ point.split(',')[1] }}" r="2.5" fill="{{ series.color }}"/>{% endfor %}<polyline fill="none" stroke="{{ series.color }}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="{{ series.points }}"/>{% endfor %}
 </svg></div><div class="chart-labels">{% for label in h.labels %}<span>{{ label }}</span>{% endfor %}</div>
-<div class="chart-prices">{% for series in h.series %}<span><i style="--series:{{ series.color }}"></i>{{ series.name }} <strong>{{ series.price_label }}</strong></span>{% endfor %}</div>
+<div class="chart-prices">{% for series in h.series %}<span><i style="--series:{{ series.color }}"></i>{{ series.name }}{% if series.basis_label %} · {{ series.basis_label }}{% endif %} <strong>{{ series.price_label }}</strong></span>{% endfor %}</div>
 {%- endmacro %}
 
 {% macro shopping_list(shopping, view, date, token, compact=false) -%}
