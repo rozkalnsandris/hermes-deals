@@ -49,7 +49,7 @@
 {%- endmacro %}
 
 {% macro chart(h, large=false) -%}
-<div class="chart-legend">{% for series in h.series %}<span><i style="--series:{{ series.color }}"></i>{{ series.name }}</span>{% endfor %}</div>
+<div class="chart-legend">{% for series in h.series %}<span><i style="--series:{{ series.color }}"></i>{% if series.offer_id and base_path is defined %}<a href="{{ base_path }}/?view=history&date={{ selected_date }}&product={{ series.offer_id }}">{{ series.name }}</a>{% else %}{{ series.name }}{% endif %}</span>{% endfor %}</div>
 <div class="price-chart {% if large %}large{% endif %}"><div class="chart-axis"><span>{{ h.max_label }}</span><span>EUR</span><span>{{ h.min_label }}</span></div><svg viewBox="0 0 600 180" role="img" aria-label="Produktu cenu vēsture. Precīzas cenas pieejamas produktu detaļās.">
 <path class="chart-grid" d="M0 20H600M0 65H600M0 110H600M0 160H600"/>
 {% for series in h.series %}{% for point in series.points.split() %}<circle cx="{{ point.split(',')[0] }}" cy="{{ point.split(',')[1] }}" r="2.5" fill="{{ series.color }}"/>{% endfor %}<polyline fill="none" stroke="{{ series.color }}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="{{ series.points }}"/>{% endfor %}

@@ -141,6 +141,8 @@ def test_overview_keeps_up_to_three_selected_price_histories_separate(data):
     assert len(set(context["history_product_ids"])) == 2
     page = client.get("/ui/home/?view=overview&date=2026-10-03")
     assert "Katras izvēlētās preces cena savā iepakojumā" in page.text
+    for product_id in context["history_product_ids"]:
+        assert f"product={product_id}" in page.text
 
 
 def test_unmapped_offer_detail_renders_source_history(data):

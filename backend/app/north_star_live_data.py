@@ -137,7 +137,8 @@ def history_view(*details_list):
             observations.append({"date": local_stamp(row.collected_at).strftime("%d.%m.%Y %H:%M") + " (Berlīne)", "price_label": money(row.comparison_price_eur),
                                  "package": row.package_text_raw, "source_url": safe_url(row.source_url),
                                  "valid_label": f"{row.valid_from}–{row.valid_until}", "requires_app": row.requires_app, "coupon_required": row.coupon_required})
-        series.append({"name": group[-1].product_name_raw, "color": colors[index], "points": " ".join(points),
+        series.append({"name": group[-1].product_name_raw, "offer_id": str(details_list[index].offer_candidate_id),
+                       "color": colors[index], "points": " ".join(points),
                        "price_label": money(group[-1].comparison_price_eur), "observations": observations})
     labels = [local_stamp(first).strftime("%d.%m.%Y"), local_stamp(last).strftime("%d.%m.%Y")] if rows else []
     return {"series": series, "labels": labels, "max_label": money(maximum), "min_label": "0 €",
