@@ -96,8 +96,15 @@ def latest_series(db, original, day):
     ).order_by(OfferCandidateRecord.collected_at.desc(), OfferCandidateRecord.id.asc()).limit(1)) or original
 
 
-def history_view(details):
-    summary = summarize_price_history(details)
+def history_view(*details_list):
+    """Build one small chart from one to three saved product histories.
+
+    The overview deliberately keeps the series separate: the chart helps follow
+    each saved product's own package price, it does not assert that differently
+    packaged products are directly comparable.
+    """
+    details_list = tuple(details for details in details_list if details)
+    summary = summarize_price_history(details_list[0]) if len(details_list) == 1 else None
     if summary:
         change = summary["change"]
         summary = {**summary, "price_label": money(summary["price"]), "minimum_label": money(summary["minimum"]),
@@ -107,24 +114,35 @@ def history_view(details):
     def local_stamp(value):
         aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
         return aware.astimezone(ZoneInfo("Europe/Berlin"))
-    rows = sorted((r for r in details.observations if r.comparison_price_eur is not None), key=lambda r: r.collected_at)
-    maximum = max((r.comparison_price_eur for r in rows), default=D(1)) * D("1.15")
+    def utc_stamp(value):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    row_groups = [sorted((row for row in details.observations if row.comparison_price_eur is not None), key=lambda row: utc_stamp(row.collected_at))
+                  for details in details_list]
+    rows = [row for group in row_groups for row in group]
+    maximum = max((row.comparison_price_eur for row in rows), default=D(1)) * D("1.15")
     maximum = max(maximum, D(1))
-    first = rows[0].collected_at if rows else None
-    span = max(1, (rows[-1].collected_at - first).total_seconds()) if rows else 1
-    observations, points = [], []
-    for row in rows:
-        x = (row.collected_at - first).total_seconds() / span * 600
-        y = 160 - float(row.comparison_price_eur / maximum) * 140
-        points.append(f"{x:.1f},{y:.1f}")
-        observations.append({"date": local_stamp(row.collected_at).strftime("%d.%m.%Y %H:%M") + " (Berlīne)", "price_label": money(row.comparison_price_eur),
-                             "package": row.package_text_raw, "source_url": safe_url(row.source_url),
-                             "valid_label": f"{row.valid_from}–{row.valid_until}", "requires_app": row.requires_app, "coupon_required": row.coupon_required})
-    labels = [local_stamp(rows[0].collected_at).strftime("%d.%m.%Y"), local_stamp(rows[-1].collected_at).strftime("%d.%m.%Y")] if rows else []
-    return {"series": [{"name": rows[-1].product_name_raw, "color": "#32895d", "points": " ".join(points),
-                         "price_label": money(rows[-1].comparison_price_eur), "observations": observations}] if rows else [],
-            "labels": labels, "max_label": money(maximum), "min_label": "0 €", "basis": details.history_basis,
-            "truncated": details.history_truncated, "summary": summary}
+    first = min((utc_stamp(row.collected_at) for row in rows), default=None)
+    last = max((utc_stamp(row.collected_at) for row in rows), default=None)
+    span = max(1, (last - first).total_seconds()) if rows else 1
+    colors = ("#32895d", "#3977c6", "#c98a14")
+    series = []
+    for index, group in enumerate(row_groups):
+        if not group:
+            continue
+        observations, points = [], []
+        for row in group:
+            x = (utc_stamp(row.collected_at) - first).total_seconds() / span * 600
+            y = 160 - float(row.comparison_price_eur / maximum) * 140
+            points.append(f"{x:.1f},{y:.1f}")
+            observations.append({"date": local_stamp(row.collected_at).strftime("%d.%m.%Y %H:%M") + " (Berlīne)", "price_label": money(row.comparison_price_eur),
+                                 "package": row.package_text_raw, "source_url": safe_url(row.source_url),
+                                 "valid_label": f"{row.valid_from}–{row.valid_until}", "requires_app": row.requires_app, "coupon_required": row.coupon_required})
+        series.append({"name": group[-1].product_name_raw, "color": colors[index], "points": " ".join(points),
+                       "price_label": money(group[-1].comparison_price_eur), "observations": observations})
+    labels = [local_stamp(first).strftime("%d.%m.%Y"), local_stamp(last).strftime("%d.%m.%Y")] if rows else []
+    return {"series": series, "labels": labels, "max_label": money(maximum), "min_label": "0 €",
+            "basis": details_list[0].history_basis if len(details_list) == 1 else None,
+            "truncated": any(details.history_truncated for details in details_list), "summary": summary}
 
 
 def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", product=None, offset=0):
@@ -263,8 +281,17 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             selected = {**quote_for(selected_row, favorite_id=favorite_latest.get(str(selected_row.id))),
                         "comparison": [quote_for(db.get(OfferCandidateRecord, o.offer_candidate_id)) for o in data.offers],
                         "comparison_status": data.comparison_status, "history": history_view(data)}
-    history_product = next((latest[key] for key in state["favorites"] if key in latest), None) if view == "overview" else None
-    overview_history = history_view(detail(history_product)) if history_product else None
+    history_references = state["favorites"] + [item["product_id"] for item in state["shopping"]
+                                                  if item["product_id"] and not item["checked"]]
+    history_products, seen_history_products = [], set()
+    for reference in history_references:
+        row = latest.get(reference)
+        if row and str(row.id) not in seen_history_products:
+            history_products.append(row)
+            seen_history_products.add(str(row.id))
+        if len(history_products) == 3:
+            break
+    overview_history = history_view(*(detail(row) for row in history_products)) if view == "overview" else None
     start = day - timedelta(days=day.weekday())
     meals = meal_context(state, day)
     ingredient_quotes = {}
@@ -296,7 +323,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
-            "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
+            "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_products[0].id) if history_products else None, "history_product_ids": [str(row.id) for row in history_products], "has_offers": bool(current.available_count), "available_count": current.available_count,
             "query": query, "retailer": retailer, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
             "notice": "", "read_error": False}
