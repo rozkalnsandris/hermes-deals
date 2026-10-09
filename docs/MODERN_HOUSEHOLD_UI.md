@@ -10,7 +10,7 @@ This redesign builds on GitHub `main` at `5c41a04c4267c2681954c556589f568264b737
 - A desktop workspace with offers and the shared shopping list side by side; actionable offers precede comparison on mobile.
 - Updated lists, store comparisons, recipe planning, settings, product details and price history, with the original semantic forms and focus behavior.
 
-`modern.css` is a deliberate presentation layer after the existing stylesheet. Historical CSS remains intact; destructive consolidation requires the separate coverage evidence described in `WEB_ARCHITECTURE.md`. No dependency, domain service, database, ingress, legacy `/ui` entry point or production setting changes are included.
+`modern.css` is a deliberate presentation layer after the existing stylesheet. Historical CSS remains intact; destructive consolidation requires the separate coverage evidence described in `WEB_ARCHITECTURE.md`. No domain service, database, ingress, legacy `/ui` entry point or production setting changes are included. The CI follow-up updates only the build-time `source-map-js` lock entry from 1.2.1 to 1.2.2 and records two exact historical Docker-image false positives in the existing secret-scan allowlist; scanning rules remain unchanged.
 
 ## Local review
 
@@ -33,3 +33,9 @@ Open `http://127.0.0.1:8766/`. This process uses only the existing labeled synth
 - `git diff --check`: PASS.
 
 Local screenshots and browser logs are under `.codex/evidence/modern-ui/` (ignored). Production rollout and promotion of the existing household route to the public landing page remain separate from this presentation change.
+
+## CI follow-up
+
+The initial GitHub run passed backend, PostgreSQL and architecture checks, but failed the dependency audit and full-history secret scan. `source-map-js` 1.2.2 resolves the reported GHSA-68fv-2mgg-jv7q audit finding. The two scanner findings are line 7 of `docs/plan/ROLLOUT_PREFLIGHT.md` in commits `5cd9d8bed2e11facd9a9bf8b6a676109bd4a326a` and `11a7391f37effd2ac71aaac85ccb908c81bd2f66`: a public Docker image digest/tag, not authentication material. Exceptions are bound to those immutable commit/file/line/rule identities. No broad pattern exclusion or history rewrite was added.
+
+After the lock correction, `npm audit --audit-level=high` reports zero vulnerabilities, all 61 frontend tests pass, and `npm run build:check` passes.
