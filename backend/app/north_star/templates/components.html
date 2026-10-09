@@ -70,3 +70,25 @@
 {% macro recipe_card(r,view,date,token,full=false) -%}
 <article class="recipe-row {% if full %}recipe-full{% endif %}"><div class="recipe-picture recipe-{{ r.id }}" aria-hidden="true"><span>{{ r.emoji }}</span></div><div class="recipe-copy"><h3>{{ r.name }}</h3><div class="recipe-meta"><span>{{ icon('clock',13) }} {{ r.minutes }} min</span><span>{{ icon('users',13) }} {{ r.servings }} porcijas</span></div><p><span class="cost-tag">{{ r.cost_label }} / porcija</span></p><small>{{ r.deal_count }} no {{ r.ingredient_count }} sastāvdaļām akcijā</small>{% if full %}<p class="ingredients">{% for ingredient in r.ingredients %}{{ ingredient.name if ingredient.name is defined else ingredient }}{% if not loop.last %}, {% endif %}{% endfor %}</p><p class="fine-print">{{ r.cost_note }}</p><details><summary>Pagatavošana</summary><ol>{% for step in r.steps %}<li>{{ step }}</li>{% endfor %}</ol></details><form action="{{ base_path|default('') }}/actions/recipe_add" method="post">{{ fields(view,date,token) }}<input type="hidden" name="recipe_id" value="{{ r.id }}"><button class="button button-soft">{{ icon('plus',16) }} Sastāvdaļas sarakstam</button></form>{% endif %}</div>{% if not full %}<form action="{{ base_path|default('') }}/actions/recipe_add" method="post">{{ fields(view,date,token) }}<input type="hidden" name="recipe_id" value="{{ r.id }}"><button class="icon-button" aria-label="Pievienot sastāvdaļas sarakstam: {{ r.name }}">{{ icon('plus',18) }}</button></form>{% endif %}</article>
 {%- endmacro %}
+
+{% macro deal_cards(rows, view, date, token, compact=false) -%}
+<div class="offer-grid {% if compact %}offer-grid-compact{% endif %}">
+{% for p in rows %}
+<article class="offer-card">
+  <div class="offer-visual">
+    <a class="offer-image-link" href="{{ base_path|default('') }}/?view={{ view }}&date={{ date }}&product={{ p.id }}" aria-label="Apskatīt: {{ p.name }}">{{ product_picture(p) }}</a>
+    {% if p.discount %}<span class="offer-discount">−{{ p.discount }}%</span>{% endif %}
+    <form class="offer-favorite" action="{{ base_path|default('') }}/actions/favorite" method="post">{{ fields(view,date,token) }}<input type="hidden" name="product_id" value="{{ p.favorite_id|default(p.id) }}"><button class="icon-button favorite {% if p.favorite %}is-saved{% endif %}" aria-label="{% if p.favorite %}Noņemt no favorītiem{% else %}Saglabāt favorītos{% endif %}: {{ p.name }}" aria-pressed="{{ 'true' if p.favorite else 'false' }}">{{ icon('heart',18) }}</button></form>
+  </div>
+  <div class="offer-copy">
+    <div class="offer-store">{{ store(p.retailer,p.retailer_id) }}<span>{{ p.retailer }}</span>{% if p.valid_label|default(false) %}<small>{{ p.valid_label }}</small>{% endif %}</div>
+    <a class="offer-title" href="{{ base_path|default('') }}/?view={{ view }}&date={{ date }}&product={{ p.id }}"><h3>{{ p.name }}</h3></a>
+    <p class="offer-package">{{ p.package }}{% if p.unit_price_label|default(false) %} · {{ p.unit_price_label }}{% endif %}</p>
+    {% if p.condition %}<p class="offer-condition">{{ icon('info',14) }}<span>{{ p.condition }}</span></p>{% endif %}
+    {% if p.reasons|default(false) %}<p class="offer-reason">{{ p.reasons|join(" · ") }}</p>{% endif %}
+    <div class="offer-bottom"><div><strong class="offer-price">{{ p.price_label }}</strong>{% if p.reference_label %}<del>{{ p.reference_label }}</del>{% endif %}</div><form action="{{ base_path|default('') }}/actions/add" method="post">{{ fields(view,date,token) }}<input type="hidden" name="product_id" value="{{ p.id }}"><button class="offer-add" aria-label="Pievienot sarakstam: {{ p.name }}">{{ icon('plus',20) }}</button></form></div>
+  </div>
+</article>
+{% else %}<div class="empty-state">{{ icon('search',32) }}<h3>Nekas vēl nav atrasts</h3><p>Pamēģini citu nosaukumu vai izvēlies visus veikalus.</p><a href="{{ base_path|default('') }}/?view=deals&date={{ date }}" class="button button-outline">Skatīt visus piedāvājumus</a></div>{% endfor %}
+</div>
+{%- endmacro %}
