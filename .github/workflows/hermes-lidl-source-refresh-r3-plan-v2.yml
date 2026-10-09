@@ -93,7 +93,7 @@ jobs:
 
     steps:
       - name: Checkout exact default-branch runtime
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.authorize.outputs.runtime_sha }}
           fetch-depth: 1
@@ -234,7 +234,7 @@ jobs:
 
       - name: Upload read-only R3 v2 plan
         id: upload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lidl-source-refresh-r3-plan-v2-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.run.outputs.plan }}
