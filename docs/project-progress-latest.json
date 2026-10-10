@@ -562,22 +562,15 @@
   ],
   "completed_issue_count": 270,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-10-03T09:51:17.493803Z",
-  "generated_at_local": "2026-10-03T11:51:17.493803+02:00",
+  "generated_at": "2026-10-10T11:09:58.898721Z",
+  "generated_at_local": "2026-10-10T13:09:58.898721+02:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-10-02",
+  "previous_day": "2026-10-09",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 1,
-  "previous_day_completed_issues": [
-    {
-      "closed_at": "2026-10-02T10:15:08Z",
-      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/965",
-      "number": 965,
-      "title": "P1 Netto #321: align owner-finalizer CI proof with tree-equivalent audit gate"
-    }
-  ],
+  "previous_day_completed_issue_count": 0,
+  "previous_day_completed_issues": [],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
