@@ -71,6 +71,7 @@ def finish(response, request, token):
     response.set_cookie(cookie_name(request), token, httponly=True, secure=public_origin(request).startswith("https:"),
                         samesite="strict", max_age=86400, path="/")
     response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "HX-Request, HX-History-Restore-Request"
     response.headers["X-Content-Type-Options"] = "nosniff"
     # Keep the Origin on same-origin HTML form POSTs (no-referrer can send null).
     response.headers["Referrer-Policy"] = "same-origin"
@@ -87,6 +88,13 @@ def error_context(day, view, message):
 
 def render(request, context, *, status=200):
     token = csrf_token(request)
+    # Browser history must re-read a full document, never reuse household HTML.
+    context["fragment"] = (
+        request.method == "GET"
+        and status == 200
+        and request.headers.get("HX-Request", "").lower() == "true"
+        and request.headers.get("HX-History-Restore-Request", "").lower() != "true"
+    )
     context["csrf_token"] = token
     context["test_database"] = os.getenv("APP_ENV") == "test"
     return finish(templates.TemplateResponse(request=request, name="live.html", context=context, status_code=status), request, token)
