@@ -31,6 +31,8 @@ services:
       SOURCES_CONFIG: /app/config/sources.json
       HTTP_USER_AGENT: ${HTTP_USER_AGENT}
       HERMES_UI_ASSET_MODE: ${HERMES_UI_ASSET_MODE:-inline-w3}
+      HERMES_HOUSEHOLD_ID: ${HERMES_HOUSEHOLD_ID:-home}
+      HERMES_PUBLIC_ORIGIN: ${HERMES_PUBLIC_ORIGIN:-}
     volumes:
       - ./data/raw:/data/raw
       - ./config:/app/config:ro
