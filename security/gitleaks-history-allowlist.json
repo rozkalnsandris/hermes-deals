@@ -229,5 +229,12 @@
     "line": 7,
     "commit": "11a7391f37effd2ac71aaac85ccb908c81bd2f66",
     "reason": "Public hermes-deals-api image tag with a source revision prefix after the Docker digest was moved to its own line; not an API credential."
+  },
+  {
+    "rule_id": "password-assignment",
+    "file": "backend/tests/test_household_rollout_preparation.py",
+    "line": 36,
+    "commit": "bedd946ca12456055a54b1811a60098c3a44818d",
+    "reason": "Literal synthetic-only fixture used solely for Docker Compose config rendering in an isolated temporary env file; never a runtime credential or database connection. The source now uses the existing approved CI placeholder."
   }
 ]
