@@ -7,9 +7,9 @@
     <p><span class="cost-tag">{{ r.cost_label }} / porcija</span><small> · cenas {{ r.price_coverage }} sastāvdaļām</small></p>
     {% if full %}
     <p class="fine-print">Izlietoto sastāvdaļu vērtība: {{ r.known_cost_label }}{% if not r.price_complete %} (nepilns aprēķins){% endif %}. Pilnu iepakojumu pirkums: {{ r.purchase_label }}. Aprēķins izvēlētajā datumā.{% if r.conditional_price_used|default(false) %} Iekļautas ģimenes apstiprinātas lietotnes/kupona cenas.{% endif %}</p>
-    <ul class="meal-ingredients">{% for i in r.ingredients %}<li><span>{{ i.name }}</span><strong>{{ i.label }}</strong></li><li class="ingredient-choice"><span>{% if i.product_name %}{{ i.product_name }} · {{ i.price_label }}{% else %}Produkts vēl nav izvēlēts{% endif %}</span><a class="text-link" href="{{ base_path }}/?view=deals&date={{ selected_date }}">Izvēlēties</a>{% if i.product_name %}<form method="post" action="{{ base_path }}/actions/ingredient_bind">{{ fields(view,selected_date,csrf_token) }}<input type="hidden" name="ingredient_id" value="{{ i.id }}"><button class="icon-button" aria-label="Noņemt produkta izvēli: {{ i.name }}">{{ icon('close',14) }}</button></form>{% endif %}</li>{% endfor %}</ul>
+    <ul class="meal-ingredients">{% for i in r.ingredients %}<li><span>{{ i.name }}</span><strong>{{ i.label }}</strong></li><li class="ingredient-choice"><span>{% if i.product_name %}{{ i.product_name }} · {{ i.price_label }}{% else %}Produkts vēl nav izvēlēts{% endif %}</span><a class="text-link" href="{{ base_path }}/?view=deals&date={{ selected_date }}">Izvēlēties</a>{% if i.product_name %}<form method="post" hx-boost="false" action="{{ base_path }}/actions/ingredient_bind">{{ fields(view,selected_date,csrf_token) }}<input type="hidden" name="ingredient_id" value="{{ i.id }}"><button class="icon-button" aria-label="Noņemt produkta izvēli: {{ i.name }}">{{ icon('close',14) }}</button></form>{% endif %}</li>{% endfor %}</ul>
     <details><summary>Pagatavošana</summary><ol>{% for step in r.steps %}<li>{{ step }}</li>{% endfor %}</ol></details>
-    <form method="post" action="{{ base_path }}/actions/meal_plan" class="meal-plan-form">
+    <form method="post" hx-boost="false" action="{{ base_path }}/actions/meal_plan" class="meal-plan-form">
       {{ fields(view,selected_date,csrf_token) }}<input type="hidden" name="recipe_id" value="{{ r.id }}">
       <label>Diena<select name="day">{% for day in planner %}<option value="{{ day.id }}">{{ day.label }} · {{ day.date }}</option>{% endfor %}</select></label>
       <label>Porcijas<input name="servings" type="number" value="{{ r.servings }}" min="1" max="12" required></label>
@@ -25,14 +25,14 @@
 <a class="button button-outline" href="{{ base_path }}/?view=planner&date={{ selected_date }}">Atvērt nedēļas ēdienkarti</a>
 {% elif view == 'planner' %}
 <section class="panel"><div class="panel-heading"><div><h2>Nedēļas ēdienkarte</h2><p>{{ meal_count }} ieplānotas maltītes · viena maltīte dienā</p></div></div>
-<div class="meal-sync"><form method="post" action="{{ base_path }}/actions/meal_sync">{{ fields(view,selected_date,csrf_token) }}<button class="button button-primary">{{ icon('list',17) }} Atjaunot sastāvdaļas sarakstā</button></form>
+<div class="meal-sync"><form method="post" hx-boost="false" action="{{ base_path }}/actions/meal_sync">{{ fields(view,selected_date,csrf_token) }}<button class="button button-primary">{{ icon('list',17) }} Atjaunot sastāvdaļas sarakstā</button></form>
 <p class="fine-print">{{ 'Saraksts jau atbilst šim plānam.' if meal_synced else 'Saglabā maltītes un tad atjauno sarakstu.' }} Vienādas sastāvdaļas saskaitām gramos, mililitros vai gabalos. Atkārtots klikšķis nemaina jau atzīmētos pirkumus.</p>
 <p class="fine-print">Mainot plānu, atjaunojas tikai šīs nedēļas sastāvdaļas; mainītais daudzums jāatzīmē no jauna. Paša pievienotie produkti paliek. Cenas parādās, kad sastāvdaļai izvēlēts saderīgs veikala iepakojums.</p>
 <a class="text-link" href="{{ base_path }}/?view=list&date={{ selected_date }}">Atvērt kopīgo sarakstu {{ icon('arrow',15) }}</a></div>
 <div class="planner-grid">{% for day in planner %}<article class="planner-day">
   <header><strong>{{ day.label }}</strong><small>{{ day.date }}</small></header>
   {% if day.recipe %}<div class="planner-dish" aria-hidden="true">{{ day.recipe.emoji }}</div><h3>{{ day.recipe.name }}</h3><p>{{ day.recipe.servings }} porcijas</p>{% else %}<div class="planner-placeholder">{{ icon('chef',30) }}<p>Izvēlies maltīti</p></div>{% endif %}
-  <form method="post" action="{{ base_path }}/actions/meal_plan" class="day-form">
+  <form method="post" hx-boost="false" action="{{ base_path }}/actions/meal_plan" class="day-form">
     {{ fields(view,selected_date,csrf_token) }}<input type="hidden" name="day" value="{{ day.id }}">
     <label for="meal-{{ day.id }}">Recepte</label><select id="meal-{{ day.id }}" name="recipe_id"><option value="">Nav ieplānots</option>{% for r in recipes %}<option value="{{ r.id }}" {% if day.recipe and day.recipe.id==r.id %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
     <label for="servings-{{ day.id }}">Porcijas</label><input id="servings-{{ day.id }}" type="number" name="servings" value="{{ day.recipe.servings if day.recipe else settings.people }}" min="1" max="12" required>

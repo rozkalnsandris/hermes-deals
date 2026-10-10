@@ -632,3 +632,45 @@ def test_personal_overview_excludes_expired_future_and_purchased_only_choices(da
     post(client, "toggle", item_id=item["item_id"])
     assert not build_live_context(db, "test-family", DAY)["personal_offers"]
     assert "Izvēlētās dienas piedāvājumi" in client.get('/ui/home/?view=overview&date=2026-10-01').text
+
+
+@pytest.mark.parametrize("view", ["overview", "deals", "list", "planner", "recipes", "favorites", "history", "statistics", "settings"])
+def test_htmx_fragment_matches_full_server_projection(data, view):
+    _, client, _ = data
+    url = f"/ui/home/?view={view}&date=2026-10-01"
+    full = client.get(url)
+    partial = client.get(url, headers={"HX-Request": "true"})
+    assert partial.status_code == 200
+    assert "<!doctype" not in partial.text and "<body" not in partial.text
+    assert "<script" not in partial.text
+    assert partial.text[partial.text.index('<div id="home-content"'):].strip() == full.text[full.text.index('<div id="home-content"'):].removesuffix('</body></html>').strip()
+    for response in (full, partial):
+        assert response.headers["Vary"] == "HX-Request, HX-History-Restore-Request"
+        assert response.headers["Cache-Control"] == "no-store"
+        assert 'hx-history="false"' in response.text
+    restored = client.get(url, headers={"HX-Request": "true", "HX-History-Restore-Request": "true"})
+    assert "<!doctype" in restored.text
+
+
+def test_htmx_filters_escape_source_and_keep_forms_unboosted(data):
+    db, client, _ = data
+    row = offer(db, name='<script>alert("test")</script>', requires_app=True)
+    offer(db, name="Unrelated", sku="other")
+    page = client.get('/ui/home/?view=deals&date=2026-10-01&q=script&retailer=lidl', headers={"HX-Request": "true"})
+    assert '&lt;script&gt;' in page.text and 'Unrelated' not in page.text
+    assert 'name="q" value="script"' in page.text
+    assert 'value="lidl" selected' in page.text
+    assert 'method="post" hx-boost="false"' in page.text
+    detail = client.get(f'/ui/home/?view=deals&date=2026-10-01&product={row.id}', headers={"HX-Request": "true"})
+    assert 'role="dialog"' in detail.text and 'lietotn' in detail.text.lower()
+    invalid = client.post('/ui/home/actions/add', data={"product_id": str(row.id)}, headers={"HX-Request": "true"})
+    assert invalid.status_code == 403
+    assert read_household(db, "test-family")[1] == 0
+
+
+def test_htmx_asset_is_packaged_upstream_pin(data):
+    import hashlib
+    _, client, _ = data
+    asset = client.get('/ui/home/static/vendor/htmx-2.0.11.min.js')
+    assert asset.status_code == 200
+    assert hashlib.sha1(f"blob {len(asset.content)}\0".encode() + asset.content).hexdigest() == "e6b8394acb5cda3281a68b4078775ec348d8eafc"
