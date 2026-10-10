@@ -67,3 +67,15 @@ def test_w4c_release_keeps_nginx_as_transparent_asset_proxy() -> None:
     assert "expires" not in asset_block
     assert "immutable" not in asset_block.casefold()
     assert "max-age" not in asset_block.casefold()
+
+
+def test_household_ingress_preserves_uri_and_legacy_landing() -> None:
+    nginx = read(NGINX)
+    for location in ("location = /ui/home {", "location ^~ /ui/home/ {"):
+        block = nginx.split(location, 1)[1].split("}", 1)[0]
+        assert "proxy_pass http://api:8000;" in block  # No URI suffix/rewrite.
+        assert "proxy_set_header Host $host;" in block
+        assert "proxy_set_header X-Forwarded-Proto $scheme;" in block
+        assert "try_files" not in block and "add_header" not in block
+    landing = nginx.split("location = / {", 1)[1].split("}", 1)[0]
+    assert "return 302 /ui;" in landing

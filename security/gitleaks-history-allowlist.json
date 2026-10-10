@@ -221,13 +221,13 @@
     "file": "docs/plan/ROLLOUT_PREFLIGHT.md",
     "line": 7,
     "commit": "5cd9d8bed2e11facd9a9bf8b6a676109bd4a326a",
-    "reason": "Public Docker image SHA256 from read-only docker inspect, following the API label; an immutable image identifier, not an API credential."
+    "reason": "Public Docker image tag and SHA-256 digest recorded as runtime provenance in the rollout preflight; neither value is authentication material."
   },
   {
     "rule_id": "generic-api-key",
     "file": "docs/plan/ROLLOUT_PREFLIGHT.md",
     "line": 7,
     "commit": "11a7391f37effd2ac71aaac85ccb908c81bd2f66",
-    "reason": "Public running container image/version identifier and SHA256 reported by docker inspect; not a credential. Exact historical finding only."
+    "reason": "Public hermes-deals-api image tag with a source revision prefix after the Docker digest was moved to its own line; not an API credential."
   }
 ]
