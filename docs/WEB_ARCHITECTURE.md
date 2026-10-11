@@ -14,6 +14,34 @@ This decision supersedes the former SvelteKit/Tailwind/IndexedDB/Dexie/offline-f
 
 The purpose is to keep product, retailer, provenance, comparison and Review correctness in Python/PostgreSQL while making the browser a thin presentation and interaction client.
 
+## Implementation evidence checkpoint — 2026-10-11
+
+The architecture above is unchanged. The following source milestones are merged;
+these are bounded evidence records, not proof that the entire migration is complete:
+
+| Milestone | Evidence | Remaining boundary |
+| --- | --- | --- |
+| Architecture contract | PR #921, commit `924bc354df8516443b3939599448b6c8c93328b9` | No architecture decision remains pending for this stack. |
+| W5C representative Coverage | [W5C evidence](WEB_W5C_BROWSER_EVIDENCE.md), merged PR #923 | Applies to its recorded releases; no safe destructive CSS candidates were established. |
+| M1 accessibility acceptance | [M1 evidence](WEB_M1_ACCESSIBILITY_EVIDENCE.md), merged PR #926 | Applies to its recorded presentation, not automatically to later UI changes. |
+| Modern household UI | [UI implementation and checks](MODERN_HOUSEHOLD_UI.md), merged PR #982 | `/ui/home/` has Jinja/HTMX GET navigation and ordinary server-validated POST forms; legacy `/ui` remains. |
+| Household rollout preparation | [Pinned release and prerequisites](plan/ROLLOUT_PREFLIGHT.md), merged PRs #978 and #983 | Image publication is verified; production schema, configuration, ingress and UI acceptance remain separate. |
+
+Issue [#319](https://github.com/rozkalnsandris/hermes-deals/issues/319), as read on
+2026-10-11, still describes the architecture contract as pending merge and W5C as
+the first unmet gate. Those execution-status statements lag the merged evidence
+above. Its canonical stack agrees with this document. Do not repeat completed
+historical captures merely because the tracker wording is stale, or interpret
+those captures as coverage of the redesigned UI. Fresh representative evidence
+is still required before any future CSS deletion or legacy retirement.
+
+For the selected production-preparation work, the next source prerequisite is a
+reviewed RPi5 configuration solution for the household settings, followed by the
+bounded migration/backup and ingress prerequisites in the rollout plan. No current
+host baseline, completed deployment, SSE synchronization, Review migration, full
+legacy parity or default-homepage promotion is asserted by this checkpoint. The
+migration gates below remain acceptance requirements, not a progress checklist.
+
 ## Project goal alignment
 
 Hermes Deals is a self-built grocery-deals and price-comparison system. The Web layer must support, without weakening provenance or data-integrity boundaries:
