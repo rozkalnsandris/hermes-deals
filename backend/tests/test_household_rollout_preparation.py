@@ -33,7 +33,7 @@ def test_compose_passes_household_settings_without_reading_local_env(tmp_path, s
     if not docker:
         pytest.skip("Docker Compose CLI is unavailable; no daemon is required")
     env_file = tmp_path / "synthetic.env"
-    env_file.write_text("POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=synthetic-only\nHTTP_USER_AGENT=rollout-test\n")
+    env_file.write_text("POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=ci-placeholder-not-a-secret\nHTTP_USER_AGENT=rollout-test\n")
     result = subprocess.run(
         [docker, "compose", "--profile", "tools", "--env-file", str(env_file), "-f", str(ROOT / "docker-compose.yml"), "config", "--format", "json"],
         env={"PATH": os.environ["PATH"], "HOME": str(tmp_path), **settings},
