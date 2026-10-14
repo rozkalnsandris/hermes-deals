@@ -70,27 +70,32 @@ def probe_source(db: Session, source: SourceConfig) -> SourceSnapshot:
         keyword_hits = {kw: text.lower().count(kw.lower()) for kw in source.keywords}
         json_ld_blocks = len(_JSON_LD_RE.findall(text))
 
-        folder = settings.raw_snapshot_dir / source.chain
-        folder.mkdir(parents=True, exist_ok=True)
-        stamp = now.strftime("%Y%m%dT%H%M%SZ")
-        suffix = ".json" if "json" in (content_type or "").lower() else ".html"
-        path = folder / f"{stamp}-{digest[:12]}{suffix}"
-        path.write_bytes(content)
+        try:
+            folder = settings.raw_snapshot_dir / source.chain
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = now.strftime("%Y%m%dT%H%M%SZ")
+            suffix = ".json" if "json" in (content_type or "").lower() else ".html"
+            path = folder / f"{stamp}-{digest[:12]}{suffix}"
+            with path.open("xb") as handle:
+                handle.write(content)
+        except OSError as exc:
+            snapshot.strategy_hint = "snapshot_write_error"
+            snapshot.error = f"{type(exc).__name__}: {exc}"[:2000]
+        else:
+            hint = _strategy_hint(response.status_code, content_type, text, keyword_hits)
+            success = 200 <= response.status_code < 300 and len(content) >= 1000
 
-        hint = _strategy_hint(response.status_code, content_type, text, keyword_hits)
-        success = 200 <= response.status_code < 300 and len(content) >= 1000
-
-        snapshot.final_url = str(response.url)
-        snapshot.http_status = response.status_code
-        snapshot.elapsed_ms = elapsed_ms
-        snapshot.content_type = content_type
-        snapshot.content_bytes = len(content)
-        snapshot.sha256 = digest
-        snapshot.snapshot_path = str(path)
-        snapshot.keyword_hits = keyword_hits
-        snapshot.json_ld_blocks = json_ld_blocks
-        snapshot.strategy_hint = hint
-        snapshot.success = success
+            snapshot.final_url = str(response.url)
+            snapshot.http_status = response.status_code
+            snapshot.elapsed_ms = elapsed_ms
+            snapshot.content_type = content_type
+            snapshot.content_bytes = len(content)
+            snapshot.sha256 = digest
+            snapshot.snapshot_path = str(path)
+            snapshot.keyword_hits = keyword_hits
+            snapshot.json_ld_blocks = json_ld_blocks
+            snapshot.strategy_hint = hint
+            snapshot.success = success
     except Exception as exc:  # deliberately records a failed feasibility probe
         snapshot.strategy_hint = "network_error"
         snapshot.error = f"{type(exc).__name__}: {exc}"[:2000]
