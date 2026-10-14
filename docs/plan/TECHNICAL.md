@@ -4,6 +4,8 @@
 
 Mērķis: ģimene ieraksta nedēļas vajadzības, ierauga kur pirkt un par kādu cenu, pievieno maltītes, iegūst vienu kopīgu sarakstu. Vispirms šī pilnā plūsma, pēc tam vizuālās nianses un sarežģītāka optimizācija.
 
+**Avota stāvoklis 2026-10-14:** `main` jau ietver kopīgu sarakstu, četras receptes, porciju/nedēļas plānu, sastāvdaļu cenu izvēli un vienas/divu filiāļu grozu aprēķinus ar fokusētiem testiem; skatīt [integrāciju](INTEGRATION.md) un [pieņemšanas auditu](ACCEPTANCE_AUDIT.md). Šie posmi nav jāraksta no jauna. Šis plāns joprojām nosaka uzvedības robežas: produkcijas PostgreSQL migrācija, patiesu veikalu datu svaigums un segums, vecā stāvokļa sinhronizācija/pārslēgšana, izvietošana un reālas lietošanas kanārijpārbaude nav apliecinātas ar avota testiem. Atvērtie [salīdzinājuma](https://github.com/rozkalnsandris/hermes-deals/issues/29) un [ģimenes plūsmas](https://github.com/rozkalnsandris/hermes-deals/issues/33) uzdevumi glabā plašāku pieņemšanas tvērumu.
+
 ## Divi paralēli slāņi
 
 **Tehniskais slānis:** viens FastAPI process, esošais PostgreSQL, SQLAlchemy/Alembic, mazi Python servisi. Esošie savācēji turpina dot validētus piedāvājumus. Cenas, vēsture, identitāte, atlase un summas tiek noteiktas serverī.

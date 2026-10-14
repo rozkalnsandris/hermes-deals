@@ -37,4 +37,6 @@ Parastas HTML formas un pārlāde ir sākotnējā plūsma. Nav pārlūka biznesa
 
 `backend/tests/test_north_star_live.py` pārbauda divus klientus, saglabāšanu, konfliktus, formas, filtrus, cenu derīgumu, nezināmas cenas, filiāļu nošķiršanu, apstiprinātu salīdzinājumu, migrācijas struktūru un HTTPS starpniekservera gadījumu. Pārlūka pierādījumi izmanto tikai izolētu testu datubāzi ar redzamu marķējumu; tie nepierāda produkcijas cenu svaigumu vai PostgreSQL migrācijas pielietojumu.
 
-Pēc šī posma pievienota [recepšu, porciju un nedēļas plāna saglabāšana](MEALS.md) tam pašam sarakstam. Sastāvdaļu cenu piesaiste vēl nav gatava. Filiāļu/lojalitātes izvēles un divu veikalu alternatīva vēl nav realizētas. Atrašanās vietas teksts iestatījumos pats nemaina avota veikala izvēli.
+Šis dokuments apraksta sākotnējo kopīgā saraksta posmu. Vēlāk kodā pievienota [recepšu, porciju un nedēļas plāna saglabāšana](MEALS.md), [ģimenes izvēlēta sastāvdaļu cenu piesaiste](MEAL_PRICES.md), [veikalu un divu filiāļu plāns](STORE_PLANS.md), [filiāļu izvēle](README.md) un [konkrētu lietotnes/kupona cenu nosacījumu apstiprināšana](PRICE_ELIGIBILITY.md). Atrašanās vietas teksts iestatījumos pats nemaina avota veikala izvēli.
+
+Šie ir avota koda un izolētu testu rezultāti; [kopējais pieņemšanas audits](ACCEPTANCE_AUDIT.md) uzskaita atlikušās produkta robežas. Produkcijas PostgreSQL migrācija, aktuālo veikalu datu svaigums, atļautā piekļuve, izvietošana un ģimenes darbplūsmas kanārijpārbaude paliek atsevišķi pierādāmi soļi.
