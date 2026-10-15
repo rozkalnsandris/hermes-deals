@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.current_deals_service import build_current_deals, load_python_ranked_state_rows
+from app.household_ui_gate import HouseholdUiGate
 from app.models import CanonicalProduct, OfferCandidateRecord, OfferProductLink, SourceSnapshot
 from app.schemas import BasketCompareOut, BasketCompareRequest, BasketRetailerLineOut, BasketRetailerSummaryOut, CanonicalCatalogOut, CanonicalCatalogProductOut, CanonicalCurrentOfferOut, CanonicalCurrentOffersOut, CanonicalCurrentPriceComparisonOut, CanonicalPriceHistoryOut, CanonicalPriceObservationOut, CanonicalProductOut, CanonicalRetailerSummaryOut, CanonicalUiOverviewOut, CurrentDealOut, CurrentDealsOut, OfferCandidate, OfferCandidateOut, SourceChain, SourceSnapshotOut
 from app.settings import get_settings
@@ -46,6 +47,7 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/api/openapi.json",
 )
+app.add_middleware(HouseholdUiGate)
 
 app.include_router(netto_daily_special_router)
 app.include_router(weekly_special_router)
