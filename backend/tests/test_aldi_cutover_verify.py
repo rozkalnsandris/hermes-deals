@@ -60,6 +60,7 @@ class AldiCutoverVerifyTests(unittest.TestCase):
     def _verify(self):
         verify(self.db, self.identifier, self.after, root=self.root,
                now=self.now, api_latest=self._api, root_owner=os.getuid(),
+               collector_uid=os.getuid(), collector_gid=os.getgid(),
                snapshot_model=object())
 
     def test_recent_collector_file_and_api_row_match_without_writes(self):
@@ -106,6 +107,7 @@ class AldiCutoverVerifyTests(unittest.TestCase):
         with self.assertRaises(Stop):
             verify(self.db, self.identifier, self.after, root=self.root,
                    now=self.now, api_latest=other_api, root_owner=os.getuid(),
+                   collector_uid=os.getuid(), collector_gid=os.getgid(),
                    snapshot_model=object())
 
     def test_directory_replacement_during_read_stops(self):

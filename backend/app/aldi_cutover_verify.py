@@ -40,7 +40,8 @@ def _no_acl(fd: int) -> None:
     require(not {"system.posix_acl_access", "system.posix_acl_default"} & set(os.listxattr(fd)))
 
 
-def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, int]:
+def _file_digest(path: str, root: Path, *, root_owner: int = 0,
+                 collector_uid: int = 1000, collector_gid: int = 1000) -> tuple[str, int]:
     candidate = Path(path)
     require(candidate.is_absolute() and root.is_absolute())
     require(".." not in candidate.parts and ".." not in root.parts)
@@ -60,7 +61,8 @@ def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, in
             descriptors.append(fd)
         root_fd = fd
         base = os.fstat(fd)
-        require(stat.S_ISDIR(base.st_mode) and base.st_uid == root_owner and base.st_gid == 1000)
+        require(stat.S_ISDIR(base.st_mode) and base.st_uid == root_owner
+                and base.st_gid == collector_gid)
         require(stat.S_IMODE(base.st_mode) == 0o3775)
         _no_acl(fd)
         for name in relative.parts[:-1]:
@@ -68,7 +70,8 @@ def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, in
             descriptors.append(fd)
             folder = os.fstat(fd)
             require(stat.S_ISDIR(folder.st_mode) and folder.st_dev == base.st_dev)
-            require(folder.st_uid in (0, 1000) and folder.st_gid == 1000)
+            require(folder.st_uid in (root_owner, collector_uid)
+                    and folder.st_gid == collector_gid)
             require(not folder.st_mode & 0o002)
             require(not folder.st_mode & 0o020 or folder.st_mode & stat.S_ISVTX)
             _no_acl(fd)
@@ -79,7 +82,8 @@ def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, in
         descriptors.append(child)
         opened = os.fstat(child)
         require(stat.S_ISREG(opened.st_mode) and opened.st_nlink == 1)
-        require(opened.st_dev == base.st_dev and opened.st_uid == 1000 and opened.st_gid == 1000)
+        require(opened.st_dev == base.st_dev and opened.st_uid == collector_uid
+                and opened.st_gid == collector_gid)
         require(not opened.st_mode & 0o022 and 0 < opened.st_size <= MAX_FILE)
         _no_acl(child)
         identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
@@ -133,7 +137,8 @@ def _api_latest() -> list[dict[str, object]]:
 
 def verify(db, snapshot_id: UUID, after: datetime, *, root: Path = RAW_ROOT,
            now: datetime | None = None, api_latest=_api_latest,
-           root_owner: int = 0, snapshot_model=None) -> None:
+           root_owner: int = 0, collector_uid: int = 1000,
+           collector_gid: int = 1000, snapshot_model=None) -> None:
     now = now or datetime.now(timezone.utc)
     require(after.tzinfo is not None and after.utcoffset() == timedelta(0))
     require(now - MAX_AGE <= after <= now)
@@ -146,7 +151,8 @@ def verify(db, snapshot_id: UUID, after: datetime, *, root: Path = RAW_ROOT,
     require(row.collected_at is not None and row.collected_at.tzinfo is not None)
     require(after <= row.collected_at <= now + timedelta(seconds=60))
     require(row.snapshot_path and row.sha256 and re.fullmatch(r"[0-9a-f]{64}", row.sha256))
-    digest, size = _file_digest(row.snapshot_path, root, root_owner=root_owner)
+    digest, size = _file_digest(row.snapshot_path, root, root_owner=root_owner,
+                                collector_uid=collector_uid, collector_gid=collector_gid)
     require(digest == row.sha256 and size == row.content_bytes)
     matches = [entry for entry in api_latest() if entry.get("source_chain") == SOURCE]
     require(len(matches) == 1)
