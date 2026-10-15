@@ -29,7 +29,8 @@ Parastas HTML formas un pārlāde ir sākotnējā plūsma. Nav pārlūka biznesa
 - `DATABASE_URL` ir esošais servera savienojums. Piegāde nemaina savācējus vai avota novērojumus.
 - `HERMES_HOUSEHOLD_ID` ir servera izvēlēta vienas privātas ģimenes atslēga (noklusēti `home`). Pārlūks nevar izvēlēties citu ģimeni. Piekļuvi nodrošina esošais privātais Cloudflare Access/Tunnel; šī nav vairāku neatkarīgu klientu kontu sistēma.
 - Ja HTTPS beidzas pie starpniekservera, konfigurē `HERMES_PUBLIC_ORIGIN=https://deals.rozkalns.net`. Tas nosaka precīzo atļauto formas Origin un Secure sīkdatni; patvaļīgas forwarded galvenes netiek izmantotas kā uzticības avots.
-- Pirms lietošanas vajadzīga atsevišķi autorizēta migrācija līdz `0008_household_state`. Serveris startējoties neveido tabulas un neievieto piemēra datus. Trūkstoša tabula/savienojums dod 503, nevis demonstrācijas saturu.
+- `/ui/home` un visas tā apakšadreses, ieskaitot formas un statiskos failus, produkcijā pēc noklusējuma atgriež 404. Tikai servera kontrolēts `HERMES_HOUSEHOLD_UI_ENABLED=1` ieslēdz esošo skatu; pārējās vērtības to neieslēdz. Kolektora/API pārslēgšana šo mainīgo neiestata. Ieslēgšana ir atsevišķs UI LIVE lēmums pēc shēmas, piekļuves un maršruta pārbaudēm.
+- Pirms lietošanas vajadzīga atsevišķi autorizēta migrācija līdz `0008_household_state`. Serveris startējoties neveido tabulas un neievieto piemēra datus. Ja skats ir skaidri ieslēgts, bet tabula/savienojums trūkst, tas dod 503, nevis demonstrācijas saturu.
 - `/ui/home/` pieejams esošā `app.runtime:app` procesa ietvaros. Vecais `/ui` un atsevišķais `/ui/deals` migrācijas darbs (#953) nav pārslēgti. Jinja 3.1.6 pievienots ģenerētajam atkarību lock un tā manifestam.
 - Vecā EDEKA canary instalatora runtime piesaiste paliek nemainīta. Tests glabā precīzu vēsturisko lock un pārbauda, ka jaunais UI lock tiek noraidīts. Šī piegāde neatjauno canary reģistrāciju vai pilnvaras.
 

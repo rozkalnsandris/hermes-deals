@@ -14,12 +14,14 @@ from app.household_service import change_household, read_household
 from app.main import app
 from app.models import Base, HouseholdState, OfferCandidateRecord, SourceSnapshot, CanonicalProduct, OfferProductLink
 from app.north_star_live_data import build_live_context
+from app.runtime import app as runtime_app
 
 DAY = date(2026, 10, 1)
 
 
 @pytest.fixture
 def data(monkeypatch):
+    monkeypatch.setenv("HERMES_HOUSEHOLD_UI_ENABLED", "1")
     monkeypatch.setenv("HERMES_HOUSEHOLD_ID", "test-family")
     monkeypatch.delenv("HERMES_PUBLIC_ORIGIN", raising=False)
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -32,6 +34,27 @@ def data(monkeypatch):
         yield db, client, engine
     app.dependency_overrides.clear()
     engine.dispose()
+
+
+def test_household_ui_requires_explicit_server_opt_in(monkeypatch):
+    monkeypatch.delenv("HERMES_HOUSEHOLD_UI_ENABLED", raising=False)
+    with TestClient(runtime_app) as client:
+        for value in (None, "", "0", "true", " 1", "1 "):
+            if value is None:
+                monkeypatch.delenv("HERMES_HOUSEHOLD_UI_ENABLED", raising=False)
+            else:
+                monkeypatch.setenv("HERMES_HOUSEHOLD_UI_ENABLED", value)
+            assert client.get("/ui/home").status_code == 404
+            assert client.get("/ui/home/").status_code == 404
+            assert client.post("/ui/home/actions/add").status_code == 404
+            assert client.get("/ui/home/static/north-star.css").status_code == 404
+        assert client.get("/api/openapi.json").status_code == 200
+        assert client.get("/ui").status_code == 200
+        assert client.get("/api/health").status_code == 200
+        monkeypatch.setenv("HERMES_HOUSEHOLD_UI_ENABLED", "1")
+        assert client.get("/ui/home/static/north-star.css").status_code == 200
+        monkeypatch.setenv("HERMES_HOUSEHOLD_UI_ENABLED", "0")
+        assert client.get("/ui/home/static/north-star.css").status_code == 404
 
 
 def offer(db, *, name="Piens testam", price="1.29", chain="lidl", store="one", sku="milk", collected_day=1, **values):
