@@ -18,6 +18,10 @@ from app.source_config import SourceConfig
 _JSON_LD_RE = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>', re.IGNORECASE)
 
 
+class ResponseTooLarge(Exception):
+    """A bounded collector probe exceeded its permitted response size."""
+
+
 def _strategy_hint(status: int | None, content_type: str | None, body: str, keyword_hits: dict[str, int]) -> str:
     ctype = (content_type or "").lower()
     if status in {401, 403, 429}:
@@ -35,7 +39,8 @@ def _strategy_hint(status: int | None, content_type: str | None, body: str, keyw
     return "manual_review"
 
 
-def probe_source(db: Session, source: SourceConfig) -> SourceSnapshot:
+def probe_source(db: Session, source: SourceConfig, *,
+                 max_content_bytes: int | None = None) -> SourceSnapshot:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     snapshot = SourceSnapshot(
@@ -60,13 +65,29 @@ def probe_source(db: Session, source: SourceConfig) -> SourceSnapshot:
         }
         started = time.monotonic()
         with httpx.Client(follow_redirects=True, timeout=httpx.Timeout(30.0, connect=10.0), headers=headers) as client:
-            response = client.get(source.url)
+            if max_content_bytes is None:
+                response = client.get(source.url)
+                content = response.content
+                text = response.text
+            else:
+                if max_content_bytes < 1:
+                    raise ValueError("invalid response size limit")
+                with client.stream("GET", source.url) as response:
+                    chunks = []
+                    size = 0
+                    for chunk in response.iter_bytes(chunk_size=65536):
+                        size += len(chunk)
+                        if size > max_content_bytes:
+                            raise ResponseTooLarge()
+                        chunks.append(chunk)
+                    content = b"".join(chunks)
+                    text = content.decode(response.encoding or "utf-8", errors="replace")
+            final_url = str(response.url)
+            http_status = response.status_code
+            content_type = response.headers.get("content-type")
         elapsed_ms = round((time.monotonic() - started) * 1000)
 
-        content = response.content
-        text = response.text
         digest = hashlib.sha256(content).hexdigest()
-        content_type = response.headers.get("content-type")
         keyword_hits = {kw: text.lower().count(kw.lower()) for kw in source.keywords}
         json_ld_blocks = len(_JSON_LD_RE.findall(text))
 
@@ -82,11 +103,11 @@ def probe_source(db: Session, source: SourceConfig) -> SourceSnapshot:
             snapshot.strategy_hint = "snapshot_write_error"
             snapshot.error = f"{type(exc).__name__}: {exc}"[:2000]
         else:
-            hint = _strategy_hint(response.status_code, content_type, text, keyword_hits)
-            success = 200 <= response.status_code < 300 and len(content) >= 1000
+            hint = _strategy_hint(http_status, content_type, text, keyword_hits)
+            success = 200 <= http_status < 300 and len(content) >= 1000
 
-            snapshot.final_url = str(response.url)
-            snapshot.http_status = response.status_code
+            snapshot.final_url = final_url
+            snapshot.http_status = http_status
             snapshot.elapsed_ms = elapsed_ms
             snapshot.content_type = content_type
             snapshot.content_bytes = len(content)
@@ -96,6 +117,9 @@ def probe_source(db: Session, source: SourceConfig) -> SourceSnapshot:
             snapshot.json_ld_blocks = json_ld_blocks
             snapshot.strategy_hint = hint
             snapshot.success = success
+    except ResponseTooLarge:
+        snapshot.strategy_hint = "response_too_large"
+        snapshot.error = "bounded probe response exceeded byte limit"
     except Exception as exc:  # deliberately records a failed feasibility probe
         snapshot.strategy_hint = "network_error"
         snapshot.error = f"{type(exc).__name__}: {exc}"[:2000]
