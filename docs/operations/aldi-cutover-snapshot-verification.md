@@ -74,3 +74,32 @@ authorized ALDI collector invocation. That invocation writes raw evidence,
 `SourceSnapshot` database state and possibly offer candidates. Only afterward
 can the read-only snapshot verifier above establish the file/DB/API provenance
 link. Neither preflight authorizes those writes or UI activation.
+
+## Bounded write/API-read canary
+
+`python -m app.aldi_cutover_canary` is the source-prepared LIVE canary for the
+separately authorized window. Invoke it once via the same fixed Compose `api`
+service as the installed ALDI unit, with `--user 1000:1000`, only after host
+selection, image digest, installed unit/helper, timer quiescence and adopted
+raw-root checks pass. It accepts no path, source, URL or repeat count from the
+caller. It requires `/data/raw`, `/app/config/sources.json` and the numeric
+collector identity, and checks the raw root's reviewed owner, group, mode and
+absence of POSIX ACLs before it calls `probe_source` for the single enabled ALDI
+source. The HTTP response is streamed with a 32 MiB limit before raw writing.
+
+One invocation may create **one immutable raw file** and **one
+`SourceSnapshot` database row**. It never parses or writes offer candidates.
+The probe commits the row even when the fetch or raw write fails; a failed or
+oversized response therefore can leave a failed row, and a later verifier
+failure can leave both file and successful row. The canary calls the read-only
+verifier with the returned snapshot ID in the same process, requiring exact
+file/DB/API identity and SHA-256. It suppresses library output and prints only
+fixed `PASS` or `STOP` markers. A `STOP`, timeout or missing receipt has
+unknown partial-write state: retain evidence, do not repeat automatically.
+
+This canary proves the selected container's numeric collector can write one
+current ALDI observation that the API can read. It does not run the scheduled
+`collect --min-offers 220` parser, prove ALDI offer freshness or quality,
+validate other retailers, or prove schema/backup/household/UI readiness. Those
+remain separate acceptance steps. Source merge alone does not authorize this
+command, Docker inspection, any timer change, deployment or state adoption.

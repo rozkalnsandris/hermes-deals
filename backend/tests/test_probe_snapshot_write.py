@@ -47,6 +47,20 @@ class _Client:
     def get(self, _url):
         return self.response
 
+    def stream(self, _method, _url):
+        return _Stream(self.response)
+
+
+class _Stream:
+    def __init__(self, response):
+        self.response = response
+
+    def __enter__(self):
+        return self.response
+
+    def __exit__(self, *_args):
+        return False
+
 
 class ProbeSnapshotWriteTests(unittest.TestCase):
     def setUp(self):
@@ -112,6 +126,43 @@ class ProbeSnapshotWriteTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.strategy_hint, "snapshot_write_error")
         self.assertIsNone(result.snapshot_path)
+
+    def test_bounded_probe_rejects_oversized_response_before_raw_write(self):
+        response = httpx.Response(
+            200, content=self.content, headers={"content-type": "text/html"},
+            request=httpx.Request("GET", self.source.url),
+        )
+        settings = SimpleNamespace(raw_snapshot_dir=self.root,
+                                   http_user_agent="HermesDealsTest/1")
+        db = _Session()
+        with (
+            patch.object(probe, "get_settings", return_value=settings),
+            patch.object(probe.httpx, "Client", return_value=_Client(response)),
+        ):
+            result = probe.probe_source(db, self.source, max_content_bytes=1024)
+        self.assertIs(result, db.snapshot)
+        self.assertFalse(result.success)
+        self.assertEqual(result.strategy_hint, "response_too_large")
+        self.assertIsNone(result.snapshot_path)
+        self.assertFalse((self.root / self.source.chain).exists())
+
+    def test_bounded_probe_keeps_exact_payload_and_digest(self):
+        response = httpx.Response(
+            200, content=self.content, headers={"content-type": "text/html"},
+            request=httpx.Request("GET", self.source.url),
+        )
+        settings = SimpleNamespace(raw_snapshot_dir=self.root,
+                                   http_user_agent="HermesDealsTest/1")
+        db = _Session()
+        with (
+            patch.object(probe, "get_settings", return_value=settings),
+            patch.object(probe.httpx, "Client", return_value=_Client(response)),
+        ):
+            result = probe.probe_source(db, self.source,
+                                        max_content_bytes=len(self.content))
+        self.assertTrue(result.success)
+        self.assertEqual(result.sha256, hashlib.sha256(self.content).hexdigest())
+        self.assertEqual(Path(result.snapshot_path).read_bytes(), self.content)
 
 
 if __name__ == "__main__":
