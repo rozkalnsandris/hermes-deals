@@ -40,3 +40,37 @@ the exact image digest, project/service/container selection and adopted bind,
 and the live cutover must prevent concurrent old-path writers before rearming
 any timers. The source verifier is not a substitute for schema, backup/restore,
 other retailer freshness or household/UI acceptance evidence.
+
+## Host selection proof before any collector write
+
+`tools/verify_aldi_cutover_selection.py` is a source-only, read-only preflight.
+Its reviewed inputs are the full API container ID and immutable image SHA-256
+from the deployment receipt. Run it on the target host as the collector's
+unprivileged `andris` identity, only after a separately authorized API
+promotion, with `--expected-container` and `--expected-digest`. Its fixed
+working directory and `docker compose ps -q api` selection match the ALDI
+unit's `docker compose exec api` context. It requires exactly one Compose API
+container, a running healthy API, the reviewed GHCR image ID at that digest,
+and the adopted writable raw bind plus read-only config bind. The command
+prints only fixed `PASS`/`STOP` and no-write markers; Docker inspection output
+and private container configuration are never relayed to the receipt.
+
+Before trusting that proof, separately compare the **installed** ALDI systemd
+unit's `WorkingDirectory`, `User`, `HOME`, `ExecStart`, `--user 1000:1000` and
+Compose project/service selection with the reviewed source unit. A source unit
+alone does not prove what systemd has loaded. Check the installed Netto,
+EDEKA collector and EDEKA monitor units and timer state as part of the same
+cutover inventory; all three collectors select `api` through the same legacy
+checkout, while the monitor reads API/database state. Do not run a collector
+merely to test this preflight.
+
+The old direct-main release helper accepts only its managed local
+`hermes-deals-api:*` image reference. A promoted GHCR API makes that helper
+fail before its build/deploy section, but this source guard does not prove the
+installed helper version or prevent a concurrently queued legacy job. The
+live packet must verify installed helper identity, quiesce competing release
+paths and collector timers, and recheck selection immediately before the
+authorized ALDI collector invocation. That invocation writes raw evidence,
+`SourceSnapshot` database state and possibly offer candidates. Only afterward
+can the read-only snapshot verifier above establish the file/DB/API provenance
+link. Neither preflight authorizes those writes or UI activation.
