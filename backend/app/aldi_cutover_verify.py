@@ -58,6 +58,7 @@ def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, in
         for name in root.parts[1:]:
             fd = os.open(name, NOFOLLOW_DIR, dir_fd=fd)
             descriptors.append(fd)
+        root_fd = fd
         base = os.fstat(fd)
         require(stat.S_ISDIR(base.st_mode) and base.st_uid == root_owner and base.st_gid == 1000)
         require(stat.S_IMODE(base.st_mode) == 0o3775)
@@ -83,6 +84,7 @@ def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, in
         _no_acl(child)
         identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
                                   value.st_mtime_ns, value.st_ctime_ns)
+        folder_identity = identity(os.fstat(fd))
         require(identity(before) == identity(opened))
         digest = hashlib.sha256()
         size = 0
@@ -96,6 +98,9 @@ def _file_digest(path: str, root: Path, *, root_owner: int = 0) -> tuple[str, in
         require(size == opened.st_size)
         require(identity(os.fstat(child)) == identity(opened))
         require(identity(os.stat(name, dir_fd=fd, follow_symlinks=False)) == identity(opened))
+        require(identity(os.fstat(fd)) == folder_identity)
+        require(identity(os.stat(relative.parts[0], dir_fd=root_fd,
+                                 follow_symlinks=False)) == folder_identity)
         require(identity(os.stat(root, follow_symlinks=False)) == identity(base))
         return digest.hexdigest(), size
     except (OSError, ValueError) as exc:

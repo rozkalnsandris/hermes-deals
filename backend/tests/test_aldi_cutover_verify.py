@@ -108,6 +108,23 @@ class AldiCutoverVerifyTests(unittest.TestCase):
                    now=self.now, api_latest=other_api, root_owner=os.getuid(),
                    snapshot_model=object())
 
+    def test_directory_replacement_during_read_stops(self):
+        original_read = os.read
+        renamed = False
+
+        def read_and_rename(fd, count):
+            nonlocal renamed
+            chunk = original_read(fd, count)
+            if chunk and not renamed:
+                (self.root / "aldi_nord").rename(self.root / "moved")
+                renamed = True
+            return chunk
+
+        with patch.object(canary.os, "read", side_effect=read_and_rename):
+            with self.assertRaises(Stop):
+                self._verify()
+        self.assertTrue(renamed)
+
     def test_outside_raw_root_stops(self):
         self.row.snapshot_path = str(self.file.parent.parent.parent / "other.html")
         with self.assertRaises(Stop):
