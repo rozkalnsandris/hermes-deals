@@ -21,7 +21,7 @@ A failed earlier refresh can leave the original root registration in determinist
 
 Issue #906 read-only evidence on 2026-10-18 identified an installed `hermes-lidl-weekly.service` with SHA-256 `228d32d26ed6cd5cc76b5a4cfab347a7249c5b316065b23f8174f24f09ef8d77`. Compared with the earlier reviewed service, only the `ExecStart` checkout SHA differs. Migration accepts **only** this service digest paired with the original exact timer and failure-template digests, or the original fully attested legacy triplet. All installed units must be root-owned regular files, mode 0644.
 
-Backups use the SHA-256 of each **actually installed** legacy unit. Unknown or mixed content, existing backup paths, drop-ins, a running service, stale checkout SHA or file drift block before first migration mutation. This source fix does not authorize host registration or activation; new explicit LIVE gates and fresh exact-head evidence remain required.
+Backups use the SHA-256 of each **actually installed** legacy unit. A pre-existing backup may be reused only when it is the exact expected regular root-owned mode-0644 file and its SHA-256 matches the installed legacy unit; it is preserved byte-for-byte and never overwritten. Unknown/mixed backup content, unsafe backup metadata, drop-ins, a running service, stale checkout SHA or file drift block before first migration mutation. This source fix does not authorize host registration or activation; new explicit LIVE gates and fresh exact-head evidence remain required.
 
 ## Fail-closed behavior
 

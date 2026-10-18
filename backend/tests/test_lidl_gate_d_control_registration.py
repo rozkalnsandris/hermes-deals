@@ -351,14 +351,54 @@ def test_observed_service_rejects_unknown_or_mixed_triplet_before_mutation(
     assert affected.read_text() == "unknown changed contents"
 
 
-def test_observed_service_backup_collision_blocks_before_timer_stop(tmp_path, monkeypatch):
-    d, config, staged, commands, _ = observed_service_fixture(tmp_path, monkeypatch)
-    backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
-    backup.write_text("already present")
-    with pytest.raises(d.ControlError, match="backup already exists"):
+def test_exact_existing_legacy_backups_are_reused_without_rewrite(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    backups = {}
+    for name in d.UNIT_NAMES:
+        backup = d.UNIT_DIR / f".{name}.legacy-{d.LEGACY_UNIT_HASHES[name]}"
+        backup.write_text("old " + name)
+        backups[name] = (backup, backup.stat().st_ino, backup.read_bytes())
+
+    result = d.activate(config, staged)
+
+    assert result["legacy_forward_migration"] is True
+    for name, (backup, inode, content) in backups.items():
+        assert backup.stat().st_ino == inode
+        assert backup.read_bytes() == content
+        assert (d.UNIT_DIR / name).read_bytes() == staged[name].read_bytes()
+    assert any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
+
+
+def test_existing_legacy_backup_wrong_content_blocks_before_timer_stop(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.LEGACY_UNIT_HASHES[d.SERVICE_UNIT]}"
+    backup.write_text("wrong content")
+
+    with pytest.raises(d.ControlError, match="legacy backup content drift"):
         d.activate(config, staged)
+
     assert not any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
-    assert backup.read_text() == "already present"
+    assert backup.read_text() == "wrong content"
+
+
+def test_existing_legacy_backup_metadata_drift_blocks_before_timer_stop(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.LEGACY_UNIT_HASHES[d.SERVICE_UNIT]}"
+    backup.write_text("old " + d.SERVICE_UNIT)
+    original = d.regular_root_file
+
+    def metadata_check(path, mode):
+        if path == backup:
+            return False
+        return original(path, mode)
+
+    monkeypatch.setattr(d, "regular_root_file", metadata_check)
+
+    with pytest.raises(d.ControlError, match="legacy backup metadata drift"):
+        d.activate(config, staged)
+
+    assert not any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
+    assert backup.read_text() == "old " + d.SERVICE_UNIT
 
 
 def test_unknown_legacy_content_is_rejected_without_mutation(tmp_path, monkeypatch):
