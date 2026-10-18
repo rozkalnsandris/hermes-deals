@@ -208,6 +208,10 @@ def run_unattended_cycle(
             reason=str(controller.get("reason") or ""),
             controller_result=controller_result,
         )
+        if controller_result == WAIT_STATE:
+            # Preserve the exact source reason for the scheduled systemd boundary.
+            summary["one_shot_reason"] = str(controller.get("one_shot_reason") or "")
+            summary["target"] = str(controller.get("target") or "")
         write_create_only(root / "cycle-summary.json", summary)
         return summary
 

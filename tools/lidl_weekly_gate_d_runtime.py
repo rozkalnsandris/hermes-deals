@@ -214,7 +214,16 @@ def run_scheduled_runtime(
         previous_cycle_dir=previous,
     )
     result = str(summary.get("result") or "BLOCKED")
-    exit_code = EXIT_CODES.get(result, 30)
+    # Only an explicitly missing *next* flyer is an expected Sunday wait.
+    # Other WAIT reasons must retain nonzero exit, bounded retry and OnFailure.
+    expected_next_wait = (
+        result == "WAIT"
+        and target == "next"
+        and summary.get("target") == "next"
+        and summary.get("reason") == "one_shot_wait_source"
+        and summary.get("one_shot_reason") == "selected_store_target_not_available"
+    )
+    exit_code = 0 if expected_next_wait else EXIT_CODES.get(result, 30)
     receipt = {
         "schema_version": 1,
         "runtime_version": RUNTIME_VERSION,
@@ -225,6 +234,8 @@ def run_scheduled_runtime(
         "result": result,
         "reason": str(summary.get("reason") or ""),
         "exit_code": exit_code,
+        "expected_next_wait": expected_next_wait,
+        "one_shot_reason": str(summary.get("one_shot_reason") or ""),
         "production_write_authorized": False,
         "database_write_authorized": False,
         "review_write_authorized": False,

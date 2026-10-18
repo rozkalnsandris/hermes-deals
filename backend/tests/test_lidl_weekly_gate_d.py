@@ -122,6 +122,56 @@ def test_runtime_wait_is_nonzero_and_receipted(tmp_path: Path, monkeypatch) -> N
     assert (run_dir / "runtime-receipt.json").is_file()
 
 
+@pytest.mark.parametrize(
+    ("target", "summary_target", "reason", "one_shot_reason", "expected_exit"),
+    [
+        ("next", "next", "one_shot_wait_source", "selected_store_target_not_available", 0),
+        ("current", "current", "one_shot_wait_source", "selected_store_target_not_available", 20),
+        ("next", "current", "one_shot_wait_source", "selected_store_target_not_available", 20),
+        ("next", "next", "one_shot_wait_source", "exact_source_not_archived_in_immutable_corpus", 20),
+        ("next", "next", "one_shot_wait_source", "", 20),
+        ("next", "next", "one_shot_wait_scan", "selected_store_target_not_available", 20),
+        ("next", "next", "one_shot_wait_profile", "selected_store_target_not_available", 20),
+    ],
+)
+def test_runtime_only_next_target_missing_is_expected_wait(
+    tmp_path: Path, monkeypatch, target: str, summary_target: str,
+    reason: str, one_shot_reason: str, expected_exit: int,
+) -> None:
+    runtime = load_script(RUNTIME_SCRIPT, "gate_d_runtime_expected_next_wait")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir(mode=0o700)
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    (repo / "backend").mkdir()
+    monkeypatch.setattr(runtime, "verify_exact_checkout", lambda *args, **kwargs: None)
+    fake = types.ModuleType("lidl_weekly_unattended_cycle")
+    fake.run_unattended_cycle = lambda **kwargs: {
+        "result": "WAIT",
+        "reason": reason,
+        "one_shot_reason": one_shot_reason,
+        "target": summary_target,
+    }
+    monkeypatch.setitem(sys.modules, "lidl_weekly_unattended_cycle", fake)
+
+    receipt, run_dir, exit_code = runtime.run_scheduled_runtime(
+        repo_root=repo,
+        expected_repo_sha="a" * 40,
+        corpus=corpus,
+        evidence_root=evidence,
+        target=target,
+        observed_at=datetime(2026, 10, 18, 0, 10, tzinfo=timezone.utc),
+    )
+
+    assert exit_code == expected_exit
+    assert receipt["result"] == "WAIT"
+    assert receipt["expected_next_wait"] is (expected_exit == 0)
+    assert receipt["one_shot_reason"] == one_shot_reason
+    assert json.loads((run_dir / "runtime-receipt.json").read_text()) == receipt
+
+
 def test_runtime_rejects_unsafe_evidence_permissions(tmp_path: Path, monkeypatch) -> None:
     runtime = load_script(RUNTIME_SCRIPT, "gate_d_runtime_mode")
     evidence = tmp_path / "evidence"
