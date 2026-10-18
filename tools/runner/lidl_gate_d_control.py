@@ -320,19 +320,38 @@ LEGACY_UNIT_HASHES = {
     ALERT_UNIT: "d3b0d215f05d0e4c94df47633310bd464701f4243bdf34631f76c4bd8526a43e",
 }
 
+# The sole additional service version observed on RPi5 for #906 on 2026-10-18.
+# Read-only evidence showed the only difference was the pinned ExecStart SHA.
+# Both other unit hashes must still match exactly; no broad drift allowlist.
+OBSERVED_LEGACY_SERVICE_SHA256 = "228d32d26ed6cd5cc76b5a4cfab347a7249c5b316065b23f8174f24f09ef8d77"
+
+
+def legacy_unit_hashes() -> dict[str, str] | None:
+    observed: dict[str, str] = {}
+    for name in UNIT_NAMES:
+        path = UNIT_DIR / name
+        if not regular_root_file(path, 0o644):
+            return None
+        observed[name] = sha_file(path)
+    if observed == LEGACY_UNIT_HASHES:
+        return observed
+    if (
+        observed[SERVICE_UNIT] == OBSERVED_LEGACY_SERVICE_SHA256
+        and all(observed[name] == LEGACY_UNIT_HASHES[name] for name in (TIMER_UNIT, ALERT_UNIT))
+    ):
+        return observed
+    return None
+
 
 def legacy_installed() -> bool:
-    return all(
-        regular_root_file(UNIT_DIR / name, 0o644)
-        and sha_file(UNIT_DIR / name) == digest
-        for name, digest in LEGACY_UNIT_HASHES.items()
-    )
+    return legacy_unit_hashes() is not None
 
 
 def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dict[str, Any]:
     # All preconditions precede the first mutation. A failure after that point
     # leaves the timer stopped and evidence intact; no automatic rollback/retry.
-    require(legacy_installed(), "legacy unit triplet drift")
+    legacy_hashes = legacy_unit_hashes()
+    require(legacy_hashes is not None, "legacy unit triplet drift")
     for name in MIGRATION_PREFLIGHT_UNITS:
         result = run_command(["/usr/bin/systemctl", "show", name, "--property=DropInPaths", "--value"])
         require(not result.stdout.strip(), f"unit drop-ins present: {name}")
@@ -345,18 +364,18 @@ def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dic
     require(head.stdout.strip() == config["registration_sha"], "legacy migration checkout SHA drift")
     for name in UNIT_NAMES:
         dst = UNIT_DIR / name
-        backup = UNIT_DIR / f".{name}.legacy-{LEGACY_UNIT_HASHES[name]}"
+        backup = UNIT_DIR / f".{name}.legacy-{legacy_hashes[name]}"
         require(not backup.exists() and not backup.is_symlink(), f"legacy backup already exists: {name}")
     run_command(["/usr/bin/systemctl", "stop", TIMER_UNIT])
     require(not timer_is_active(), "legacy timer remains active")
     state = run_command(["/usr/bin/systemctl", "show", SERVICE_UNIT, "--property=ActiveState", "--value"])
     require(state.stdout.strip() in {"inactive", "failed"}, "legacy service started during migration")
-    require(legacy_installed(), "legacy units changed before replacement")
+    require(legacy_unit_hashes() == legacy_hashes, "legacy units changed before replacement")
     for name in UNIT_NAMES:
         dst = UNIT_DIR / name
-        require(regular_root_file(dst, 0o644) and sha_file(dst) == LEGACY_UNIT_HASHES[name], f"legacy unit changed: {name}")
-        # Preserve the exact old bytes before installing the reviewed successor.
-        backup = UNIT_DIR / f".{name}.legacy-{LEGACY_UNIT_HASHES[name]}"
+        require(regular_root_file(dst, 0o644) and sha_file(dst) == legacy_hashes[name], f"legacy unit changed: {name}")
+        # Preserve exact installed bytes under their own SHA. Never overwrite backups.
+        backup = UNIT_DIR / f".{name}.legacy-{legacy_hashes[name]}"
         os.link(dst, backup, follow_symlinks=False)
         dst.unlink()
         install_exclusive(staged[name], dst)

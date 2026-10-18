@@ -299,6 +299,68 @@ def test_exact_legacy_migrates_and_preserves_original_bytes(tmp_path, monkeypatc
     assert commands[-1][1:3] == ['enable', '--now']
 
 
+
+def observed_service_fixture(tmp_path, monkeypatch):
+    d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
+    service = d.UNIT_DIR / d.SERVICE_UNIT
+    old_bytes = service.read_bytes()
+    original_sha_file = d.sha_file
+
+    def attested_sha(path):
+        if path == service and path.read_bytes() == old_bytes:
+            return d.OBSERVED_LEGACY_SERVICE_SHA256
+        return original_sha_file(path)
+
+    monkeypatch.setattr(d, "sha_file", attested_sha)
+    assert d.legacy_unit_hashes() == {
+        **d.LEGACY_UNIT_HASHES,
+        d.SERVICE_UNIT: d.OBSERVED_LEGACY_SERVICE_SHA256,
+    }
+    return d, config, staged, commands, old_bytes
+
+
+def test_exact_observed_service_migrates_with_actual_hash_backup(tmp_path, monkeypatch):
+    d, config, staged, commands, old_bytes = observed_service_fixture(tmp_path, monkeypatch)
+    result = d.activate(config, staged)
+    assert result["legacy_forward_migration"] is True
+    assert (d.UNIT_DIR / d.SERVICE_UNIT).read_bytes() == staged[d.SERVICE_UNIT].read_bytes()
+    backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
+    assert backup.read_bytes() == old_bytes
+    for name in (d.TIMER_UNIT, d.ALERT_UNIT):
+        assert (d.UNIT_DIR / f".{name}.legacy-{d.LEGACY_UNIT_HASHES[name]}").read_bytes() == (
+            ("old " + name).encode()
+        )
+    assert any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
+
+
+@pytest.mark.parametrize("changed_unit", [
+    "hermes-lidl-weekly.service",
+    "hermes-lidl-weekly.timer",
+    "hermes-lidl-weekly-failure@.service",
+])
+def test_observed_service_rejects_unknown_or_mixed_triplet_before_mutation(
+    tmp_path, monkeypatch, changed_unit
+):
+    d, config, staged, commands, _ = observed_service_fixture(tmp_path, monkeypatch)
+    affected = d.UNIT_DIR / changed_unit
+    affected.write_text("unknown changed contents")
+    assert d.legacy_unit_hashes() is None
+    with pytest.raises(d.ControlError, match="content drift"):
+        d.activate(config, staged)
+    assert commands == []
+    assert affected.read_text() == "unknown changed contents"
+
+
+def test_observed_service_backup_collision_blocks_before_timer_stop(tmp_path, monkeypatch):
+    d, config, staged, commands, _ = observed_service_fixture(tmp_path, monkeypatch)
+    backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
+    backup.write_text("already present")
+    with pytest.raises(d.ControlError, match="backup already exists"):
+        d.activate(config, staged)
+    assert not any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
+    assert backup.read_text() == "already present"
+
+
 def test_unknown_legacy_content_is_rejected_without_mutation(tmp_path, monkeypatch):
     d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
     (d.UNIT_DIR / d.SERVICE_UNIT).write_text('untrusted')

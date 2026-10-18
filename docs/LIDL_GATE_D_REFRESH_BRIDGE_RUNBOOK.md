@@ -17,6 +17,12 @@ The registration dispatcher must run the exact-source/target=`next` installer wi
 
 A failed earlier refresh can leave the original root registration in deterministic `retired-...` paths with no active Gate D control registration. **Do not rerun the normal refresh, move retired files back, or activate the timer as a recovery shortcut.** Verify the exact current host state read-only; design and request a separate scope-limited owner LIVE authorization for recovery only after the corrected source is merged and synchronized.
 
+## Exact observed legacy service migration
+
+Issue #906 read-only evidence on 2026-10-18 identified an installed `hermes-lidl-weekly.service` with SHA-256 `228d32d26ed6cd5cc76b5a4cfab347a7249c5b316065b23f8174f24f09ef8d77`. Compared with the earlier reviewed service, only the `ExecStart` checkout SHA differs. Migration accepts **only** this service digest paired with the original exact timer and failure-template digests, or the original fully attested legacy triplet. All installed units must be root-owned regular files, mode 0644.
+
+Backups use the SHA-256 of each **actually installed** legacy unit. Unknown or mixed content, existing backup paths, drop-ins, a running service, stale checkout SHA or file drift block before first migration mutation. This source fix does not authorize host registration or activation; new explicit LIVE gates and fresh exact-head evidence remain required.
+
 ## Fail-closed behavior
 
 No reset, rebase, force update, arbitrary repository path, arbitrary fetch URL/refspec, arbitrary installer, or arbitrary sudo command is accepted. A dispatcher failure after a LIVE mutation begins produces only the bounded sanitized receipt and stops; there is no automatic retry, rollback, cleanup, or alternate mutation path. Any subsequent mutation requires fresh owner authorization and fresh read-only evidence.
