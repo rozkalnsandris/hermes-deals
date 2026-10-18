@@ -56,6 +56,34 @@ class NettoStoreProspectTest(unittest.TestCase):
             (date(2026,7,20),date(2026,7,25)),
         )
 
+    def test_meta_validity_infers_missing_start_year(self):
+        html=(
+            b'<meta name="description" content="Montag 19.10. - '
+            b'Samstag 24.10.26 % 66 sparen">'
+        )
+        self.assertEqual(
+            extract_prospect_validity(html)[:2],
+            (date(2026,10,19),date(2026,10,24)),
+        )
+
+    def test_meta_validity_infers_year_crossover(self):
+        html=(
+            b'<meta name="description" content="Montag 29.12. - '
+            b'Samstag 03.01.27">'
+        )
+        self.assertEqual(
+            extract_prospect_validity(html)[:2],
+            (date(2026,12,29),date(2027,1,3)),
+        )
+
+    def test_meta_validity_without_any_year_is_rejected(self):
+        html=(
+            b'<meta name="description" content="Montag 19.10. - '
+            b'Samstag 24.10.">'
+        )
+        with self.assertRaises(NettoValidityMissing):
+            extract_prospect_validity(html)
+
     def test_missing_validity_rejected(self):
         with self.assertRaises(NettoValidityMissing):
             extract_prospect_validity(b"<html>No dates</html>")
@@ -110,6 +138,27 @@ class NettoStoreProspectTest(unittest.TestCase):
                 date(2026, 10, 19),
                 date(2026, 10, 24),
                 "Montag, 19.10.26 - Samstag, 24.10.26",
+                "prospect_html_meta",
+            ),
+        )
+
+    @patch("app.netto_store_prospect.PdfReader")
+    def test_current_abbreviated_html_validity_survives_pdf_without_dates(self, reader):
+        pages = [Mock(), Mock(), Mock()]
+        for page in pages:
+            page.extract_text.return_value = "Netto Wochenprospekt ohne Datumszeile"
+        reader.return_value.pages = pages
+        html = (
+            b'<meta name="description" content="Montag 19.10. - '
+            b'Samstag 24.10.26">'
+        )
+
+        self.assertEqual(
+            resolve_prospect_validity(html, b"%PDF-test"),
+            (
+                date(2026, 10, 19),
+                date(2026, 10, 24),
+                "Montag 19.10. - Samstag 24.10.26",
                 "prospect_html_meta",
             ),
         )
