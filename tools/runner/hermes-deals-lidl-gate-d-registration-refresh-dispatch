@@ -195,6 +195,17 @@ if p.read_text() != expected: raise SystemExit(1)
 PY
 fi
 
+# Source/blob/plan validation must precede any retirement of a valid
+# registration. The installer preflight uses only disposable plan files.
+set +e
+PRECHECK_OUTPUT="$(/usr/bin/python3 "$REPO/$INSTALLER_REL" --preflight-only --registration-sha "$TARGET_SHA" --on-calendar "$ON_CALENDAR" --retry-delay "$RETRY_DELAY" --retry-window "$RETRY_WINDOW" --max-attempts "$MAX_ATTEMPTS" --timeout-start "$TIMEOUT_START" 2>&1)"
+PRECHECK_RC=$?
+set -e
+[[ "$PRECHECK_RC" -eq 0 ]] || block 'GATE_D_INSTALLER_PREFLIGHT_FAILED'
+precheck_row="$(printf '%s\n' "$PRECHECK_OUTPUT" | /usr/bin/python3 -c 'import json,re,sys; x=json.loads(sys.stdin.readline()); assert x.get("result")=="PREFLIGHT_PASS"; assert re.fullmatch(r"[0-9a-f]{40}",str(x.get("registration_sha",""))); assert re.fullmatch(r"[0-9a-f]{64}",str(x.get("plan_fingerprint",""))); assert all(x.get(k) is False for k in ("systemd_change_performed","timer_activation_performed","production_write_performed","database_write_performed","review_write_performed","publication_performed","deployment_performed")); print(x["registration_sha"]+"|"+x["plan_fingerprint"])' 2>/dev/null)" || block 'GATE_D_INSTALLER_PREFLIGHT_INVALID'
+IFS='|' read -r precheck_sha precheck_fp <<<"$precheck_row"
+[[ "$precheck_sha" == "$TARGET_SHA" ]] || block 'GATE_D_INSTALLER_PREFLIGHT_TARGET_MISMATCH'
+
 if [[ "$PRIOR_PRESENT" == true && "$PRIOR_SHA" != "$TARGET_SHA" ]]; then
   retired_suffix="retired-${PRIOR_SHA}-to-${TARGET_SHA}"
   retired_dispatcher="/usr/local/sbin/.hermes-deals-lidl-gate-d-control.${retired_suffix}"
@@ -216,7 +227,7 @@ set -e
 [[ "$INSTALLER_RC" -eq 0 ]] || block 'GATE_D_INSTALLER_FAILED'
 installer_row="$(printf '%s\n' "$INSTALLER_OUTPUT" | /usr/bin/python3 -c 'import json,sys,re; x=json.loads(sys.stdin.readline()); assert x.get("registration_sha") and re.fullmatch(r"[0-9a-f]{40}",x["registration_sha"]); assert re.fullmatch(r"[0-9a-f]{64}",x.get("plan_fingerprint", "")); assert x.get("systemd_change_performed") is False and x.get("timer_activation_performed") is False and x.get("production_write_performed") is False and x.get("database_write_performed") is False and x.get("review_write_performed") is False and x.get("publication_performed") is False and x.get("deployment_performed") is False; print(x["registration_sha"]+"|"+x["plan_fingerprint"])' 2>/dev/null)" || block 'INSTALLER_RESULT_INVALID'
 IFS='|' read -r installer_sha installer_fp <<<"$installer_row"
-[[ "$installer_sha" == "$TARGET_SHA" ]] || block 'INSTALLER_TARGET_MISMATCH'
+[[ "$installer_sha" == "$TARGET_SHA" && "$installer_fp" == "$precheck_fp" ]] || block 'INSTALLER_PREFLIGHT_DRIFT'
 row="$(inspect_config next 2>/dev/null)" || block 'REFRESHED_CONFIG_INVALID'; IFS='|' read -r AFTER_SHA AFTER_FP _ <<<"$row"
 [[ "$AFTER_SHA" == "$TARGET_SHA" && "$AFTER_FP" == "$installer_fp" ]] || block 'REFRESHED_IDENTITY_MISMATCH'
 new_blob="$(git_as_andris -C "$REPO" rev-parse "$TARGET_SHA:$GATE_DISPATCHER_REL")" || block 'REFRESHED_DISPATCHER_BLOB_MISSING'

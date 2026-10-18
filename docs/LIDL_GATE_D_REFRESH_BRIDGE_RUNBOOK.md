@@ -11,6 +11,12 @@ Issue #910 adds source-only control-plane code. Merging or installing this sourc
 
 The historical #908 fingerprint `451aabbd432a8776bed70209f966690ab647ac66b69947b77545fc1638e44c9e` is **non-authoritative after #910 source drift** and must not be reused. A fresh Gate D v2 `target=next` fingerprint must come from the exact merged-main registration receipt.
 
+## Pre-retirement validation and partial-state recovery
+
+The registration dispatcher must run the exact-source/target=`next` installer with `--preflight-only` and validate its receipt **before** moving an existing registered dispatcher, config, or sudoers file. This preflight must not install files, change the timer/service, or execute Gate D. A stale runtime Git blob is a blocked preflight, not a reason to retire the previous registration.
+
+A failed earlier refresh can leave the original root registration in deterministic `retired-...` paths with no active Gate D control registration. **Do not rerun the normal refresh, move retired files back, or activate the timer as a recovery shortcut.** Verify the exact current host state read-only; design and request a separate scope-limited owner LIVE authorization for recovery only after the corrected source is merged and synchronized.
+
 ## Fail-closed behavior
 
 No reset, rebase, force update, arbitrary repository path, arbitrary fetch URL/refspec, arbitrary installer, or arbitrary sudo command is accepted. A dispatcher failure after a LIVE mutation begins produces only the bounded sanitized receipt and stops; there is no automatic retry, rollback, cleanup, or alternate mutation path. Any subsequent mutation requires fresh owner authorization and fresh read-only evidence.
