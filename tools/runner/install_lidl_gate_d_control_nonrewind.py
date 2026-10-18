@@ -23,7 +23,7 @@ PLANNER_REL = "tools/lidl_weekly_gate_d_activation_plan.py"
 RUNTIME_REL = "tools/lidl_weekly_gate_d_runtime.py"
 EXPECTED_DISPATCHER_BLOB = "45751c50f3bb6f38f47633792f71c3bc67dcac44"
 EXPECTED_PLANNER_BLOB = "abef76aae57827357708b820fec399f1d0e6853f"
-EXPECTED_RUNTIME_BLOB = "7085fd9fe9656bdbbeb33e5c1c840cd01ffb32c2"
+EXPECTED_RUNTIME_BLOB = "6adab7914a2a3a0d41ee98e4b727b8f56a2f1226"
 EXPECTED_BRIDGE_PR = 656
 EXPECTED_ISSUE_NUMBER = 24
 SERVICE_UNIT = "hermes-lidl-weekly.service"
@@ -375,6 +375,22 @@ def install_registration(args: argparse.Namespace) -> dict[str, Any]:
         fingerprint = sha_bytes(canonical_bytes(payload))
         require(SHA256_RE.fullmatch(fingerprint) is not None, "plan fingerprint generation failed")
 
+        # Check the exact reviewed source and generated target=next plan before
+        # the registration dispatcher retires any previous root-owned files.
+        if getattr(args, "preflight_only", False):
+            return {
+                "result": "PREFLIGHT_PASS",
+                "registration_sha": args.registration_sha,
+                "plan_fingerprint": fingerprint,
+                "systemd_change_performed": False,
+                "timer_activation_performed": False,
+                "production_write_performed": False,
+                "database_write_performed": False,
+                "review_write_performed": False,
+                "publication_performed": False,
+                "deployment_performed": False,
+            }
+
         normalize_root_dir(CONTROL_ROOT)
         staged_root = CONTROL_ROOT / args.registration_sha
         normalize_root_dir(staged_root)
@@ -460,6 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-window", required=True)
     parser.add_argument("--max-attempts", type=int, required=True)
     parser.add_argument("--timeout-start", required=True)
+    parser.add_argument("--preflight-only", action="store_true")
     return parser
 
 

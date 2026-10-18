@@ -138,8 +138,62 @@ def test_installer_binds_exact_merged_gate_d_v2_runtime_and_dispatcher_blob():
     installer = load(INSTALLER, "install_lidl_gate_d_control_blobs")
     assert installer.EXPECTED_BRIDGE_PR == 656
     assert installer.EXPECTED_PLANNER_BLOB == "abef76aae57827357708b820fec399f1d0e6853f"
-    assert installer.EXPECTED_RUNTIME_BLOB == "7085fd9fe9656bdbbeb33e5c1c840cd01ffb32c2"
+    assert installer.EXPECTED_RUNTIME_BLOB == git_blob_oid(ROOT / installer.RUNTIME_REL)
     assert installer.EXPECTED_DISPATCHER_BLOB == git_blob_oid(DISPATCHER)
+
+
+def test_preflight_only_validates_target_before_any_root_registration_write(monkeypatch):
+    installer = load(INSTALLER, "gate_d_preflight_only")
+    seen = []
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer, "validate_source_repo", lambda sha: seen.append(sha) or {})
+    monkeypatch.setattr(installer, "runner_not_in_docker_group", lambda: None)
+    monkeypatch.setattr(installer, "sudo_version_at_least_1_9_10", lambda: "1.9.15")
+    monkeypatch.setattr(
+        installer,
+        "generate_plan",
+        lambda *args, **kwargs: ({}, {name: "a" * 64 for name in installer.UNIT_NAMES}),
+    )
+    monkeypatch.setattr(
+        installer, "normalize_root_dir",
+        lambda *args, **kwargs: pytest.fail("preflight must not mutate root registration"),
+    )
+    monkeypatch.setattr(
+        installer, "write_exclusive_or_identical",
+        lambda *args, **kwargs: pytest.fail("preflight must not write installed files"),
+    )
+    args = installer.build_parser().parse_args([
+        "--registration-sha", "b" * 40,
+        "--on-calendar", "Sun *-*-* 00:10:00 Europe/Berlin",
+        "--retry-delay", "15min", "--retry-window", "3h",
+        "--max-attempts", "3", "--timeout-start", "20min", "--preflight-only",
+    ])
+    result = installer.install_registration(args)
+    assert seen == ["b" * 40]
+    assert result["result"] == "PREFLIGHT_PASS"
+    assert result["registration_sha"] == "b" * 40
+    assert len(result["plan_fingerprint"]) == 64
+    assert all(value is False for key, value in result.items() if key.endswith("_performed"))
+
+
+def test_preflight_rejects_stale_source_pin_without_root_mutation(monkeypatch):
+    installer = load(INSTALLER, "gate_d_preflight_rejects_blob_drift")
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    def stale_source_pin(_sha):
+        raise installer.RegistrationError("reviewed Git blob mismatch: tools/lidl_weekly_gate_d_runtime.py")
+    monkeypatch.setattr(installer, "validate_source_repo", stale_source_pin)
+    monkeypatch.setattr(
+        installer, "normalize_root_dir",
+        lambda *args, **kwargs: pytest.fail("source drift must fail before any host write"),
+    )
+    args = installer.build_parser().parse_args([
+        "--registration-sha", "b" * 40,
+        "--on-calendar", "Sun *-*-* 00:10:00 Europe/Berlin",
+        "--retry-delay", "15min", "--retry-window", "3h",
+        "--max-attempts", "3", "--timeout-start", "20min", "--preflight-only",
+    ])
+    with pytest.raises(installer.RegistrationError, match="reviewed Git blob mismatch"):
+        installer.install_registration(args)
 
 
 def test_registration_is_non_activating_and_v2_target_is_fixed_next():

@@ -112,6 +112,19 @@ def test_registration_refresh_validates_prior_identity_and_only_moves_forward():
     assert "cleanup_performed':False" in source
 
 
+def test_refresh_preflight_blocks_before_retiring_existing_registration():
+    source = _text(REFRESH_DISPATCHER)
+    preflight = source.index('PRECHECK_OUTPUT="$(/usr/bin/python3 "$REPO/$INSTALLER_REL" --preflight-only')
+    retirement = source.index('retired_suffix="retired-${PRIOR_SHA}-to-${TARGET_SHA}"')
+    first_mutation = source.index("MUTATION_STARTED='true'")
+    assert preflight < retirement < first_mutation
+    assert "[[ \"$PRECHECK_RC\" -eq 0 ]] || block 'GATE_D_INSTALLER_PREFLIGHT_FAILED'" in source
+    assert "GATE_D_INSTALLER_PREFLIGHT_INVALID" in source
+    assert "GATE_D_INSTALLER_PREFLIGHT_TARGET_MISMATCH" in source
+    assert "INSTALLER_PREFLIGHT_DRIFT" in source
+    assert "mv -- \"$GATE_SUDOERS\" \"$retired_sudoers\"" in source
+
+
 def test_registration_refresh_legacy_schedule_migration_uses_prior_declared_schedule():
     source = _text(REFRESH_DISPATCHER)
     validator = source.split("inspect_config() {", 1)[1].split("\nPY\n}", 1)[0]
