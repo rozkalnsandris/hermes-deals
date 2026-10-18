@@ -12,11 +12,13 @@ from uuid import uuid4
 
 from app.netto_store_prospect import (
     NettoStoreProspectBundle,
+    NettoValidityMissing,
     _write_bundle,
     apply_prospect_validity,
     extract_pdf_prospect_validity,
     extract_prospect_validity,
     fetch_netto_store_prospect,
+    resolve_prospect_validity,
     _validate_prospect_pdf,
 )
 from app.schemas import OfferCandidate, SourceChain
@@ -55,7 +57,7 @@ class NettoStoreProspectTest(unittest.TestCase):
         )
 
     def test_missing_validity_rejected(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(NettoValidityMissing):
             extract_prospect_validity(b"<html>No dates</html>")
 
     def test_non_pdf_download_is_rejected(self):
@@ -67,8 +69,9 @@ class NettoStoreProspectTest(unittest.TestCase):
             b'<meta name="description" content="20.07.26 - 25.07.26 '
             b'27.07.26 - 01.08.26">'
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             extract_prospect_validity(html)
+        self.assertNotIsInstance(caught.exception, NettoValidityMissing)
 
     @patch("app.netto_store_prospect.PdfReader")
     def test_pdf_validity_uses_first_three_pages(self, reader):
@@ -89,6 +92,43 @@ class NettoStoreProspectTest(unittest.TestCase):
             (date(2026,7,30),date(2026,8,1)),
         )
         pages[3].extract_text.assert_not_called()
+
+    @patch("app.netto_store_prospect.PdfReader")
+    def test_html_validity_survives_pdf_prefix_without_dates(self, reader):
+        pages = [Mock(), Mock(), Mock()]
+        for page in pages:
+            page.extract_text.return_value = "Netto Wochenprospekt ohne Datumszeile"
+        reader.return_value.pages = pages
+        html = (
+            b'<meta name="description" content="Montag, 19.10.26 - '
+            b'Samstag, 24.10.26">'
+        )
+
+        self.assertEqual(
+            resolve_prospect_validity(html, b"%PDF-test"),
+            (
+                date(2026, 10, 19),
+                date(2026, 10, 24),
+                "Montag, 19.10.26 - Samstag, 24.10.26",
+                "prospect_html_meta",
+            ),
+        )
+
+    @patch("app.netto_store_prospect.PdfReader")
+    def test_html_validity_does_not_hide_conflicting_pdf_ranges(self, reader):
+        pages = [Mock(), Mock(), Mock()]
+        pages[0].extract_text.return_value = "19.10.26 - 24.10.26"
+        pages[1].extract_text.return_value = "22.10.26 - 24.10.26"
+        pages[2].extract_text.return_value = ""
+        reader.return_value.pages = pages
+        html = (
+            b'<meta name="description" content="Montag, 19.10.26 - '
+            b'Samstag, 24.10.26">'
+        )
+
+        with self.assertRaises(ValueError) as caught:
+            resolve_prospect_validity(html, b"%PDF-test")
+        self.assertNotIsInstance(caught.exception, NettoValidityMissing)
 
     @patch("app.netto_store_prospect._validate_prospect_pdf")
     def test_pdf_provenance_is_written_into_v3_manifest(self, validate_pdf):

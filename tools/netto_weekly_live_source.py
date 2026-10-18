@@ -21,8 +21,7 @@ from app.netto_store_prospect import (  # noqa: E402
     NettoStoreProspectBundle,
     _fetch_publication_pdf,
     _write_bundle,
-    extract_pdf_prospect_validity,
-    extract_prospect_validity,
+    resolve_prospect_validity,
 )
 from app.source_config import SourceConfig, load_sources  # noqa: E402
 from app.structured_source_shadow import extract_netto_direct_viewers  # noqa: E402
@@ -106,17 +105,18 @@ def fetch_latest_nonexpired(source: SourceConfig, *, as_of: date) -> NettoStoreP
             try:
                 viewer = client.get(url, headers={"Referer": source.url})
                 viewer.raise_for_status()
-                try:
-                    html_validity = extract_prospect_validity(viewer.content)
-                except ValueError:
-                    html_validity = None
                 publication_url, publication_json, pdf_url, pdf = _fetch_publication_pdf(
                     client, viewer_response=viewer, prospect_slug=slug
                 )
-                pdf_validity = extract_pdf_prospect_validity(pdf)
-                if html_validity is not None and html_validity[:2] != pdf_validity[:2]:
-                    raise WeeklyLiveSourceError("Netto prospect HTML/PDF validity mismatch")
-                start, end, text = html_validity or pdf_validity
+                start, end, text, validity_source_type = resolve_prospect_validity(
+                    viewer.content,
+                    pdf,
+                )
+                validity_source_url = (
+                    str(viewer.url)
+                    if validity_source_type == "prospect_html_meta"
+                    else pdf_url
+                )
                 bundles.append(
                     NettoStoreProspectBundle(
                         store_url=str(store.url),
@@ -129,10 +129,8 @@ def fetch_latest_nonexpired(source: SourceConfig, *, as_of: date) -> NettoStoreP
                         validity_text=text,
                         selected_store_cookie_present=True,
                         elapsed_ms=0,
-                        validity_source_url=str(viewer.url) if html_validity else pdf_url,
-                        validity_source_type=(
-                            "prospect_html_meta" if html_validity else "prospect_pdf_text"
-                        ),
+                        validity_source_url=validity_source_url,
+                        validity_source_type=validity_source_type,
                         publication_api_url=publication_url,
                         publication_json=publication_json,
                         prospect_pdf_url=pdf_url,

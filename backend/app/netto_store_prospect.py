@@ -38,6 +38,10 @@ VALIDITY_RE = re.compile(
 )
 
 
+class NettoValidityMissing(ValueError):
+    """The inspected official evidence contains no explicit validity range."""
+
+
 @dataclass(frozen=True)
 class NettoStoreProspectBundle:
     store_url: str
@@ -73,6 +77,10 @@ def _extract_text_validity(
         (_de_date(m.group(1)),_de_date(m.group(2)))
         for m in matches
     }
+    if not ranges:
+        raise NettoValidityMissing(
+            f"Netto {evidence_label} must expose exactly one validity range; found=[]"
+        )
     if len(ranges)!=1:
         raise ValueError(
             f"Netto {evidence_label} must expose exactly one validity range; "
@@ -107,6 +115,36 @@ def extract_pdf_prospect_validity(pdf_bytes: bytes) -> tuple[date, date, str]:
         text,
         evidence_label="prospect PDF first three pages",
     )
+
+
+def resolve_prospect_validity(
+    html_bytes: bytes,
+    pdf_bytes: bytes,
+) -> tuple[date, date, str, str]:
+    """Resolve one explicit campaign window without requiring duplicate evidence."""
+    try:
+        html_validity = extract_prospect_validity(html_bytes)
+    except NettoValidityMissing:
+        html_validity = None
+    try:
+        pdf_validity = extract_pdf_prospect_validity(pdf_bytes)
+    except NettoValidityMissing:
+        pdf_validity = None
+
+    if html_validity is None and pdf_validity is None:
+        raise NettoValidityMissing(
+            "Netto prospect HTML/PDF expose no validity range"
+        )
+    if (
+        html_validity is not None
+        and pdf_validity is not None
+        and html_validity[:2] != pdf_validity[:2]
+    ):
+        raise ValueError("Netto prospect HTML/PDF validity mismatch")
+    if html_validity is not None:
+        return (*html_validity, "prospect_html_meta")
+    assert pdf_validity is not None
+    return (*pdf_validity, "prospect_pdf_text")
 
 
 def _validate_prospect_pdf(pdf_bytes: bytes) -> None:
@@ -203,17 +241,6 @@ def fetch_netto_store_prospect(source: SourceConfig) -> NettoStoreProspectBundle
             try:
                 response=client.get(url,headers={"Referer":source.url})
                 response.raise_for_status()
-                try:
-                    start,end,text=extract_prospect_validity(response.content)
-                    validity_source_type = "prospect_html_meta"
-                    validity_source_url = str(response.url)
-                except ValueError:
-                    (
-                        start,
-                        end,
-                        text,
-                    ) = (None, None, None)
-
                 (
                     publication_api_url,
                     publication_json,
@@ -224,17 +251,15 @@ def fetch_netto_store_prospect(source: SourceConfig) -> NettoStoreProspectBundle
                     viewer_response=response,
                     prospect_slug=slug,
                 )
-                pdf_start, pdf_end, pdf_text = extract_pdf_prospect_validity(
-                    prospect_pdf
+                start, end, text, validity_source_type = resolve_prospect_validity(
+                    response.content,
+                    prospect_pdf,
                 )
-                if start is None or end is None or text is None:
-                    start, end, text = pdf_start, pdf_end, pdf_text
-                    validity_source_type = "prospect_pdf_text"
-                    validity_source_url = prospect_pdf_url
-                elif (start, end) != (pdf_start, pdf_end):
-                    raise ValueError(
-                        "Netto prospect HTML and PDF validity mismatch"
-                    )
+                validity_source_url = (
+                    str(response.url)
+                    if validity_source_type == "prospect_html_meta"
+                    else prospect_pdf_url
+                )
             except Exception as exc:
                 failures[slug] = f"{type(exc).__name__}: {exc}"[:1000]
                 continue
