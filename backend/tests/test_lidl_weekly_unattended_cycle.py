@@ -267,7 +267,12 @@ def test_wait_is_observable_and_skips_semantic_and_trust(
 
     def fake_run_controller(**kwargs):
         kwargs["output_dir"].mkdir(parents=True)
-        return {"result": module.WAIT_STATE, "reason": "one_shot_wait_source"}
+        return {
+            "result": module.WAIT_STATE,
+            "reason": "one_shot_wait_source",
+            "one_shot_reason": "selected_store_target_not_available",
+            "target": "next",
+        }
 
     monkeypatch.setattr(module, "run_controller", fake_run_controller)
     monkeypatch.setattr(
@@ -293,6 +298,8 @@ def test_wait_is_observable_and_skips_semantic_and_trust(
 
     assert summary["result"] == module.WAIT_STATE
     assert summary["reason"] == "one_shot_wait_source"
+    assert summary["one_shot_reason"] == "selected_store_target_not_available"
+    assert summary["target"] == "next"
     assert (output / "cycle-summary.json").is_file()
     assert not (output / "trust-state.json").exists()
 
