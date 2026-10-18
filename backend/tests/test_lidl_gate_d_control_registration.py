@@ -307,7 +307,8 @@ def observed_service_fixture(tmp_path, monkeypatch):
     original_sha_file = d.sha_file
 
     def attested_sha(path):
-        if path == service and path.read_bytes() == old_bytes:
+        service_backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
+        if path in {service, service_backup} and path.read_bytes() == old_bytes:
             return d.OBSERVED_LEGACY_SERVICE_SHA256
         return original_sha_file(path)
 
@@ -319,17 +320,25 @@ def observed_service_fixture(tmp_path, monkeypatch):
     return d, config, staged, commands, old_bytes
 
 
-def test_exact_observed_service_migrates_with_actual_hash_backup(tmp_path, monkeypatch):
+def test_exact_observed_service_migrates_with_existing_timer_alert_backups(tmp_path, monkeypatch):
     d, config, staged, commands, old_bytes = observed_service_fixture(tmp_path, monkeypatch)
+    preserved = {}
+    for name in (d.TIMER_UNIT, d.ALERT_UNIT):
+        backup = d.UNIT_DIR / f".{name}.legacy-{d.LEGACY_UNIT_HASHES[name]}"
+        backup.write_text("old " + name)
+        preserved[name] = (backup.stat().st_ino, backup.read_bytes())
+
     result = d.activate(config, staged)
+
     assert result["legacy_forward_migration"] is True
     assert (d.UNIT_DIR / d.SERVICE_UNIT).read_bytes() == staged[d.SERVICE_UNIT].read_bytes()
-    backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
-    assert backup.read_bytes() == old_bytes
-    for name in (d.TIMER_UNIT, d.ALERT_UNIT):
-        assert (d.UNIT_DIR / f".{name}.legacy-{d.LEGACY_UNIT_HASHES[name]}").read_bytes() == (
-            ("old " + name).encode()
-        )
+    service_backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
+    assert service_backup.read_bytes() == old_bytes
+    for name, (inode, content) in preserved.items():
+        backup = d.UNIT_DIR / f".{name}.legacy-{d.LEGACY_UNIT_HASHES[name]}"
+        assert backup.stat().st_ino == inode
+        assert backup.read_bytes() == content
+        assert (d.UNIT_DIR / name).read_bytes() == staged[name].read_bytes()
     assert any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
 
 
