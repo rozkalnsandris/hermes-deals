@@ -33,8 +33,8 @@ MANIFEST_STRATEGY_V2 = "netto_store_page_plus_current_prospect_pdf_v2"
 MANIFEST_STRATEGY_V3 = "netto_store_page_plus_current_prospect_pdf_v3"
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
 VALIDITY_RE = re.compile(
-    r"(?i)(?:Montag,?\s*)?(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[–—-]\s*"
-    r"(?:Samstag,?\s*)?(\d{1,2}\.\d{1,2}\.\d{2,4})"
+    r"(?i)(?:Montag,?\s*)?(\d{1,2})\.(\d{1,2})\.(\d{2,4})?\s*[–—-]\s*"
+    r"(?:Samstag,?\s*)?(\d{1,2})\.(\d{1,2})\.(\d{2,4})"
 )
 
 
@@ -67,16 +67,36 @@ def _de_date(value: str) -> date:
     return datetime.strptime(value, fmt).date()
 
 
+def _year(value: str) -> int:
+    return _de_date(f"01.01.{value}").year
+
+
+def _validity_range(match: re.Match[str]) -> tuple[date, date]:
+    start_day = int(match.group(1))
+    start_month = int(match.group(2))
+    start_year_text = match.group(3)
+    end_day = int(match.group(4))
+    end_month = int(match.group(5))
+    end_year = _year(match.group(6))
+
+    if start_year_text is not None:
+        start_year = _year(start_year_text)
+    else:
+        start_year = end_year - 1 if start_month > end_month else end_year
+
+    return (
+        date(start_year, start_month, start_day),
+        date(end_year, end_month, end_day),
+    )
+
+
 def _extract_text_validity(
     text: str,
     *,
     evidence_label: str,
 ) -> tuple[date, date, str]:
     matches=list(VALIDITY_RE.finditer(text))
-    ranges={
-        (_de_date(m.group(1)),_de_date(m.group(2)))
-        for m in matches
-    }
+    ranges={_validity_range(m) for m in matches}
     if not ranges:
         raise NettoValidityMissing(
             f"Netto {evidence_label} must expose exactly one validity range; found=[]"
@@ -91,7 +111,7 @@ def _extract_text_validity(
         raise ValueError("Netto prospect validity reversed")
     matched=next(
         m.group(0) for m in matches
-        if (_de_date(m.group(1)),_de_date(m.group(2)))==(start,end)
+        if _validity_range(m)==(start,end)
     )
     return start,end," ".join(matched.split())
 
