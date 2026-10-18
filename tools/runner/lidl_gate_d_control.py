@@ -347,6 +347,14 @@ def legacy_installed() -> bool:
     return legacy_unit_hashes() is not None
 
 
+def legacy_backup_exists_and_matches(path: Path, expected_sha: str) -> bool:
+    if not path.exists() and not path.is_symlink():
+        return False
+    require(regular_root_file(path, 0o644), f"legacy backup metadata drift: {path.name}")
+    require(sha_file(path) == expected_sha, f"legacy backup content drift: {path.name}")
+    return True
+
+
 def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dict[str, Any]:
     # All preconditions precede the first mutation. A failure after that point
     # leaves the timer stopped and evidence intact; no automatic rollback/retry.
@@ -363,9 +371,8 @@ def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dic
     head = run_command(["/usr/bin/git", "-c", f"safe.directory={config['repo_root']}", "-C", str(config["repo_root"]), "rev-parse", "HEAD"])
     require(head.stdout.strip() == config["registration_sha"], "legacy migration checkout SHA drift")
     for name in UNIT_NAMES:
-        dst = UNIT_DIR / name
         backup = UNIT_DIR / f".{name}.legacy-{legacy_hashes[name]}"
-        require(not backup.exists() and not backup.is_symlink(), f"legacy backup already exists: {name}")
+        legacy_backup_exists_and_matches(backup, legacy_hashes[name])
     run_command(["/usr/bin/systemctl", "stop", TIMER_UNIT])
     require(not timer_is_active(), "legacy timer remains active")
     state = run_command(["/usr/bin/systemctl", "show", SERVICE_UNIT, "--property=ActiveState", "--value"])
@@ -374,9 +381,15 @@ def migrate_legacy(config: Mapping[str, Any], staged: Mapping[str, Path]) -> dic
     for name in UNIT_NAMES:
         dst = UNIT_DIR / name
         require(regular_root_file(dst, 0o644) and sha_file(dst) == legacy_hashes[name], f"legacy unit changed: {name}")
-        # Preserve exact installed bytes under their own SHA. Never overwrite backups.
+        # Preserve exact installed bytes under their own SHA. A pre-existing
+        # backup is reusable only when its root metadata and content hash match.
         backup = UNIT_DIR / f".{name}.legacy-{legacy_hashes[name]}"
-        os.link(dst, backup, follow_symlinks=False)
+        if not legacy_backup_exists_and_matches(backup, legacy_hashes[name]):
+            os.link(dst, backup, follow_symlinks=False)
+            require(
+                legacy_backup_exists_and_matches(backup, legacy_hashes[name]),
+                f"legacy backup creation invalid: {name}",
+            )
         dst.unlink()
         install_exclusive(staged[name], dst)
         require(regular_root_file(dst, 0o644) and sha_file(dst) == config["units"][name]["sha256"], f"migrated unit invalid: {name}")
