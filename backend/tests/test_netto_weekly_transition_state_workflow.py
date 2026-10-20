@@ -31,14 +31,18 @@ def test_scheduler_external_actions_are_immutable_and_version_annotated() -> Non
             "b7c566a772e6b6bfb58ed0dc250532a479d7789f",
             "v6.0.0",
         ),
+        "rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml": (
+            "93b866ba2ec64ab2100f48733487afc960298d61",
+            "reviewed policy revision 93b866ba2ec64ab2100f48733487afc960298d61",
+        ),
     }
     uses_lines = [
         line.strip()
         for line in text.splitlines()
         if line.strip().startswith("uses: ")
     ]
-    # One immutable checkout and two independently pinned uploads:
-    # transition observation + disarmed future shadow proof.
+    # One immutable checkout, two independently pinned uploads and one
+    # immutable same-repository reusable workflow reference.
     observed_counts = {}
     for line in uses_lines:
         action_ref = line.removeprefix("uses: ").split(maxsplit=1)[0]
@@ -49,9 +53,14 @@ def test_scheduler_external_actions_are_immutable_and_version_annotated() -> Non
         assert sha == expected_sha
         assert re.fullmatch(r"[0-9a-f]{40}", sha)
         assert line.endswith(f"# {expected_version}")
-    assert observed_counts == {"actions/checkout": 1, "actions/upload-artifact": 2}
+    assert observed_counts == {
+        "actions/checkout": 1,
+        "actions/upload-artifact": 2,
+        "rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml": 1,
+    }
     assert "actions/checkout@v5" not in text
     assert "actions/upload-artifact@v6" not in text
+    assert "netto-weekly-pinned-shadow-executor.yml@main" not in text
 
 
 def test_only_successful_scheduled_artifact_can_restore_unattended_state() -> None:

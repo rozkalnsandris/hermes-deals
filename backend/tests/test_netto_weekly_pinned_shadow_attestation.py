@@ -49,7 +49,7 @@ on:
   workflow_call:
 jobs:
   transition:
-    if: ${{ vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{proof.PINNED_SOURCE_SHA}' }}
+    if: ${{{{ vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{proof.PINNED_SOURCE_SHA}' }}}}
     runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
     steps:
       - name: Verify pinned checkout before any source collection
@@ -63,7 +63,7 @@ jobs:
         run: echo extract
       - name: Upload scheduled shadow extraction artifact
         with:
-          name: netto-weekly-pinned-shadow-scheduled-${{ github.run_id }}
+          name: netto-weekly-pinned-shadow-scheduled-${{{{ github.run_id }}}}
 """
 
 
