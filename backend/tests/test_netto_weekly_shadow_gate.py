@@ -144,8 +144,8 @@ def test_workflow_remains_statically_disarmed_and_has_exact_safe_step_wiring():
     assert "name: Gate first-attempt scheduled shadow extraction" in content
     assert "steps.shadow_gate.outputs.eligible == 'true'" in content
     assert "steps.shadow_stage.outcome == 'success'" in content
-    assert "netto-weekly-shadow-scheduled-\${{ github.run_id }}" in content
+    assert "netto-weekly-shadow-scheduled-${{ github.run_id }}" in content
     assert "tools/netto_weekly_shadow_report.py" in content
     assert "tools/netto_weekly_shadow_artifact.py" in content
     assert content.index("name: Upload immutable transition artifact") < content.index("name: Build offline shadow extraction receipt")
-    assert "DATABASE_URL: sqlite+pysqlite:///:memory:" in content
+    assert "DATABASE_URL: 'sqlite+pysqlite:///:memory:'" in content
