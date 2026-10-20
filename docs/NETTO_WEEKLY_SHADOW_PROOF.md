@@ -127,3 +127,57 @@ two validated booklet-coverage cycles. Independent source-card accounting
 and a separately authorized LIVE scheduler/runner activation are still
 required; the current scheduler does **not** emit shadow extraction receipts.
 Unit tests use synthetic inputs and are not real evidence.
+
+## Prepared staging and exact LIVE activation boundary (not activated)
+
+A source-only staging helper, `tools/netto_weekly_shadow_artifact.py`, now
+prepares the **exact three member files** expected by the authenticated GitHub
+attestor. It does **not** invoke a parser, upload anything, authenticate a
+scheduled run, or confer #28 acceptance. On `event=schedule` only, it checks
+the selector/report identity, all six unknown card counts, read-only source
+directory separation, and the non-promoting safety flags, then creates a
+new, non-existing temporary output directory containing only:
+`selector.json`, `shadow-report.json` and `SHA256SUMS`. Existing output
+is not clobbered; any partial write is retained for inspection with no
+automatic retry or cleanup.
+
+**Source-only candidate wiring, NOT an active workflow modification:**
+
+1. Only after separate explicit LIVE authorization, modify the existing
+   `.github/workflows/netto-weekly-transition-state.yml` in a separately
+   reviewed PR. Keep the existing non-root self-hosted
+   `hermes-deals-audit` runner, immutable `github.sha` checkout, read-only
+   source selection, and restricted permissions; do not grant DB/Review/
+   publication or production mutation.
+2. Add a scheduled-only job step named exactly
+   `Build offline shadow extraction receipt`. Require the existing
+   `state.json` decision `run_shadow`, store 5659 and `pdf_bound`
+   evidence; never fall back to stale campaigns or synthesize a PDF.
+   Execute `tools/netto_weekly_shadow_report.py` against the current
+   `$ROOT/current/selector.json` and
+   `$ROOT/current/source`, with create-only output
+   `$ROOT/current/shadow-report.json`, **only if** these checks pass.
+   Handle `verified_no_pdf`/other decisions explicitly as unaccepted
+   skips, not as successful shadow steps/artifacts.
+3. After a successful step, invoke the staging helper on those **same**
+   immutable paths, using an **unused temporary output directory** outside
+   the raw source root, with `--event "$EVENT_NAME"`. Then upload the
+   three staged files **only for GitHub `schedule` events**, as artifact
+   `netto-weekly-shadow-scheduled-${GITHUB_RUN_ID}`, with bounded retention.
+   The new artifact does not replace the existing transition-observation
+   artifact. Upload errors fail the run; never retry silently.
+4. Independently verify actual completed workflow run/job/step, immutable
+   commit, artifact ID/digest/member checksums and first-attempt scheduling
+   using the merged `netto_weekly_shadow_attestation.py` tool, *after*
+   the authorized source is deployed and real weekly cycles occur.
+   Synthetic fixtures/manual replays never count. Successful staging or a
+   single scheduled extraction still does not prove source-card completeness
+   or authorize publication.
+5. The owner must approve the exact workflow change through a separate
+   source PR and MERGE gate, and then separately authorize actual
+   runner/scheduler/retained-artifact execution if required by the
+   deployment policy. Do not infer any LIVE permission from this staging
+   helper, its tests, or its merger.
+
+This is preparation only. No changes to currently active workflow, timer,
+runner, database or production collection are made by this PR.
