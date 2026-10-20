@@ -12,7 +12,15 @@ existing HTML-offer and PDF daily-special parsers. The create-only receipt binds
 the campaign, validity and digests. It reports extracted counts only.
 
 It **does not** prove complete booklet/card ownership, independent source
-truth, publication readiness, or two genuine unattended transitions. Always:
+truth, publication readiness, or two genuine unattended transitions. The
+`source_card_breakdown` carries six **null**, not zero, independently
+unverified quantities: `total_source_cards`, `parsed_cards`,
+`review_pending_cards`, `excluded_cards`, `unsupported_cards`, and
+`unaccounted_cards`. The existing HTML/PDF candidate counts refer only to
+parsed candidates and must not be relabeled as source-card counts. The GitHub
+attestation rejects any missing/modified breakdown or a fabricated 0. This
+is an explicit unknown-state contract, **not** source-card reconciliation.
+Always:
 `source_card_accounting=unknown`, `shadow_acceptance_passed=false`,
 `issue_28_two_real_transitions_ready=false`, `promotion_ready=false`.
 Each offline CLI invocation emits one create-only receipt outside the raw-evidence
