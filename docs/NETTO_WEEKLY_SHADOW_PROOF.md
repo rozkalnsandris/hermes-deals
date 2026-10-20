@@ -15,6 +15,15 @@ It **does not** prove complete booklet/card ownership, independent source
 truth, publication readiness, or two genuine unattended transitions. Always:
 `source_card_accounting=unknown`, `shadow_acceptance_passed=false`,
 `issue_28_two_real_transitions_ready=false`, `promotion_ready=false`.
+Each offline CLI invocation emits one create-only receipt outside the raw-evidence
+root. Verified extraction yields `execution_outcome=extraction_complete_coverage_unverified`;
+input/evidence/parser failures yield `execution_outcome=failed` and only a
+fixed `failure_category` without unverified campaign identity or raw error
+strings. Failed receipts return a nonzero process code. Receipt outputs are
+created exclusively (`xb`); pre-existing paths and symlinks are not replaced,
+and partial writes are never silently retried or cleaned up. These receipts
+are diagnostics, not independently authenticated scheduled-run evidence.
+
 Zero parsed daily specials is not proof that no special offers exist. For
 `verified_no_pdf` the current V3 PDF-bound extraction contract fails closed;
 it does not substitute an invented empty PDF or a stale campaign.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+from hashlib import sha256
 import json
 from pathlib import Path
 import sys
@@ -23,7 +24,7 @@ from app.parsers.netto import NettoParserContext
 from app.parsers.netto_daily_special import extract_pdf_daily_special_candidates
 from netto_shadow_promotion import EvidenceStatus, verify_binding_files
 from netto_weekly_transition_state import (
-    load_json, normalize_selector, sha_file, write_create_only,
+    canonical_bytes, load_json, normalize_selector, sha_file,
 )
 
 STRATEGY = "netto_weekly_offline_shadow_extract_v1"
@@ -31,6 +32,22 @@ STRATEGY = "netto_weekly_offline_shadow_extract_v1"
 
 class NettoShadowReportError(ValueError):
     pass
+
+
+class NettoShadowParserError(NettoShadowReportError):
+    pass
+
+
+def write_shadow_receipt(path: Path, value: Mapping[str, Any]) -> str:
+    """Create an output once; never follow a last-component symlink or replace it."""
+    data = canonical_bytes(value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as handle:
+            handle.write(data)
+    except FileExistsError as exc:
+        raise NettoShadowReportError("shadow receipt already exists") from exc
+    return sha256(data).hexdigest()
 
 
 def _evidence_file(raw_root: Path, path_text: Any, expected_sha: Any, label: str) -> Path:
@@ -113,11 +130,17 @@ def build_shadow_report(selector: Mapping[str, Any], raw_root: Path) -> dict[str
         collected_at=observed_at, store_external_id="5659",
         store_name=manifest.get("store_name"),
     )
-    offers = parse_netto_store_prospect_snapshot(manifest_file, context)
+    try:
+        offers = parse_netto_store_prospect_snapshot(manifest_file, context)
+    except Exception as exc:
+        raise NettoShadowParserError("store HTML shadow parser failed") from exc
     if not offers or any(str(o.source_store_external_id) != "5659" for o in offers):
         raise NettoShadowReportError("store HTML extraction failed or crossed store boundary")
 
-    special_pages = extract_pdf_daily_special_candidates(pdf, snapshot_id=str(shadow_id))
+    try:
+        special_pages = extract_pdf_daily_special_candidates(pdf, snapshot_id=str(shadow_id))
+    except Exception as exc:
+        raise NettoShadowParserError("daily-special PDF shadow parser failed") from exc
     specials = 0
     for page, candidates, _page_sha in special_pages:
         if not binding.valid_from <= page.special_valid_on <= binding.valid_until:
@@ -145,6 +168,8 @@ def build_shadow_report(selector: Mapping[str, Any], raw_root: Path) -> dict[str
         "pdf_daily_special_page_count": len(special_pages),
         "pdf_daily_special_candidate_count": specials,
         "source_card_accounting": "unknown",
+        "execution_outcome": "extraction_complete_coverage_unverified",
+        "failure_category": None,
         "shadow_extraction_completed": True,
         "shadow_acceptance_passed": False,
         "issue_28_two_real_transitions_ready": False,
@@ -163,16 +188,65 @@ def main() -> int:
     parser.add_argument("--raw-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    # A failure report is never written inside the raw evidence tree.
     try:
-        if args.output.resolve() == args.raw_root.resolve() or args.raw_root.resolve() in args.output.resolve().parents:
+        root = args.raw_root.resolve(strict=True)
+        output = args.output.resolve()
+        if output == root or root in output.parents:
             raise NettoShadowReportError("receipt output must be outside raw evidence root")
-        report = build_shadow_report(load_json(args.selector), args.raw_root)
-        digest = write_create_only(args.output, report)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"ERROR|{exc}", file=sys.stderr)
+    except (OSError, ValueError):
+        print("ERROR|unsafe_output", file=sys.stderr)
         return 2
-    print(json.dumps({"report_sha256": digest, "campaign_key": report["campaign_key"], "shadow_acceptance_passed": False}, sort_keys=True))
-    return 0
+
+    failed = False
+    try:
+        report = build_shadow_report(load_json(args.selector), args.raw_root)
+    except Exception as exc:
+        # Unverified inputs cannot truthfully identify a campaign. Do not emit
+        # raw exception text: it can contain absolute paths or source details.
+        failed = True
+        category = (
+            "parser_failure" if isinstance(exc, NettoShadowParserError)
+            else "input_or_evidence_failure"
+        )
+        report = {
+            "schema_version": 1,
+            "strategy": STRATEGY,
+            "campaign_key": None,
+            "evidence_identity_sha256": None,
+            "execution_outcome": "failed",
+            "failure_category": category,
+            "source_card_accounting": "unknown",
+            "html_extracted_offer_count": None,
+            "pdf_daily_special_page_count": None,
+            "pdf_daily_special_candidate_count": None,
+            "shadow_extraction_completed": False,
+            "shadow_acceptance_passed": False,
+            "issue_28_two_real_transitions_ready": False,
+            "review_only": True,
+            "promotion_ready": False,
+            "production_write_authorized": False,
+            "database_write_performed": False,
+            "review_write_performed": False,
+            "publication_write_performed": False,
+        }
+
+    try:
+        digest = write_shadow_receipt(args.output, report)
+    except (OSError, ValueError):
+        # The output may already exist or an I/O error may have left a partial
+        # create-only file. Never remove, overwrite, or retry it automatically.
+        print("ERROR|receipt_write_failed", file=sys.stderr)
+        return 2
+    print(json.dumps({
+        "report_sha256": digest,
+        "execution_outcome": report["execution_outcome"],
+        "failure_category": report["failure_category"],
+        "shadow_acceptance_passed": False,
+    }, sort_keys=True))
+    if failed:
+        print("ERROR|" + report["failure_category"], file=sys.stderr)
+    return 2 if failed else 0
 
 
 if __name__ == "__main__":

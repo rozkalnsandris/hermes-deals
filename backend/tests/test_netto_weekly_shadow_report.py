@@ -199,3 +199,78 @@ def test_in_root_symlink_and_verified_no_pdf_fail_closed(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="requires verified bound PDF evidence"):
         shadow.build_shadow_report(selector, root)
 
+
+def test_failure_receipt_is_sanitized_fail_closed_and_create_only(tmp_path, monkeypatch, capsys):
+    import sys as python_sys
+
+    root, selector, _ = evidence(tmp_path)
+    pdf = root / "prospect.pdf"
+    pdf.write_bytes(pdf.read_bytes() + b"corrupt")
+    selected = tmp_path / "selector.json"
+    selected.write_text(json.dumps(selector), encoding="utf-8")
+    target = tmp_path / "failed.json"
+    monkeypatch.setattr(python_sys, "argv", [
+        "netto_weekly_shadow_report.py",
+        "--selector", str(selected), "--raw-root", str(root), "--output", str(target),
+    ])
+    assert shadow.main() == 2
+    receipt = json.loads(target.read_text(encoding="utf-8"))
+    assert receipt["execution_outcome"] == "failed"
+    assert receipt["failure_category"] == "input_or_evidence_failure"
+    assert receipt["campaign_key"] is None
+    assert receipt["source_card_accounting"] == "unknown"
+    assert receipt["shadow_extraction_completed"] is False
+    assert receipt["shadow_acceptance_passed"] is False
+    assert receipt["issue_28_two_real_transitions_ready"] is False
+    assert str(tmp_path) not in target.read_text(encoding="utf-8")
+    before = target.read_bytes()
+    assert shadow.main() == 2
+    assert target.read_bytes() == before
+    assert "receipt_write_failed" in capsys.readouterr().err
+
+
+def test_parser_failure_receipt_never_exposes_exception_details(tmp_path, monkeypatch):
+    import sys as python_sys
+
+    root, selector, _ = evidence(tmp_path)
+    selected = tmp_path / "selector.json"
+    selected.write_text(json.dumps(selector), encoding="utf-8")
+    target = tmp_path / "failed-parser.json"
+    monkeypatch.setattr(shadow, "parse_netto_store_prospect_snapshot",
+        lambda path, context: (_ for _ in ()).throw(ValueError("private /host/secret")))
+    monkeypatch.setattr(python_sys, "argv", [
+        "netto_weekly_shadow_report.py",
+        "--selector", str(selected), "--raw-root", str(root), "--output", str(target),
+    ])
+    assert shadow.main() == 2
+    receipt = json.loads(target.read_text(encoding="utf-8"))
+    assert receipt["failure_category"] == "parser_failure"
+    assert "private" not in target.read_text(encoding="utf-8")
+    assert receipt["promotion_ready"] is False
+
+
+def test_create_only_report_never_follows_existing_symlink(tmp_path):
+    target = tmp_path / "retained.json"
+    target.write_text("KEEP", encoding="utf-8")
+    link = tmp_path / "shadow.json"
+    link.symlink_to(target)
+    with pytest.raises(ValueError, match="already exists"):
+        shadow.write_shadow_receipt(link, {"shadow_acceptance_passed": False})
+    assert target.read_text(encoding="utf-8") == "KEEP"
+    with pytest.raises(ValueError, match="already exists"):
+        shadow.write_shadow_receipt(target, {"shadow_acceptance_passed": False})
+
+
+def test_failure_receipt_output_inside_raw_root_is_rejected(tmp_path, monkeypatch):
+    import sys as python_sys
+
+    root, selector, _ = evidence(tmp_path)
+    selected = tmp_path / "selector.json"
+    selected.write_text(json.dumps(selector), encoding="utf-8")
+    target = root / "forbidden-receipt.json"
+    monkeypatch.setattr(python_sys, "argv", [
+        "netto_weekly_shadow_report.py",
+        "--selector", str(selected), "--raw-root", str(root), "--output", str(target),
+    ])
+    assert shadow.main() == 2
+    assert not target.exists()
