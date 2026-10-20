@@ -81,6 +81,13 @@ def fixture(run_id: int = 88001):
         "conclusion": "success",
         "run_attempt": 1,
         "created_at": "2026-10-19T06:00:00Z",
+        "referenced_workflows": [{
+            "path": (
+                f"{proof.REPO}/{proof.PINNED_WORKFLOW}"
+                f"@{proof.CALLED_WORKFLOW_SHA}"
+            ),
+            "sha": proof.CALLED_WORKFLOW_SHA,
+        }],
     }
     success = lambda name: {"name": name, "status": "completed", "conclusion": "success"}
     jobs = {
@@ -198,6 +205,7 @@ def fixture(run_id: int = 88001):
 def test_pinned_envelope_attests_immutable_executor_but_never_acceptance():
     result = proof.verify_extraction(*fixture())
     assert result["scheduled_pinned_shadow_extraction_attested"] is True
+    assert result["referenced_workflow_attested"] is True
     assert result["called_workflow_sha"] == proof.CALLED_WORKFLOW_SHA
     assert result["pinned_source_sha"] == proof.PINNED_SOURCE_SHA
     assert result["source_card_accounting"] == "unknown"
@@ -219,6 +227,24 @@ def test_non_genuine_pinned_run_or_job_is_rejected(mutate):
     envelope = list(fixture())
     mutate(envelope)
     with pytest.raises(proof.PinnedShadowAttestationError):
+        proof.verify_extraction(*envelope)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda run: run.pop("referenced_workflows"),
+    lambda run: run["referenced_workflows"][0].update(sha="f" * 40),
+    lambda run: run["referenced_workflows"][0].update(
+        path=f"{proof.REPO}/.github/workflows/other.yml@{proof.CALLED_WORKFLOW_SHA}"
+    ),
+    lambda run: run["referenced_workflows"].append(
+        dict(run["referenced_workflows"][0])
+    ),
+    lambda run: run["referenced_workflows"][0].update(ref="main"),
+])
+def test_missing_wrong_duplicate_or_mutable_referenced_workflow_is_rejected(mutate):
+    envelope = list(fixture())
+    mutate(envelope[1])
+    with pytest.raises(proof.PinnedShadowAttestationError, match="referenced|executor|mutable"):
         proof.verify_extraction(*envelope)
 
 

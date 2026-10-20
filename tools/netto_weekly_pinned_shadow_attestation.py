@@ -65,6 +65,29 @@ def _successful_step(job: Mapping[str, Any], name: str) -> bool:
     return len(matches) == 1 and matches[0].get("status") == "completed" and matches[0].get("conclusion") == "success"
 
 
+def validate_referenced_workflow(run: Mapping[str, Any]) -> None:
+    rows = run.get("referenced_workflows")
+    if not isinstance(rows, list):
+        raise PinnedShadowAttestationError("GitHub run referenced_workflows is missing")
+    expected_path = f"{REPO}/{PINNED_WORKFLOW}@{CALLED_WORKFLOW_SHA}"
+    matches = [
+        row
+        for row in rows
+        if isinstance(row, Mapping)
+        and row.get("path") == expected_path
+        and row.get("sha") == CALLED_WORKFLOW_SHA
+    ]
+    if len(rows) != 1 or len(matches) != 1:
+        raise PinnedShadowAttestationError(
+            "GitHub run did not reference the one approved pinned executor"
+        )
+    resolved_ref = matches[0].get("ref")
+    if resolved_ref not in (None, "", CALLED_WORKFLOW_SHA):
+        raise PinnedShadowAttestationError(
+            "pinned executor unexpectedly resolved through a mutable ref"
+        )
+
+
 def validate_run_and_jobs(run: Mapping[str, Any], jobs: Mapping[str, Any], run_id: int) -> str:
     repository = run.get("repository")
     if (
@@ -82,6 +105,8 @@ def validate_run_and_jobs(run: Mapping[str, Any], jobs: Mapping[str, Any], run_i
         or not legacy._git_sha(run.get("head_sha"))
     ):
         raise PinnedShadowAttestationError("GitHub run is not a completed first-attempt scheduled pinned caller")
+
+    validate_referenced_workflow(run)
 
     raw_jobs = jobs.get("jobs")
     if not isinstance(raw_jobs, list) or not raw_jobs or jobs.get("total_count") != len(raw_jobs):
@@ -272,6 +297,7 @@ def verify_extraction(
         "artifact_digest": artifact["digest"],
         **proof,
         "scheduled_pinned_shadow_extraction_attested": True,
+        "referenced_workflow_attested": True,
         "source_card_accounting": "unknown",
         "shadow_acceptance_passed": False,
         "issue_28_two_real_transitions_ready": False,

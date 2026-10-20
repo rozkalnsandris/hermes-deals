@@ -95,9 +95,13 @@ fails closed unless all of these bind:
   success and the successful `Build offline shadow extraction receipt` step.
 - The actual **caller head SHA**, its recorded approval and GitHub run identity;
   never equate it with the reviewed executor source SHA.
-- The exact **called reusable workflow SHA** `93b866ba2ec64ab2100f48733487afc960298d61`, resolved from the
-  caller workflow source at the actual run head, plus the reviewed reusable
-  workflow blob `969d51ca97de5021e74ad67555186995fb8111d1` fetched independently at that SHA.
+- The GitHub workflow run's `referenced_workflows` metadata must contain
+  exactly one entry for
+  `rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61`,
+  with resolved SHA `93b866ba2ec64ab2100f48733487afc960298d61` and no mutable ref.
+- Independently, the caller workflow source at the actual run head must contain
+  that exact immutable reference, and the reviewed reusable workflow blob
+  `969d51ca97de5021e74ad67555186995fb8111d1` must be fetched at that SHA.
 - The exact **pinned source SHA** above, verified through the immutable
   reusable YAML checkout ref **and** the observed successful checkout
   verification step; neither untrusted artifact contents nor the

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 from typing import Iterable
+from urllib.parse import urlparse
 
 import httpx
 
@@ -23,6 +24,7 @@ from app.netto_store_prospect import (  # noqa: E402
     _write_bundle,
     resolve_prospect_validity,
 )
+from app.parsers.netto_listing import STORE_PATH  # noqa: E402
 from app.source_config import SourceConfig, load_sources  # noqa: E402
 from app.structured_source_shadow import extract_netto_direct_viewers  # noqa: E402
 
@@ -93,11 +95,20 @@ def fetch_latest_nonexpired(source: SourceConfig, *, as_of: date) -> NettoStoreP
     with httpx.Client(follow_redirects=True, timeout=45, headers=headers) as client:
         store = client.get(selection_url)
         store.raise_for_status()
-        if not any(
-            cookie.name == "netto_user_stores_id" and str(cookie.value)
-            for cookie in client.cookies.jar
+        final_store = urlparse(str(store.url))
+        if (
+            final_store.scheme != "https"
+            or final_store.netloc != "www.netto-online.de"
+            or final_store.path.rstrip("/") != STORE_PATH
         ):
-            raise WeeklyLiveSourceError("Netto selected-store cookie missing")
+            raise WeeklyLiveSourceError("Netto selected-store final URL mismatch")
+        selected_store_cookies = {
+            str(cookie.value)
+            for cookie in client.cookies.jar
+            if cookie.name == "netto_user_stores_id"
+        }
+        if selected_store_cookies != {STORE_ID}:
+            raise WeeklyLiveSourceError("Netto selected-store cookie mismatch")
         viewers = extract_netto_direct_viewers(store.text, STORE_ID)
         if not viewers:
             raise WeeklyLiveSourceError("Netto store page exposes no digital weekly prospects")
