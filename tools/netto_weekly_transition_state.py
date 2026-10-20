@@ -205,6 +205,9 @@ def build_state(
         )
         records = records[-MAX_RECORDS:]
     consecutive = chain_length(records)
+    # A scheduled run_shadow decision is an observation, not successful shadow
+    # extraction. No authenticated shadow-result receipts are verified here.
+    # Keep the issue-level acceptance gate closed until that proof exists.
     state = {
         "schema_version": SCHEMA_VERSION,
         "strategy": STRATEGY,
@@ -230,7 +233,8 @@ def build_state(
         "transition_recorded": recorded,
         "scheduled_transitions": records,
         "consecutive_unattended_transition_count": consecutive,
-        "issue_28_two_real_transitions_ready": consecutive >= 2,
+        "source_transition_observation_gate_ready": consecutive >= 2,
+        "issue_28_two_real_transitions_ready": False,
         "production_write_authorized": False,
         "database_write_performed": False,
         "review_write_performed": False,
@@ -249,7 +253,8 @@ def build_state(
         "current_action": decision.action.value,
         "current_severity": decision.severity,
         "consecutive_unattended_transition_count": consecutive,
-        "issue_28_two_real_transitions_ready": consecutive >= 2,
+        "source_transition_observation_gate_ready": consecutive >= 2,
+        "issue_28_two_real_transitions_ready": False,
         "production_write_authorized": False,
     }
     return state, receipt

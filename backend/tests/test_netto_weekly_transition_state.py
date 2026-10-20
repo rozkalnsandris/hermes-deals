@@ -56,7 +56,7 @@ def selector(tmp_path: Path, campaign: str, start: str, end: str) -> dict:
     }
 
 
-def test_two_consecutive_scheduled_campaigns_prove_issue_28(tmp_path: Path) -> None:
+def test_two_consecutive_scheduled_campaigns_are_observations_not_shadow_proof(tmp_path: Path) -> None:
     first_selector = selector(tmp_path, "hz33_hasb", "2026-08-10", "2026-08-15")
     first, first_receipt = build_state(
         first_selector,
@@ -70,11 +70,13 @@ def test_two_consecutive_scheduled_campaigns_prove_issue_28(tmp_path: Path) -> N
     assert first["current_decision"]["action"] == "run_shadow"
     assert first["transition_recorded"] is True
     assert first["consecutive_unattended_transition_count"] == 1
+    assert first["source_transition_observation_gate_ready"] is False
     assert first["issue_28_two_real_transitions_ready"] is False
+    assert first_receipt["issue_28_two_real_transitions_ready"] is False
     assert first_receipt["state_sha256"] == hashlib.sha256(canonical_bytes(first)).hexdigest()
 
     second_selector = selector(tmp_path, "hz34_hasb", "2026-08-17", "2026-08-22")
-    second, _ = build_state(
+    second, second_receipt = build_state(
         second_selector,
         today=date(2026, 8, 17),
         observed_at=datetime(2026, 8, 17, 6, 17, tzinfo=timezone.utc),
@@ -86,7 +88,10 @@ def test_two_consecutive_scheduled_campaigns_prove_issue_28(tmp_path: Path) -> N
     assert second["transition_recorded"] is True
     assert len(second["scheduled_transitions"]) == 2
     assert second["consecutive_unattended_transition_count"] == 2
-    assert second["issue_28_two_real_transitions_ready"] is True
+    assert second["source_transition_observation_gate_ready"] is True
+    assert second["issue_28_two_real_transitions_ready"] is False
+    assert second_receipt["source_transition_observation_gate_ready"] is True
+    assert second_receipt["issue_28_two_real_transitions_ready"] is False
     assert all(row["production_write_authorized"] is False for row in second["scheduled_transitions"])
 
 
