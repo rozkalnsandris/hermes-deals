@@ -181,3 +181,35 @@ automatic retry or cleanup.
 
 This is preparation only. No changes to currently active workflow, timer,
 runner, database or production collection are made by this PR.
+
+## Disarmed scheduled workflow wiring — proposed, NOT LIVE
+
+The separately authorized preparatory PR adds source-only wiring for the
+existing `.github/workflows/netto-weekly-transition-state.yml`. Its static
+`NETTO_SHADOW_RUN_ENABLED: 'false'` configuration ensures that **even after a
+source merge**, none of the new runner-side shadow gate, parser, staging or
+shadow-artifact upload steps can execute. A future separate, exact LIVE owner
+authorization is required to change this constant and thereby enable
+unattended execution. Neither the preparatory authorization nor its PR merge
+permits that activation.
+
+After the existing immutable transition observation artifact is uploaded,
+four currently disarmed steps are configured: a first-attempt scheduled-only
+guard that independently binds the source selector, transition state and
+SHA-256 state receipt; the exact offline HTML/PDF shadow parser; create-only
+three-file artifact staging outside the evidence root; and a bounded
+schedule-only GitHub artifact upload. The parser/stage/upload steps also require
+the previous step's successful eligibility/outcome. The guard rejects
+manual/dispatch and reruns, duplicate transition records, campaign/identity
+drift, early/out-of-window records, promotion or DB authority. A
+`verified_no_pdf` campaign or an unchanged/non-shadow decision is skipped
+without creating a successful extraction step or shadow artifact. The scoped
+parser and staging steps set `DATABASE_URL` to ephemeral in-memory SQLite,
+not production.
+
+All existing transition observation, report, permissions, self-hosted runner,
+concurrency, and cleanup steps are left intact. The new artifact's name,
+three member files, run identity and successful extraction step match the
+read-only GitHub provenance attestor. Importantly, **two genuinely scheduled
+extractions still do not establish source-card reconciliation or #28
+readiness**, and no offer/price or production publication can be promoted.

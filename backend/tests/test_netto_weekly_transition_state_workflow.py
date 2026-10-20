@@ -37,15 +37,19 @@ def test_scheduler_external_actions_are_immutable_and_version_annotated() -> Non
         for line in text.splitlines()
         if line.strip().startswith("uses: ")
     ]
-    assert len(uses_lines) == len(expected)
+    # One immutable checkout and two independently pinned uploads:
+    # transition observation + disarmed future shadow proof.
+    observed_counts = {}
     for line in uses_lines:
         action_ref = line.removeprefix("uses: ").split(maxsplit=1)[0]
         action, sha = action_ref.rsplit("@", 1)
         assert action in expected
+        observed_counts[action] = observed_counts.get(action, 0) + 1
         expected_sha, expected_version = expected[action]
         assert sha == expected_sha
         assert re.fullmatch(r"[0-9a-f]{40}", sha)
         assert line.endswith(f"# {expected_version}")
+    assert observed_counts == {"actions/checkout": 1, "actions/upload-artifact": 2}
     assert "actions/checkout@v5" not in text
     assert "actions/upload-artifact@v6" not in text
 
