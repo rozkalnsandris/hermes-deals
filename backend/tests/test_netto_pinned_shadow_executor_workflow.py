@@ -27,7 +27,7 @@ def test_immutable_source_pin_is_distinct_from_caller_head():
     assert f"[[ \"$(git rev-parse --verify HEAD)\" == '{PIN}' ]]" in text
     assert "persist-credentials: false" in text
     assert text.index("Verify pinned checkout before any source collection") < text.index("Fetch current store-5659 source")
-    assert "ref: \${{ github.sha }}" not in text
+    assert "ref: ${{ github.sha }}" not in text
     assert re.fullmatch("[0-9a-f]{40}", PIN)
 
 
@@ -62,8 +62,8 @@ def test_original_shadow_execution_safety_remains_scoped():
     assert "name: Stage scheduled shadow extraction artifact" in text
     assert "name: Upload scheduled shadow extraction artifact" in text
     assert "name: Upload immutable transition artifact" in text
-    assert "netto-weekly-pinned-shadow-scheduled-\${{ github.run_id }}" in text
-    assert "name: netto-weekly-shadow-scheduled-\${{ github.run_id }}" not in text
+    assert "netto-weekly-pinned-shadow-scheduled-${{ github.run_id }}" in text
+    assert "name: netto-weekly-shadow-scheduled-${{ github.run_id }}" not in text
     assert "steps.shadow_gate.outputs.eligible == 'true'" in text
     assert "steps.shadow_extract.outcome == 'success'" in text
     assert "steps.shadow_stage.outcome == 'success'" in text
