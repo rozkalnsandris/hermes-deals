@@ -1,0 +1,27 @@
+name: GitHub-first RDC fallback adoption
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: GitHub-first RDC policy contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Validate routing and the scenario matrix
+        run: |
+          set -euo pipefail
+          python3 -m json.tool .github/github-first-rdc-v1.json >/dev/null
+          python3 scripts/test-github-first-rdc-v1.py -v
