@@ -276,6 +276,16 @@ def build_current_deals(
                 row.source_chain,
             )
         )
+    elif sort == "retailer":
+        current_rows.sort(
+            key=lambda row: (
+                row.source_chain.casefold(),
+                row.source_store_external_id or "",
+                row.product_name_raw.casefold(),
+                row.price_eur,
+                str(row.id),
+            )
+        )
     elif sort == "newest":
         current_rows.sort(
             key=lambda row: (
