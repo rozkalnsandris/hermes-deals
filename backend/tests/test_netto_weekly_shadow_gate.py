@@ -135,10 +135,15 @@ def test_verified_no_pdf_and_early_or_expired_day_skip():
         assert eligible(state, receipt, selector, today=day) is False
 
 
-def test_workflow_remains_statically_disarmed_and_has_exact_safe_step_wiring():
+def test_external_shadow_activation_requires_two_vars_and_exact_current_main_sha():
     content = (TOOLS.parent / ".github/workflows/netto-weekly-transition-state.yml").read_text(encoding="utf-8")
-    assert "NETTO_SHADOW_RUN_ENABLED: 'false'" in content
-    assert content.count("NETTO_SHADOW_RUN_ENABLED") >= 2
+    condition = "vars.NETTO_SHADOW_V1_ENABLED == 'true' && vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha && github.ref == 'refs/heads/main' && github.run_attempt == 1"
+    assert content.count(condition) == 4
+    assert content.count("github.event_name == 'schedule' && " + condition) == 4
+    assert "NETTO_SHADOW_RUN_ENABLED:" not in content
+    assert "env.NETTO_SHADOW_RUN_ENABLED" not in content
+    assert "NETTO_SHADOW_V1_ENABLED:" not in content
+    assert "NETTO_SHADOW_V1_APPROVED_MAIN_SHA:" not in content
     assert "name: Build offline shadow extraction receipt" in content
     assert "name: Upload scheduled shadow extraction artifact" in content
     assert "name: Gate first-attempt scheduled shadow extraction" in content
@@ -149,3 +154,20 @@ def test_workflow_remains_statically_disarmed_and_has_exact_safe_step_wiring():
     assert "tools/netto_weekly_shadow_artifact.py" in content
     assert content.index("name: Upload immutable transition artifact") < content.index("name: Build offline shadow extraction receipt")
     assert "DATABASE_URL: 'sqlite+pysqlite:///:memory:'" in content
+
+def test_external_shadow_vars_fail_closed_when_unset_stale_manual_or_rerun():
+    expected_sha = "f" * 40
+    def may_execute(event, ref, attempt, enabled, authorized_sha, current_sha):
+        return (
+            event == "schedule" and ref == "refs/heads/main"
+            and attempt == 1 and enabled == "true" and authorized_sha == current_sha
+        )
+    assert not may_execute("schedule", "refs/heads/main", 1, "", "", expected_sha)
+    assert not may_execute("schedule", "refs/heads/main", 1, "true", "", expected_sha)
+    assert not may_execute("schedule", "refs/heads/main", 1, "", expected_sha, expected_sha)
+    assert not may_execute("schedule", "refs/heads/main", 1, "TRUE", expected_sha, expected_sha)
+    assert not may_execute("schedule", "refs/heads/main", 1, "true", "e" * 40, expected_sha)
+    assert not may_execute("workflow_dispatch", "refs/heads/main", 1, "true", expected_sha, expected_sha)
+    assert not may_execute("schedule", "refs/heads/feature", 1, "true", expected_sha, expected_sha)
+    assert not may_execute("schedule", "refs/heads/main", 2, "true", expected_sha, expected_sha)
+    assert may_execute("schedule", "refs/heads/main", 1, "true", expected_sha, expected_sha)
