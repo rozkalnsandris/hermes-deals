@@ -43,7 +43,7 @@ jobs:
           set -Eeuo pipefail
           [[ "$(id -un)" == github-runner ]]
           [[ "$(id -u)" -ne 0 ]]
-          ! id -nG | tr ' ' '\n' | grep -Fxq docker
+          if id -nG | tr ' ' '\n' | grep -Fxq docker; then exit 1; fi
           [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]]
 
       - name: Checkout exact immutable reviewed source revision
