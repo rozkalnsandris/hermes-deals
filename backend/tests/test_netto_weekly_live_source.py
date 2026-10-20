@@ -1,6 +1,10 @@
 from datetime import date
 from pathlib import Path
 import sys
+from unittest.mock import patch
+
+import httpx
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -10,10 +14,26 @@ if str(TOOLS) not in sys.path:
 
 from netto_weekly_live_source import (  # noqa: E402
     WeeklyLiveSourceError,
+    fetch_latest_nonexpired,
     select_latest_nonexpired,
 )
 from app.netto_store_prospect import NettoStoreProspectBundle  # noqa: E402
 from netto_weekly_transition_state import SELECTOR_STRATEGY  # noqa: E402
+from app.parsers.netto_listing import STORE_PATH  # noqa: E402
+from app.source_config import SourceConfig  # noqa: E402
+
+
+SOURCE = SourceConfig(
+    chain="netto",
+    enabled=True,
+    priority=1,
+    url="https://www.netto-online.de" + STORE_PATH,
+    scope="family_primary_netto",
+    notes="",
+    keywords=(),
+    store_external_id="5659",
+    store_name="Netto 5659",
+)
 
 
 def _bundle(slug: str, start: date, end: date) -> NettoStoreProspectBundle:
@@ -63,3 +83,57 @@ def test_weekly_contract_is_not_heldout_identity_bound() -> None:
     assert "owner-frozen #831" not in live_text
     assert "EXISTING_EVALUATION_CAMPAIGNS" not in selector_text
     assert "netto_weekly_verified_source_selector_v1" == SELECTOR_STRATEGY
+
+
+def test_weekly_live_source_rejects_wrong_store_cookie_before_prospect_discovery() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(
+            200,
+            text="<html></html>",
+            headers={"set-cookie": "netto_user_stores_id=6071; Path=/"},
+        )
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        follow_redirects=True,
+    )
+    with patch("netto_weekly_live_source.httpx.Client", return_value=client):
+        with pytest.raises(WeeklyLiveSourceError, match="selected-store cookie mismatch"):
+            fetch_latest_nonexpired(SOURCE, as_of=date(2026, 10, 20))
+
+    assert len(requested) == 1
+
+
+def test_weekly_live_source_rejects_wrong_final_store_before_prospect_discovery() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.path == STORE_PATH:
+            return httpx.Response(
+                302,
+                headers={
+                    "location": (
+                        "https://www.netto-online.de/"
+                        "filialen/dortmund/hallesche-str-80/6071"
+                    )
+                },
+            )
+        return httpx.Response(
+            200,
+            text="<html></html>",
+            headers={"set-cookie": "netto_user_stores_id=5659; Path=/"},
+        )
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        follow_redirects=True,
+    )
+    with patch("netto_weekly_live_source.httpx.Client", return_value=client):
+        with pytest.raises(WeeklyLiveSourceError, match="selected-store final URL mismatch"):
+            fetch_latest_nonexpired(SOURCE, as_of=date(2026, 10, 20))
+
+    assert len(requested) == 2
