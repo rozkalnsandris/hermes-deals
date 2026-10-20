@@ -24,6 +24,9 @@ env:
 
 jobs:
   transition:
+    # Preserve the legacy scheduler unless BOTH pinned cutover controls match.
+    # Absent/stale/partial pinned config therefore keeps today's behavior.
+    if: ${{ !(vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '0110e386d66b24b7d10c75df4d4970113dee3a49') }}
     runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
     timeout-minutes: 30
     permissions:
@@ -297,9 +300,20 @@ jobs:
           [[ -z "${ROOT:-}" || "$ROOT" != "$RUNNER_TEMP"/netto-weekly-state-* ]] || rm -rf -- "$ROOT"
           [[ -z "${VENV:-}" || "$VENV" != "$RUNNER_TEMP"/netto-weekly-state-venv-* ]] || rm -rf -- "$VENV"
 
+  pinned-transition:
+    # Source-only wiring: this job stays skipped until a later exact LIVE
+    # authorization creates BOTH pinned controls. The reusable definition is
+    # immutable and does not follow future main commits.
+    if: ${{ github.event_name == 'schedule' && vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '0110e386d66b24b7d10c75df4d4970113dee3a49' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61
+
   report:
     needs: transition
-    if: always()
+    if: ${{ always() && needs.transition.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
