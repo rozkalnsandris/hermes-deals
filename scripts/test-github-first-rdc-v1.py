@@ -65,7 +65,7 @@ class AdoptionPolicyTests(unittest.TestCase):
         self.assertEqual(self.routing["default_continuation_mode"], "FAST-LANE v2.2")
         self.assertIn("STRICT", self.agents)
         self.assertIn("Merge never authorizes deployment", self.agents)
-        self.assertIn("AUTO-RUN FULL QUEUE", self.agents)
+        self.assertIn("AUTO-RUN-FULL-QUEUE", self.routing["explicit_modes"])
         self.assertIn("No provider LLM API key", self.agents)
 
     def test_decision_matrix(self):
