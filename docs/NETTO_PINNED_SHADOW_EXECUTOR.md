@@ -1,20 +1,30 @@
-# Netto #28: pinned reusable shadow executor (disarmed PREP)
+# Netto #28: pinned reusable shadow executor and disarmed caller
 
-This PR only adds `.github/workflows/netto-weekly-pinned-shadow-executor.yml`,
-focused source-contract tests and this document. It **does not modify**
-`.github/workflows/netto-weekly-transition-state.yml`, GitHub Actions
-variables, the existing scheduled runner, or production. The currently
-authorized legacy schedule and exact-`main` gate remain unchanged.
+The reusable executor was merged by PR #1025 at immutable commit
+`93b866ba2ec64ab2100f48733487afc960298d61`. Its reviewed source definition blob is
+`969d51ca97de5021e74ad67555186995fb8111d1`; it checks out the independently pinned executable source
+`0110e386d66b24b7d10c75df4d4970113dee3a49` before any retailer source collection.
+
+The follow-up caller change remains **source-only and disarmed**. It modifies
+the existing scheduled workflow so the legacy transition observation remains
+the default while `NETTO_PINNED_EXECUTOR_V1_*` variables are absent. It adds
+one pinned reusable-workflow job at the exact commit above and a read-only
+GitHub attestor. It does **not** create/change Actions variables, run the
+collector, change the schedule/runner, deploy, write DB/Review/publication
+state or claim real runtime evidence.
 
 ## Rationale and immutable identity
 
 GitHub's reusable workflow `on: workflow_call` has no independent scheduled
 trigger. A caller invokes it as a **job** using
 `rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@<40-hex immutable SHA>`.
-The new workflow file does not exist at the **current** old commit and
-therefore **the called reusable workflow SHA cannot be selected until after
-this source PR is merged**. Do not use `@main`, a mutable tag, a synthesized
-future SHA, or a same-commit relative `./.github/workflows` reference.
+The merged reusable workflow is now called only through the immutable literal
+`93b866ba2ec64ab2100f48733487afc960298d61`. Do not use `@main`, a mutable tag, a synthesized future SHA,
+or a same-commit relative `./.github/workflows` reference. GitHub documents
+that an explicit commit SHA is the safest reusable-workflow reference and that
+the `github` context inside a called workflow remains associated with the
+caller. The caller head may therefore move for unrelated repository changes
+without changing the pinned executable source.
 
 The executor checks out this **pinned source SHA** regardless of the caller:
 
@@ -40,8 +50,9 @@ full unattended production-grade acceptance.
 
 ## Two independent disarm layers and staged cutover
 
-1. This file declares **only** `workflow_call`, never schedule, dispatch,
-   push, `workflow_run` or PR triggers. **No caller is added here.**
+1. The reusable file declares **only** `workflow_call`, never schedule,
+   dispatch, push, `workflow_run` or PR triggers. The existing
+   `netto-weekly-transition-state.yml` is the sole scheduled caller.
 2. The transition job requires `NETTO_PINNED_EXECUTOR_V1_ENABLED=true`,
    `NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA` equal to the exact
    source SHA above, repository and original caller workflow identity,
@@ -49,22 +60,23 @@ full unattended production-grade acceptance.
    Those variables were absent in the source-preparation read-only preflight
    and are **not created** here. Unknown later value drift fails closed;
    they must be re-read before a separate LIVE authorization.
-3. After a future reviewed caller PR, the caller must use the literal
-   post-merge **called reusable workflow SHA**, and only the approved job
-   permissions; it must not concurrently invoke both legacy and new
-   transition jobs. Preserve immutable artifacts, scheduled-only source
-   selection and the non-root runner. Original transition-state history
-   uses its existing prefix; a new shadow proof uses separate
-   `netto-weekly-pinned-shadow-scheduled-<run-id>` so legacy proof cannot
-   misclassify it.
+3. The reviewed caller uses the literal **called reusable workflow SHA**
+   `93b866ba2ec64ab2100f48733487afc960298d61` and only `contents:read`, `actions:read`, `issues:write`
+   permissions. The positive pinned selector and the inverse legacy selector
+   are mutually exclusive for scheduled `main` runs. If the pinned selector
+   is active on a rerun, both execution paths skip rather than falling back to
+   mutable-main execution. Manual dispatch continues only through the legacy
+   observation path. Original transition-state history keeps its existing
+   prefix; pinned proof uses `netto-weekly-pinned-shadow-scheduled-<run-id>`.
 4. A later **separate LIVE authorization** must explicitly control
    disabling/reconciling legacy `NETTO_SHADOW_V1_ENABLED`, the new
    enable/source variables, schedule and runner state, and any resulting
    retained artifacts. No automatic toggle, merge, runtime, rollback,
    production/DB/Review write, or collector execution is authorized here.
 
-Until steps 3–4 are independently approved, **the current schedule remains
-the only active one**. This is not a working cutover or runtime proof.
+Until the separate LIVE variable cutover is approved, **the current legacy
+transition observation remains the effective scheduled path**. Adding the
+caller source does not activate the reusable executor and is not runtime proof.
 
 ## Independent attestation contract (not yet independently attested)
 
@@ -74,17 +86,18 @@ scheduled run/step/ZIP artifact for the **legacy** workflow only. It is
 namespace. In particular, a JSON file created by the runner must not
 self-certify which GitHub workflow definition was actually called.
 
-A future pinned-executor attestor must read authoritative GitHub GET
-run/job/artifact metadata, and fail closed unless all of these bind:
+The read-only `tools/netto_weekly_pinned_shadow_attestation.py` implementation
+reads authoritative GitHub GET run/job/artifact/workflow-content metadata and
+fails closed unless all of these bind:
 
 - GitHub run ID, repository, `main`, scheduled first attempt,
   `Netto weekly transition state` original caller identity, completed
   success and the successful `Build offline shadow extraction receipt` step.
 - The actual **caller head SHA**, its recorded approval and GitHub run identity;
   never equate it with the reviewed executor source SHA.
-- The exact **called reusable workflow SHA** resolved from an immutable
-  caller-job reference and GitHub-verified called-workflow identity.
-  The source-preparation PR cannot attest this future SHA.
+- The exact **called reusable workflow SHA** `93b866ba2ec64ab2100f48733487afc960298d61`, resolved from the
+  caller workflow source at the actual run head, plus the reviewed reusable
+  workflow blob `969d51ca97de5021e74ad67555186995fb8111d1` fetched independently at that SHA.
 - The exact **pinned source SHA** above, verified through the immutable
   reusable YAML checkout ref **and** the observed successful checkout
   verification step; neither untrusted artifact contents nor the
@@ -99,20 +112,20 @@ run/job/artifact metadata, and fail closed unless all of these bind:
   authority false until independent source-card reconciliation and two
   authentic consecutive weekly windows have been proven.
 
-No pinned attestation success may be reported until the external run,
-referenced-workflow identity and verified artifact can actually be checked.
-Synthetic tests and this contract are only preparation, **not yet
-independently attested**.
+No pinned attestation success may be reported until a real external scheduled
+run, caller source, referenced reusable definition and verified artifact can
+actually be fetched. The implementation and synthetic regression fixtures are
+preparation only: the pinned path is **not yet independently attested**.
 
 ## Future activation blockers
 
-A separate reviewed source change must supply a caller using the exact
-merged reusable workflow SHA, plus a complete read-only attestation
-implementation. Review the currently enabled legacy shadow variables before
-cutover and avoid duplicate publication of transition artifacts. Verify
+After this caller/attestor source change passes review and is merged, re-read
+both legacy and pinned Actions variable baselines plus runner state. A separate
+LIVE authorization must disable/reconcile the stale legacy shadow switch and
+create/set the two pinned selector variables in fail-closed order. Verify
 scheduled runner capacity, job authorization, Python dependency trust and
-failure notification. Then request exact owner MERGE and a **separate LIVE
-authorization** before any active schedule/runner or variables are changed.
+failure notification. No variable, runner or schedule mutation is bundled with
+the source merge.
 
 There is no production apply, DB write, publication, Review write, deployment
 or manual test run in this preparatory PR.

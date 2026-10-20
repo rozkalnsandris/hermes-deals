@@ -19,11 +19,16 @@ concurrency:
 env:
   STATE_PREFIX: netto-weekly-transition-state-scheduled-
   CANARY_PREFIX: netto-weekly-transition-canary-
-  # Shadow execution remains off until two repo-level Actions vars match.
-  # One var must bind the unknown-until-merge exact current main SHA.
+  # Legacy exact-main shadow stays fail-closed. The pinned executor cutover is
+  # selected only by separately owner-managed repo vars; source merge alone
+  # leaves the existing transition observation job active.
 
 jobs:
   transition:
+    # Preserve the existing observation path until the complete pinned selector
+    # is LIVE-authorized. Once selected, reruns fail closed instead of falling
+    # back to the mutable-main transition job.
+    if: ${{ github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '0110e386d66b24b7d10c75df4d4970113dee3a49' || github.ref != 'refs/heads/main' }}
     runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
     timeout-minutes: 30
     permissions:
@@ -297,9 +302,18 @@ jobs:
           [[ -z "${ROOT:-}" || "$ROOT" != "$RUNNER_TEMP"/netto-weekly-state-* ]] || rm -rf -- "$ROOT"
           [[ -z "${VENV:-}" || "$VENV" != "$RUNNER_TEMP"/netto-weekly-state-venv-* ]] || rm -rf -- "$VENV"
 
+  pinned_shadow:
+    name: Pinned shadow executor
+    if: ${{ github.event_name == 'schedule' && vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '0110e386d66b24b7d10c75df4d4970113dee3a49' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61 # reviewed policy revision 93b866ba2ec64ab2100f48733487afc960298d61
+
   report:
     needs: transition
-    if: always()
+    if: ${{ always() && (github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '0110e386d66b24b7d10c75df4d4970113dee3a49' || github.ref != 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
