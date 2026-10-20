@@ -226,7 +226,7 @@ jobs:
           ROOT: ${{ steps.restore.outputs.root }}
           VENV_BIN: ${{ steps.python.outputs.bin }}
           EVENT_NAME: ${{ github.event_name }}
-          DATABASE_URL: sqlite+pysqlite:///:memory:
+          DATABASE_URL: 'sqlite+pysqlite:///:memory:'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -245,7 +245,7 @@ jobs:
         env:
           ROOT: ${{ steps.restore.outputs.root }}
           VENV_BIN: ${{ steps.python.outputs.bin }}
-          DATABASE_URL: sqlite+pysqlite:///:memory:
+          DATABASE_URL: 'sqlite+pysqlite:///:memory:'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -260,7 +260,7 @@ jobs:
         env:
           ROOT: ${{ steps.restore.outputs.root }}
           VENV_BIN: ${{ steps.python.outputs.bin }}
-          DATABASE_URL: sqlite+pysqlite:///:memory:
+          DATABASE_URL: 'sqlite+pysqlite:///:memory:'
         shell: bash
         run: |
           set -Eeuo pipefail
