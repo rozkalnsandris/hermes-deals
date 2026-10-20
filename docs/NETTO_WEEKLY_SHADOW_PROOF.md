@@ -65,3 +65,33 @@ The current workflow does **not** satisfy these conditions. Nothing in this
 source work turns the parent acceptance flag true. Production writes, Review,
 approval, publication, deployment, scheduler/runner and host changes all
 remain separately authorized.
+
+## Independent read-only GitHub run/artifact attestation (source-only)
+
+`tools/netto_weekly_shadow_attestation.py --run-id <numeric-run-id>` obtains
+the workflow run, complete job listing, and run artifact listing using
+authenticated GitHub REST GET requests, then downloads only the exact bounded
+scheduled shadow artifact. It validates GitHub's sha256 ZIP digest, internal
+SHA256SUMS and known ZIP members (`selector.json`, `shadow-report.json`,
+`SHA256SUMS`). A signed archive redirect never receives the GitHub API token.
+
+For an attestation to pass, the real GitHub run must be first-attempt,
+`event=schedule`, on `main`, from the exact Netto weekly workflow,
+completed successfully, and contain a successful step named
+`Build offline shadow extraction receipt`. The artifact name must be exactly
+`netto-weekly-shadow-scheduled-<run-id>` and its GitHub-owned run ID and head
+must match; SHA/path/campaign/store/validity/parser identity must match across
+selector and report. This report is **not** user-supplied authenticated state.
+
+Important: **the current scheduled workflow does not yet have that step or
+artifact**. A currently completed `run_shadow` source-selection decision is
+rejected; reruns, manual dispatches, duplicate/expired artifacts, mismatched
+evidence and self-declared acceptance are rejected. Test fixtures demonstrate
+the mechanics only, **not real historical acceptance**.
+
+A passing attestation means only **scheduled extraction observed**. It still
+returns `source_card_accounting=unknown`,
+`shadow_acceptance_passed=false` and
+`issue_28_two_real_transitions_ready=false`. Future independent source-card
+reconciliation plus two real distinct consecutive qualifying weekly campaigns
+remain separate work and separate LIVE activation gates.
