@@ -19,7 +19,8 @@ concurrency:
 env:
   STATE_PREFIX: netto-weekly-transition-state-scheduled-
   CANARY_PREFIX: netto-weekly-transition-canary-
-  NETTO_SHADOW_RUN_ENABLED: 'false' # Explicitly disarmed pending separate post-merge LIVE authorization.
+  # Shadow execution remains off until two repo-level Actions vars match.
+  # One var must bind the unknown-until-merge exact current main SHA.
 
 jobs:
   transition:
@@ -217,11 +218,13 @@ jobs:
           if-no-files-found: error
           retention-days: 35
 
-      # Source-only proposal. The fixed 'false' gate prevents any runner-side
-      # parser/artifact execution even if this workflow file is merged.
+      # External fail-closed activation: both repository Actions variables
+      # NETTO_SHADOW_V1_ENABLED=true and NETTO_SHADOW_V1_APPROVED_MAIN_SHA
+      # equal to this exact scheduled main SHA must be set after owner LIVE approval.
+      # Neither var is defined here; unset vars evaluate to empty strings.
       - name: Gate first-attempt scheduled shadow extraction
         id: shadow_gate
-        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' }}
+        if: ${{ github.event_name == 'schedule' && vars.NETTO_SHADOW_V1_ENABLED == 'true' && vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
         env:
           ROOT: ${{ steps.restore.outputs.root }}
           VENV_BIN: ${{ steps.python.outputs.bin }}
@@ -241,7 +244,7 @@ jobs:
 
       - name: Build offline shadow extraction receipt
         id: shadow_extract
-        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' && steps.shadow_gate.outputs.eligible == 'true' }}
+        if: ${{ github.event_name == 'schedule' && vars.NETTO_SHADOW_V1_ENABLED == 'true' && vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha && github.ref == 'refs/heads/main' && github.run_attempt == 1 && steps.shadow_gate.outputs.eligible == 'true' }}
         env:
           ROOT: ${{ steps.restore.outputs.root }}
           VENV_BIN: ${{ steps.python.outputs.bin }}
@@ -256,7 +259,7 @@ jobs:
 
       - name: Stage scheduled shadow extraction artifact
         id: shadow_stage
-        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' && steps.shadow_extract.outcome == 'success' }}
+        if: ${{ github.event_name == 'schedule' && vars.NETTO_SHADOW_V1_ENABLED == 'true' && vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha && github.ref == 'refs/heads/main' && github.run_attempt == 1 && steps.shadow_extract.outcome == 'success' }}
         env:
           ROOT: ${{ steps.restore.outputs.root }}
           VENV_BIN: ${{ steps.python.outputs.bin }}
@@ -272,7 +275,7 @@ jobs:
             --event schedule
 
       - name: Upload scheduled shadow extraction artifact
-        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' && steps.shadow_stage.outcome == 'success' }}
+        if: ${{ github.event_name == 'schedule' && vars.NETTO_SHADOW_V1_ENABLED == 'true' && vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha && github.ref == 'refs/heads/main' && github.run_attempt == 1 && steps.shadow_stage.outcome == 'success' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: netto-weekly-shadow-scheduled-${{ github.run_id }}
