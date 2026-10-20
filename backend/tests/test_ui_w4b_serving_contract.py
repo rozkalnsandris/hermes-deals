@@ -69,7 +69,7 @@ def test_w4c_release_keeps_nginx_as_transparent_asset_proxy() -> None:
     assert "max-age" not in asset_block.casefold()
 
 
-def test_household_ingress_preserves_uri_and_legacy_landing() -> None:
+def test_household_ingress_preserves_uri_and_root_opens_household_ui() -> None:
     nginx = read(NGINX)
     for location in ("location = /ui/home {", "location ^~ /ui/home/ {"):
         block = nginx.split(location, 1)[1].split("}", 1)[0]
@@ -78,4 +78,5 @@ def test_household_ingress_preserves_uri_and_legacy_landing() -> None:
         assert "proxy_set_header X-Forwarded-Proto $scheme;" in block
         assert "try_files" not in block and "add_header" not in block
     landing = nginx.split("location = / {", 1)[1].split("}", 1)[0]
-    assert "return 302 /ui;" in landing
+    assert "absolute_redirect off;" in landing
+    assert "return 302 /ui/home;" in landing
