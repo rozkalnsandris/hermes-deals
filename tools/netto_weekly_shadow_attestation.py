@@ -35,7 +35,7 @@ ARTIFACT_PREFIX = "netto-weekly-shadow-scheduled-"
 MEMBERS = ("SHA256SUMS", "selector.json", "shadow-report.json")
 MAX_ARCHIVE = 2_000_000
 MAX_MEMBER = 800_000
-SHA_RE = re.compile(r"[0-9a-f]{64}\\Z")
+SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class ShadowAttestationError(ValueError):
