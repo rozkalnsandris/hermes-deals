@@ -180,6 +180,14 @@ def verify_extraction(
             or report.get("failure_category") is not None
             or report.get("shadow_extraction_completed") is not True
             or report.get("source_card_accounting") != "unknown"
+            or report.get("source_card_breakdown") != {
+                "total_source_cards": None,
+                "parsed_cards": None,
+                "review_pending_cards": None,
+                "excluded_cards": None,
+                "unsupported_cards": None,
+                "unaccounted_cards": None,
+            }
             or report.get("shadow_acceptance_passed") is not False
             or report.get("issue_28_two_real_transitions_ready") is not False
             or report.get("promotion_ready") is not False
