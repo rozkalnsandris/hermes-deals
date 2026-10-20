@@ -1,0 +1,134 @@
+{
+  "schema": "rozkalns.github-first-rdc-fallback.consumer.v1",
+  "status": "SOURCE_ADOPTION_ON_MERGE",
+  "repository": "rozkalnsandris/hermes-deals",
+  "canonical": {
+    "repository": "rozkalnsandris/ops-workflows",
+    "revision": "4e89b75d7f496dfb43fd9c1eb10a995fad53fdd8",
+    "document": "docs/GITHUB_FIRST_RDC_FALLBACK_V1.md",
+    "policy": "policy/github-first-rdc-fallback-v1.json"
+  },
+  "routing": {
+    "per_step_required": true,
+    "github_equivalent_required": true,
+    "github_ci_when_applicable": true,
+    "rdc_convenience_allowed": false,
+    "order": [
+      "GITHUB_CONNECTED_TOOLS",
+      "GITHUB_HOSTED_CI_WHEN_APPLICABLE",
+      "MINIMAL_AUTHORIZED_RDC_IF_GITHUB_INCAPABLE",
+      "STOP"
+    ]
+  },
+  "rdc_exception": {
+    "host_local_step_required": true,
+    "precise_github_gap_required": true,
+    "github_actions_ruled_out_when_applicable": true,
+    "smallest_necessary_step": true,
+    "existing_authority_required": true,
+    "public_safe_evidence_required": true,
+    "return_to_github_required": true,
+    "evidence_fields": [
+      "STEP",
+      "REPOSITORY_AND_TARGET",
+      "GITHUB_CAPABILITY_CHECKED",
+      "PRECISE_CAPABILITY_GAP",
+      "GITHUB_CI_NOT_EQUIVALENT_REASON",
+      "MINIMAL_RDC_OPERATION",
+      "EXISTING_AUTHORIZATION",
+      "GITHUB_RETURN_EVIDENCE"
+    ]
+  },
+  "fail_closed": {
+    "github_access_denial_never_rdc": true,
+    "github_error_never_rdc": true,
+    "github_rate_limit_never_rdc": true,
+    "uncertain_mutation_never_rdc": true,
+    "no_automatic_retry_rollback_cleanup": true,
+    "no_implicit_merge_live_permissions_secrets_authority": true
+  },
+  "hermes_local_stricter": {
+    "live_runtime_requires_exact_owner_authority": true,
+    "production_db_and_alembic_requires_exact_authority": true,
+    "collector_replay_apply_requires_exact_authority": true,
+    "retained_source_and_review_publication_writes_require_exact_authority": true,
+    "cloudflare_scheduler_host_and_container_mutation_requires_exact_authority": true,
+    "no_implict_auto_run_or_queue_activation": true,
+    "source_merge_does_not_authorize_live": true,
+    "source_observation_provenance_preserved": true
+  },
+  "cases": [
+    {
+      "name": "git-source-change",
+      "github": true,
+      "ci": false,
+      "host": false,
+      "error": false,
+      "authority": true,
+      "expected": "GITHUB"
+    },
+    {
+      "name": "github-actions-tests",
+      "github": false,
+      "ci": true,
+      "host": false,
+      "error": false,
+      "authority": true,
+      "expected": "GITHUB_ACTIONS"
+    },
+    {
+      "name": "systemd-local-read",
+      "github": false,
+      "ci": false,
+      "host": true,
+      "error": false,
+      "authority": true,
+      "expected": "RDC_EXCEPTION"
+    },
+    {
+      "name": "docker-live-unapproved",
+      "github": false,
+      "ci": false,
+      "host": true,
+      "error": false,
+      "authority": false,
+      "expected": "STOP"
+    },
+    {
+      "name": "github-authorization-denied",
+      "github": false,
+      "ci": false,
+      "host": false,
+      "error": true,
+      "authority": true,
+      "expected": "STOP"
+    },
+    {
+      "name": "github-timeout-no-host-retry",
+      "github": false,
+      "ci": false,
+      "host": true,
+      "error": true,
+      "authority": true,
+      "expected": "STOP"
+    },
+    {
+      "name": "github-capability-unavailable-without-host-need",
+      "github": false,
+      "ci": false,
+      "host": false,
+      "error": false,
+      "authority": true,
+      "expected": "STOP"
+    },
+    {
+      "name": "rdc-convenience-for-branch",
+      "github": true,
+      "ci": false,
+      "host": true,
+      "error": false,
+      "authority": true,
+      "expected": "GITHUB"
+    }
+  ]
+}

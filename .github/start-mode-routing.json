@@ -7,6 +7,16 @@
     "shared_revision": "3bb0740b5f0a8ce631d2ff79f1acc4999ff6ed2c",
     "rule": "For START, SYNC, turpini and PR continuation, apply the GitHub API access manifest: serial minimum-sufficient reads, changed-file inspection on demand, no tight polling, compact exact-head pre-mutation evidence, fail-closed reconciliation after ambiguous writes, never duplicate a mutation after dispatch ambiguity, and use exact-main minimal reconciliation after confirmed success. Repository-local stricter authority remains unchanged."
   },
+  "github_first_rdc_fallback": {
+    "shared_revision": "4e89b75d7f496dfb43fd9c1eb10a995fad53fdd8",
+    "consumer_adapter": ".github/github-first-rdc-v1.json",
+    "mandatory_per_step": true,
+    "prefer_github_actions_for_equivalent_tests": true,
+    "rdc_requires_proven_capability_gap": true,
+    "github_error_not_an_rdc_fallback": true,
+    "preserve_hermes_deals_strict_live_classes": true,
+    "independent_of_command_mode": true
+  },
   "visual_verification": {
     "canonical_policy": "rozkalnsandris/RPi5_main@main:docs/VISUAL_VERIFICATION.md",
     "default_host_tool": "~/.local/bin/ui-proof",

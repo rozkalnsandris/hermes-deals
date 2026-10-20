@@ -20,6 +20,16 @@
 - Use the `hermes-deals` skill for retailer-source audits, parser changes, persistence changes, production gates, and B15/B15B Lidl work.
 <!-- END HERMES-DEALS-CODEX-MANAGED -->
 
+## GitHub-first / RDC fallback v1 (mandatory)
+
+Shared normative contract: `rozkalnsandris/ops-workflows@4e89b75d7f496dfb43fd9c1eb10a995fad53fdd8`, `docs/GITHUB_FIRST_RDC_FALLBACK_V1.md` and `policy/github-first-rdc-fallback-v1.json`. Local adapter: `.github/github-first-rdc-v1.json`; adoption guide: `docs/GITHUB_FIRST_RDC_ADOPTION_V1.md`.
+
+- Decide **per step**. When the connected GitHub tools or GitHub-hosted Actions can do the work with equivalent correctness, permissions and evidence, GitHub is **mandatory** for source/files, branches/commits, issues/PRs, CI, reviews, source validation and canonical continuity. Never use RDC merely for convenience, speed, habit or because `git`, `gh` or `curl` is available on the RPi5.
+- RDC is an exceptional host-local read/execution surface only if the exact necessary step has a proven GitHub **and applicable GitHub-hosted CI** capability gap, the task genuinely belongs on the named host, the smallest necessary operation is documented, and existing read/LIVE authorization covers its exact target and risk. A host-local read is not blanket protected-data access; mutations remain separately strictly authorized.
+- Before RDC record public-safe evidence for `STEP`, `REPOSITORY_AND_TARGET`, `GITHUB_CAPABILITY_CHECKED`, `PRECISE_CAPABILITY_GAP`, `GITHUB_CI_NOT_EQUIVALENT_REASON`, `MINIMAL_RDC_OPERATION`, `EXISTING_AUTHORIZATION`, and `GITHUB_RETURN_EVIDENCE`. Return to GitHub immediately after the one bounded host step.
+- GitHub access denial, insufficient permission, 403/429, rate limits, tool failure, timeout, missing authority or an uncertain dispatched write is **STOP**, not RDC fallback, duplicate mutation, automatic retry, rollback or cleanup.
+- This is tool priority, not the separate `GITHUB-ONLY` deferred-LIVE mode. It does not grant source/merge/LIVE/deploy/DB/collector/retained-evidence/publication/secret/settings authority and does not alter FAST, AUTO-RUN FULL, Queue or local stricter trust boundaries.
+
 ## Startup command routing
 
 Read `.github/start-mode-routing.json` before selecting a startup/continuation mode.
