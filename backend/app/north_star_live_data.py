@@ -127,7 +127,7 @@ def history_view(details):
             "truncated": details.history_truncated, "summary": summary}
 
 
-def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", product=None, offset=0):
+def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0):
     state, version = read_household(db, household_id)
     def quote_for(row, *, favorite_id=None):
         return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
@@ -136,7 +136,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     with materialize_only("current"):
         current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
                                      view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
-                                     sort="name", offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
+                                     sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
     bindings = state.get("ingredient_offers", {})
     references = set(bindings.values()) | set(state["favorites"]) | {item["product_id"] for item in state["shopping"] if item["product_id"]}
     originals = {str(row.id): row for row in db.scalars(select(OfferCandidateRecord).where(OfferCandidateRecord.id.in_([UUID(key) for key in references])))} if references else {}
@@ -297,6 +297,6 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
             "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
-            "query": query, "retailer": retailer, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
+            "query": query, "retailer": retailer, "sort": sort, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
             "notice": "", "read_error": False}

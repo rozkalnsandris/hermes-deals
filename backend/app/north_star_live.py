@@ -108,6 +108,9 @@ def home(request: Request, db: Session = Depends(get_db)):
     view = params.get("view", "overview")
     if view not in NAV:
         raise HTTPException(404, "Sadaļa nav atrasta.")
+    sort = params.get("sort", "name")
+    if sort not in {"name", "retailer", "newest"}:
+        raise HTTPException(422, "Nederīga kārtošanas izvēle.")
     try:
         offset = int(params.get("offset", "0"))
         if not 0 <= offset <= 100000:
@@ -116,7 +119,7 @@ def home(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(422, "Nederīgs lapas numurs.")
     try:
         context = build_live_context(db, household_key(), day, view=view, query=params.get("q", "")[:100],
-                                     retailer=params.get("retailer", "")[:32], product=params.get("product"), offset=offset)
+                                     retailer=params.get("retailer", "")[:32], sort=sort, product=params.get("product"), offset=offset)
     except SQLAlchemyError:
         db.rollback()
         log.warning("North-star data read failed; check database and migration 0008")
