@@ -36,6 +36,7 @@ MEMBERS = ("SHA256SUMS", "selector.json", "shadow-report.json")
 MAX_ARCHIVE = 2_000_000
 MAX_MEMBER = 800_000
 SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
+GIT_SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 
 
 class ShadowAttestationError(ValueError):
@@ -44,6 +45,10 @@ class ShadowAttestationError(ValueError):
 
 def _sha(value: Any) -> bool:
     return isinstance(value, str) and SHA_RE.fullmatch(value) is not None
+
+
+def _git_sha(value: Any) -> bool:
+    return isinstance(value, str) and GIT_SHA_RE.fullmatch(value) is not None
 
 
 def _positive_int(value: Any) -> bool:
@@ -63,7 +68,7 @@ def validate_run(run: Mapping[str, Any], jobs: Mapping[str, Any], run_id: int) -
             or run.get("run_attempt") != 1
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"
-            or not _sha(run.get("head_sha"))):
+            or not _git_sha(run.get("head_sha"))):
         raise ShadowAttestationError("GitHub run is not a completed first-attempt scheduled shadow workflow")
 
     raw_jobs = jobs.get("jobs")
