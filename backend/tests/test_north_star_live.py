@@ -227,6 +227,43 @@ def test_dates_filters_pagination_and_settings(data):
     assert read_household(db, "test-family")[0]["settings"]["people"] == 6
 
 
+def test_household_offer_sorting_is_server_owned(data):
+    db, client, _ = data
+    offer(db, name="A Netto", chain="netto", sku="netto", collected_day=1)
+    offer(db, name="Z Lidl", chain="lidl", sku="lidl", collected_day=2)
+    offer(db, name="M Edeka", chain="edeka", sku="edeka", collected_day=1)
+    base = "/ui/home/?view=deals&date=2026-10-03"
+    default = client.get(base)
+    assert default.status_code == 200
+    assert re.findall(r'class="offer-title"[^>]*><h3>([^<]+)</h3>', default.text) == ["A Netto", "M Edeka", "Z Lidl"]
+    by_store = client.get(base + "&sort=retailer")
+    assert by_store.status_code == 200
+    assert re.findall(r'class="offer-title"[^>]*><h3>([^<]+)</h3>', by_store.text) == ["M Edeka", "Z Lidl", "A Netto"]
+    newest = client.get(base + "&sort=newest", headers={"HX-Request": "true"})
+    assert newest.status_code == 200
+    assert re.findall(r'class="offer-title"[^>]*><h3>([^<]+)</h3>', newest.text)[0] == "Z Lidl"
+    assert 'name="sort"' in newest.text and 'value="newest" selected' in newest.text
+    assert "1–3 no 3 piedāvājumiem" in newest.text
+    assert client.get(base + "&sort=price_asc").status_code == 422
+
+
+def test_household_offer_sort_pagination_preserves_filters(data):
+    db, client, _ = data
+    for i in range(61):
+        offer(db, name=f"Piens {i:02}", sku=str(i), chain="lidl")
+    base = "/ui/home/?view=deals&date=2026-10-01&q=Piens&retailer=lidl&sort=retailer"
+    first = client.get(base)
+    assert first.status_code == 200
+    assert "1–60 no 61 piedāvājumiem" in first.text
+    assert "sort=retailer&amp;offset=60" in first.text
+    second = client.get(base + "&offset=60")
+    assert second.status_code == 200
+    assert "61–61 no 61 piedāvājumiem" in second.text
+    assert "Iepriekšējā lapa" in second.text
+    assert "Notīrīt filtrus" in second.text
+    assert "q=Piens&amp;retailer=lidl&amp;sort=retailer&amp;offset=0" in second.text
+
+
 @pytest.mark.parametrize("values", [{"package_text_raw": None}, {"collected_day": 2}])
 def test_unknown_package_and_future_observation_are_not_basket_prices(data, values):
     db, client, _ = data
