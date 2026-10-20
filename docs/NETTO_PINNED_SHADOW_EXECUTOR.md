@@ -116,3 +116,50 @@ authorization** before any active schedule/runner or variables are changed.
 
 There is no production apply, DB write, publication, Review write, deployment
 or manual test run in this preparatory PR.
+
+
+## Source-wired fail-closed caller after PR #1025
+
+The reusable executor merged at immutable Git SHA `93b866ba2ec64ab2100f48733487afc960298d61`.
+The scheduler source now prepares a **disarmed** direct reusable-workflow job
+using the literal reference:
+
+`rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61`
+
+No new trigger is added. The existing Sunday/Monday schedule remains the only
+scheduler. The legacy `transition` job continues whenever the pinned controls
+are absent, partial or stale. Only when **both**
+`NETTO_PINNED_EXECUTOR_V1_ENABLED=true` and
+`NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA=0110e386d66b24b7d10c75df4d4970113dee3a49`
+match does the legacy job skip and the immutable pinned executor become
+eligible. Neither variable is created or changed by this source PR.
+
+This means merging the caller wiring alone does not execute the new
+self-hosted path and does not break the currently active transition-state
+observation. Actual cutover still requires a separate exact LIVE
+authorization that freshly proves variable baseline, runner status and the
+merged caller source.
+
+GitHub documents commit SHA as the safest reusable-workflow reference and
+returns a workflow run's `referenced_workflows` entries, including the
+resolved reusable-workflow SHA. The new read-only
+`tools/netto_weekly_pinned_shadow_attestation.py` therefore requires the one
+exact referenced workflow `93b866ba2ec64ab2100f48733487afc960298d61`, a successful scheduled
+first-attempt caller run, the required non-root/pinned-checkout and shadow
+steps on the audit runner labels, and the pinned-only artifact namespace.
+Only after those external GitHub facts pass does it delegate the existing
+selector/report/archive integrity checks.
+
+The attestor records the approved source revision `0110e386d66b24b7d10c75df4d4970113dee3a49` separately
+from the **caller head SHA**. Future unrelated `main` changes are therefore
+allowed without silently changing executor source. The caller head still has
+to be a real scheduled `main` run, but it is not used as parser/collector
+identity.
+
+This remains extraction proof only:
+`source_card_accounting=unknown`,
+`shadow_acceptance_passed=false`,
+`issue_28_two_real_transitions_ready=false` and production-write authority
+false. Two independently verified pinned weekly runs still require the same
+calendar-window ordering checks as the legacy attestor and still do not prove
+full source-card coverage.

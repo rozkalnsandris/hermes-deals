@@ -31,7 +31,7 @@ def test_immutable_source_pin_is_distinct_from_caller_head():
     assert re.fullmatch("[0-9a-f]{40}", PIN)
 
 
-def test_no_new_activation_or_existing_live_workflow_change():
+def test_pinned_executor_remains_disarmed_and_active_caller_is_exact_sha_wired():
     text = PREP.read_text(encoding="utf-8")
     existing = ACTIVE.read_text(encoding="utf-8")
     assert "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true'" in text
@@ -44,12 +44,17 @@ def test_no_new_activation_or_existing_live_workflow_change():
     assert "startsWith(github.workflow_ref, 'rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-transition-state.yml@')" in text
     assert "NETTO_PINNED_EXECUTOR_V1_ENABLED:" not in text
     assert "NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA:" not in text
-    assert "NETTO_PINNED_EXECUTOR_V1" not in existing
+    assert "NETTO_PINNED_EXECUTOR_V1_ENABLED:" not in existing
+    assert "NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA:" not in existing
     assert "vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha" in existing
     assert "workflow_call:" not in existing
     assert "cron: '10 0 * * 0'" in existing
     assert "cron: '10 0 * * 1'" in existing
     assert "name: Netto weekly transition state" in existing
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true'" in existing
+    assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{PIN}'" in existing
+    assert "uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61" in existing
+    assert "always() && needs.transition.result != 'skipped'" in existing
 
 
 def test_original_shadow_execution_safety_remains_scoped():
@@ -93,3 +98,24 @@ def test_contract_does_not_confuse_caller_sha_with_pinned_source_sha():
     assert "separate LIVE authorization" in doc
     assert "source_card_accounting=unknown" in doc
     assert "not yet independently attested" in doc
+
+
+def test_active_scheduler_cutover_is_fail_closed_and_preserves_legacy_on_partial_config():
+    text = ACTIVE.read_text(encoding="utf-8")
+    legacy_guard = (
+        "!(vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && "
+        f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{PIN}')"
+    )
+    pinned_guard = (
+        "github.event_name == 'schedule' && "
+        "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && "
+        f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{PIN}' && "
+        "github.ref == 'refs/heads/main' && github.run_attempt == 1"
+    )
+    assert legacy_guard in text
+    assert pinned_guard in text
+    assert text.count("uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61") == 1
+    assert "NETTO_PINNED_EXECUTOR_V1_ENABLED: 'true'" not in text
+    assert "NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA: " not in text
+    assert text.index("pinned-transition:") > text.index("transition:")
+    assert "needs.transition.result != 'skipped'" in text
