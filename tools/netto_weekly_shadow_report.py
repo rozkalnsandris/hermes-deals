@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
-import hashlib
 import json
 from pathlib import Path
 import sys
@@ -24,7 +23,7 @@ from app.parsers.netto import NettoParserContext
 from app.parsers.netto_daily_special import extract_pdf_daily_special_candidates
 from netto_shadow_promotion import EvidenceStatus, verify_binding_files
 from netto_weekly_transition_state import (
-    canonical_bytes, load_json, normalize_selector, sha_file, write_create_only,
+    load_json, normalize_selector, sha_file, write_create_only,
 )
 
 STRATEGY = "netto_weekly_offline_shadow_extract_v1"
@@ -62,11 +61,19 @@ def build_shadow_report(selector: Mapping[str, Any], raw_root: Path) -> dict[str
         raise NettoShadowReportError("raw evidence root must be an existing regular directory")
     root = raw_root.resolve(strict=True)
     binding, campaign, identity = normalize_selector(selector)
+    if binding.evidence_status is not EvidenceStatus.PDF_BOUND:
+        raise NettoShadowReportError("offline shadow requires verified bound PDF evidence")
+
+    # Enforce local containment before ANY digest read, including the generic
+    # binding verifier. A valid SHA does not authorize reading a host file
+    # outside the exact caller-supplied immutable evidence root.
+    manifest_file = _evidence_file(root, binding.manifest_path, binding.manifest_sha256, "manifest")
+    _evidence_file(root, binding.html_path, binding.html_sha256, "store HTML")
+    _evidence_file(root, binding.pdf_path, binding.pdf_sha256, "prospect PDF")
     verified = verify_binding_files(binding)
     if verified.status is not EvidenceStatus.PDF_BOUND:
         raise NettoShadowReportError(f"offline shadow requires verified bound PDF evidence: {verified.reason}")
 
-    manifest_file = _evidence_file(root, binding.manifest_path, binding.manifest_sha256, "manifest")
     manifest = load_json(manifest_file)
     if (manifest.get("schema_version") != 3
             or manifest.get("strategy") != "netto_store_page_plus_current_prospect_pdf_v3"
