@@ -79,8 +79,12 @@ def fetch_pages(source: SourceConfig) -> list[HtmlPage]:
         store = fetch(selection, "store")
         if urlparse(store.final_url).path.rstrip("/") != STORE_PATH:
             raise ValueError("Netto store selection redirected away from 5659")
-        if not any(c.name == "netto_user_stores_id" and c.value for c in client.cookies.jar):
-            raise ValueError("Netto selected-store cookie missing")
+        if not any(
+            c.name == "netto_user_stores_id"
+            and c.value == source.store_external_id
+            for c in client.cookies.jar
+        ):
+            raise ValueError("Netto selected-store cookie mismatch")
         pages.append(store)
         listing = fetch(LISTING_URL)
         validate_store(BeautifulSoup(listing.content, "html.parser"))
