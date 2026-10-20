@@ -64,7 +64,7 @@ def build_shadow_report(selector: Mapping[str, Any], raw_root: Path) -> dict[str
     binding, campaign, identity = normalize_selector(selector)
     verified = verify_binding_files(binding)
     if verified.status is not EvidenceStatus.PDF_BOUND:
-        raise NettoShadowReportError("offline shadow requires verified bound PDF evidence")
+        raise NettoShadowReportError(f"offline shadow requires verified bound PDF evidence: {verified.reason}")
 
     manifest_file = _evidence_file(root, binding.manifest_path, binding.manifest_sha256, "manifest")
     manifest = load_json(manifest_file)
