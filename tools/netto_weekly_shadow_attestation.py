@@ -7,6 +7,7 @@ workflow event, run, step, SHA, or artifact provenance. No network/source writes
 from __future__ import annotations
 
 import argparse
+from datetime import date, datetime, timezone
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -14,7 +15,8 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+from zoneinfo import ZoneInfo
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
@@ -199,9 +201,81 @@ def verify_extraction(
         "artifact_digest": artifact["digest"],
         "campaign_key": campaign,
         "evidence_identity_sha256": identity,
+        "manifest_sha256": binding.manifest_sha256,
+        "pdf_sha256": binding.pdf_sha256,
         "valid_from": binding.valid_from.isoformat(),
         "valid_until": binding.valid_until.isoformat(),
         "scheduled_shadow_extraction_attested": True,
+        "source_card_accounting": "unknown",
+        "shadow_acceptance_passed": False,
+        "issue_28_two_real_transitions_ready": False,
+        "production_write_authorized": False,
+    }
+
+
+def verify_two_consecutive_extractions(
+    envelopes: Sequence[tuple[int, Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], bytes]],
+) -> dict[str, Any]:
+    """Prove two distinct *extractions*, not source-card completeness or #28 readiness.
+
+    Each envelope must contain its own independently fetched GitHub run, jobs,
+    artifacts, and exact digest-bound archive. Never accept two self-reported
+    attestation JSON blobs in place of this provenance.
+    """
+    if len(envelopes) != 2:
+        raise ShadowAttestationError("exactly two independently verified runs are required")
+    verified = [verify_extraction(*entry) for entry in envelopes]
+    first, second = verified
+    first_run, second_run = envelopes[0][1], envelopes[1][1]
+
+    times = []
+    for result, run in ((first, first_run), (second, second_run)):
+        stamp = run.get("created_at")
+        if not isinstance(stamp, str):
+            raise ShadowAttestationError("GitHub run creation time is missing")
+        try:
+            when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ShadowAttestationError("GitHub run creation time is invalid") from exc
+        if when.tzinfo is None or when.utcoffset() is None:
+            raise ShadowAttestationError("GitHub run creation time must be timezone aware")
+        when = when.astimezone(timezone.utc)
+        # Early Sunday observations of a Monday campaign do not count as
+        # a real, in-window unattended weekly extraction.
+        local_day = when.astimezone(ZoneInfo("Europe/Berlin")).date()
+        if not date.fromisoformat(result["valid_from"]) <= local_day <= date.fromisoformat(result["valid_until"]):
+            raise ShadowAttestationError("scheduled extraction executed outside campaign validity")
+        times.append(when)
+
+    first_start, first_end = date.fromisoformat(first["valid_from"]), date.fromisoformat(first["valid_until"])
+    second_start, second_end = date.fromisoformat(second["valid_from"]), date.fromisoformat(second["valid_until"])
+    distinct = (
+        first["run_id"] != second["run_id"]
+        and first["artifact_id"] != second["artifact_id"]
+        and first["artifact_digest"] != second["artifact_digest"]
+        and first["campaign_key"] != second["campaign_key"]
+        and first["evidence_identity_sha256"] != second["evidence_identity_sha256"]
+        and first["manifest_sha256"] != second["manifest_sha256"]
+        and first["pdf_sha256"] != second["pdf_sha256"]
+    )
+    if not distinct:
+        raise ShadowAttestationError("duplicate or replayed scheduled campaign evidence")
+    if (first["run_id"] >= second["run_id"]
+            or times[0] >= times[1]
+            or not (first_start <= first_end < second_start <= second_end)
+            or (second_start - first_start).days != 7
+            or (second_start - first_end).days not in (1, 2)):
+        raise ShadowAttestationError("scheduled campaigns are not ordered consecutive weekly windows")
+
+    return {
+        "schema_version": 1,
+        "strategy": "netto_weekly_two_scheduled_extractions_v1",
+        "repository": REPO,
+        "first_run_id": first["run_id"],
+        "second_run_id": second["run_id"],
+        "first_campaign_key": first["campaign_key"],
+        "second_campaign_key": second["campaign_key"],
+        "two_consecutive_scheduled_extractions_attested": True,
         "source_card_accounting": "unknown",
         "shadow_acceptance_passed": False,
         "issue_28_two_real_transitions_ready": False,
@@ -267,22 +341,35 @@ def _download_archive(artifact_id: int, token: str | None) -> bytes:
         return _read_response(response, MAX_ARCHIVE)
 
 
+def _fetch_envelope(run_id: int, token: str | None) -> tuple[int, dict[str, Any], dict[str, Any], dict[str, Any], bytes]:
+    run = _api_json(f"/actions/runs/{run_id}", token)
+    jobs = _api_json(f"/actions/runs/{run_id}/jobs?per_page=100", token)
+    sha = validate_run(run, jobs, run_id)
+    artifacts = _api_json(f"/actions/runs/{run_id}/artifacts?per_page=100", token)
+    artifact = select_artifact(artifacts, run_id, sha)
+    data = _download_archive(artifact["id"], token)
+    return run_id, run, jobs, artifacts, data
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify GitHub-scheduled shadow extraction, not #28 readiness")
+    parser = argparse.ArgumentParser(description="Verify scheduled shadow extraction only; never #28 readiness")
     parser.add_argument("--run-id", type=int, required=True)
+    parser.add_argument("--second-run-id", type=int, help="Verify a second independently fetched consecutive scheduled campaign")
     args = parser.parse_args()
-    if not _positive_int(args.run_id):
+    if (not _positive_int(args.run_id)
+            or (args.second_run_id is not None and (
+                not _positive_int(args.second_run_id) or args.run_id == args.second_run_id
+            ))):
         print("ERROR|invalid_run_id", file=sys.stderr)
         return 2
     token = os.environ.get("GH_TOKEN")
     try:
-        run = _api_json(f"/actions/runs/{args.run_id}", token)
-        jobs = _api_json(f"/actions/runs/{args.run_id}/jobs?per_page=100", token)
-        sha = validate_run(run, jobs, args.run_id)
-        artifacts = _api_json(f"/actions/runs/{args.run_id}/artifacts?per_page=100", token)
-        artifact = select_artifact(artifacts, args.run_id, sha)
-        data = _download_archive(artifact["id"], token)
-        result = verify_extraction(args.run_id, run, jobs, artifacts, data)
+        first = _fetch_envelope(args.run_id, token)
+        if args.second_run_id is None:
+            result = verify_extraction(*first)
+        else:
+            second = _fetch_envelope(args.second_run_id, token)
+            result = verify_two_consecutive_extractions((first, second))
     except Exception:
         # No token, private URLs or raw GitHub error responses in public logs.
         print("ERROR|shadow_extraction_attestation_unavailable", file=sys.stderr)

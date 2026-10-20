@@ -194,3 +194,90 @@ def test_git_commit_sha_is_40_hex_but_archive_sha256_is_64_hex():
     assert proof._sha("b" * 40) is False
     assert proof._git_sha("g" * 40) is False
     assert proof._sha("g" * 64) is False
+
+def make_second_synthetic_campaign(run, jobs, selector, report):
+    """A separate hypothetical calendar-week bundle, never real #28 evidence."""
+    run["created_at"] = "2026-10-26T06:00:00Z"
+    binding = selector["binding"]
+    binding.update(
+        valid_from="2026-10-26", valid_until="2026-10-31",
+        manifest_sha256="e" * 64, html_sha256="f" * 64,
+        pdf_sha256="1" * 64,
+    )
+    selector["campaign_key"] = "synthetic-fixture-next"
+    selector["campaign_window"] = {"start": binding["valid_from"], "end": binding["valid_until"]}
+    identity = EvidenceBinding.from_mapping(binding).identity_sha256()
+    selector["evidence_identity_sha256"] = identity
+    report.update(
+        campaign_key=selector["campaign_key"],
+        valid_from=binding["valid_from"], valid_until=binding["valid_until"],
+        manifest_sha256=binding["manifest_sha256"], html_sha256=binding["html_sha256"],
+        pdf_sha256=binding["pdf_sha256"], evidence_identity_sha256=identity,
+    )
+
+
+def two_synthetic_envelopes(second_changes=None):
+    first = envelope(changes=lambda r, j, s, p: r.update(created_at="2026-10-19T06:00:00Z"))
+    def modify(run, jobs, selector, report):
+        make_second_synthetic_campaign(run, jobs, selector, report)
+        if second_changes:
+            second_changes(run, jobs, selector, report)
+    second = envelope(run_id=12346, changes=modify)
+    second[2]["artifacts"][0]["id"] = 102
+    return (12345, *first), (12346, *second)
+
+
+def test_two_consecutive_scheduled_extractions_are_not_acceptance():
+    pair = two_synthetic_envelopes()
+    proof_result = proof.verify_two_consecutive_extractions(pair)
+    assert proof_result["two_consecutive_scheduled_extractions_attested"] is True
+    assert proof_result["source_card_accounting"] == "unknown"
+    assert proof_result["shadow_acceptance_passed"] is False
+    assert proof_result["issue_28_two_real_transitions_ready"] is False
+    assert proof_result["production_write_authorized"] is False
+
+
+def test_duplicate_run_artifact_or_campaign_is_rejected():
+    first, second = two_synthetic_envelopes()
+    with pytest.raises(proof.ShadowAttestationError, match="duplicate"):
+        proof.verify_two_consecutive_extractions((first, first))
+    modified = list(second)
+    modified[3]["artifacts"][0]["id"] = first[3]["artifacts"][0]["id"]
+    with pytest.raises(proof.ShadowAttestationError, match="duplicate"):
+        proof.verify_two_consecutive_extractions((first, tuple(modified)))
+    first, second = two_synthetic_envelopes(
+        second_changes=lambda r, j, s, p: (s.update(campaign_key="synthetic-fixture"),
+                                            p.update(campaign_key="synthetic-fixture"))
+    )
+    with pytest.raises(proof.ShadowAttestationError, match="duplicate"):
+        proof.verify_two_consecutive_extractions((first, second))
+
+
+@pytest.mark.parametrize("change", [
+    lambda r, j, s, p: r.update(event="workflow_dispatch"),
+    lambda r, j, s, p: r.update(run_attempt=2),
+    lambda r, j, s, p: r.update(created_at="2026-10-25T06:00:00Z"),
+    lambda r, j, s, p: r.update(created_at="2026-10-19T05:00:00Z"),
+    lambda r, j, s, p: r.update(created_at="not-a-date"),
+    lambda r, j, s, p: (s["binding"].update(pdf_sha256="d" * 64),
+                        p.update(pdf_sha256="d" * 64),
+                        s.update(evidence_identity_sha256=EvidenceBinding.from_mapping(s["binding"]).identity_sha256()),
+                        p.update(evidence_identity_sha256=s["evidence_identity_sha256"])),
+    lambda r, j, s, p: (s["binding"].update(valid_from="2026-11-02", valid_until="2026-11-07"),
+                        s.update(campaign_window={"start":"2026-11-02","end":"2026-11-07"}),
+                        s.update(evidence_identity_sha256=EvidenceBinding.from_mapping(s["binding"]).identity_sha256()),
+                        p.update(valid_from="2026-11-02", valid_until="2026-11-07",
+                                 evidence_identity_sha256=s["evidence_identity_sha256"])),
+])
+def test_two_scheduled_extractions_reject_manual_early_replay_or_skipped_week(change):
+    first, second = two_synthetic_envelopes(second_changes=change)
+    with pytest.raises((proof.ShadowAttestationError, ValueError)):
+        proof.verify_two_consecutive_extractions((first, second))
+
+
+def test_second_week_is_not_inferred_from_one_receipt():
+    first, second = two_synthetic_envelopes()
+    with pytest.raises(proof.ShadowAttestationError, match="exactly two"):
+        proof.verify_two_consecutive_extractions((first,))
+    with pytest.raises(proof.ShadowAttestationError, match="ordered consecutive"):
+        proof.verify_two_consecutive_extractions((second, first))

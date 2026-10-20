@@ -95,3 +95,27 @@ returns `source_card_accounting=unknown`,
 `issue_28_two_real_transitions_ready=false`. Future independent source-card
 reconciliation plus two real distinct consecutive qualifying weekly campaigns
 remain separate work and separate LIVE activation gates.
+
+## Two separate unattended campaign windows — source-only verification
+
+`tools/netto_weekly_shadow_attestation.py --run-id <first-id> --second-run-id <second-id>`
+performs **two independent GitHub read-only fetch/verification sequences**.
+It accepts neither two self-asserted JSON receipts nor one reused artifact.
+Both runs must pass the one-run attestation first. Their authenticated GitHub
+run IDs, archive digest, artifact IDs, immutable campaign/manifest/PDF identity
+and campaign keys must differ. The run creation timestamps must be ordered and
+fall **within the respective campaign in Europe/Berlin** (an early Sunday
+observation cannot count). Campaign start dates must be exactly seven days
+apart and their windows must not overlap, with the normal one/two-day weekly
+boundary gap. Missing, manual, rerun, out-of-order, repeated, early or
+skipped-week evidence fails closed.
+
+The result exposes `two_consecutive_scheduled_extractions_attested=true`
+**only when those two separately authenticated extractions pass**. It
+continues to emit `source_card_accounting=unknown`,
+`shadow_acceptance_passed=false` and
+`issue_28_two_real_transitions_ready=false`: two parsed runs are **not**
+two validated booklet-coverage cycles. Independent source-card accounting
+and a separately authorized LIVE scheduler/runner activation are still
+required; the current scheduler does **not** emit shadow extraction receipts.
+Unit tests use synthetic inputs and are not real evidence.
