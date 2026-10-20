@@ -19,6 +19,7 @@ concurrency:
 env:
   STATE_PREFIX: netto-weekly-transition-state-scheduled-
   CANARY_PREFIX: netto-weekly-transition-canary-
+  NETTO_SHADOW_RUN_ENABLED: 'false' # Explicitly disarmed pending separate post-merge LIVE authorization.
 
 jobs:
   transition:
@@ -213,6 +214,72 @@ jobs:
             ${{ steps.restore.outputs.root }}/current/receipt.json
             ${{ steps.restore.outputs.root }}/current/selector.json
             ${{ steps.restore.outputs.root }}/current/state.json
+          if-no-files-found: error
+          retention-days: 35
+
+      # Source-only proposal. The fixed 'false' gate prevents any runner-side
+      # parser/artifact execution even if this workflow file is merged.
+      - name: Gate first-attempt scheduled shadow extraction
+        id: shadow_gate
+        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' }}
+        env:
+          ROOT: ${{ steps.restore.outputs.root }}
+          VENV_BIN: ${{ steps.python.outputs.bin }}
+          EVENT_NAME: ${{ github.event_name }}
+          DATABASE_URL: sqlite+pysqlite:///:memory:
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$VENV_BIN/python" tools/netto_weekly_shadow_gate.py \
+            --state "$ROOT/current/state.json" \
+            --receipt "$ROOT/current/receipt.json" \
+            --selector "$ROOT/current/selector.json" \
+            --event "$EVENT_NAME" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --today "$(TZ=Europe/Berlin date +%F)" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Build offline shadow extraction receipt
+        id: shadow_extract
+        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' && steps.shadow_gate.outputs.eligible == 'true' }}
+        env:
+          ROOT: ${{ steps.restore.outputs.root }}
+          VENV_BIN: ${{ steps.python.outputs.bin }}
+          DATABASE_URL: sqlite+pysqlite:///:memory:
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$VENV_BIN/python" tools/netto_weekly_shadow_report.py \
+            --selector "$ROOT/current/selector.json" \
+            --raw-root "$ROOT/current/source" \
+            --output "$ROOT/current/shadow-report.json"
+
+      - name: Stage scheduled shadow extraction artifact
+        id: shadow_stage
+        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' && steps.shadow_extract.outcome == 'success' }}
+        env:
+          ROOT: ${{ steps.restore.outputs.root }}
+          VENV_BIN: ${{ steps.python.outputs.bin }}
+          DATABASE_URL: sqlite+pysqlite:///:memory:
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$VENV_BIN/python" tools/netto_weekly_shadow_artifact.py \
+            --selector "$ROOT/current/selector.json" \
+            --shadow-report "$ROOT/current/shadow-report.json" \
+            --raw-root "$ROOT/current/source" \
+            --output-dir "$ROOT/current/shadow-proof" \
+            --event schedule
+
+      - name: Upload scheduled shadow extraction artifact
+        if: ${{ github.event_name == 'schedule' && env.NETTO_SHADOW_RUN_ENABLED == 'true' && steps.shadow_stage.outcome == 'success' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: netto-weekly-shadow-scheduled-${{ github.run_id }}
+          path: |
+            ${{ steps.restore.outputs.root }}/current/shadow-proof/SHA256SUMS
+            ${{ steps.restore.outputs.root }}/current/shadow-proof/selector.json
+            ${{ steps.restore.outputs.root }}/current/shadow-proof/shadow-report.json
           if-no-files-found: error
           retention-days: 35
 
