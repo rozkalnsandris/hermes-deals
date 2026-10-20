@@ -185,3 +185,12 @@ def test_empty_or_oversized_archive_rejected():
         proof.verify_extraction(12345, run, jobs, artifacts, b"")
     with pytest.raises(proof.ShadowAttestationError):
         proof.extract_verified_archive(b"x" * (proof.MAX_ARCHIVE + 1), artifacts["artifacts"][0]["digest"])
+
+
+def test_git_commit_sha_is_40_hex_but_archive_sha256_is_64_hex():
+    assert proof._git_sha("a" * 40) is True
+    assert proof._git_sha("a" * 64) is False
+    assert proof._sha("b" * 64) is True
+    assert proof._sha("b" * 40) is False
+    assert proof._git_sha("g" * 40) is False
+    assert proof._sha("g" * 64) is False
