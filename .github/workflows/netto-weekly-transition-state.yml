@@ -309,7 +309,7 @@ jobs:
       contents: read
       actions: read
       issues: write
-    uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61
+    uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61 # reviewed policy revision 93b866ba2ec64ab2100f48733487afc960298d61
 
   report:
     needs: transition
