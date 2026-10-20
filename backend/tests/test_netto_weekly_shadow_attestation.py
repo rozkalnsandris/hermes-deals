@@ -78,9 +78,9 @@ def envelope(run_id=12345, changes=None):
         "selector.json": proof.canonical_bytes(selector),
         "shadow-report.json": proof.canonical_bytes(report),
     }
-    values["SHA256SUMS"] = ("\\n".join(
+    values["SHA256SUMS"] = ("\n".join(
         f"{sha256(values[name]).hexdigest()}  {name}" for name in sorted(values)
-    ) + "\\n").encode()
+    ) + "\n").encode()
     stream = BytesIO()
     with ZipFile(stream, "w", ZIP_DEFLATED) as z:
         for name, value in values.items():
@@ -161,7 +161,7 @@ def test_modified_internal_checksums_fail_closed():
     run, jobs, artifacts, data = envelope()
     with ZipFile(BytesIO(data)) as inp:
         entries = {name: inp.read(name) for name in proof.MEMBERS}
-    entries["SHA256SUMS"] = b"missing\\n"
+    entries["SHA256SUMS"] = b"missing\n"
     buf = BytesIO()
     with ZipFile(buf, "w", ZIP_DEFLATED) as out:
         for name, content in entries.items():
