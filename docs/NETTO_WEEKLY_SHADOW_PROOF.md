@@ -182,16 +182,15 @@ automatic retry or cleanup.
 This is preparation only. No changes to currently active workflow, timer,
 runner, database or production collection are made by this PR.
 
-## Disarmed scheduled workflow wiring — proposed, NOT LIVE
+## Merged disarmed wiring and separate post-merge activation (NOT LIVE)
 
-The separately authorized preparatory PR adds source-only wiring for the
-existing `.github/workflows/netto-weekly-transition-state.yml`. Its static
-`NETTO_SHADOW_RUN_ENABLED: 'false'` configuration ensures that **even after a
-source merge**, none of the new runner-side shadow gate, parser, staging or
-shadow-artifact upload steps can execute. A future separate, exact LIVE owner
-authorization is required to change this constant and thereby enable
-unattended execution. Neither the preparatory authorization nor its PR merge
-permits that activation.
+PR #1023 merged scheduled shadow gate/parser/staging/upload steps into
+`.github/workflows/netto-weekly-transition-state.yml`. Its original static
+`NETTO_SHADOW_RUN_ENABLED: 'false'` deliberately prevented runner-side shadow
+execution. The subsequent **control-preparation** PR replaces that static
+sentinel with two separately owner-managed repository configuration variables.
+No GitHub Actions variable is created or changed by this source-only PR.
+The actual switch remains fail-closed until explicit post-merge LIVE approval.
 
 After the existing immutable transition observation artifact is uploaded,
 four currently disarmed steps are configured: a first-attempt scheduled-only
@@ -213,3 +212,46 @@ three member files, run identity and successful extraction step match the
 read-only GitHub provenance attestor. Importantly, **two genuinely scheduled
 extractions still do not establish source-card reconciliation or #28
 readiness**, and no offer/price or production publication can be promoted.
+
+## External two-key Actions control — source-only preparation
+
+GitHub's documented `vars` context exposes repository/organization/environment
+configuration variables in step `if` expressions. A missing variable resolves
+to the **empty string**, not `true`. GitHub evaluates step `if` conditions
+before dispatching that step to the runner. Official references:
+
+- https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
+- https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables
+
+Every scheduled-only shadow step now additionally requires **both**:
+
+1. `vars.NETTO_SHADOW_V1_ENABLED == 'true'`
+2. `vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha`
+
+It also requires `github.ref == 'refs/heads/main'`,
+`github.run_attempt == 1`, and `github.event_name == 'schedule'`.
+Neither configuration variable is defined in the repository source. The
+approved commit SHA is the **exact merged `main` SHA**, which cannot be known
+when this proposal is prepared or before its squash merge. A preceding
+value, absent value, wrong SHA, missing enable flag, manual dispatch or rerun
+must not execute the new shadow steps.
+
+This gate is deliberately **commit-scoped**: after any new `main` commit
+(including automated progress commits), a previous activation automatically
+fails closed. To span another real scheduled campaign at a different head,
+the owner must explicitly authorize and revalidate that new exact SHA.
+Never pre-authorize a guessed future commit or set either variable to `true`
+without checking the current exact source and runner/scheduler baseline.
+
+**Before a separate LIVE authorization**, verify the Actions variables'
+existing names/values (including effective organization/repository scope)
+using GitHub's authorized settings/API and confirm the immutable workflow SHA,
+current `main`, active runner, and expected schedule. Read-only access to
+repository variables was unavailable to the original source-preparation
+session; their present values are **unknown**, not presumed absent. A merge
+does **not** set the variables or authorize their creation. Changing the
+variables, executing the runner/collector, uploading actual scheduled
+artifacts, changing the schedule, applying migrations, or publishing offers
+requires a separate exact owner LIVE authorization. Two authentic extractions
+still do **not** establish full card coverage or the parent #28 acceptance
+criterion.
