@@ -38,6 +38,18 @@ class NettoShadowParserError(NettoShadowReportError):
     pass
 
 
+def unknown_source_card_breakdown() -> dict[str, None]:
+    """No independent booklet-card inventory exists in the offline extraction."""
+    return {
+        "total_source_cards": None,
+        "parsed_cards": None,
+        "review_pending_cards": None,
+        "excluded_cards": None,
+        "unsupported_cards": None,
+        "unaccounted_cards": None,
+    }
+
+
 def write_shadow_receipt(path: Path, value: Mapping[str, Any]) -> str:
     """Create an output once; never follow a last-component symlink or replace it."""
     data = canonical_bytes(value)
@@ -168,6 +180,7 @@ def build_shadow_report(selector: Mapping[str, Any], raw_root: Path) -> dict[str
         "pdf_daily_special_page_count": len(special_pages),
         "pdf_daily_special_candidate_count": specials,
         "source_card_accounting": "unknown",
+        "source_card_breakdown": unknown_source_card_breakdown(),
         "execution_outcome": "extraction_complete_coverage_unverified",
         "failure_category": None,
         "shadow_extraction_completed": True,
@@ -217,6 +230,7 @@ def main() -> int:
             "execution_outcome": "failed",
             "failure_category": category,
             "source_card_accounting": "unknown",
+        "source_card_breakdown": unknown_source_card_breakdown(),
             "html_extracted_offer_count": None,
             "pdf_daily_special_page_count": None,
             "pdf_daily_special_candidate_count": None,

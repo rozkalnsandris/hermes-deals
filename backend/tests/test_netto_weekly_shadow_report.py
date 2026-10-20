@@ -75,6 +75,7 @@ def test_offline_shadow_receipt_is_nonpromoting_and_hash_bound(tmp_path, monkeyp
     assert receipt["html_extracted_offer_count"] == 1
     assert receipt["pdf_daily_special_candidate_count"] == 1
     assert receipt["source_card_accounting"] == "unknown"
+    assert receipt["source_card_breakdown"] == shadow.unknown_source_card_breakdown()
     assert receipt["shadow_extraction_completed"] is True
     assert receipt["shadow_acceptance_passed"] is False
     assert receipt["issue_28_two_real_transitions_ready"] is False
@@ -164,6 +165,8 @@ def test_real_netto_html_and_pdf_parsers_execute_without_mocking(tmp_path):
     assert report["html_extracted_offer_count"] == 5
     assert report["pdf_daily_special_page_count"] == 0
     assert report["source_card_accounting"] == "unknown"
+    assert report["source_card_breakdown"] == shadow.unknown_source_card_breakdown()
+    assert all(value is None for value in report["source_card_breakdown"].values())
     assert report["shadow_acceptance_passed"] is False
     assert report["issue_28_two_real_transitions_ready"] is False
 
@@ -219,6 +222,7 @@ def test_failure_receipt_is_sanitized_fail_closed_and_create_only(tmp_path, monk
     assert receipt["failure_category"] == "input_or_evidence_failure"
     assert receipt["campaign_key"] is None
     assert receipt["source_card_accounting"] == "unknown"
+    assert receipt["source_card_breakdown"] == shadow.unknown_source_card_breakdown()
     assert receipt["shadow_extraction_completed"] is False
     assert receipt["shadow_acceptance_passed"] is False
     assert receipt["issue_28_two_real_transitions_ready"] is False
@@ -274,3 +278,14 @@ def test_failure_receipt_output_inside_raw_root_is_rejected(tmp_path, monkeypatc
     ])
     assert shadow.main() == 2
     assert not target.exists()
+
+
+def test_extracted_candidates_do_not_infer_card_coverage():
+    breakdown = shadow.unknown_source_card_breakdown()
+    assert set(breakdown) == {
+        "total_source_cards", "parsed_cards", "review_pending_cards",
+        "excluded_cards", "unsupported_cards", "unaccounted_cards",
+    }
+    assert all(value is None for value in breakdown.values())
+    breakdown["unaccounted_cards"] = 0
+    assert shadow.unknown_source_card_breakdown()["unaccounted_cards"] is None
