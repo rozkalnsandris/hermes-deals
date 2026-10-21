@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 JAVASCRIPT = ROOT / "backend" / "app" / "north_star" / "static" / "north-star.js"
 INDEX = ROOT / "backend" / "app" / "north_star" / "templates" / "index.html"
+CSS = ROOT / "backend" / "app" / "north_star" / "static" / "modern.css"
 
 
 def test_mobile_drawer_uses_modal_semantics_without_inerting_its_ancestor() -> None:
