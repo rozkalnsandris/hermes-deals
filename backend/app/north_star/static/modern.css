@@ -207,7 +207,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
   .sidebar-note { margin-top: 24px; }.sidebar { overflow-y: auto; }
   .mobile-close { color: #c4dbce; top: 70px; }.topbar { height: 68px; padding: 0 16px; gap: 7px; }
   .week-picker { font-size: .75rem; background: transparent; flex: 1; padding: 0; }
-  .week-picker .week-arrow { width: 29px; height: 40px; }.week-picker > span { padding: 0; gap: 0; }
+  .week-picker .week-arrow { width: 44px; height: 44px; }.week-picker > span { padding: 0; gap: 0; }
   .mobile-menu { min-width: 36px; }.profile .chevron { display: none; }
   main { padding: 25px 16px 82px; }
   .page-heading { gap: 13px; margin-bottom: 22px; }.page-description { font-size: .875rem; line-height: 1.65; }
@@ -225,11 +225,13 @@ main { padding: 32px 36px 0; max-width: 1720px; }
   .offer-visual { height: 125px; }.offer-copy { padding: 11px; }.offer-visual .product-picture { font-size: 48px; }
   .offer-title h3 { font-size: .875rem; }.offer-store { gap: 5px; margin-bottom: 9px; }
   .offer-package, .offer-condition, .offer-reason { font-size: .75rem; }.offer-price { font-size: 1.25rem; }
-  .offer-bottom { gap: 5px; padding-top: 13px; }.offer-add { width: 34px; min-height: 36px; }
+  .offer-bottom { gap: 5px; padding-top: 13px; }.offer-add { width: 44px; min-height: 44px; }
   .offer-discount { top: 9px; left: 9px; font-size: .6875rem; padding: 4px 6px; }
-  .offer-favorite { right: 6px; top: 6px; }.offer-favorite .icon-button { min-width: 32px; min-height: 32px; }
+  .offer-favorite { right: 6px; top: 6px; }.offer-favorite .icon-button { min-width: 44px; min-height: 44px; }
   .filters { gap: 10px; }.filters label:not(.search-input) { flex: 1; }.filters select { width: 100%; }
   .shopping-name strong, .shopping-price { font-size: .875rem; }.shopping-name small { font-size: .75rem; }
+  .shopping-row .check-button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .shopping-row .remove-button { min-width: 44px; min-height: 44px; }
   .recipe-picture { width: 64px; height: 70px; }.recipe-copy h3 { font-size: .875rem; }.recipe-meta { font-size: .75rem; }
   .mobile-bottom { background: #fff; border-color: #dce5e0; padding: 5px 8px env(safe-area-inset-bottom); }
   .mobile-bottom a, .mobile-bottom button { font-size: .6875rem; color: #61766b; min-height: 60px; gap: 5px; }
@@ -246,7 +248,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 }
 @media (max-width:380px) {
   main { padding-inline: 12px; }.panel { padding: 14px; }.offer-grid, .offer-grid:not(.offer-grid-compact), .offer-grid-compact { grid-template-columns: 1fr; }
-  .offer-visual { height: 170px; }.week-picker { font-size: .6875rem; }.week-picker .week-arrow { width: 24px; }
+  .offer-visual { height: 170px; }.week-picker { font-size: .6875rem; }.week-picker .week-arrow { width: 44px; height: 44px; }
   .offer-store small { flex-basis: auto; }.offer-title h3 { font-size: 1rem; }
 }
 @media (prefers-reduced-motion: reduce) { .offer-card { transition: none; } }
