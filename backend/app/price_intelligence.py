@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.canonical_catalog_fast_route import load_current_offers_by_product
@@ -23,6 +23,73 @@ from app.schemas import CanonicalCurrentOfferOut
 router = APIRouter()
 _FIXED = {None, "fixed_package"}
 _UNIT = {"unit_price_only", "example_total_plus_unit", "app_example_total_plus_unit"}
+_SERIES_FIELDS = (
+    "source_chain", "source_store_external_id", "source_offer_id", "product_name_raw",
+    "brand_raw", "package_text_raw", "unit_label", "requires_app", "coupon_required",
+)
+# Match Python str.strip() when testing whether a package has a known basis.
+_WHITESPACE = "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
+
+def history_cutoff(as_of: date) -> datetime:
+    if as_of == date.max:
+        raise HTTPException(status_code=422, detail="Date must be before 9999-12-31")
+    return datetime.combine(as_of + timedelta(days=1), time.min,
+                            tzinfo=ZoneInfo("Europe/Berlin")).astimezone(timezone.utc)
+
+
+def observed_price(row: OfferCandidateRecord) -> Decimal | None:
+    """Comparable source price, never today's usable household price."""
+    if row.pricing_mode in _FIXED:
+        return row.price_eur if row.package_text_raw and row.package_text_raw.strip() else None
+    return row.unit_price_eur if row.pricing_mode in _UNIT and row.unit_label else None
+
+
+def list_price_history_series(
+    db: Session, *, as_of: date, query: str = "", retailer: str = "",
+    sort: str = "name", offset: int = 0, limit: int = 60,
+) -> tuple[list[OfferCandidateRecord], int]:
+    """One latest known observation per conservative source series, paged in SQL.
+
+    Validity is deliberately not a filter: expired offers still have history.
+    Partition identity matches _series_predicate, including singleton fallbacks.
+    Search fields are invariant within a series, so filtering before ranking does
+    not resurrect an older observation. No cross-retailer identity is inferred.
+    """
+    if sort not in {"name", "retailer", "newest"} or offset < 0 or not 1 <= limit <= 100:
+        raise ValueError("Invalid history pagination or sort")
+    row = OfferCandidateRecord
+    fixed = or_(row.pricing_mode.is_(None), row.pricing_mode == "fixed_package")
+    known_basis = or_(
+        and_(fixed, func.length(func.trim(row.package_text_raw, _WHITESPACE)) > 0),
+        and_(row.pricing_mode.in_(sorted(_UNIT)), row.unit_label.is_not(None), row.unit_label != ""),
+    )
+    continuable = and_(row.source_offer_id.is_not(None), row.source_offer_id != "", known_basis)
+    partition = [getattr(row, field) for field in _SERIES_FIELDS] + [
+        case((fixed, "fixed_package"), else_=row.pricing_mode),
+        case((continuable, None), else_=row.id),
+    ]
+    filters = [row.collected_at < history_cutoff(as_of)]
+    if retailer:
+        filters.append(row.source_chain == retailer)
+    if query:
+        filters.append(or_(*(
+            func.lower(column).contains(query.lower(), autoescape=True)
+            for column in (row.product_name_raw, row.brand_raw, row.source_offer_id)
+        )))
+    ranked = select(row.id, func.row_number().over(
+        partition_by=partition, order_by=(row.collected_at.desc(), row.id.asc()),
+    ).label("position")).where(*filters).subquery()
+    latest = select(ranked.c.id).where(ranked.c.position == 1).subquery()
+    total = db.scalar(select(func.count()).select_from(latest))
+    order = {
+        "name": (func.lower(row.product_name_raw), row.id),
+        "retailer": (row.source_chain, func.lower(row.product_name_raw), row.id),
+        "newest": (row.collected_at.desc(), row.id),
+    }[sort]
+    rows = list(db.scalars(select(row).join(latest, latest.c.id == row.id)
+                          .order_by(*order).offset(offset).limit(limit)))
+    return rows, total
 
 
 class PriceObservation(BaseModel):
@@ -119,15 +186,10 @@ def _series_predicate(row: OfferCandidateRecord):
         if fixed else OfferCandidateRecord.pricing_mode == row.pricing_mode
     )
     return and_(
-        OfferCandidateRecord.source_chain == row.source_chain,
-        OfferCandidateRecord.source_store_external_id.is_not_distinct_from(row.source_store_external_id),
-        OfferCandidateRecord.source_offer_id == row.source_offer_id,
-        OfferCandidateRecord.product_name_raw == row.product_name_raw,
-        OfferCandidateRecord.brand_raw.is_not_distinct_from(row.brand_raw),
-        OfferCandidateRecord.package_text_raw.is_not_distinct_from(row.package_text_raw),
-        OfferCandidateRecord.unit_label.is_not_distinct_from(row.unit_label),
-        OfferCandidateRecord.requires_app == row.requires_app,
-        OfferCandidateRecord.coupon_required == row.coupon_required,
+        *(getattr(OfferCandidateRecord, field).is_not_distinct_from(getattr(row, field))
+          if field in {"source_store_external_id", "brand_raw", "package_text_raw", "unit_label"}
+          else getattr(OfferCandidateRecord, field) == getattr(row, field)
+          for field in _SERIES_FIELDS),
         mode,
     )
 
@@ -148,10 +210,7 @@ def build_offer_price_intelligence(
     if row is None:
         raise HTTPException(status_code=404, detail="Offer not found")
 
-    if as_of == date.max:
-        raise HTTPException(status_code=422, detail="Date must be before 9999-12-31")
-    history_end = datetime.combine(as_of + timedelta(days=1), time.min,
-                                   tzinfo=ZoneInfo("Europe/Berlin")).astimezone(timezone.utc)
+    history_end = history_cutoff(as_of)
     rows = list(db.scalars(
         select(OfferCandidateRecord)
         .where(_series_predicate(row), OfferCandidateRecord.collected_at < history_end)
@@ -162,12 +221,13 @@ def build_offer_price_intelligence(
     truncated = len(rows) > limit
     rows = rows[:limit]
     fixed = row.pricing_mode in _FIXED
-    basis = "package" if fixed else row.unit_label if row.pricing_mode in _UNIT else None
+    fixed_basis = fixed and bool(row.package_text_raw and row.package_text_raw.strip())
+    basis = "package" if fixed_basis else row.unit_label if row.pricing_mode in _UNIT else None
     observations = [PriceObservation(
         **{name: getattr(item, name) for name in PriceObservation.model_fields
            if name not in {"offer_candidate_id", "comparison_price_eur"}},
         offer_candidate_id=item.id,
-        comparison_price_eur=(item.price_eur if fixed else item.unit_price_eur if basis else None),
+        comparison_price_eur=observed_price(item),
     ) for item in rows]
 
     product_ids = _products_for_series(db, row)

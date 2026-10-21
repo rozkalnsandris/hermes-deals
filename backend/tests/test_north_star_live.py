@@ -1047,3 +1047,89 @@ def test_htmx_asset_is_packaged_upstream_pin(data):
     asset = client.get('/ui/home/static/vendor/htmx-2.0.11.min.js')
     assert asset.status_code == 200
     assert hashlib.sha1(f"blob {len(asset.content)}\0".encode() + asset.content).hexdigest() == "e6b8394acb5cda3281a68b4078775ec348d8eafc"
+
+
+def test_history_discovers_expired_series_without_active_deals(data):
+    db, client, _ = data
+    offer(db, price="1.49")
+    latest = offer(db, price="1.19", collected_day=2)
+    params = {"date": "2026-10-27", "q": "Piens", "retailer": "lidl"}
+    deals = client.get("/ui/home/", params={**params, "view": "deals"})
+    assert 'class="offer-card"' not in deals.text
+    history = client.get("/ui/home/", params={**params, "view": "history"})
+    assert history.status_code == 200
+    assert history.text.count('class="offer-card"') == 1
+    assert str(latest.id) in history.text
+    assert "Pēdējā novērotā cena" in history.text
+    assert "1,19 €" in history.text
+    assert "02.10.2026 10:00" in history.text
+    detail = client.get("/ui/home/", params={**params, "view": "history", "product": str(latest.id)})
+    assert "Cenu novērojumi" in detail.text
+    assert "1,49 €" in detail.text
+
+
+def test_history_empty_search_differs_from_unknown_price_basis(data):
+    db, client, _ = data
+    row = offer(db, package_text_raw=None)
+    empty = client.get('/ui/home/?view=history&date=2026-10-27&q=not-found')
+    assert 'Cenu vēsturē nekas nav atrasts' in empty.text
+    assert 'Notīrīt vēstures filtrus' in empty.text
+    detail = client.get(f'/ui/home/?view=history&date=2026-10-27&product={row.id}')
+    assert 'Cenu vēsturē nekas nav atrasts' not in detail.text
+    assert 'Šim datumam vēl nav saglabātu salīdzināmu cenu novērojumu.' in detail.text
+    assert '<div class="detail-price">—</div>' in detail.text
+
+
+def test_history_hides_future_observations_even_by_direct_link(data):
+    db, client, _ = data
+    row = offer(db, collected_day=2)
+    page = client.get(f'/ui/home/?view=history&date=2026-10-01&product={row.id}')
+    assert 'class="offer-card"' not in page.text
+    assert 'role="dialog"' not in page.text
+    assert str(row.id) not in page.text
+
+
+def test_history_unit_price_is_not_example_package_total(data):
+    db, client, _ = data
+    row = offer(db, price="4.20", pricing_mode="example_total_plus_unit", unit_price_eur=Decimal("9.99"), unit_label="kg")
+    page = client.get(f'/ui/home/?view=history&date=2026-10-27&product={row.id}')
+    assert '<strong class="offer-price">9,99 €/kg</strong>' in page.text
+    assert '<div class="detail-price">9,99 €/kg</div>' in page.text
+    assert '4,20 €' not in page.text
+    assert '/actions/add' not in page.text
+    assert '/actions/price_eligibility' not in page.text
+
+
+def test_history_pagination_detail_close_preserves_filters(data):
+    from html import unescape
+    from urllib.parse import parse_qs, urlsplit
+    db, client, _ = data
+    for i in range(61):
+        offer(db, name=f'Piens & testam {i:03}', sku=f'milk-{i}')
+    params = {'view': 'history', 'date': '2026-10-27', 'q': 'Piens &', 'retailer': 'lidl', 'sort': 'name'}
+    first = client.get('/ui/home/', params=params)
+    assert first.text.count('class="offer-card"') == 60
+    next_link = unescape(re.search(r'href="([^"]+)">Nākamā lapa', first.text)[1])
+    last = client.get(next_link)
+    assert last.text.count('class="offer-card"') == 1
+    assert '61–61 no 61 cenu sērijām' in last.text
+    link = unescape(re.search(r'class="offer-title" href="([^"]+)"', last.text)[1])
+    detail = client.get(link)
+    assert 'role="dialog"' in detail.text
+    close = unescape(re.search(r'data-dialog-close href="([^"]+)"', detail.text)[1])
+    expected = {k: [v] for k, v in params.items() if not (k == 'sort' and v == 'name')}
+    assert parse_qs(urlsplit(close).query) == {**expected, 'offset': ['60']}
+    assert client.get(close).text.count('class="offer-card"') == 1
+    fragment = client.get(link, headers={'HX-Request': 'true'})
+    assert fragment.status_code == 200
+    assert 'Cenu novērojumi' in fragment.text
+    assert 'no-store' in fragment.headers['cache-control']
+
+
+def test_history_base_observation_does_not_inherit_current_app_conditions(data):
+    db, client, _ = data
+    row = offer(db, app_price_eur=Decimal('0.99'), app_valid_from=date(2026, 10, 20), app_valid_until=date(2026, 10, 30))
+    page = client.get(f'/ui/home/?view=history&date=2026-10-27&product={row.id}')
+    assert '<div class="detail-price">1,29 €</div>' in page.text
+    assert 'Nepieciešama veikala lietotne' not in page.text
+    assert 'Avota cenai nepieciešama veikala lietotne' not in page.text

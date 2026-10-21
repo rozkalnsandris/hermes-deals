@@ -76,23 +76,26 @@
 {%- endmacro %}
 
 {% macro deal_cards(rows, view, date, token, compact=false) -%}
+{% set historical = view == 'history' and not demo|default(true) %}
 <div class="offer-grid {% if compact %}offer-grid-compact{% endif %}">
 {% for p in rows %}
+{% set detail_url = detail_href(view,date,p.id) %}
 <article class="offer-card">
   <div class="offer-visual">
-    <a class="offer-image-link" href="{{ detail_href(view,date,p.id) }}" aria-label="Apskatīt: {{ p.name }}">{{ product_picture(p) }}</a>
-    {% if p.discount %}<span class="offer-discount">−{{ p.discount }}%</span>{% endif %}
-    <form class="offer-favorite" action="{{ base_path|default('') }}/actions/favorite" method="post" hx-boost="false">{{ fields(view,date,token) }}<input type="hidden" name="product_id" value="{{ p.favorite_id|default(p.id) }}"><button class="icon-button favorite {% if p.favorite %}is-saved{% endif %}" aria-label="{% if p.favorite %}Noņemt no favorītiem{% else %}Saglabāt favorītos{% endif %}: {{ p.name }}" aria-pressed="{{ 'true' if p.favorite else 'false' }}">{{ icon('heart',18) }}</button></form>
+    <a class="offer-image-link" href="{{ detail_url }}" aria-label="Apskatīt: {{ p.name }}">{{ product_picture(p) }}</a>
+    {% if p.discount and not historical %}<span class="offer-discount">−{{ p.discount }}%</span>{% endif %}
+    {% if not historical %}<form class="offer-favorite" action="{{ base_path|default('') }}/actions/favorite" method="post" hx-boost="false">{{ fields(view,date,token) }}<input type="hidden" name="product_id" value="{{ p.favorite_id|default(p.id) }}"><button class="icon-button favorite {% if p.favorite %}is-saved{% endif %}" aria-label="{% if p.favorite %}Noņemt no favorītiem{% else %}Saglabāt favorītos{% endif %}: {{ p.name }}" aria-pressed="{{ 'true' if p.favorite else 'false' }}">{{ icon('heart',18) }}</button></form>{% endif %}
   </div>
   <div class="offer-copy">
     <div class="offer-store">{{ store(p.retailer,p.retailer_id) }}<span>{{ p.retailer }}</span>{% if p.valid_label|default(false) %}<small>{{ p.valid_label }}</small>{% endif %}</div>
-    <a class="offer-title" href="{{ detail_href(view,date,p.id) }}"><h3>{{ p.name }}</h3></a>
+    <a class="offer-title" href="{{ detail_url }}"><h3>{{ p.name }}</h3></a>
+    {% if historical %}<p class="fine-print">{{ p.store_name or p.store_id or 'Filiāle nav norādīta' }}</p>{% endif %}
     <p class="offer-package">{{ p.package }}{% if p.unit_price_label|default(false) %} · {{ p.unit_price_label }}{% endif %}</p>
-    {% if p.condition %}<p class="offer-condition">{{ icon('info',14) }}<span>{{ p.condition }}</span></p>{% endif %}
+    {% set condition = p.history_condition if historical else p.condition %}{% if condition %}<p class="offer-condition">{{ icon('info',14) }}<span>{{ condition }}</span></p>{% endif %}
     {% if p.reasons|default(false) %}<p class="offer-reason">{{ p.reasons|join(" · ") }}</p>{% endif %}
-    <div class="offer-bottom"><div><strong class="offer-price">{{ p.price_label }}</strong>{% if p.reference_label %}<del>{{ p.reference_label }}</del>{% endif %}</div><form action="{{ base_path|default('') }}/actions/add" method="post" hx-boost="false">{{ fields(view,date,token) }}<input type="hidden" name="product_id" value="{{ p.id }}"><button class="offer-add" aria-label="Pievienot sarakstam: {{ p.name }}">{{ icon('plus',20) }}</button></form></div>
+    {% if historical %}<p class="fine-print">Pēdējā novērotā cena · {{ p.collected_label }}</p><div class="offer-bottom"><strong class="offer-price">{{ p.history_price_label }}</strong><a class="text-link" href="{{ detail_url }}">Cenu vēsture {{ icon('arrow',16) }}</a></div>{% else %}<div class="offer-bottom"><div><strong class="offer-price">{{ p.price_label }}</strong>{% if p.reference_label %}<del>{{ p.reference_label }}</del>{% endif %}</div><form action="{{ base_path|default('') }}/actions/add" method="post" hx-boost="false">{{ fields(view,date,token) }}<input type="hidden" name="product_id" value="{{ p.id }}"><button class="offer-add" aria-label="Pievienot sarakstam: {{ p.name }}">{{ icon('plus',20) }}</button></form></div>{% endif %}
   </div>
 </article>
-{% else %}<div class="empty-state">{{ icon('search',32) }}<h3>Nekas vēl nav atrasts</h3><p>Pamēģini citu nosaukumu vai izvēlies visus veikalus.</p><a href="{{ base_path|default('') }}/?view=deals&date={{ date }}" class="button button-outline">Skatīt visus piedāvājumus</a></div>{% endfor %}
+{% else %}<div class="empty-state">{{ icon('search',32) }}<h3>{{ 'Cenu vēsturē nekas nav atrasts' if historical else 'Nekas vēl nav atrasts' }}</h3><p>{{ 'Šai atlasei līdz izvēlētajam datumam nav saglabātu novērojumu. Maini meklējumu, veikalu vai datumu.' if historical else 'Pamēģini citu nosaukumu vai izvēlies visus veikalus.' }}</p><a href="{{ base_path|default('') }}/?view={{ 'history' if historical else 'deals' }}&date={{ date }}" class="button button-outline">{{ 'Notīrīt vēstures filtrus' if historical else 'Skatīt visus piedāvājumus' }}</a></div>{% endfor %}
 </div>
 {%- endmacro %}
