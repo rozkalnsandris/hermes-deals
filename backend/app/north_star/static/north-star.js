@@ -6,20 +6,48 @@
   let dialogScrollY;
   const sidebar = () => document.getElementById('sidebar');
   const dialog = () => document.querySelector('.product-dialog');
-  function menu(open) {
-    document.body.classList.toggle('sidebar-open', open);
-    sidebar().inert = mobile.matches && !open;
-    document.querySelectorAll('[data-menu-open]').forEach(button => button.setAttribute('aria-expanded', String(open)));
-    if (open) { opener = document.activeElement; sidebar().querySelector('a')?.focus(); }
-    else if (opener?.isConnected) opener.focus();
+  function syncOverlayState() {
+    const node = sidebar();
+    const detailOpen = Boolean(dialog());
+    const menuOpen = mobile.matches && document.body.classList.contains('sidebar-open') && !detailOpen;
+    if (!menuOpen) document.body.classList.remove('sidebar-open');
+
+    node.inert = detailOpen || (mobile.matches && !menuOpen);
+    if (menuOpen) {
+      node.setAttribute('role', 'dialog');
+      node.setAttribute('aria-modal', 'true');
+    } else {
+      node.removeAttribute('role');
+      node.removeAttribute('aria-modal');
+    }
+
+    const backgroundInert = menuOpen || detailOpen;
+    document.querySelector('.skip-link').inert = backgroundInert;
+    document.querySelector('.workspace').inert = backgroundInert;
+    document.querySelector('.mobile-bottom').inert = backgroundInert;
+    document.querySelector('.app-layout').inert = detailOpen;
+    document.querySelectorAll('[data-menu-open]').forEach(button => button.setAttribute('aria-expanded', String(menuOpen)));
+    return { menuOpen, detailOpen };
+  }
+  function menu(open, { restoreFocus = true } = {}) {
+    const shouldOpen = Boolean(open && mobile.matches && !dialog());
+    document.body.classList.toggle('sidebar-open', shouldOpen);
+    const state = syncOverlayState();
+    if (state.menuOpen) {
+      opener = document.activeElement;
+      sidebar().querySelector('a[href],button')?.focus();
+      return;
+    }
+    const returnTarget = opener;
+    opener = null;
+    if (restoreFocus && returnTarget?.isConnected && returnTarget.getClientRects().length) returnTarget.focus();
   }
   function initialize(swapped = false) {
     document.body.classList.remove('sidebar-open');
-    sidebar().inert = mobile.matches;
+    opener = null;
+    const state = syncOverlayState();
     const detail = dialog();
-    document.body.classList.toggle('dialog-open', Boolean(detail));
-    document.querySelector('.app-layout').inert = Boolean(detail);
-    document.querySelector('.mobile-bottom').inert = Boolean(detail);
+    document.body.classList.toggle('dialog-open', state.detailOpen);
     if (detail) detail.focus();
     else if (swapped) {
       const returnLink = dialogReturn && [...document.querySelectorAll('a[href]')].find(link => link.href === dialogReturn);
@@ -37,7 +65,16 @@
     if (event.target.closest('[data-menu-close]')) menu(false);
   });
   mobile.addEventListener('change', () => {
-    sidebar().inert = mobile.matches && !document.body.classList.contains('sidebar-open');
+    if (!mobile.matches) {
+      document.body.classList.remove('sidebar-open');
+      opener = null;
+      syncOverlayState();
+      return;
+    }
+    if (sidebar().contains(document.activeElement) && !document.body.classList.contains('sidebar-open')) {
+      document.querySelector('[data-menu-open]')?.focus();
+    }
+    syncOverlayState();
   });
   document.addEventListener('htmx:beforeRequest', event => {
     if (!dialog()) {
@@ -62,11 +99,12 @@
   document.addEventListener('htmx:sendError', documentFallback);
   document.addEventListener('keydown', event => {
     const detail = dialog();
+    const menuOpen = mobile.matches && document.body.classList.contains('sidebar-open');
     if (event.key === 'Escape') {
       if (detail) detail.querySelector('[data-dialog-close]').click();
-      else if (document.body.classList.contains('sidebar-open')) menu(false);
+      else if (menuOpen) menu(false);
     }
-    const container = detail || (document.body.classList.contains('sidebar-open') ? sidebar() : null);
+    const container = detail || (menuOpen ? sidebar() : null);
     if (event.key !== 'Tab' || !container) return;
     const controls = [...container.querySelectorAll('a[href],button,input,select,summary')].filter(el => !el.disabled && el.getClientRects().length);
     if (!controls.length) return;
