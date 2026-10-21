@@ -1,7 +1,9 @@
 """Real provider + durable household workflow over an isolated test database."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from html import unescape
 import re
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi.testclient import TestClient
 import pytest
@@ -338,6 +340,143 @@ def test_household_offer_sort_pagination_preserves_filters(data):
     assert "Iepriekšējā lapa" in second.text
     assert "Notīrīt filtrus" in second.text
     assert "q=Piens&amp;retailer=lidl&amp;sort=retailer&amp;offset=0" in second.text
+
+
+def test_product_detail_preserves_filtered_second_page_context_for_full_and_htmx(data):
+    db, client, _ = data
+    rows = [offer(db, name=f"Piens {i:02}", sku=str(i), chain="lidl") for i in range(61)]
+    target = rows[-1]
+    base = "/ui/home/?view=deals&date=2026-10-01&q=Piens&retailer=lidl&sort=retailer&offset=60"
+    page = client.get(base)
+    assert page.status_code == 200 and "61–61 no 61 piedāvājumiem" in page.text
+
+    href = unescape(re.search(r'class="offer-title" href="([^"]+)"', page.text)[1])
+    expected = {
+        "view": ["deals"],
+        "date": ["2026-10-01"],
+        "q": ["Piens"],
+        "retailer": ["lidl"],
+        "sort": ["retailer"],
+        "offset": ["60"],
+        "product": [str(target.id)],
+    }
+    assert parse_qs(urlsplit(href).query) == expected
+
+    for headers in ({}, {"HX-Request": "true"}):
+        detail = client.get(href, headers=headers)
+        assert detail.status_code == 200 and 'role="dialog"' in detail.text
+        close_href = unescape(re.search(r'data-dialog-close href="([^"]+)"', detail.text)[1])
+        close_params = parse_qs(urlsplit(close_href).query)
+        assert close_params == {key: value for key, value in expected.items() if key != "product"}
+        restored = client.get(close_href, headers=headers)
+        assert restored.status_code == 200
+        assert "Piens 60" in restored.text and "61–61 no 61 piedāvājumiem" in restored.text
+
+
+@pytest.mark.parametrize(("action", "state_key"), [("favorite", "favorites"), ("add", "shopping")])
+def test_filtered_post_action_preserves_return_context_and_mutates_once(data, action, state_key):
+    db, client, _ = data
+    rows = [offer(db, name=f"Piens {i:02}", sku=str(i), chain="lidl") for i in range(61)]
+    target = rows[-1]
+    base = "/ui/home/?view=deals&date=2026-10-01&q=Piens&retailer=lidl&sort=retailer&offset=60"
+    page = client.get(base)
+    form = {
+        "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', page.text)[1],
+        "version": re.search(r'name="version" value="([^"]+)"', page.text)[1],
+        "date": "2026-10-01",
+        "return_view": "deals",
+        "q": "Piens",
+        "retailer": "lidl",
+        "sort": "retailer",
+        "offset": "60",
+        "product_id": str(target.id),
+    }
+    assert all(f'name="{key}" value="{value}"' in page.text for key, value in {
+        "q": "Piens", "retailer": "lidl", "sort": "retailer", "offset": "60"
+    }.items())
+
+    response = client.post(
+        f"/ui/home/actions/{action}",
+        data=form,
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    destination = parse_qs(urlsplit(response.headers["location"]).query)
+    assert destination == {
+        "view": ["deals"],
+        "date": ["2026-10-01"],
+        "q": ["Piens"],
+        "retailer": ["lidl"],
+        "sort": ["retailer"],
+        "offset": ["60"],
+        "saved": ["1"],
+    }
+    state, version = read_household(db, "test-family")
+    assert version == 1
+    assert len(state[state_key]) == 1
+    restored = client.get(response.headers["location"])
+    assert "Piens 60" in restored.text and "61–61 no 61 piedāvājumiem" in restored.text
+
+
+@pytest.mark.parametrize(
+    ("return_values", "expected"),
+    [
+        (
+            {
+                "return_view": "https://evil.invalid/path",
+                "q": "Piens",
+                "retailer": "lidl",
+                "sort": "retailer",
+                "offset": "60",
+                "return_url": "https://evil.invalid/",
+            },
+            {"view": ["list"], "date": ["2026-10-01"], "saved": ["1"]},
+        ),
+        (
+            {
+                "return_view": "deals",
+                "q": "Piens",
+                "retailer": "../evil",
+                "sort": "price",
+                "offset": "-1",
+                "return_url": "https://evil.invalid/",
+            },
+            {"view": ["deals"], "date": ["2026-10-01"], "q": ["Piens"], "saved": ["1"]},
+        ),
+    ],
+)
+def test_post_return_context_rejects_external_or_invalid_values(data, return_values, expected):
+    db, client, _ = data
+    row = offer(db)
+    page = client.get("/ui/home/?view=deals&date=2026-10-01")
+    form = {
+        "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', page.text)[1],
+        "version": re.search(r'name="version" value="([^"]+)"', page.text)[1],
+        "date": "2026-10-01",
+        "product_id": str(row.id),
+        **return_values,
+    }
+    response = client.post(
+        "/ui/home/actions/favorite",
+        data=form,
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert parse_qs(urlsplit(response.headers["location"]).query) == expected
+    assert "evil.invalid" not in response.headers["location"]
+    state, version = read_household(db, "test-family")
+    assert version == 1 and len(state["favorites"]) == 1
+
+
+def test_detail_htmx_focus_and_scroll_restore_contract(data):
+    _, client, _ = data
+    asset = client.get("/ui/home/static/north-star.js")
+    assert asset.status_code == 200
+    assert "dialogScrollY = opensDetail ? window.scrollY : null;" in asset.text
+    assert "focus({ preventScroll: true })" in asset.text
+    assert "window.scrollTo(0, dialogScrollY)" in asset.text
 
 
 @pytest.mark.parametrize("values", [{"package_text_raw": None}, {"collected_day": 2}])
