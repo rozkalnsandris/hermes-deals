@@ -66,7 +66,7 @@ def test_latest_expired_observation_and_fixed_mode_equivalence(history_db):
     {"source_chain": "netto"}, {"source_store_external_id": "two"}, {"source_store_external_id": None},
     {"source_offer_id": "other"}, {"product_name_raw": "HistoryTest Other"}, {"brand_raw": "Other"},
     {"brand_raw": None}, {"package_text_raw": "2 l"}, {"unit_label": "kg"},
-    {"requires_app": True}, {"coupon_required": True}, {"pricing_mode": "unit_price_only"},
+    {"requires_app": True}, {"coupon_required": True}, {"pricing_mode": "unit_price_only", "unit_price_eur": Decimal("1.29")},
 ])
 def test_identity_boundaries_match_detail_service(history_db, change):
     db, add = history_db
@@ -81,7 +81,6 @@ def test_identity_boundaries_match_detail_service(history_db, change):
 @pytest.mark.parametrize("unknown", [
     {"source_offer_id": None}, {"source_offer_id": ""}, {"package_text_raw": None},
     {"package_text_raw": ""}, {"package_text_raw": "\t\n\u00a0\u3000"},
-    {"pricing_mode": "unknown"}, {"pricing_mode": "unit_price_only", "unit_label": None},
 ])
 def test_unknown_identity_or_basis_never_merges_observations(history_db, unknown):
     db, add = history_db

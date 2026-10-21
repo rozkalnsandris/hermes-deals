@@ -1,7 +1,7 @@
 """Project existing offer services into the north-star UI. No demo imports/data."""
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.basket_plan import best_two_store_plan
 from app.current_deals_service import build_current_deals
+from app.current_deals_state import build_current_deals_status
 from app.current_deals_sql_loader import load_sql_ranked_state_rows, materialize_only
 from app.household_service import read_household
 from app.meal_service import meal_context, quantity_label
@@ -148,17 +149,19 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
     def quote_for(row, *, favorite_id=None):
         return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
 
-    # Same Python service as JSON; no HTTP call to our own API and no browser pricing rules.
+    # Same Python services as JSON/details; no HTTP call to our own API and no browser pricing rules.
     if view == "history":
         catalogue, total_count = list_price_history_series(
             db, as_of=day, query=query, retailer=retailer, sort=sort, offset=offset,
         )
+        data_status = None
     else:
         with materialize_only("current"):
             current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
                                          view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
                                          sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
-        catalogue, total_count = current.deals, current.available_count
+        catalogue, total_count = current.deals, total_count
+        data_status = build_current_deals_status(db, current, day, retailer=retailer, query=query)
     bindings = state.get("ingredient_offers", {})
     references = set(bindings.values()) | set(state["favorites"]) | {item["product_id"] for item in state["shopping"] if item["product_id"]}
     originals = {str(row.id): row for row in db.scalars(select(OfferCandidateRecord).where(OfferCandidateRecord.id.in_([UUID(key) for key in references])))} if references else {}
@@ -284,12 +287,11 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             selected_row = db.get(OfferCandidateRecord, UUID(product))
         except (ValueError, TypeError):
             selected_row = None
-        if selected_row:
-            if view == "history":
-                observed = selected_row.collected_at
-                observed = observed.replace(tzinfo=timezone.utc) if observed.tzinfo is None else observed
-                if observed >= history_cutoff(day):
-                    selected_row = None
+        if selected_row and view == "history":
+            observed = selected_row.collected_at
+            observed = observed.replace(tzinfo=timezone.utc) if observed.tzinfo is None else observed
+            if observed >= history_cutoff(day):
+                selected_row = None
         if selected_row:
             data = detail(selected_row)
             selected = {**quote_for(selected_row, favorite_id=favorite_latest.get(str(selected_row.id))),
@@ -330,8 +332,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
             "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(total_count), "available_count": total_count,
+            "data_status": data_status,
             "query": query, "retailer": retailer, "sort": sort, "offset": offset, "next_offset": offset + 60 if offset + 60 < total_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": total_count,
-            "history_return_url": "/ui/home/?" + urlencode({"view": "history", "date": day.isoformat(), "q": query,
-                                                           "retailer": retailer, "sort": sort, "offset": offset}),
             "notice": "", "read_error": False}

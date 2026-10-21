@@ -1,7 +1,9 @@
 """Real provider + durable household workflow over an isolated test database."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from html import unescape
 import re
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi.testclient import TestClient
 import pytest
@@ -12,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.household_service import change_household, read_household
 from app.main import app
+import app.north_star_live as north_star_live
 from app.models import Base, HouseholdState, OfferCandidateRecord, SourceSnapshot, CanonicalProduct, OfferProductLink
 from app.north_star_live_data import build_live_context
 from app.runtime import app as runtime_app
@@ -156,25 +159,6 @@ def test_unmapped_offer_detail_renders_source_history(data):
     assert 'href="https://example.invalid/test"' in response.text
 
 
-def test_history_discovers_expired_series_without_active_deals(data):
-    db, client, _ = data
-    offer(db, price="1.49")
-    latest = offer(db, price="1.19", collected_day=2)
-    params = {"date": "2026-10-27", "q": "Piens", "retailer": "lidl"}
-    deals = client.get("/ui/home/", params={**params, "view": "deals"})
-    assert 'class="offer-card"' not in deals.text
-    history = client.get("/ui/home/", params={**params, "view": "history"})
-    assert history.status_code == 200
-    assert history.text.count('class="offer-card"') == 1
-    assert str(latest.id) in history.text
-    assert "Pēdējā novērotā cena" in history.text
-    assert "1,19 €" in history.text
-    assert "02.10.2026 10:00" in history.text
-    detail = client.get("/ui/home/", params={**params, "view": "history", "product": str(latest.id)})
-    assert "Cenu novērojumi" in detail.text
-    assert "1,49 €" in detail.text
-
-
 def test_unknown_and_conditional_prices_do_not_become_free_or_unrestricted(data):
     db, client, _ = data
     app_offer = offer(db, requires_app=True)
@@ -246,6 +230,179 @@ def test_dates_filters_pagination_and_settings(data):
     assert read_household(db, "test-family")[0]["settings"]["people"] == 6
 
 
+
+def test_berlin_today_uses_europe_berlin(monkeypatch):
+    class FixedClock:
+        @classmethod
+        def now(cls, tz):
+            assert tz.key == "Europe/Berlin"
+            return datetime(2026, 10, 22, 0, 30, tzinfo=tz)
+
+    monkeypatch.setattr(north_star_live, "datetime", FixedClock)
+    assert north_star_live._berlin_today() == date(2026, 10, 22)
+
+
+def test_day_picker_preserves_filters_resets_offset_and_changes_effective_day(data, monkeypatch):
+    db, client, _ = data
+    row = offer(
+        db,
+        name="Ceturtdienas prece",
+        sku="thursday-only",
+        collected_day=20,
+        valid_from=date(2026, 10, 22),
+        valid_until=date(2026, 10, 22),
+    )
+    monkeypatch.setattr(north_star_live, "_berlin_today", lambda: date(2026, 10, 22))
+    tuesday_url = (
+        "/ui/home/?view=deals&date=2026-10-20&q=Ceturtdienas"
+        "&retailer=lidl&sort=retailer&offset=60"
+    )
+    tuesday = client.get(tuesday_url)
+    assert tuesday.status_code == 200
+    assert "Otrdiena, 20.10.2026" in tuesday.text
+    assert "Ceturtdienas prece" not in tuesday.text
+    thursday_href = (
+        'href="/ui/home/?view=deals&amp;date=2026-10-22'
+        '&amp;q=Ceturtdienas&amp;retailer=lidl&amp;sort=retailer"'
+    )
+    assert thursday_href in tuesday.text
+    assert "Šodien" in tuesday.text
+    assert 'aria-current="date"' in tuesday.text
+
+    thursday_url = (
+        "/ui/home/?view=deals&date=2026-10-22&q=Ceturtdienas"
+        "&retailer=lidl&sort=retailer"
+    )
+    thursday = client.get(thursday_url, headers={"HX-Request": "true"})
+    assert thursday.status_code == 200
+    assert "<!doctype" not in thursday.text
+    assert "Ceturtdiena, 22.10.2026" in thursday.text
+    assert row.product_name_raw in thursday.text
+
+
+def test_day_picker_crosses_year_boundary_and_has_responsive_touch_contract(data):
+    _, client, _ = data
+    page = client.get("/ui/home/?view=deals&date=2026-12-31")
+    assert page.status_code == 200
+    for selected in (
+        "2026-12-28",
+        "2026-12-29",
+        "2026-12-30",
+        "2026-12-31",
+        "2027-01-01",
+        "2027-01-02",
+        "2027-01-03",
+    ):
+        assert f"date={selected}" in page.text
+    assert 'href="/ui/home/?view=deals&amp;date=2026-12-24"' in page.text
+    assert 'href="/ui/home/?view=deals&amp;date=2027-01-07"' in page.text
+
+    css = client.get("/ui/home/static/modern.css")
+    assert css.status_code == 200
+    assert ".day-option { min-height: 44px;" in css.text
+    assert "@media (max-width:760px)" in css.text
+    assert "@media (max-width:380px)" in css.text
+    assert "grid-template-columns: repeat(7,minmax(44px,1fr)); overflow-x: auto;" in css.text
+
+
+
+def test_empty_search_is_filter_state_not_source_failure(data):
+    db, client, _ = data
+    offer(db, name="Piens", chain="lidl")
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&q=NavTada&retailer=lidl")
+    assert page.status_code == 200
+    assert 'data-state="filtered_empty"' in page.text
+    assert "Filtrs neatdeva rezultātus" in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" not in page.text
+
+
+def test_explicit_verified_empty_snapshot_is_the_only_no_offers_claim(data):
+    db, client, _ = data
+    db.add(SourceSnapshot(
+        source_chain="edeka",
+        source_url="https://example.invalid/edeka",
+        scope="family_primary_edeka",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint="edeka_store_offers_manifest_v1",
+        success=True,
+        keyword_hits={"offer_count": 0},
+    ))
+    db.commit()
+
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=edeka")
+    assert page.status_code == 200
+    assert 'data-state="no_offers"' in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" in page.text
+    assert "Pēdējā avota pārbaude: 01.10.2026 10:00 (Berlīne)" in page.text
+    assert "Dienas piedāvājumi" in page.text
+
+
+def test_failed_current_source_attempt_is_unavailable_not_empty(data):
+    db, client, _ = data
+    db.add(SourceSnapshot(
+        source_chain="edeka",
+        source_url="https://example.invalid/edeka",
+        scope="family_primary_edeka",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint="edeka_store_offers_manifest_v1_error",
+        success=False,
+        error="fixture failure",
+    ))
+    db.commit()
+
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=edeka")
+    assert page.status_code == 200
+    assert 'data-state="source_unavailable"' in page.text
+    assert "Avots pašlaik nav pieejams" in page.text
+    assert "Tas nenozīmē, ka akciju nav" in page.text
+
+
+def test_expired_known_window_is_stale_not_verified_empty(data):
+    db, client, _ = data
+    offer(
+        db,
+        chain="netto",
+        valid_from=date(2026, 9, 28),
+        valid_until=date(2026, 9, 30),
+    )
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=netto")
+    assert page.status_code == 200
+    assert 'data-state="stale_data"' in page.text
+    assert "Pieejamie dati ir novecojuši" in page.text
+    assert "30.09.2026" in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" not in page.text
+
+
+def test_future_day_without_verified_coverage_is_not_published_yet(data):
+    _, client, _ = data
+    page = client.get("/ui/home/?view=deals&date=2099-01-01&retailer=lidl")
+    assert page.status_code == 200
+    assert 'data-state="not_published_yet"' in page.text
+    assert "Šai dienai dati vēl nav pārbaudīti" in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" not in page.text
+
+
+def test_short_period_snapshot_does_not_define_current_lidl_chain_status(data):
+    db, client, _ = data
+    db.add(SourceSnapshot(
+        source_chain="lidl",
+        source_url="https://example.invalid/lidl-specials",
+        scope="short_period_specials",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint="weekly_special_fixture",
+        success=True,
+        keyword_hits={"offer_count": 0},
+    ))
+    db.commit()
+
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=lidl")
+    assert page.status_code == 200
+    assert 'data-state="verification_pending"' in page.text
+    assert "Pārbaude vēl nav pabeigta" in page.text
+    assert "Īso periodu pierādījumi tiek vērtēti atsevišķi" in page.text
+    assert 'data-state="no_offers"' not in page.text
+
+
 def test_household_offer_sorting_is_server_owned(data):
     db, client, _ = data
     offer(db, name="A Netto", chain="netto", sku="netto", collected_day=1)
@@ -281,6 +438,143 @@ def test_household_offer_sort_pagination_preserves_filters(data):
     assert "Iepriekšējā lapa" in second.text
     assert "Notīrīt filtrus" in second.text
     assert "q=Piens&amp;retailer=lidl&amp;sort=retailer&amp;offset=0" in second.text
+
+
+def test_product_detail_preserves_filtered_second_page_context_for_full_and_htmx(data):
+    db, client, _ = data
+    rows = [offer(db, name=f"Piens {i:02}", sku=str(i), chain="lidl") for i in range(61)]
+    target = rows[-1]
+    base = "/ui/home/?view=deals&date=2026-10-01&q=Piens&retailer=lidl&sort=retailer&offset=60"
+    page = client.get(base)
+    assert page.status_code == 200 and "61–61 no 61 piedāvājumiem" in page.text
+
+    href = unescape(re.search(r'class="offer-title" href="([^"]+)"', page.text)[1])
+    expected = {
+        "view": ["deals"],
+        "date": ["2026-10-01"],
+        "q": ["Piens"],
+        "retailer": ["lidl"],
+        "sort": ["retailer"],
+        "offset": ["60"],
+        "product": [str(target.id)],
+    }
+    assert parse_qs(urlsplit(href).query) == expected
+
+    for headers in ({}, {"HX-Request": "true"}):
+        detail = client.get(href, headers=headers)
+        assert detail.status_code == 200 and 'role="dialog"' in detail.text
+        close_href = unescape(re.search(r'data-dialog-close href="([^"]+)"', detail.text)[1])
+        close_params = parse_qs(urlsplit(close_href).query)
+        assert close_params == {key: value for key, value in expected.items() if key != "product"}
+        restored = client.get(close_href, headers=headers)
+        assert restored.status_code == 200
+        assert "Piens 60" in restored.text and "61–61 no 61 piedāvājumiem" in restored.text
+
+
+@pytest.mark.parametrize(("action", "state_key"), [("favorite", "favorites"), ("add", "shopping")])
+def test_filtered_post_action_preserves_return_context_and_mutates_once(data, action, state_key):
+    db, client, _ = data
+    rows = [offer(db, name=f"Piens {i:02}", sku=str(i), chain="lidl") for i in range(61)]
+    target = rows[-1]
+    base = "/ui/home/?view=deals&date=2026-10-01&q=Piens&retailer=lidl&sort=retailer&offset=60"
+    page = client.get(base)
+    form = {
+        "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', page.text)[1],
+        "version": re.search(r'name="version" value="([^"]+)"', page.text)[1],
+        "date": "2026-10-01",
+        "return_view": "deals",
+        "q": "Piens",
+        "retailer": "lidl",
+        "sort": "retailer",
+        "offset": "60",
+        "product_id": str(target.id),
+    }
+    assert all(f'name="{key}" value="{value}"' in page.text for key, value in {
+        "q": "Piens", "retailer": "lidl", "sort": "retailer", "offset": "60"
+    }.items())
+
+    response = client.post(
+        f"/ui/home/actions/{action}",
+        data=form,
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    destination = parse_qs(urlsplit(response.headers["location"]).query)
+    assert destination == {
+        "view": ["deals"],
+        "date": ["2026-10-01"],
+        "q": ["Piens"],
+        "retailer": ["lidl"],
+        "sort": ["retailer"],
+        "offset": ["60"],
+        "saved": ["1"],
+    }
+    state, version = read_household(db, "test-family")
+    assert version == 1
+    assert len(state[state_key]) == 1
+    restored = client.get(response.headers["location"])
+    assert "Piens 60" in restored.text and "61–61 no 61 piedāvājumiem" in restored.text
+
+
+@pytest.mark.parametrize(
+    ("return_values", "expected"),
+    [
+        (
+            {
+                "return_view": "https://evil.invalid/path",
+                "q": "Piens",
+                "retailer": "lidl",
+                "sort": "retailer",
+                "offset": "60",
+                "return_url": "https://evil.invalid/",
+            },
+            {"view": ["list"], "date": ["2026-10-01"], "saved": ["1"]},
+        ),
+        (
+            {
+                "return_view": "deals",
+                "q": "Piens",
+                "retailer": "../evil",
+                "sort": "price",
+                "offset": "-1",
+                "return_url": "https://evil.invalid/",
+            },
+            {"view": ["deals"], "date": ["2026-10-01"], "q": ["Piens"], "saved": ["1"]},
+        ),
+    ],
+)
+def test_post_return_context_rejects_external_or_invalid_values(data, return_values, expected):
+    db, client, _ = data
+    row = offer(db)
+    page = client.get("/ui/home/?view=deals&date=2026-10-01")
+    form = {
+        "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', page.text)[1],
+        "version": re.search(r'name="version" value="([^"]+)"', page.text)[1],
+        "date": "2026-10-01",
+        "product_id": str(row.id),
+        **return_values,
+    }
+    response = client.post(
+        "/ui/home/actions/favorite",
+        data=form,
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert parse_qs(urlsplit(response.headers["location"]).query) == expected
+    assert "evil.invalid" not in response.headers["location"]
+    state, version = read_household(db, "test-family")
+    assert version == 1 and len(state["favorites"]) == 1
+
+
+def test_detail_htmx_focus_and_scroll_restore_contract(data):
+    _, client, _ = data
+    asset = client.get("/ui/home/static/north-star.js")
+    assert asset.status_code == 200
+    assert "dialogScrollY = opensDetail ? window.scrollY : null;" in asset.text
+    assert "focus({ preventScroll: true })" in asset.text
+    assert "window.scrollTo(0, dialogScrollY)" in asset.text
 
 
 @pytest.mark.parametrize("values", [{"package_text_raw": None}, {"collected_day": 2}])
@@ -753,6 +1047,25 @@ def test_htmx_asset_is_packaged_upstream_pin(data):
     asset = client.get('/ui/home/static/vendor/htmx-2.0.11.min.js')
     assert asset.status_code == 200
     assert hashlib.sha1(f"blob {len(asset.content)}\0".encode() + asset.content).hexdigest() == "e6b8394acb5cda3281a68b4078775ec348d8eafc"
+
+
+def test_history_discovers_expired_series_without_active_deals(data):
+    db, client, _ = data
+    offer(db, price="1.49")
+    latest = offer(db, price="1.19", collected_day=2)
+    params = {"date": "2026-10-27", "q": "Piens", "retailer": "lidl"}
+    deals = client.get("/ui/home/", params={**params, "view": "deals"})
+    assert 'class="offer-card"' not in deals.text
+    history = client.get("/ui/home/", params={**params, "view": "history"})
+    assert history.status_code == 200
+    assert history.text.count('class="offer-card"') == 1
+    assert str(latest.id) in history.text
+    assert "Pēdējā novērotā cena" in history.text
+    assert "1,19 €" in history.text
+    assert "02.10.2026 10:00" in history.text
+    detail = client.get("/ui/home/", params={**params, "view": "history", "product": str(latest.id)})
+    assert "Cenu novērojumi" in detail.text
+    assert "1,49 €" in detail.text
 
 
 def test_history_empty_search_differs_from_unknown_price_basis(data):

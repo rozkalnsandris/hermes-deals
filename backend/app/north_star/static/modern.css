@@ -257,3 +257,34 @@ main { padding: 32px 36px 0; max-width: 1720px; }
   .week-picker strong { white-space: normal; text-align: center; line-height: 1.4; }
   .week-arrow, .topbar-end { flex-shrink: 0; }
 }
+
+/* #1033: server-owned selected-day navigation. */
+.day-picker { display: flex; align-items: center; gap: 12px; padding: 12px 36px; background: #fff; border-bottom: 1px solid var(--line); }
+.selected-day { display: grid; gap: 1px; min-width: 190px; }
+.selected-day > span { font-size: .6875rem; color: var(--muted); letter-spacing: .8px; text-transform: uppercase; }
+.selected-day strong { font-size: .875rem; font-weight: 650; }
+.day-options { display: grid; grid-template-columns: repeat(7,minmax(44px,1fr)); gap: 6px; flex: 1; max-width: 620px; }
+.day-option { min-height: 44px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; line-height: 1.15; color: #4d625a; background: #fff; }
+.day-option span { font-size: .75rem; font-weight: 650; }
+.day-option time { font-size: .6875rem; color: var(--muted); }
+.day-option:hover { border-color: #a8c3b3; background: #f6faf7; }
+.day-option.is-selected { color: #143b32; background: #dff1d7; border-color: #9fbf8b; }
+.day-option.is-selected time { color: #385948; }
+.today-button { margin-left: auto; white-space: nowrap; }
+.selected-date-summary { color: #435b52; font-weight: 550; }
+
+@media (max-width:1400px) {
+  .day-picker { padding-inline: 26px; }
+}
+@media (max-width:760px) {
+  .day-picker { padding: 10px 16px; gap: 10px; flex-wrap: wrap; }
+  .selected-day { min-width: 0; flex: 1 1 auto; }
+  .today-button { margin-left: 0; }
+  .day-options { order: 3; flex-basis: 100%; max-width: none; gap: 4px; }
+  .day-option { min-width: 0; padding-inline: 3px; }
+}
+@media (max-width:380px) {
+  .day-picker { padding-inline: 12px; }
+  .day-options { grid-template-columns: repeat(7,minmax(44px,1fr)); overflow-x: auto; padding-bottom: 3px; }
+  .selected-day strong { font-size: .8125rem; }
+}
