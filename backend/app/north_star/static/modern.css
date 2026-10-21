@@ -41,7 +41,7 @@ small { font-size: .75rem; }
 .chevron { margin-left: 2px; }
 main { padding: 32px 36px 0; max-width: 1720px; }
 .page-heading { align-items: center; margin-bottom: 26px; gap: 16px; }
-.eyebrow { font-size: .6875rem; letter-spacing: 1.6px; color: #65766f; margin-bottom: 9px; }
+.eyebrow { font-size: .6875rem; letter-spacing: 1.6px; color: var(--muted); margin-bottom: 9px; }
 .page-description { font-size: .875rem; color: var(--muted); margin-top: 10px; }
 .demo-badge { font-size: .6875rem; letter-spacing: .6px; padding: 8px 10px; background: #fff9e9; color: #776023; border-color: #eadfb9; }
 .week-brief { display: grid; grid-template-columns: 1.4fr 1fr 1fr auto; gap: 24px; align-items: center; border: 1px solid #dce8dc; background: #edf4e9; border-radius: 18px; padding: 23px 26px; margin-bottom: 26px; }
@@ -116,7 +116,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 .offer-bottom { display: flex; align-items: end; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 17px; }
 .offer-bottom > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
 .offer-price { font-size: 1.5rem; font-weight: 730; letter-spacing: -.6px; color: #173e30; }
-.offer-bottom del { font-size: .75rem; color: #737d79; }
+.offer-bottom del { font-size: .75rem; color: var(--muted); }
 .offer-add { display: grid; place-items: center; width: 38px; min-height: 38px; padding: 0; border: 1px solid #cee1d3; border-radius: 10px; color: #176947; background: #edf6ed; }
 .offer-add:hover { color: #fff; background: #176947; }
 .offer-grid > .empty-state { grid-column: 1 / -1; padding: 60px 20px; }
@@ -154,7 +154,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 .chart-axis, .chart-labels { font-size: .75rem; color: #637366; }
 .chart-labels { gap: 8px; }
 .chart-prices { justify-content: flex-start; gap: 24px; }
-.page-footer { font-size: .75rem; color: #6c7773; padding: 28px 0; }
+.page-footer { font-size: .75rem; color: var(--muted); padding: 28px 0; }
 .planner-grid { grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 16px; }
 .planner-day { border-radius: 13px; background: #fafcf9; }
 .planner-day header, .planner-day header small, .day-form label, .day-form select { font-size: .8125rem; color: #546a5b; }
@@ -169,6 +169,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 .basket-store { font-size: .875rem; padding: 18px 8px; }
 .basket-store small { font-size: .75rem; }
 .stat-card p, .stat-card > small { font-size: .875rem; color: #627166; }
+.empty-state { color: var(--muted); }
 .empty-state p { font-size: .875rem; }
 .product-dialog { border-radius: 20px; width: min(900px,100%); }
 .dialog-header { padding: 16px 24px; font-size: .875rem; }
