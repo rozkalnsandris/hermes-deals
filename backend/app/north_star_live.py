@@ -41,6 +41,9 @@ WEEKDAYS_LV = (
     ("Sv", "Svētdiena"),
 )
 
+SORT_OPTIONS = {"name", "retailer", "newest"}
+RETURN_FILTER_VIEWS = {"deals", "history"}
+
 
 def household_key():
     key = os.getenv("HERMES_HOUSEHOLD_ID", "home")
@@ -63,18 +66,49 @@ def _berlin_today():
     return datetime.now(ZoneInfo("Europe/Berlin")).date()
 
 
+def _return_context(values, day, view):
+    target_view = view if view in NAV else "list"
+    context = {"view": target_view, "date": day.isoformat()}
+    if target_view not in RETURN_FILTER_VIEWS:
+        return context
+
+    query = (values.get("q") or "")[:100]
+    retailer = (values.get("retailer") or "")[:32]
+    sort = values.get("sort", "name")
+    if sort not in SORT_OPTIONS:
+        sort = "name"
+    try:
+        offset = int(values.get("offset", "0"))
+        if not 0 <= offset <= 100000:
+            raise ValueError
+    except (TypeError, ValueError):
+        offset = 0
+
+    if query:
+        context["q"] = query
+    if retailer and re.fullmatch(r"[a-z0-9_]{1,32}", retailer):
+        context["retailer"] = retailer
+    if sort != "name":
+        context["sort"] = sort
+    if offset:
+        context["offset"] = offset
+    return context
+
+
+def _return_navigation(values, day, view):
+    context = _return_context(values, day, view)
+    return {
+        "return_context": context,
+        "return_href": BASE_PATH + "/?" + urlencode(context),
+    }
+
+
 def _date_navigation(params, day, view):
-    filters = {}
-    if view in {"deals", "history"}:
-        query = params.get("q", "")[:100]
-        retailer = params.get("retailer", "")[:32]
-        sort = params.get("sort", "name")
-        if query:
-            filters["q"] = query
-        if retailer:
-            filters["retailer"] = retailer
-        if sort != "name":
-            filters["sort"] = sort
+    filters = {
+        key: value
+        for key, value in _return_context(params, day, view).items()
+        if key not in {"view", "date", "offset"}
+    }
 
     def href(target):
         return BASE_PATH + "/?" + urlencode({"view": view, "date": target.isoformat(), **filters})
@@ -161,7 +195,7 @@ def home(request: Request, db: Session = Depends(get_db)):
     if view not in NAV:
         raise HTTPException(404, "Sadaļa nav atrasta.")
     sort = params.get("sort", "name")
-    if sort not in {"name", "retailer", "newest"}:
+    if sort not in SORT_OPTIONS:
         raise HTTPException(422, "Nederīga kārtošanas izvēle.")
     try:
         offset = int(params.get("offset", "0"))
@@ -177,8 +211,10 @@ def home(request: Request, db: Session = Depends(get_db)):
         log.warning("North-star data read failed; check database and migration 0008")
         context = error_context(day, view, "Pārbaudi datubāzes savienojumu un mājsaimniecības datu sagatavošanu.")
         context.update(_date_navigation(params, day, view))
+        context.update(_return_navigation(params, day, view))
         return render(request, context, status=503)
     context.update(_date_navigation(params, day, view))
+    context.update(_return_navigation(params, day, view))
     if params.get("saved") == "1":
         context["notice"] = "Izmaiņas saglabātas."
     return render(request, context)
@@ -208,19 +244,33 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token) or not hmac.compare_digest(token.encode(), form.get("csrf_token", "").encode()):
         raise HTTPException(403, "Veidlapas derīgums beidzies. Pārlādē lapu.")
     day = selected_day(form.get("date"))
-    view = form.get("return_view", "list")
-    if view not in NAV:
-        view = "list"
+    requested_view = form.get("return_view", "list")
+    return_context = _return_context(form, day, requested_view)
+    view = return_context["view"]
     try:
         change_household(db, household_key(), version, action, form)
     except ValueError as exc:
-        context = build_live_context(db, household_key(), day, view=view)
+        context = build_live_context(
+            db,
+            household_key(),
+            day,
+            view=view,
+            query=return_context.get("q", ""),
+            retailer=return_context.get("retailer", ""),
+            sort=return_context.get("sort", "name"),
+            offset=return_context.get("offset", 0),
+        )
+        context.update(_date_navigation(return_context, day, view))
+        context.update(_return_navigation(return_context, day, view))
         context["notice"] = str(exc)
         return render(request, context, status=409 if isinstance(exc, HouseholdConflict) else 422)
     except SQLAlchemyError:
         db.rollback()
-        return render(request, error_context(day, view, "Izmaiņas neizdevās saglabāt. Pārlādē lapu un pārbaudi sarakstu."), status=503)
-    destination = {"view": view, "date": day.isoformat(), "saved": "1"}
+        context = error_context(day, view, "Izmaiņas neizdevās saglabāt. Pārlādē lapu un pārbaudi sarakstu.")
+        context.update(_date_navigation(return_context, day, view))
+        context.update(_return_navigation(return_context, day, view))
+        return render(request, context, status=503)
+    destination = {**return_context, "saved": "1"}
     if action == "price_eligibility":
         destination["product"] = form["product_id"]
     return finish(RedirectResponse(BASE_PATH + "/?" + urlencode(destination), status_code=303), request, token)
