@@ -24,7 +24,7 @@
 </svg>{%- endmacro %}
 
 {% macro fields(view, date, token) -%}
-{% if state_version is defined %}<input type="hidden" name="version" value="{{ state_version }}">{% endif %}<input type="hidden" name="csrf_token" value="{{ token }}"><input type="hidden" name="return_view" value="{{ view }}"><input type="hidden" name="date" value="{{ date }}">{% if return_context is defined and return_context.get('view') == view %}{% for key in ['q','retailer','sort','offset'] %}{% if return_context.get(key) is not none %}<input type="hidden" name="{{ key }}" value="{{ return_context.get(key) }}">{% endif %}{% endfor %}{% endif %}
+{% if state_version is defined %}<input type="hidden" name="version" value="{{ state_version }}">{% endif %}<input type="hidden" name="csrf_token" value="{{ token }}"><input type="hidden" name="return_view" value="{{ view }}"><input type="hidden" name="date" value="{{ date }}">{% if return_context is defined and return_context.get('view') == view %}{% for key in ['q','retailer','sort','offset','recipe_id','ingredient_id'] %}{% if return_context.get(key) is not none %}<input type="hidden" name="{{ key }}" value="{{ return_context.get(key) }}">{% endif %}{% endfor %}{% endif %}
 {%- endmacro %}
 
 {% macro detail_href(view, date, product_id) -%}

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.household_service import HouseholdConflict, change_household, empty_household
+from app.meal_service import BY_ID
 from app.north_star_live_data import NAV, build_live_context
 
 BASE_PATH = "/ui/home"
@@ -66,9 +67,45 @@ def _berlin_today():
     return datetime.now(ZoneInfo("Europe/Berlin")).date()
 
 
+def _ingredient_context(values, day):
+    recipe_id = str(values.get("recipe_id") or "").strip()
+    ingredient_id = str(values.get("ingredient_id") or "").strip()
+    if not recipe_id and not ingredient_id:
+        return None
+    recipe = BY_ID.get(recipe_id)
+    if recipe is None or not ingredient_id:
+        raise HTTPException(422, "Recepte vai sastāvdaļa nav atrasta.")
+    ingredient = next((item for item in recipe["ingredients"] if item[0] == ingredient_id), None)
+    if ingredient is None:
+        raise HTTPException(422, "Sastāvdaļa nepieder izvēlētajai receptei.")
+    _, ingredient_name, _, unit = ingredient
+    recipe_href = BASE_PATH + "/?" + urlencode({"view": "recipes", "date": day.isoformat()})
+    anchor = f"ingredient-{recipe_id}-{ingredient_id}"
+    deals_href = BASE_PATH + "/?" + urlencode({
+        "view": "deals",
+        "date": day.isoformat(),
+        "recipe_id": recipe_id,
+        "ingredient_id": ingredient_id,
+    })
+    return {
+        "recipe_id": recipe_id,
+        "recipe_name": recipe["name"],
+        "ingredient_id": ingredient_id,
+        "ingredient_name": ingredient_name,
+        "ingredient_unit": unit,
+        "recipe_href": recipe_href + "#" + anchor,
+        "deals_href": deals_href,
+        "anchor": anchor,
+    }
+
+
 def _return_context(values, day, view):
     target_view = view if view in NAV else "list"
     context = {"view": target_view, "date": day.isoformat()}
+    ingredient_context = _ingredient_context(values, day) if target_view == "deals" else None
+    if ingredient_context:
+        context["recipe_id"] = ingredient_context["recipe_id"]
+        context["ingredient_id"] = ingredient_context["ingredient_id"]
     if target_view not in RETURN_FILTER_VIEWS:
         return context
 
@@ -194,6 +231,7 @@ def home(request: Request, db: Session = Depends(get_db)):
     view = params.get("view", "overview")
     if view not in NAV:
         raise HTTPException(404, "Sadaļa nav atrasta.")
+    ingredient_context = _ingredient_context(params, day)
     sort = params.get("sort", "name")
     if sort not in SORT_OPTIONS:
         raise HTTPException(422, "Nederīga kārtošanas izvēle.")
@@ -212,9 +250,11 @@ def home(request: Request, db: Session = Depends(get_db)):
         context = error_context(day, view, "Pārbaudi datubāzes savienojumu un mājsaimniecības datu sagatavošanu.")
         context.update(_date_navigation(params, day, view))
         context.update(_return_navigation(params, day, view))
+        context["ingredient_context"] = ingredient_context if view == "deals" else None
         return render(request, context, status=503)
     context.update(_date_navigation(params, day, view))
     context.update(_return_navigation(params, day, view))
+    context["ingredient_context"] = ingredient_context if view == "deals" else None
     if params.get("saved") == "1":
         context["notice"] = "Izmaiņas saglabātas."
     return render(request, context)
@@ -244,6 +284,11 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token) or not hmac.compare_digest(token.encode(), form.get("csrf_token", "").encode()):
         raise HTTPException(403, "Veidlapas derīgums beidzies. Pārlādē lapu.")
     day = selected_day(form.get("date"))
+    ingredient_context = (
+        _ingredient_context(form, day)
+        if action == "ingredient_bind" and form.get("recipe_id")
+        else None
+    )
     requested_view = form.get("return_view", "list")
     return_context = _return_context(form, day, requested_view)
     view = return_context["view"]
@@ -262,6 +307,7 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
         )
         context.update(_date_navigation(return_context, day, view))
         context.update(_return_navigation(return_context, day, view))
+        context["ingredient_context"] = ingredient_context if view == "deals" else None
         context["notice"] = str(exc)
         return render(request, context, status=409 if isinstance(exc, HouseholdConflict) else 422)
     except SQLAlchemyError:
@@ -269,7 +315,12 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
         context = error_context(day, view, "Izmaiņas neizdevās saglabāt. Pārlādē lapu un pārbaudi sarakstu.")
         context.update(_date_navigation(return_context, day, view))
         context.update(_return_navigation(return_context, day, view))
+        context["ingredient_context"] = ingredient_context if view == "deals" else None
         return render(request, context, status=503)
+    if action == "ingredient_bind" and ingredient_context:
+        destination = {"view": "recipes", "date": day.isoformat(), "saved": "1"}
+        location = BASE_PATH + "/?" + urlencode(destination) + "#" + ingredient_context["anchor"]
+        return finish(RedirectResponse(location, status_code=303), request, token)
     destination = {**return_context, "saved": "1"}
     if action == "price_eligibility":
         destination["product"] = form["product_id"]
