@@ -3,6 +3,7 @@
   const mobile = window.matchMedia('(max-width: 760px)');
   let opener;
   let dialogReturn;
+  let dialogScrollY;
   const sidebar = () => document.getElementById('sidebar');
   const dialog = () => document.querySelector('.product-dialog');
   function menu(open) {
@@ -23,7 +24,9 @@
     else if (swapped) {
       const returnLink = dialogReturn && [...document.querySelectorAll('a[href]')].find(link => link.href === dialogReturn);
       (returnLink || document.getElementById('main')).focus({ preventScroll: true });
+      if (returnLink && Number.isFinite(dialogScrollY)) window.scrollTo(0, dialogScrollY);
       dialogReturn = null;
+      dialogScrollY = null;
     }
   }
   document.addEventListener('error', event => {
@@ -39,7 +42,9 @@
   document.addEventListener('htmx:beforeRequest', event => {
     if (!dialog()) {
       const link = event.detail.elt.closest('a');
-      dialogReturn = link && new URL(link.href).searchParams.has('product') ? link.href : null;
+      const opensDetail = link && new URL(link.href).searchParams.has('product');
+      dialogReturn = opensDetail ? link.href : null;
+      dialogScrollY = opensDetail ? window.scrollY : null;
     }
   });
   document.addEventListener('htmx:afterSwap', event => {
