@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.basket_plan import best_two_store_plan
 from app.current_deals_service import build_current_deals
+from app.current_deals_state import build_current_deals_status
 from app.current_deals_sql_loader import load_sql_ranked_state_rows, materialize_only
 from app.household_service import read_household
 from app.meal_service import meal_context, quantity_label
@@ -137,6 +138,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
                                      view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
                                      sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
+    data_status = build_current_deals_status(db, current, day, retailer=retailer, query=query)
     bindings = state.get("ingredient_offers", {})
     references = set(bindings.values()) | set(state["favorites"]) | {item["product_id"] for item in state["shopping"] if item["product_id"]}
     originals = {str(row.id): row for row in db.scalars(select(OfferCandidateRecord).where(OfferCandidateRecord.id.in_([UUID(key) for key in references])))} if references else {}
@@ -297,6 +299,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
             "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
+            "data_status": data_status,
             "query": query, "retailer": retailer, "sort": sort, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
             "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
             "notice": "", "read_error": False}
