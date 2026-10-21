@@ -117,9 +117,9 @@ def build_current_deals_status(
 
     selected_retailer = retailer if retailer in _RETAILER_NAMES else ""
     underlying_current = (
-        current.retailer_availability[selected_retailer]["current"]
+        current.retailer_availability[selected_retailer].current
         if selected_retailer
-        else current.availability_counts["current"]
+        else current.availability_counts.current
     )
     if current.available_count > 0 or underlying_current > 0:
         return _status(
