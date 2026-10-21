@@ -1,7 +1,7 @@
 """Project existing offer services into the north-star UI. No demo imports/data."""
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -15,7 +15,10 @@ from app.household_service import read_household
 from app.meal_service import meal_context, quantity_label
 from app.meal_pricing import INGREDIENTS, requirement_price
 from app.models import OfferCandidateRecord
-from app.price_intelligence import build_offer_price_intelligence, summarize_price_history, _series_predicate
+from app.price_intelligence import (
+    build_offer_price_intelligence, summarize_price_history, _series_predicate,
+    history_cutoff, list_price_history_series, observed_price,
+)
 
 D = Decimal
 STORES = [("lidl", "LIDL"), ("netto", "Netto"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA")]
@@ -89,6 +92,19 @@ def offer_view(row, day, *, favorite_id=None, eligibility=None):
             "regular_price": regular, "collected_label": observed.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " (Berlīne)"}
 
 
+def history_observation_fields(row):
+    price = observed_price(row)
+    suffix = f"/{row.unit_label}" if row.pricing_mode in UNIT_MODES and price is not None else ""
+    conditions = []
+    if row.requires_app:
+        conditions.append("Avota cenai nepieciešama veikala lietotne")
+    if row.coupon_required:
+        conditions.append("Avota cenai nepieciešams kupons")
+    if price is None:
+        conditions.append("Salīdzināmas cenas bāze nav zināma")
+    return {"history_price_label": money(price) + suffix, "history_condition": " · ".join(conditions)}
+
+
 def latest_series(db, original, day):
     end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=ZoneInfo("Europe/Berlin")).astimezone(timezone.utc)
     return db.scalar(select(OfferCandidateRecord).where(
@@ -133,16 +149,26 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
 
     # Same Python service as JSON; no HTTP call to our own API and no browser pricing rules.
-    with materialize_only("current"):
-        current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
-                                     view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
-                                     sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
+    if view == "history":
+        catalogue, total_count = list_price_history_series(
+            db, as_of=day, query=query, retailer=retailer, sort=sort, offset=offset,
+        )
+    else:
+        with materialize_only("current"):
+            current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
+                                         view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
+                                         sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
+        catalogue, total_count = current.deals, current.available_count
     bindings = state.get("ingredient_offers", {})
     references = set(bindings.values()) | set(state["favorites"]) | {item["product_id"] for item in state["shopping"] if item["product_id"]}
     originals = {str(row.id): row for row in db.scalars(select(OfferCandidateRecord).where(OfferCandidateRecord.id.in_([UUID(key) for key in references])))} if references else {}
     latest = {key: latest_series(db, row, day) for key, row in originals.items()}
     favorite_latest = {str(latest[key].id): key for key in state["favorites"] if key in latest}
-    offers = [quote_for(row, favorite_id=favorite_latest.get(str(row.offer_candidate_id))) for row in current.deals]
+    offers = [quote_for(row, favorite_id=favorite_latest.get(str(getattr(row, "offer_candidate_id", None) or row.id)))
+              for row in catalogue]
+    if view == "history":
+        for offer, row in zip(offers, catalogue):
+            offer.update(history_observation_fields(row))
     favorites = [quote_for(latest[key], favorite_id=key) for key in state["favorites"] if key in latest]
     # Explicit household choices only; independent of the first catalogue page.
     personal = {}
@@ -259,8 +285,15 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         except (ValueError, TypeError):
             selected_row = None
         if selected_row:
+            if view == "history":
+                observed = selected_row.collected_at
+                observed = observed.replace(tzinfo=timezone.utc) if observed.tzinfo is None else observed
+                if observed >= history_cutoff(day):
+                    selected_row = None
+        if selected_row:
             data = detail(selected_row)
             selected = {**quote_for(selected_row, favorite_id=favorite_latest.get(str(selected_row.id))),
+                        **history_observation_fields(selected_row),
                         "comparison": [quote_for(db.get(OfferCandidateRecord, o.offer_candidate_id)) for o in data.offers],
                         "comparison_status": data.comparison_status, "history": history_view(data)}
     history_product = next((latest[key] for key in state["favorites"] if key in latest), None) if view == "overview" else None
@@ -296,7 +329,9 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],
-            "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(current.available_count), "available_count": current.available_count,
-            "query": query, "retailer": retailer, "sort": sort, "offset": offset, "next_offset": offset + 60 if offset + 60 < current.available_count else None,
-            "previous_offset": max(0, offset - 60) if offset else None, "total_count": current.available_count,
+            "binding_choices": [item for item in shopping_rows if not item["checked"] and not item.get("meal_week")], "selected_product": selected, "overview_history": overview_history, "history_product_id": str(history_product.id) if history_product else None, "has_offers": bool(total_count), "available_count": total_count,
+            "query": query, "retailer": retailer, "sort": sort, "offset": offset, "next_offset": offset + 60 if offset + 60 < total_count else None,
+            "previous_offset": max(0, offset - 60) if offset else None, "total_count": total_count,
+            "history_return_url": "/ui/home/?" + urlencode({"view": "history", "date": day.isoformat(), "q": query,
+                                                           "retailer": retailer, "sort": sort, "offset": offset}),
             "notice": "", "read_error": False}
