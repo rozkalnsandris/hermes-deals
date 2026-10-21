@@ -1261,10 +1261,11 @@ def test_ui_get_http_errors_render_html_and_keep_api_json_contract(data):
             assert 'data-error-focus' in response.text and 'role="alert"' in response.text
             assert "application/json" not in response.headers["content-type"]
 
-    api = client.get("/api/v1/offers/latest/lidl")
+    missing_id = "00000000-0000-0000-0000-000000000001"
+    api = client.get(f"/api/v1/canonical-products/{missing_id}")
     assert api.status_code == 404
     assert api.headers["content-type"].startswith("application/json")
-    assert api.json()["detail"] == "No parsed offers for lidl"
+    assert api.json()["detail"] == f"Canonical product {missing_id} not found"
 
 
 def test_csrf_conflict_and_validation_have_distinct_html_error_semantics(data):
