@@ -18,7 +18,7 @@ def test_w3_build_contract_is_pinned_and_framework_free() -> None:
     assert package["private"] is True
     assert package["type"] == "module"
     assert package["engines"] == {"node": ">=22.12.0"}
-    assert package["devDependencies"] == {"vite": "8.1.5"}
+    assert package["devDependencies"] == {"vite": "8.1.6"}
     expected_w3_scripts = {
         "test": "node --test tests/*.test.mjs",
         "build": "node node_modules/vite/bin/vite.js build --config vite.config.js",
