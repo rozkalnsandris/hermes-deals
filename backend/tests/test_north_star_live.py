@@ -1243,3 +1243,82 @@ def test_invalid_recipe_context_cannot_mutate_ingredient_binding(data):
     )
     assert response.status_code == 422
     assert read_household(db, "test-family")[1] == 0
+
+
+def test_ui_get_http_errors_render_html_and_keep_api_json_contract(data):
+    _, client, _ = data
+    cases = [
+        ("/ui/home/?date=invalid", 422, "Norādi datumu formātā GGGG-MM-DD", "Pārbaudi ievadītos datus"),
+        ("/ui/home/?view=unknown&date=2026-10-01", 404, "Sadaļa nav atrasta.", "Sadaļa nav atrasta"),
+    ]
+    for url, status, message, title in cases:
+        for headers in ({}, {"HX-Request": "true"}):
+            response = client.get(url, headers=headers)
+            assert response.status_code == status
+            assert response.headers["content-type"].startswith("text/html")
+            assert "<!doctype html>" in response.text
+            assert message in response.text and title in response.text
+            assert 'data-error-focus' in response.text and 'role="alert"' in response.text
+            assert "application/json" not in response.headers["content-type"]
+
+    api = client.get("/api/v1/offers/latest/lidl")
+    assert api.status_code == 404
+    assert api.headers["content-type"].startswith("application/json")
+    assert api.json()["detail"] == "No parsed offers for lidl"
+
+
+def test_csrf_conflict_and_validation_have_distinct_html_error_semantics(data):
+    db, client, _ = data
+
+    fresh = form_values(client, "settings")
+    csrf = client.post(
+        "/ui/home/actions/settings",
+        data={
+            **fresh,
+            "csrf_token": "expired",
+            "household": "Mana ģimene",
+            "location": "Dortmunde",
+            "people": "4",
+        },
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert csrf.status_code == 403
+    assert csrf.headers["content-type"].startswith("text/html")
+    assert "Veidlapas derīgums beidzies." in csrf.text
+    assert "Atvērt svaigu formu" in csrf.text
+    assert 'data-error-focus' in csrf.text
+    assert read_household(db, "test-family")[1] == 0
+
+    stale = form_values(client, "list")
+    assert post(client, "add", name="Piens").status_code == 200
+    conflict = client.post(
+        "/ui/home/actions/add",
+        data={**stale, "name": "Maize"},
+        headers={"Origin": "http://testserver"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.headers["content-type"].startswith("text/html")
+    assert 'data-notice-kind="conflict"' in conflict.text
+    assert 'role="alert"' in conflict.text
+    assert "Atsvaidzināt datus" in conflict.text
+    assert 'data-notice-kind="success"' not in conflict.text
+
+    invalid = post(client, "meal_plan", day="7", recipe_id="pasta", servings="4")
+    assert invalid.status_code == 422
+    assert invalid.headers["content-type"].startswith("text/html")
+    assert 'data-notice-kind="error"' in invalid.text
+    assert 'role="alert"' in invalid.text
+    assert "Atgriezties pie formas" in invalid.text
+    assert 'data-notice-kind="success"' not in invalid.text
+
+
+def test_error_focus_and_htmx_fallback_never_retry_post(data):
+    _, client, _ = data
+    script = client.get("/ui/home/static/north-star.js")
+    assert script.status_code == 200
+    text = script.text
+    assert "document.querySelector('[data-notice-focus], [data-error-focus]')" in text
+    assert "urgentMessage.focus({ preventScroll: true })" in text
+    assert "if (config?.verb !== 'get') return;" in text
+    assert "location.assign(url.href)" in text
