@@ -31,6 +31,16 @@ router = APIRouter(prefix=BASE_PATH)
 templates = Jinja2Templates(directory=ASSETS / "templates")
 log = logging.getLogger(__name__)
 
+WEEKDAYS_LV = (
+    ("Pr", "Pirmdiena"),
+    ("Ot", "Otrdiena"),
+    ("Tr", "Trešdiena"),
+    ("Ce", "Ceturtdiena"),
+    ("Pk", "Piektdiena"),
+    ("Se", "Sestdiena"),
+    ("Sv", "Svētdiena"),
+)
+
 
 def household_key():
     key = os.getenv("HERMES_HOUSEHOLD_ID", "home")
@@ -47,6 +57,48 @@ def selected_day(value):
         return selected
     except ValueError:
         raise HTTPException(422, "Norādi datumu formātā GGGG-MM-DD (1970–2100).")
+
+
+def _berlin_today():
+    return datetime.now(ZoneInfo("Europe/Berlin")).date()
+
+
+def _date_navigation(params, day, view):
+    filters = {}
+    if view in {"deals", "history"}:
+        query = params.get("q", "")[:100]
+        retailer = params.get("retailer", "")[:32]
+        sort = params.get("sort", "name")
+        if query:
+            filters["q"] = query
+        if retailer:
+            filters["retailer"] = retailer
+        if sort != "name":
+            filters["sort"] = sort
+
+    def href(target):
+        return BASE_PATH + "/?" + urlencode({"view": view, "date": target.isoformat(), **filters})
+
+    start = day - timedelta(days=day.weekday())
+    today = _berlin_today()
+    days = []
+    for index, (short, name) in enumerate(WEEKDAYS_LV):
+        current = start + timedelta(days=index)
+        days.append({
+            "date": current.isoformat(),
+            "short": short,
+            "name": name,
+            "date_label": current.strftime("%d.%m."),
+            "href": href(current),
+            "selected": current == day,
+        })
+    return {
+        "selected_date_label": f"{WEEKDAYS_LV[day.weekday()][1]}, {day:%d.%m.%Y}",
+        "week_days": days,
+        "prev_week_href": href(day - timedelta(days=7)),
+        "next_week_href": href(day + timedelta(days=7)),
+        "today_href": href(today),
+    }
 
 
 def public_origin(request):
@@ -123,7 +175,10 @@ def home(request: Request, db: Session = Depends(get_db)):
     except SQLAlchemyError:
         db.rollback()
         log.warning("North-star data read failed; check database and migration 0008")
-        return render(request, error_context(day, view, "Pārbaudi datubāzes savienojumu un mājsaimniecības datu sagatavošanu."), status=503)
+        context = error_context(day, view, "Pārbaudi datubāzes savienojumu un mājsaimniecības datu sagatavošanu.")
+        context.update(_date_navigation(params, day, view))
+        return render(request, context, status=503)
+    context.update(_date_navigation(params, day, view))
     if params.get("saved") == "1":
         context["notice"] = "Izmaiņas saglabātas."
     return render(request, context)

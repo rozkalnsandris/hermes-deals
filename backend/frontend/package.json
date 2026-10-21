@@ -16,6 +16,6 @@
     "acceptance:m1": "node scripts/capture-m1-accessibility.mjs"
   },
   "devDependencies": {
-    "vite": "8.1.5"
+    "vite": "8.1.6"
   }
 }

@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.household_service import change_household, read_household
 from app.main import app
+import app.north_star_live as north_star_live
 from app.models import Base, HouseholdState, OfferCandidateRecord, SourceSnapshot, CanonicalProduct, OfferProductLink
 from app.north_star_live_data import build_live_context
 from app.runtime import app as runtime_app
@@ -225,6 +226,81 @@ def test_dates_filters_pagination_and_settings(data):
     assert client.get("/ui/home/?offset=-1").status_code == 422
     post(client, "settings", household="Mūsu ģimene", location="Dortmunde", people="6")
     assert read_household(db, "test-family")[0]["settings"]["people"] == 6
+
+
+
+def test_berlin_today_uses_europe_berlin(monkeypatch):
+    class FixedClock:
+        @classmethod
+        def now(cls, tz):
+            assert tz.key == "Europe/Berlin"
+            return datetime(2026, 10, 22, 0, 30, tzinfo=tz)
+
+    monkeypatch.setattr(north_star_live, "datetime", FixedClock)
+    assert north_star_live._berlin_today() == date(2026, 10, 22)
+
+
+def test_day_picker_preserves_filters_resets_offset_and_changes_effective_day(data, monkeypatch):
+    db, client, _ = data
+    row = offer(
+        db,
+        name="Ceturtdienas prece",
+        sku="thursday-only",
+        collected_day=20,
+        valid_from=date(2026, 10, 22),
+        valid_until=date(2026, 10, 22),
+    )
+    monkeypatch.setattr(north_star_live, "_berlin_today", lambda: date(2026, 10, 22))
+    tuesday_url = (
+        "/ui/home/?view=deals&date=2026-10-20&q=Ceturtdienas"
+        "&retailer=lidl&sort=retailer&offset=60"
+    )
+    tuesday = client.get(tuesday_url)
+    assert tuesday.status_code == 200
+    assert "Otrdiena, 20.10.2026" in tuesday.text
+    assert "Ceturtdienas prece" not in tuesday.text
+    thursday_href = (
+        'href="/ui/home/?view=deals&amp;date=2026-10-22'
+        '&amp;q=Ceturtdienas&amp;retailer=lidl&amp;sort=retailer"'
+    )
+    assert thursday_href in tuesday.text
+    assert "Šodien" in tuesday.text
+    assert 'aria-current="date"' in tuesday.text
+
+    thursday_url = (
+        "/ui/home/?view=deals&date=2026-10-22&q=Ceturtdienas"
+        "&retailer=lidl&sort=retailer"
+    )
+    thursday = client.get(thursday_url, headers={"HX-Request": "true"})
+    assert thursday.status_code == 200
+    assert "<!doctype" not in thursday.text
+    assert "Ceturtdiena, 22.10.2026" in thursday.text
+    assert row.product_name_raw in thursday.text
+
+
+def test_day_picker_crosses_year_boundary_and_has_responsive_touch_contract(data):
+    _, client, _ = data
+    page = client.get("/ui/home/?view=deals&date=2026-12-31")
+    assert page.status_code == 200
+    for selected in (
+        "2026-12-28",
+        "2026-12-29",
+        "2026-12-30",
+        "2026-12-31",
+        "2027-01-01",
+        "2027-01-02",
+        "2027-01-03",
+    ):
+        assert f"date={selected}" in page.text
+    assert 'href="/ui/home/?view=deals&amp;date=2026-12-24"' in page.text
+    assert 'href="/ui/home/?view=deals&amp;date=2027-01-07"' in page.text
+
+    css = client.get("/ui/home/static/modern.css")
+    assert css.status_code == 200
+    assert ".day-option { min-height: 44px;" in css.text
+    assert "@media (max-width:760px)" in css.text
+    assert "@media (max-width:380px)" in css.text
+    assert "grid-template-columns: repeat(7,minmax(44px,1fr)); overflow-x: auto;" in css.text
 
 
 def test_household_offer_sorting_is_server_owned(data):

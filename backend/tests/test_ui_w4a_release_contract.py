@@ -34,7 +34,7 @@ def test_w4a_build_is_manifested_hashed_and_nested_under_ui() -> None:
     package = PACKAGE.read_text(encoding="utf-8")
     config = W4_CONFIG.read_text(encoding="utf-8")
 
-    assert '"vite": "8.1.5"' in package
+    assert '"vite": "8.1.6"' in package
     assert '"build:w4:check"' in package
     assert 'base: "/ui/"' in config
     assert "manifest: true" in config
