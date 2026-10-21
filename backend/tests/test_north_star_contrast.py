@@ -40,10 +40,16 @@ def _contrast(foreground: str, background: str) -> float:
     return (light + 0.05) / (dark + 0.05)
 
 
-def _rule(css: str, selector: str) -> str:
+def _declared_color(css: str, selector: str) -> str:
     matches = re.findall(rf"(?m)^{re.escape(selector)}\s*\{{([^}}]+)\}}", css)
     assert matches, f"missing explicit modern override for {selector}"
-    return matches[-1]
+    colors = []
+    for rule in matches:
+        color = re.search(r"(?:^|;)\s*color:\s*([^;]+)", rule)
+        if color:
+            colors.append(color.group(1).strip())
+    assert colors, f"missing explicit color declaration for {selector}"
+    return colors[-1]
 
 
 def _muted(css: str) -> str:
@@ -59,8 +65,7 @@ def test_audited_visible_text_meets_wcag_aa_on_desktop_and_mobile() -> None:
     # modern.css loads after north-star.css, so these explicit rules own the
     # audited cascade. Mobile rules change size/layout only, not these colors.
     for selector, background in AUDITED.items():
-        rule = _rule(css, selector)
-        assert "color: var(--muted)" in rule
+        assert _declared_color(css, selector) == "var(--muted)"
         ratio = _contrast(foreground, background)
         assert ratio >= 4.5, f"{selector}: {ratio:.3f}:1"
 
