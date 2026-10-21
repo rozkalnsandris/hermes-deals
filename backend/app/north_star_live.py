@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -190,9 +191,7 @@ def csrf_token(request):
     return value if re.fullmatch(r"[A-Za-z0-9_-]{43}", value) else token_urlsafe(32)
 
 
-def finish(response, request, token):
-    response.set_cookie(cookie_name(request), token, httponly=True, secure=public_origin(request).startswith("https:"),
-                        samesite="strict", max_age=86400, path="/")
+def _secure_html(response):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "HX-Request, HX-History-Restore-Request"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -202,11 +201,69 @@ def finish(response, request, token):
     return response
 
 
+def finish(response, request, token):
+    response.set_cookie(cookie_name(request), token, httponly=True, secure=public_origin(request).startswith("https:"),
+                        samesite="strict", max_age=86400, path="/")
+    return _secure_html(response)
+
+
 def error_context(day, view, message):
     return {"demo": False, "base_path": BASE_PATH, "view": view, "settings": empty_household()["settings"],
             "shopping": {"count": 0}, "selected_date": day.isoformat(), "week_label": day.strftime("%d.%m.%Y"),
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),
             "read_error": True, "error_message": message, "selected_product": None, "notice": "", "has_offers": False}
+
+
+def _safe_error_day(value):
+    try:
+        return selected_day(value)
+    except HTTPException:
+        return _berlin_today()
+
+
+def _safe_error_view(value):
+    return value if value in NAV else "overview"
+
+
+def _error_title(status):
+    if status == 403:
+        return "Forma nav derīga"
+    if status == 404:
+        return "Sadaļa nav atrasta"
+    if status in {400, 413, 415, 422}:
+        return "Pārbaudi ievadītos datus"
+    if status == 409:
+        return "Dati ir mainījušies"
+    return "Dati pašlaik nav pieejami"
+
+
+def _render_http_error(request, status, message, *, day=None, view=None, action_label=None, action_href=None):
+    day = day or _safe_error_day(request.query_params.get("date"))
+    view = _safe_error_view(view or request.query_params.get("view"))
+    safe_message = message if status < 500 else "Darbība pašlaik nav pieejama. Mēģini vēlreiz pēc brīža."
+    destination = action_href or BASE_PATH + "/?" + urlencode({"view": view, "date": day.isoformat()})
+    if action_label is None:
+        action_label = "Atvērt svaigu formu" if status == 403 else "Atgriezties pārskatā" if status == 404 else "Atgriezties un labot"
+    context = error_context(day, view, safe_message)
+    context.update({
+        "fragment": False,
+        "csrf_token": "",
+        "test_database": os.getenv("APP_ENV") == "test",
+        "error_status": status,
+        "error_title": _error_title(status),
+        "error_action_label": action_label,
+        "error_action_href": destination,
+    })
+    response = templates.TemplateResponse(request=request, name="live.html", context=context, status_code=status)
+    return _secure_html(response)
+
+
+async def ui_http_exception_handler(request: Request, exc: HTTPException):
+    path = request.url.path
+    if path not in {BASE_PATH, BASE_PATH + "/"} and not path.startswith(BASE_PATH + "/actions/"):
+        return await http_exception_handler(request, exc)
+    detail = exc.detail if isinstance(exc.detail, str) else "Pieprasījumu nevar apstrādāt."
+    return _render_http_error(request, exc.status_code, detail)
 
 
 def render(request, context, *, status=200):
@@ -257,6 +314,7 @@ def home(request: Request, db: Session = Depends(get_db)):
     context["ingredient_context"] = ingredient_context if view == "deals" else None
     if params.get("saved") == "1":
         context["notice"] = "Izmaiņas saglabātas."
+        context["notice_kind"] = "success"
     return render(request, context)
 
 
@@ -282,7 +340,17 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(400, "Nederīga veidlapa. Pārlādē lapu.")
     token = request.cookies.get(cookie_name(request), "")
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token) or not hmac.compare_digest(token.encode(), form.get("csrf_token", "").encode()):
-        raise HTTPException(403, "Veidlapas derīgums beidzies. Pārlādē lapu.")
+        day = _safe_error_day(form.get("date"))
+        view = _safe_error_view(form.get("return_view"))
+        return _render_http_error(
+            request,
+            403,
+            "Veidlapas derīgums beidzies. Atver svaigu formu un pārbaudi datus pirms atkārtotas saglabāšanas.",
+            day=day,
+            view=view,
+            action_label="Atvērt svaigu formu",
+            action_href=BASE_PATH + "/?" + urlencode({"view": view, "date": day.isoformat()}),
+        )
     day = selected_day(form.get("date"))
     ingredient_context = (
         _ingredient_context(form, day)
@@ -308,8 +376,12 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
         context.update(_date_navigation(return_context, day, view))
         context.update(_return_navigation(return_context, day, view))
         context["ingredient_context"] = ingredient_context if view == "deals" else None
+        conflict = isinstance(exc, HouseholdConflict)
         context["notice"] = str(exc)
-        return render(request, context, status=409 if isinstance(exc, HouseholdConflict) else 422)
+        context["notice_kind"] = "conflict" if conflict else "error"
+        context["notice_action_href"] = context["return_href"]
+        context["notice_action_label"] = "Atsvaidzināt datus" if conflict else "Atgriezties pie formas"
+        return render(request, context, status=409 if conflict else 422)
     except SQLAlchemyError:
         db.rollback()
         context = error_context(day, view, "Izmaiņas neizdevās saglabāt. Pārlādē lapu un pārbaudi sarakstu.")
@@ -330,3 +402,4 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
 def install(app):
     app.include_router(router)
     app.mount(BASE_PATH + "/static", StaticFiles(directory=ASSETS / "static"), name="north-star-static")
+    app.add_exception_handler(HTTPException, ui_http_exception_handler)

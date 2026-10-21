@@ -47,8 +47,10 @@
     opener = null;
     const state = syncOverlayState();
     const detail = dialog();
+    const urgentMessage = document.querySelector('[data-notice-focus], [data-error-focus]');
     document.body.classList.toggle('dialog-open', state.detailOpen);
-    if (detail) detail.focus();
+    if (urgentMessage) urgentMessage.focus({ preventScroll: true });
+    else if (detail) detail.focus();
     else if (swapped) {
       const returnLink = dialogReturn && [...document.querySelectorAll('a[href]')].find(link => link.href === dialogReturn);
       (returnLink || document.getElementById('main')).focus({ preventScroll: true });

@@ -177,7 +177,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 .product-detail-hero .muted, .detail-section > p, .condition { font-size: .8125rem!important; }
 .history-data td, .history-data th, .comparison-table small { font-size: .8125rem; }
 .comparison-table > div { font-size: .875rem; }
-.notice { font-size: .875rem; }
+.notice { font-size: .875rem; }.notice-error { background: #fff4f0; border-color: #e7b8aa; color: #7b3428; }.notice-conflict { background: #fff8e8; border-color: #e7ce8b; color: #70551f; }.notice-error .text-link,.notice-conflict .text-link { margin-left: auto; color: inherit; text-decoration: underline; }.error-state:focus,.notice-error:focus,.notice-conflict:focus { outline: 3px solid currentColor; outline-offset: 3px; }
 @media (min-width:1800px) { .offer-grid:not(.offer-grid-compact) { grid-template-columns: repeat(5,minmax(0,1fr)); } }
 @media (max-width:1400px) {
   :root { --sidebar: 224px; }
