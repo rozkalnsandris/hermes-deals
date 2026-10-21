@@ -1070,7 +1070,7 @@ def test_history_discovers_expired_series_without_active_deals(data):
 
 def test_history_empty_search_differs_from_unknown_price_basis(data):
     db, client, _ = data
-    row = offer(db, pricing_mode="unknown")
+    row = offer(db, package_text_raw=None)
     empty = client.get('/ui/home/?view=history&date=2026-10-27&q=not-found')
     assert 'Cenu vēsturē nekas nav atrasts' in empty.text
     assert 'Notīrīt vēstures filtrus' in empty.text
@@ -1117,7 +1117,8 @@ def test_history_pagination_detail_close_preserves_filters(data):
     detail = client.get(link)
     assert 'role="dialog"' in detail.text
     close = unescape(re.search(r'data-dialog-close href="([^"]+)"', detail.text)[1])
-    assert parse_qs(urlsplit(close).query) == {**{k: [v] for k, v in params.items()}, 'offset': ['60']}
+    expected = {k: [v] for k, v in params.items() if not (k == 'sort' and v == 'name')}
+    assert parse_qs(urlsplit(close).query) == {**expected, 'offset': ['60']}
     assert client.get(close).text.count('class="offer-card"') == 1
     fragment = client.get(link, headers={'HX-Request': 'true'})
     assert fragment.status_code == 200

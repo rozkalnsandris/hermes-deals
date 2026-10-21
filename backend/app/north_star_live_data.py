@@ -160,7 +160,7 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
                                          view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
                                          sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
-        catalogue, total_count = current.deals, total_count
+        catalogue, total_count = current.deals, current.available_count
         data_status = build_current_deals_status(db, current, day, retailer=retailer, query=query)
     bindings = state.get("ingredient_offers", {})
     references = set(bindings.values()) | set(state["favorites"]) | {item["product_id"] for item in state["shopping"] if item["product_id"]}

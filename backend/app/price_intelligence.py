@@ -39,9 +39,9 @@ def history_cutoff(as_of: date) -> datetime:
 
 
 def observed_price(row: OfferCandidateRecord) -> Decimal | None:
-    """Source observation price, never today's usable household price."""
+    """Comparable source price, never today's usable household price."""
     if row.pricing_mode in _FIXED:
-        return row.price_eur
+        return row.price_eur if row.package_text_raw and row.package_text_raw.strip() else None
     return row.unit_price_eur if row.pricing_mode in _UNIT and row.unit_label else None
 
 
@@ -221,7 +221,8 @@ def build_offer_price_intelligence(
     truncated = len(rows) > limit
     rows = rows[:limit]
     fixed = row.pricing_mode in _FIXED
-    basis = "package" if fixed else row.unit_label if row.pricing_mode in _UNIT else None
+    fixed_basis = fixed and bool(row.package_text_raw and row.package_text_raw.strip())
+    basis = "package" if fixed_basis else row.unit_label if row.pricing_mode in _UNIT else None
     observations = [PriceObservation(
         **{name: getattr(item, name) for name in PriceObservation.model_fields
            if name not in {"offer_candidate_id", "comparison_price_eur"}},
