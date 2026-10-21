@@ -305,6 +305,104 @@ def test_day_picker_crosses_year_boundary_and_has_responsive_touch_contract(data
     assert "grid-template-columns: repeat(7,minmax(44px,1fr)); overflow-x: auto;" in css.text
 
 
+
+def test_empty_search_is_filter_state_not_source_failure(data):
+    db, client, _ = data
+    offer(db, name="Piens", chain="lidl")
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&q=NavTada&retailer=lidl")
+    assert page.status_code == 200
+    assert 'data-state="filtered_empty"' in page.text
+    assert "Filtrs neatdeva rezultātus" in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" not in page.text
+
+
+def test_explicit_verified_empty_snapshot_is_the_only_no_offers_claim(data):
+    db, client, _ = data
+    db.add(SourceSnapshot(
+        source_chain="edeka",
+        source_url="https://example.invalid/edeka",
+        scope="family_primary_edeka",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint="edeka_store_offers_manifest_v1",
+        success=True,
+        keyword_hits={"offer_count": 0},
+    ))
+    db.commit()
+
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=edeka")
+    assert page.status_code == 200
+    assert 'data-state="no_offers"' in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" in page.text
+    assert "Pēdējā avota pārbaude: 01.10.2026 10:00 (Berlīne)" in page.text
+    assert "Dienas piedāvājumi" in page.text
+
+
+def test_failed_current_source_attempt_is_unavailable_not_empty(data):
+    db, client, _ = data
+    db.add(SourceSnapshot(
+        source_chain="edeka",
+        source_url="https://example.invalid/edeka",
+        scope="family_primary_edeka",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint="edeka_store_offers_manifest_v1_error",
+        success=False,
+        error="fixture failure",
+    ))
+    db.commit()
+
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=edeka")
+    assert page.status_code == 200
+    assert 'data-state="source_unavailable"' in page.text
+    assert "Avots pašlaik nav pieejams" in page.text
+    assert "Tas nenozīmē, ka akciju nav" in page.text
+
+
+def test_expired_known_window_is_stale_not_verified_empty(data):
+    db, client, _ = data
+    offer(
+        db,
+        chain="netto",
+        valid_from=date(2026, 9, 28),
+        valid_until=date(2026, 9, 30),
+    )
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=netto")
+    assert page.status_code == 200
+    assert 'data-state="stale_data"' in page.text
+    assert "Pieejamie dati ir novecojuši" in page.text
+    assert "30.09.2026" in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" not in page.text
+
+
+def test_future_day_without_verified_coverage_is_not_published_yet(data):
+    _, client, _ = data
+    page = client.get("/ui/home/?view=deals&date=2099-01-01&retailer=lidl")
+    assert page.status_code == 200
+    assert 'data-state="not_published_yet"' in page.text
+    assert "Šai dienai dati vēl nav pārbaudīti" in page.text
+    assert "Pārbaudē piedāvājumi netika atrasti" not in page.text
+
+
+def test_short_period_snapshot_does_not_define_current_lidl_chain_status(data):
+    db, client, _ = data
+    db.add(SourceSnapshot(
+        source_chain="lidl",
+        source_url="https://example.invalid/lidl-specials",
+        scope="short_period_specials",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint="weekly_special_fixture",
+        success=True,
+        keyword_hits={"offer_count": 0},
+    ))
+    db.commit()
+
+    page = client.get("/ui/home/?view=deals&date=2026-10-01&retailer=lidl")
+    assert page.status_code == 200
+    assert 'data-state="verification_pending"' in page.text
+    assert "Pārbaude vēl nav pabeigta" in page.text
+    assert "Īso periodu pierādījumi tiek vērtēti atsevišķi" in page.text
+    assert 'data-state="no_offers"' not in page.text
+
+
 def test_household_offer_sorting_is_server_owned(data):
     db, client, _ = data
     offer(db, name="A Netto", chain="netto", sku="netto", collected_day=1)
