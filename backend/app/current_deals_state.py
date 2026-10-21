@@ -47,7 +47,7 @@ def _current_scope_snapshots(db: Session, retailer: str) -> list[SourceSnapshot]
         )
     else:
         return []
-    return list(query.order_by(SourceSnapshot.collected_at.desc()).limit(20).scalars(db).all())
+    return list(db.scalars(query.order_by(SourceSnapshot.collected_at.desc()).limit(20)).all())
 
 
 def _max_known_valid_until(db: Session, retailer: str) -> date | None:
