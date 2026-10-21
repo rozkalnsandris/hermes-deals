@@ -208,7 +208,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
   .mobile-close { color: #c4dbce; top: 70px; }.topbar { height: 68px; padding: 0 16px; gap: 7px; }
   .week-picker { font-size: .75rem; background: transparent; flex: 1; padding: 0; }
   .week-picker .week-arrow { width: 44px; height: 44px; }.week-picker > span { padding: 0; gap: 0; }
-  .mobile-menu { min-width: 36px; }.profile .chevron { display: none; }
+  .mobile-menu { width: 44px; min-width: 44px; height: 44px; min-height: 44px; background: #f2f7ef; border: 1px solid #d5e4d3; color: var(--green-dark); }.mobile-menu:hover { background: #e7f2e7; }.mobile-menu:focus-visible { outline: 3px solid #8fbd86; outline-offset: 2px; }.profile .chevron { display: none; }
   main { padding: 25px 16px 82px; }
   .page-heading { gap: 13px; margin-bottom: 22px; }.page-description { font-size: .875rem; line-height: 1.65; }
   .eyebrow { font-size: .6875rem; }.demo-badge { font-size: .625rem; padding: 6px 9px; }
