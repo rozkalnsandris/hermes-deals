@@ -59,3 +59,13 @@ def test_product_dialog_keeps_its_modal_regression_contract() -> None:
     assert "document.querySelector('.mobile-bottom').inert = backgroundInert" in javascript
     assert "if (detail) detail.focus()" in javascript
     assert "if (detail) detail.querySelector('[data-dialog-close]').click()" in javascript
+
+
+def test_mobile_menu_opener_is_visually_discoverable_and_keyboard_visible() -> None:
+    css = CSS.read_text(encoding="utf-8")
+
+    assert ".mobile-menu { width: 44px; min-width: 44px; height: 44px; min-height: 44px;" in css
+    assert "background: #f2f7ef" in css
+    assert "border: 1px solid #d5e4d3" in css
+    assert "color: var(--green-dark)" in css
+    assert ".mobile-menu:focus-visible { outline: 3px solid #8fbd86; outline-offset: 2px; }" in css
