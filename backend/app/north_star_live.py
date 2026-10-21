@@ -102,8 +102,8 @@ def _ingredient_context(values, day):
 def _return_context(values, day, view):
     target_view = view if view in NAV else "list"
     context = {"view": target_view, "date": day.isoformat()}
-    ingredient_context = _ingredient_context(values, day)
-    if target_view == "deals" and ingredient_context:
+    ingredient_context = _ingredient_context(values, day) if target_view == "deals" else None
+    if ingredient_context:
         context["recipe_id"] = ingredient_context["recipe_id"]
         context["ingredient_id"] = ingredient_context["ingredient_id"]
     if target_view not in RETURN_FILTER_VIEWS:
@@ -284,7 +284,11 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token) or not hmac.compare_digest(token.encode(), form.get("csrf_token", "").encode()):
         raise HTTPException(403, "Veidlapas derīgums beidzies. Pārlādē lapu.")
     day = selected_day(form.get("date"))
-    ingredient_context = _ingredient_context(form, day)
+    ingredient_context = (
+        _ingredient_context(form, day)
+        if action == "ingredient_bind" and form.get("recipe_id")
+        else None
+    )
     requested_view = form.get("return_view", "list")
     return_context = _return_context(form, day, requested_view)
     view = return_context["view"]
