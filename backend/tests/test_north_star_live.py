@@ -1133,3 +1133,113 @@ def test_history_base_observation_does_not_inherit_current_app_conditions(data):
     assert '<div class="detail-price">1,29 €</div>' in page.text
     assert 'Nepieciešama veikala lietotne' not in page.text
     assert 'Avota cenai nepieciešama veikala lietotne' not in page.text
+
+
+def test_recipe_ingredient_context_round_trip_binds_exact_ingredient_and_returns_to_row(data):
+    from html import unescape
+    from urllib.parse import parse_qs, urlsplit
+
+    db, client, _ = data
+    row = offer(db, name="Vista izvēlei", package_text_raw="500 g", price="3.00")
+
+    recipes = client.get("/ui/home/?view=recipes&date=2026-10-01")
+    assert recipes.status_code == 200
+    assert "id=\"ingredient-tortillas-chicken\"" in recipes.text
+    assert "view=deals&amp;date=2026-10-01&amp;recipe_id=tortillas&amp;ingredient_id=chicken" in recipes.text
+
+    params = {"view": "deals", "date": "2026-10-01", "recipe_id": "tortillas", "ingredient_id": "chicken"}
+    deals = client.get("/ui/home/", params=params)
+    assert deals.status_code == 200
+    assert "Izvēlies produktu sastāvdaļai Vistas fileja" in deals.text
+    assert "Recepte: Vistas tortiljas" in deals.text
+    assert 'name="recipe_id" value="tortillas"' in deals.text
+    assert 'name="ingredient_id" value="chicken"' in deals.text
+
+    detail = client.get("/ui/home/", params={**params, "product": str(row.id)})
+    assert detail.status_code == 200
+    assert "Apstiprināt šo produktu" in detail.text
+    assert '<select name="ingredient_id"' not in detail.text
+    close = unescape(re.search(r'data-dialog-close href="([^"]+)"', detail.text)[1])
+    assert parse_qs(urlsplit(close).query) == {
+        "view": ["deals"],
+        "date": ["2026-10-01"],
+        "recipe_id": ["tortillas"],
+        "ingredient_id": ["chicken"],
+    }
+    cancelled = client.get(close)
+    assert cancelled.status_code == 200
+    assert "Atgriezties receptē" in cancelled.text
+    assert read_household(db, "test-family")[1] == 0
+
+    detail = client.get("/ui/home/", params={**params, "product": str(row.id)})
+    form = {
+        "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', detail.text)[1],
+        "version": re.search(r'name="version" value="([^"]+)"', detail.text)[1],
+        "date": "2026-10-01",
+        "return_view": "deals",
+        "recipe_id": "tortillas",
+        "ingredient_id": "chicken",
+        "product_id": str(row.id),
+    }
+    response = client.post(
+        "/ui/home/actions/ingredient_bind",
+        data=form,
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(
+        "?view=recipes&date=2026-10-01&saved=1#ingredient-tortillas-chicken"
+    )
+    state, version = read_household(db, "test-family")
+    assert version == 1
+    assert state["ingredient_offers"] == {"chicken": str(row.id)}
+    restored = client.get(response.headers["location"])
+    assert restored.status_code == 200
+    assert 'id="ingredient-tortillas-chicken"' in restored.text
+
+
+@pytest.mark.parametrize(
+    "recipe_id,ingredient_id",
+    [
+        ("missing", "chicken"),
+        ("omelette", "chicken"),
+        ("tortillas", "missing"),
+        ("tortillas", ""),
+        ("", "chicken"),
+    ],
+)
+def test_invalid_recipe_ingredient_navigation_context_is_rejected(data, recipe_id, ingredient_id):
+    db, client, _ = data
+    response = client.get(
+        "/ui/home/",
+        params={
+            "view": "deals",
+            "date": "2026-10-01",
+            "recipe_id": recipe_id,
+            "ingredient_id": ingredient_id,
+        },
+    )
+    assert response.status_code == 422
+    assert read_household(db, "test-family")[1] == 0
+
+
+def test_invalid_recipe_context_cannot_mutate_ingredient_binding(data):
+    db, client, _ = data
+    row = offer(db, name="Vista", package_text_raw="500 g")
+    page = client.get("/ui/home/?view=deals&date=2026-10-01")
+    response = client.post(
+        "/ui/home/actions/ingredient_bind",
+        data={
+            "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', page.text)[1],
+            "version": re.search(r'name="version" value="([^"]+)"', page.text)[1],
+            "date": "2026-10-01",
+            "return_view": "deals",
+            "recipe_id": "omelette",
+            "ingredient_id": "chicken",
+            "product_id": str(row.id),
+        },
+        headers={"Origin": "http://testserver"},
+    )
+    assert response.status_code == 422
+    assert read_household(db, "test-family")[1] == 0
