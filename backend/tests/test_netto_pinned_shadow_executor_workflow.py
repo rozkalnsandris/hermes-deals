@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTIVE = ROOT / ".github/workflows/netto-weekly-transition-state.yml"
 PREP = ROOT / ".github/workflows/netto-weekly-pinned-shadow-executor.yml"
 PIN = "0aabd85fb813a8432ee5d208655bb092e65b7bbb"
-ACTIVE_PIN = "0110e386d66b24b7d10c75df4d4970113dee3a49"
+ACTIVE_PIN = PIN
 
 
 def test_prepared_workflow_is_callable_but_never_independently_scheduled():
@@ -35,7 +35,7 @@ def test_immutable_source_pin_is_distinct_from_caller_head():
 def test_caller_is_pinned_disarmed_and_has_no_new_trigger():
     text = PREP.read_text(encoding="utf-8")
     existing = ACTIVE.read_text(encoding="utf-8")
-    called_sha = "93b866ba2ec64ab2100f48733487afc960298d61"
+    called_sha = "20b26150741ffd727cd7062e8a772fbcdeaf86cb"
     assert "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true'" in text
     assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{PIN}'" in text
     assert "github.workflow == 'Netto weekly transition state'" in text
@@ -48,7 +48,7 @@ def test_caller_is_pinned_disarmed_and_has_no_new_trigger():
     assert "NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA:" not in text
     assert f"uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@{called_sha}" in existing
     assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{ACTIVE_PIN}'" in existing
-    assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '{ACTIVE_PIN}'" in existing
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA !=" not in existing
     assert "NETTO_PINNED_EXECUTOR_V1_ENABLED:" not in existing
     assert "NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA:" not in existing
     assert "vars.NETTO_SHADOW_V1_APPROVED_MAIN_SHA == github.sha" in existing
@@ -62,18 +62,17 @@ def test_caller_is_pinned_disarmed_and_has_no_new_trigger():
 
 
 
-def test_updated_executor_cannot_be_selected_by_unchanged_legacy_caller():
-    """Staged executor source is not automatically adopted by the active caller."""
+def test_revised_caller_requires_matching_pinned_source():
     prepared = PREP.read_text(encoding="utf-8")
     caller = ACTIVE.read_text(encoding="utf-8")
-    assert PIN != ACTIVE_PIN
+    assert PIN == ACTIVE_PIN
     assert f"ref: {PIN}" in prepared
     assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{PIN}'" in prepared
-    assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{ACTIVE_PIN}'" in caller
-    assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '{ACTIVE_PIN}'" in caller
-    assert "netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61" in caller
-    assert f"ref: {ACTIVE_PIN}" not in prepared
-    assert f"ref: {PIN}" not in caller
+    assert f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '{PIN}'" in caller
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA !=" not in caller
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true'" in caller
+    assert "netto-weekly-pinned-shadow-executor.yml@20b26150741ffd727cd7062e8a772fbcdeaf86cb" in caller
+    assert "0110e386d66b24b7d10c75df4d4970113dee3a49" not in caller
 
 
 def test_original_shadow_execution_safety_remains_scoped():
@@ -117,5 +116,5 @@ def test_contract_does_not_confuse_caller_sha_with_pinned_source_sha():
     assert "separate LIVE authorization" in doc
     assert "source_card_accounting=unknown" in doc
     assert "not yet independently attested" in doc
-    assert "93b866ba2ec64ab2100f48733487afc960298d61" in doc
+    assert "20b26150741ffd727cd7062e8a772fbcdeaf86cb" in doc
     assert "netto_weekly_pinned_shadow_attestation.py" in doc

@@ -32,8 +32,8 @@ def test_scheduler_external_actions_are_immutable_and_version_annotated() -> Non
             "v6.0.0",
         ),
         "rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml": (
-            "93b866ba2ec64ab2100f48733487afc960298d61",
-            "reviewed policy revision 93b866ba2ec64ab2100f48733487afc960298d61",
+            "20b26150741ffd727cd7062e8a772fbcdeaf86cb",
+            "reviewed policy revision 20b26150741ffd727cd7062e8a772fbcdeaf86cb",
         ),
     }
     uses_lines = [
