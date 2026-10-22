@@ -19,16 +19,16 @@ concurrency:
 env:
   STATE_PREFIX: netto-weekly-transition-state-scheduled-
   CANARY_PREFIX: netto-weekly-transition-canary-
-  # Legacy exact-main shadow stays fail-closed. The pinned executor cutover is
-  # selected only by separately owner-managed repo vars; source merge alone
-  # leaves the existing transition observation job active.
+  # When pinned enablement is true, a stale/missing approved source fails closed:
+  # both scheduled paths skip rather than falling back to mutable-main.
+  # Source merge alone never changes the separately LIVE-managed repo variables.
 
 jobs:
   transition:
-    # Preserve the existing observation path until the complete pinned selector
-    # is LIVE-authorized. Once selected, reruns fail closed instead of falling
-    # back to the mutable-main transition job.
-    if: ${{ github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '0110e386d66b24b7d10c75df4d4970113dee3a49' || github.ref != 'refs/heads/main' }}
+    # Legacy scheduled observation is eligible only while pinned enablement is off.
+    # Pinned enablement with missing/stale source approval skips both paths;
+    # a pinned rerun also skips without mutable-main fallback.
+    if: ${{ github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || github.ref != 'refs/heads/main' }}
     runs-on: [self-hosted, Linux, ARM64, hermes-deals-audit]
     timeout-minutes: 30
     permissions:
@@ -304,16 +304,16 @@ jobs:
 
   pinned_shadow:
     name: Pinned shadow executor
-    if: ${{ github.event_name == 'schedule' && vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '0110e386d66b24b7d10c75df4d4970113dee3a49' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    if: ${{ github.event_name == 'schedule' && vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true' && vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA == '0aabd85fb813a8432ee5d208655bb092e65b7bbb' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
     permissions:
       contents: read
       actions: read
       issues: write
-    uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@93b866ba2ec64ab2100f48733487afc960298d61 # reviewed policy revision 93b866ba2ec64ab2100f48733487afc960298d61
+    uses: rozkalnsandris/hermes-deals/.github/workflows/netto-weekly-pinned-shadow-executor.yml@20b26150741ffd727cd7062e8a772fbcdeaf86cb # reviewed policy revision 20b26150741ffd727cd7062e8a772fbcdeaf86cb
 
   report:
     needs: transition
-    if: ${{ always() && (github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '0110e386d66b24b7d10c75df4d4970113dee3a49' || github.ref != 'refs/heads/main') }}
+    if: ${{ always() && (github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || github.ref != 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
