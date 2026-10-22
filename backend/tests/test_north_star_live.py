@@ -1323,3 +1323,39 @@ def test_error_focus_and_htmx_fallback_never_retry_post(data):
     assert "urgentMessage.focus({ preventScroll: true })" in text
     assert "if (config?.verb !== 'get') return;" in text
     assert "location.assign(url.href)" in text
+
+
+@pytest.mark.parametrize("headers", [{}, {"HX-Request": "true"}])
+def test_empty_favorites_explains_saving_and_preserves_date(data, headers):
+    _, client, _ = data
+    response = client.get("/ui/home/?view=favorites&date=2026-10-03", headers=headers)
+    assert response.status_code == 200
+    assert "Vēl nav saglabātu produktu" in response.text
+    assert "sirds pogu" in response.text
+    assert "Pamēģini citu nosaukumu" not in response.text
+    assert "izvēlies visus veikalus" not in response.text
+    assert 'href="/ui/home/?view=deals&date=2026-10-03"' in unescape(response.text)
+    assert "Atvērt piedāvājumus" in response.text
+
+
+def test_populated_favorites_keeps_product_actions(data):
+    db, client, _ = data
+    row = offer(db)
+    post(client, "favorite", product_id=str(row.id))
+    page = client.get("/ui/home/?view=favorites&date=2026-10-01")
+    assert page.status_code == 200
+    assert "Vēl nav saglabātu produktu" not in page.text
+    assert "Piens testam" in page.text
+    assert "Noņemt no favorītiem: Piens testam" in page.text
+    assert "Pievienot sarakstam: Piens testam" in page.text
+
+
+def test_other_empty_views_do_not_show_favorite_instructions(data):
+    _, client, _ = data
+    for view in ("deals", "history"):
+        page = client.get(f"/ui/home/?view={view}&date=2026-10-03&q=missing")
+        assert page.status_code == 200
+        assert "Vēl nav saglabātu produktu" not in page.text
+        assert "sirds pogu" not in page.text
+        assert 'name="q"' in page.text
+    assert "Cenu vēsturē nekas nav atrasts" in page.text
