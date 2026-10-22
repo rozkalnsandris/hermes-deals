@@ -1,6 +1,6 @@
 # Netto #28: pinned reusable shadow executor and disarmed caller
 
-The reusable executor was merged by PR #1025 at immutable commit
+> **2026-10-22 staged source-only correction (Netto #28):** The reusable executor **definition in current source** is being prepared to check out immutable reviewed commit `0aabd85fb813a8432ee5d208655bb092e65b7bbb` (PR #1031 store-5659 trust binding). Its previously deployed immutable caller still references `93b866ba2ec64ab2100f48733487afc960298d61` and thereby uses the original `0110e386d66b24b7d10c75df4d4970113dee3a49` source. This source-only preparation does **not** retarget that caller or change Actions variables; it has no runtime cutover or acceptance effect. After the staged definition is merged, a **separate** reviewed source change must pin the new immutable definition commit and its exact blob in the caller and attestor, preserving fail-closed selection. Any actual re-pin activation or scheduled runner/source/retained-artifact execution remains a separate owner LIVE gate. No pinned extraction/full-card coverage or #28 end-to-end completion is claimed.\n\nThe reusable executor was merged by PR #1025 at immutable commit
 `93b866ba2ec64ab2100f48733487afc960298d61`. Its reviewed source definition blob is
 `969d51ca97de5021e74ad67555186995fb8111d1`; it checks out the independently pinned executable source
 `0110e386d66b24b7d10c75df4d4970113dee3a49` before any retailer source collection.
