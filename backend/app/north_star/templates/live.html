@@ -32,7 +32,16 @@
 <div class="panel-heading"><h2>{{ 'Saglabātie produkti' if view=='favorites' else 'Izvēlies produktu cenu vēsturei' if view=='history' else 'Piedāvājumi' }}</h2><span class="muted">{% if view=='favorites' %}{{ favorites|length }} saglabāti{% else %}{{ (offset+1) if offers else 0 }}–{{ (offset + offers|length) if offers else 0 }} no {{ total_count }} {{ 'cenu sērijām' if view=='history' else 'piedāvājumiem' }}{% endif %}</span></div>
 {% if view=='history' %}<p class="fine-print">Saglabātie novērojumi līdz {{ selected_date }} (Berlīnes laiks), arī pēc akcijas beigām. Katra filiāle, iepakojums un cenu nosacījumi veido atsevišķu sēriju. Novērotā cena negarantē cenu šodien.</p>{% endif %}
 {% if view == 'favorites' %}
+{% if favorites %}
 {{ deal_cards(favorites,view,selected_date,csrf_token) }}
+{% else %}
+<div class="empty-state">
+  {{ icon('heart',32) }}
+  <h3>Vēl nav saglabātu produktu</h3>
+  <p>Saglabā iecienītos produktus, lai tos šeit ātri atrastu. Piedāvājumos nospied sirds pogu pie produkta.</p>
+  <a class="button button-outline" href="{{ base_path }}/?view=deals&amp;date={{ selected_date }}">Atvērt piedāvājumus</a>
+</div>
+{% endif %}
 {% elif view == 'history' %}
 {{ deal_cards(offers,view,selected_date,csrf_token) }}
 {% elif offers %}
