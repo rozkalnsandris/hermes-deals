@@ -36,7 +36,7 @@ jobs:
       contents: read
       actions: read
       issues: write
-    uses: {proof.REPO}/{proof.PINNED_WORKFLOW}@{proof.CALLED_WORKFLOW_SHA}
+    uses: {proof.REPO}/{proof.PINNED_WORKFLOW}@{proof.CALLED_WORKFLOW_SHA} # reviewed policy revision {proof.CALLED_WORKFLOW_SHA}
   report:
     {proof.LEGACY_REPORT_IF}
     runs-on: ubuntu-latest
@@ -245,6 +245,35 @@ def test_missing_wrong_duplicate_or_mutable_referenced_workflow_is_rejected(muta
     envelope = list(fixture())
     mutate(envelope[1])
     with pytest.raises(proof.PinnedShadowAttestationError, match="referenced|executor|mutable"):
+        proof.verify_extraction(*envelope)
+
+
+def test_enabled_stale_pin_has_no_legacy_fallback():
+    caller = (Path(__file__).resolve().parents[2] / proof.CALLER_WORKFLOW).read_text(encoding="utf-8")
+    assert proof.PINNED_SOURCE_SHA != "0110e386d66b24b7d10c75df4d4970113dee3a49"
+    assert proof.PINNED_CALL_IF in caller
+    assert proof.LEGACY_TRANSITION_IF in caller
+    assert proof.LEGACY_REPORT_IF in caller
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA !=" not in caller
+    assert "0110e386d66b24b7d10c75df4d4970113dee3a49" not in caller
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true'" in proof.LEGACY_TRANSITION_IF
+    assert "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED == 'true'" in proof.PINNED_CALL_IF
+    proof.validate_caller_definition(caller)
+
+
+def test_real_called_definition_blob_and_immutable_source_are_bound():
+    from hashlib import sha1
+    root = Path(__file__).resolve().parents[2]
+    raw = (root / proof.PINNED_WORKFLOW).read_bytes()
+    git_blob = sha1(b"blob " + str(len(raw)).encode() + b"\x00" + raw).hexdigest()
+    assert git_blob == proof.CALLED_WORKFLOW_BLOB
+    proof.validate_pinned_definition(raw.decode("utf-8"), git_blob)
+
+
+def test_caller_with_wrong_annotation_is_rejected():
+    envelope = list(fixture())
+    envelope[5] = envelope[5].replace(" # reviewed policy revision " + proof.CALLED_WORKFLOW_SHA, "")
+    with pytest.raises(proof.PinnedShadowAttestationError, match="caller"):
         proof.verify_extraction(*envelope)
 
 
