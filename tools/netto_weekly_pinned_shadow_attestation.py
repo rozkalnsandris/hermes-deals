@@ -30,9 +30,9 @@ REPO = "rozkalnsandris/hermes-deals"
 CALLER_WORKFLOW = ".github/workflows/netto-weekly-transition-state.yml"
 CALLER_NAME = "Netto weekly transition state"
 PINNED_WORKFLOW = ".github/workflows/netto-weekly-pinned-shadow-executor.yml"
-CALLED_WORKFLOW_SHA = "93b866ba2ec64ab2100f48733487afc960298d61"
-CALLED_WORKFLOW_BLOB = "969d51ca97de5021e74ad67555186995fb8111d1"
-PINNED_SOURCE_SHA = "0110e386d66b24b7d10c75df4d4970113dee3a49"
+CALLED_WORKFLOW_SHA = "20b26150741ffd727cd7062e8a772fbcdeaf86cb"
+CALLED_WORKFLOW_BLOB = "470b67f8192f12d501bc39c144c3acd339d7fc26"
+PINNED_SOURCE_SHA = "0aabd85fb813a8432ee5d208655bb092e65b7bbb"
 ARTIFACT_PREFIX = "netto-weekly-pinned-shadow-scheduled-"
 SHADOW_STEP = "Build offline shadow extraction receipt"
 VERIFY_PIN_STEP = "Verify pinned checkout before any source collection"
@@ -48,7 +48,6 @@ PINNED_CALL_IF = (
 LEGACY_TRANSITION_IF = (
     "if: ${{ github.event_name != 'schedule' || "
     "vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || "
-    f"vars.NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA != '{PINNED_SOURCE_SHA}' || "
     "github.ref != 'refs/heads/main' }}"
 )
 LEGACY_REPORT_IF = "if: ${{ always() && (" + LEGACY_TRANSITION_IF.removeprefix("if: ${{ ").removesuffix(" }}") + ") }}"
@@ -158,7 +157,8 @@ def validate_caller_definition(text: str) -> None:
     if any(text.count(value) != 1 for value in required):
         raise PinnedShadowAttestationError("caller workflow cutover contract is missing, duplicated or changed")
     pinned_lines = [line.strip() for line in text.splitlines() if f"{PINNED_WORKFLOW}@" in line]
-    if pinned_lines != [use_line] or "@main" in pinned_lines[0]:
+    annotated_use_line = f"{use_line} # reviewed policy revision {CALLED_WORKFLOW_SHA}"
+    if pinned_lines != [annotated_use_line] or "@main" in pinned_lines[0]:
         raise PinnedShadowAttestationError("caller does not use one immutable reusable workflow reference")
     if "NETTO_PINNED_EXECUTOR_V1_ENABLED:" in text or "NETTO_PINNED_EXECUTOR_V1_APPROVED_SOURCE_SHA:" in text:
         raise PinnedShadowAttestationError("caller source must not assign live activation variables")
