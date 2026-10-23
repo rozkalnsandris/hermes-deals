@@ -32,6 +32,9 @@ concurrency:
 
 jobs:
   authorize:
+    # Retired by #992 after the LIVE SIMPLE-DEPLOY cutover.
+    # Retain the workflow for audit history, but never authorize old releases.
+    if: ${{ false }}
     name: Authorize exact main SHA
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -111,6 +114,8 @@ jobs:
           PY
 
   deploy:
+    # Defense in depth: no self-hosted legacy deployment even if dependencies change.
+    if: ${{ false }}
     name: Deploy on RPi5
     needs: authorize
     runs-on:
