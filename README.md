@@ -44,7 +44,7 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Overall:** **77.0%** `███████████████░░░░░` — weighted project completion
 
-**Weighted roadmap progress during 21.10.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
+**Weighted roadmap progress during 22.10.2026:** **+0.0 percentage points** **(77.0% → 77.0%)**
 
 **Store catalogues**
 - **Netto:** **78.6%** `████████░░`
@@ -54,19 +54,18 @@ identities, and turns the result into a practical shopping UI for the household.
 
 **Weighted roadmap gates:** **57/67 complete** · **0 during the previous day**
 
-**Development activity:** **Issues fixed:** **287 total** · **9 during the previous day** (21.10.2026)
+**Development activity:** **Issues fixed:** **287 total** · **1 during the previous day** (22.10.2026)
 
 <details>
-<summary>Show 9 issues fixed on 21.10.2026</summary>
+<summary>Show 1 issues fixed on 22.10.2026</summary>
 
-[#1033](https://github.com/rozkalnsandris/hermes-deals/issues/1033) · [#1034](https://github.com/rozkalnsandris/hermes-deals/issues/1034) · [#1035](https://github.com/rozkalnsandris/hermes-deals/issues/1035) · [#1036](https://github.com/rozkalnsandris/hermes-deals/issues/1036) · [#1037](https://github.com/rozkalnsandris/hermes-deals/issues/1037) · [#1038](https://github.com/rozkalnsandris/hermes-deals/issues/1038) · [#1039](https://github.com/rozkalnsandris/hermes-deals/issues/1039) · [#1040](https://github.com/rozkalnsandris/hermes-deals/issues/1040)
-[#1041](https://github.com/rozkalnsandris/hermes-deals/issues/1041)
+[#1042](https://github.com/rozkalnsandris/hermes-deals/issues/1042)
 
 </details>
 
 _Issue activity is informative; only completed weighted roadmap gates move project completion._
 
-_Last updated automatically: 22.10.2026 11:22 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
+_Last updated automatically: 23.10.2026 11:19 Europe/Berlin. [Measurement V2 rules](docs/PROJECT_PROGRESS.md)._
 <!-- project-progress:end -->
 
 ## Retailer control centers
