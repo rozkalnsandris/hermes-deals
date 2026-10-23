@@ -21,7 +21,8 @@ IMAGE_ID = "sha256:" + "c" * 64
 
 
 def fixture(*, raw_source=selection.RAW_SOURCE, image_id=IMAGE_ID,
-            running=True, additional_api=False, environment=None):
+            running=True, additional_api=False, environment=None,
+            additional_mounts=()):
     if environment is None:
         environment = ["RAW_SNAPSHOT_DIR=/data/raw",
                        "SOURCES_CONFIG=/app/config/sources.json"]
@@ -40,6 +41,7 @@ def fixture(*, raw_source=selection.RAW_SOURCE, image_id=IMAGE_ID,
              "Destination": "/app/config", "RW": False},
         ],
     }
+    container["Mounts"].extend(additional_mounts)
     image = {"Id": IMAGE_ID,
              "RepoDigests": [selection.IMAGE + "@sha256:" + DIGEST]}
     calls = []
@@ -82,6 +84,39 @@ class AldiCutoverSelectionTests(TestCase):
         with self.assertRaises(selection.Stop):
             selection.verify(CONTAINER, DIGEST, run=run)
         self.assertEqual(len(calls), 3)
+
+    def test_nested_raw_or_config_mount_shadows_stop_before_image_lookup(self):
+        shadow_destinations = (
+            "/data/raw/aldi_nord",
+            "/data/raw/netto",
+            "/data/raw/edeka",
+            "/app/config/sources.json",
+            "/app/config/subdir",
+            "/data/raw/",
+        )
+        for destination in shadow_destinations:
+            with self.subTest(destination=destination):
+                shadow = {"Type": "bind", "Source": "/tmp/shadow",
+                          "Destination": destination, "RW": True}
+                run, calls = fixture(additional_mounts=(shadow,))
+                with self.assertRaises(selection.Stop):
+                    selection.verify(CONTAINER, DIGEST, run=run)
+                self.assertEqual(len(calls), 3)
+
+    def test_invalid_mount_entry_stops_before_image_lookup(self):
+        for malformed in (None, "not-a-mount", {"Destination": None}):
+            with self.subTest(malformed=malformed):
+                run, calls = fixture(additional_mounts=(malformed,))
+                with self.assertRaises(selection.Stop):
+                    selection.verify(CONTAINER, DIGEST, run=run)
+                self.assertEqual(len(calls), 3)
+
+    def test_unrelated_mount_is_not_a_shadow(self):
+        unrelated = {"Type": "bind", "Source": "/tmp/unrelated",
+                     "Destination": "/data/raw-old", "RW": False}
+        run, calls = fixture(additional_mounts=(unrelated,))
+        selection.verify(CONTAINER, DIGEST, run=run)
+        self.assertEqual(len(calls), 4)
 
     def test_mismatched_or_duplicate_container_env_stops_before_image_lookup(self):
         valid_raw = "RAW_SNAPSHOT_DIR=/data/raw"
