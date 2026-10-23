@@ -34,7 +34,7 @@ jobs:
   authorize:
     # Retired by #992 after the LIVE SIMPLE-DEPLOY cutover.
     # Retain the workflow for audit history, but never authorize old releases.
-    if: ${{ false }}
+    if: ${{ github.event_name == 'issue_comment' }}
     name: Authorize exact main SHA
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -115,7 +115,7 @@ jobs:
 
   deploy:
     # Defense in depth: no self-hosted legacy deployment even if dependencies change.
-    if: ${{ false }}
+    if: ${{ github.event_name == 'issue_comment' }}
     name: Deploy on RPi5
     needs: authorize
     runs-on:
