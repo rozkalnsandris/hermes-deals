@@ -1,14 +1,27 @@
-# Hermes Deals production release images
+# Hermes Deals release paths: legacy and SIMPLE-DEPLOY
 
-Production API deploys must use an explicit release image tag. Do not use the
-mutable default Compose build tag as the rollback contract, and do not use
-`docker commit` as a release backup.
+**Source-only cutover status:** Issues [#930](https://github.com/rozkalnsandris/hermes-deals/issues/930)
+and [#992](https://github.com/rozkalnsandris/hermes-deals/issues/992)
+prepare SIMPLE-DEPLOY. GitHub source merges do not prove that the RPi5
+adoption, API promotion or collector cutover has happened. The installed
+host/runtime state must be checked separately before any LIVE decision.
 
-The base `docker-compose.yml` remains convenient for development/testing.
-Production adds `docker-compose.production.yml`, which requires
-`HERMES_DEALS_API_TAG` and sets `pull_policy: never`.
+## Legacy controlled release (pre-cutover reference)
 
-Release flow:
+The following local-image procedure documents the **legacy direct-main**
+release path, not the future ordinary SIMPLE-DEPLOY path. It must not be
+dispatched during, or automatically resumed after, SIMPLE-DEPLOY cutover.
+Any application of this procedure requires separate exact LIVE authorization.
+Do not use it as fallback if the SIMPLE-DEPLOY preflight fails.
+
+Legacy API releases use an explicit local `hermes-deals-api:*` image tag.
+Do not use the mutable default Compose build tag as a rollback contract, and
+do not use `docker commit` as a release backup. Base
+`docker-compose.yml` remains useful for development/testing. The legacy
+`docker-compose.production.yml` override requires
+`HERMES_DEALS_API_TAG` with `pull_policy: never`.
+
+Legacy release flow (not SIMPLE-DEPLOY):
 
 1. build and test the release image under an immutable version+Git tag;
 2. save the previous and new release images with `docker image save`;
@@ -43,7 +56,38 @@ registration of immutable image and rollback archives, and an exact apply
 confirmation phrase. The first implementation slice cannot run migrations or
 authorize database writes.
 
-## Scheduled retailer collectors
+## SIMPLE-DEPLOY target and cutover gate
+
+The intended **post-cutover** application release is the reviewed
+`ghcr.io/rozkalnsandris/hermes-deals` image resolved to an **immutable
+digest** through the shared SIMPLE-DEPLOY workflow and the trusted
+`RPi5_main` deployer. The `production` tag is a discovery pointer, not a
+rollback identity. The target API adapter is source-defined in
+`RPi5_main/ops/deploy/simple-deploy-compose/hermes-deals-household-api.yml`;
+its adopted raw state and read-only config are separate from the legacy
+checkout-relative `./data/raw` and `./config` mounts. The legacy base
+Compose paths are **not** evidence of the selected LIVE API container.
+
+Before any authorized promotion, the operator must establish the installed
+legacy release-helper identity, prevent competing old-path release jobs,
+quiesce the four relevant collector/monitor services and timers, and
+establish the state-adoption, image-digest and installed-unit baselines.
+Neither the tracked units nor an adopted point-in-time copy prove the
+installed units use the promoted API. Follow
+[`aldi-cutover-snapshot-verification.md`](operations/aldi-cutover-snapshot-verification.md)
+for fixed host selection and the bounded ALDI collector-write/API-read
+provenance canary. The RPi5 state-adoption source contract is
+`RPi5_main/docs/HERMES_STATE_ADOPTION_V1.md`; its SOURCE ONLY status must
+not be mistaken for completed adoption.
+
+State copy/permissions, timer lifecycle, image promotion, Docker mutations
+and the one-write canary all require separate, exact owner LIVE authority.
+A failed or uncertain one-shot is STOP, never a cue to rerun a legacy
+release or restore timers. SIMPLE-DEPLOY must not be described as the
+active production path until the installed runtime and canary receipts
+prove that fact.
+
+## Scheduled retailer collectors (legacy unit maintenance)
 
 The production systemd collector services are stored in `infra/systemd/`.
 Their `ExecStart` commands use `docker compose exec` against the already
@@ -51,8 +95,10 @@ running `api` service. This is intentional: every scheduled collection must
 run the exact immutable release image currently deployed in production, not
 the mutable base-Compose `hermes-deals-api:latest` image.
 
-Install an updated service unit, reload systemd, and verify the resolved
-command before starting a canary:
+The following commands are a **legacy, separately LIVE-gated** unit
+maintenance example, not a SIMPLE-DEPLOY cutover instruction. Installing
+units or reloading systemd changes host runtime state. Do not execute
+them based on this documentation or on source merge alone:
 
 ```sh
 sudo install -m 0644 infra/systemd/hermes-deals-*-collector.service \
