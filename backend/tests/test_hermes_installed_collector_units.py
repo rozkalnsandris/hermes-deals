@@ -18,7 +18,7 @@ spec = importlib.util.spec_from_file_location("hermes_installed_units", FILE)
 units = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(units)
 SHA = "a" * 40
-DROPIN = FILE.parents[2] / "infra/systemd/netto-collector-dropins/10-skip-sunday.conf"
+DROPIN = FILE.parents[1] / "infra/systemd/netto-collector-dropins/10-skip-sunday.conf"
 
 
 def fake_source(*, changed=None, dirty=False, wrong_sha=False, changed_dropin=False):
