@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 from contextlib import redirect_stdout
+from configparser import ConfigParser
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -98,3 +99,54 @@ class AldiCutoverSelectionTests(TestCase):
                                      "--expected-digest", DIGEST])
         self.assertEqual(result, 2)
         self.assertEqual(output.getvalue(), "ALDI_CUTOVER_SELECTION=STOP\n")
+
+    def test_all_scheduled_cutover_units_select_the_same_api_container(self):
+        """Freeze source unit selection; installed systemd still needs LIVE preflight."""
+        root = Path(__file__).resolve().parents[2]
+        units = {
+            "netto-collector": (
+                "netto-collector.lock",
+                "python -m app.collector_cli collect --source netto --min-offers 20",
+            ),
+            "aldi-collector": (
+                "aldi-collector.lock",
+                "python -m app.collector_cli collect --source aldi_nord --min-offers 220",
+            ),
+            "edeka-collector": (
+                "edeka-collector.lock",
+                "python -m app.edeka_collector_cli --min-offers 150",
+            ),
+            "edeka-monitor": (
+                None,
+                "python -m app.edeka_stale_monitor --max-success-age-hours 192 --failure-grace-hours 30",
+            ),
+        }
+        for name, (lock_name, command) in units.items():
+            with self.subTest(unit=name):
+                unit = ConfigParser(interpolation=None, strict=True)
+                unit.optionxform = str
+                unit.read_string(
+                    (root / "infra/systemd" / f"hermes-deals-{name}.service")
+                    .read_text(encoding="utf-8")
+                )
+                service = unit["Service"]
+                self.assertEqual(service["User"], "andris")
+                self.assertEqual(service["WorkingDirectory"], str(selection.CHECKOUT))
+                self.assertEqual(service["Environment"], "HOME=/home/andris")
+                expected = (
+                    "/usr/bin/docker compose exec -T --user 1000:1000 api "
+                    + command
+                )
+                if lock_name is not None:
+                    expected = (
+                        "/usr/bin/flock -n "
+                        "/home/andris/.local/state/hermes-deals/"
+                        + lock_name
+                        + " "
+                        + expected
+                    )
+                self.assertEqual(service["ExecStart"], expected)
+                self.assertEqual(
+                    {key for key in service if key.startswith("Exec")},
+                    {"ExecStart"},
+                )
