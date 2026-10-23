@@ -13,8 +13,8 @@ standing authorization for more LIVE operations or proof of all-retailer
 freshness and full booklet coverage.
 
 **Legacy release retirement in source:** This change keeps both historical
-workflows for audit, but permanently gates their GitHub Actions jobs to
-`false`: manual/control `.github/workflows/deploy-main.yml` cannot start
+workflows for audit, but gates their GitHub Actions jobs behind an event predicate that cannot
+match their configured trigger: manual/control `.github/workflows/deploy-main.yml` cannot start
 the self-hosted legacy release, and issue-comment
 `.github/workflows/hermes-direct-main-deploy.yml` cannot dispatch it.
 The safeguards become effective only **after this source PR is merged**.
