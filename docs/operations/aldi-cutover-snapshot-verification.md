@@ -51,7 +51,12 @@ promotion, with `--expected-container` and `--expected-digest`. Its fixed
 working directory and `docker compose ps -q api` selection match the ALDI
 unit's `docker compose exec api` context. It requires exactly one Compose API
 container, a running healthy API, the reviewed GHCR image ID at that digest,
-and the adopted writable raw bind plus read-only config bind. The command
+and the adopted writable raw bind plus read-only config bind. It also fails
+closed unless the selected container has exactly one
+`RAW_SNAPSHOT_DIR=/data/raw` and one
+`SOURCES_CONFIG=/app/config/sources.json` environment entry; a correct bind
+with a redirected or duplicate environment key is insufficient. These checks
+inspect Docker metadata only, not the private env file's contents. The command
 prints only fixed `PASS`/`STOP` and no-write markers; Docker inspection output
 and private container configuration are never relayed to the receipt.
 

@@ -79,6 +79,16 @@ def verify(expected_container: str, expected_digest: str, *, run=_run) -> None:
             and config[0].get("Source") == CONFIG_SOURCE
             and config[0].get("RW") is False)
 
+    # Mounts alone cannot prove where the collector writes its snapshots.
+    # Treat absent, redirected and duplicate environment keys as drift.
+    environment = container.get("Config", {}).get("Env")
+    require(isinstance(environment, list))
+    require(all(isinstance(entry, str) for entry in environment))
+    for key, target in (("RAW_SNAPSHOT_DIR", "/data/raw"),
+                        ("SOURCES_CONFIG", "/app/config/sources.json")):
+        require([entry for entry in environment if entry.startswith(key + "=")]
+                == [f"{key}={target}"])
+
     pinned = _parse_one(run(["docker", "image", "inspect",
                              f"{IMAGE}@sha256:{expected_digest}"]))
     require(container.get("Image") == pinned.get("Id"))
