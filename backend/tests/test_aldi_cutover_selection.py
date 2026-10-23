@@ -21,11 +21,15 @@ IMAGE_ID = "sha256:" + "c" * 64
 
 
 def fixture(*, raw_source=selection.RAW_SOURCE, image_id=IMAGE_ID,
-            running=True, additional_api=False):
+            running=True, additional_api=False, environment=None):
+    if environment is None:
+        environment = ["RAW_SNAPSHOT_DIR=/data/raw",
+                       "SOURCES_CONFIG=/app/config/sources.json"]
     container = {
         "Id": CONTAINER, "Image": image_id,
         "Config": {
             "Image": selection.IMAGE + ":production",
+            "Env": environment,
             "Labels": {"com.docker.compose.project": "hermes-deals",
                        "com.docker.compose.service": "api"},
         },
@@ -78,6 +82,27 @@ class AldiCutoverSelectionTests(TestCase):
         with self.assertRaises(selection.Stop):
             selection.verify(CONTAINER, DIGEST, run=run)
         self.assertEqual(len(calls), 3)
+
+    def test_mismatched_or_duplicate_container_env_stops_before_image_lookup(self):
+        valid_raw = "RAW_SNAPSHOT_DIR=/data/raw"
+        valid_config = "SOURCES_CONFIG=/app/config/sources.json"
+        invalid_environments = (
+            [],
+            [valid_config],
+            [valid_raw],
+            ["RAW_SNAPSHOT_DIR=/home/andris/hermes-deals/data/raw", valid_config],
+            [valid_raw, "SOURCES_CONFIG=/app/config/other.json"],
+            [valid_raw, valid_config, valid_raw],
+            [valid_raw, valid_config, "SOURCES_CONFIG=/tmp/sources.json"],
+            [valid_raw, valid_config, None],
+            {"RAW_SNAPSHOT_DIR": "/data/raw", "SOURCES_CONFIG": "/app/config/sources.json"},
+        )
+        for environment in invalid_environments:
+            with self.subTest(environment=environment):
+                run, calls = fixture(environment=environment)
+                with self.assertRaises(selection.Stop):
+                    selection.verify(CONTAINER, DIGEST, run=run)
+                self.assertEqual(len(calls), 3)
 
     def test_duplicate_api_container_stops(self):
         run, calls = fixture(additional_api=True)
