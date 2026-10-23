@@ -58,11 +58,25 @@ and private container configuration are never relayed to the receipt.
 Before trusting that proof, separately compare the **installed** ALDI systemd
 unit's `WorkingDirectory`, `User`, `HOME`, `ExecStart`, `--user 1000:1000` and
 Compose project/service selection with the reviewed source unit. A source unit
-alone does not prove what systemd has loaded. Check the installed Netto,
-EDEKA collector and EDEKA monitor units and timer state as part of the same
-cutover inventory; all three collectors select `api` through the same legacy
-checkout, while the monitor reads API/database state. Do not run a collector
-merely to test this preflight.
+alone does not prove what systemd has loaded.
+
+The tracked `infra/systemd/hermes-deals-{netto,aldi,edeka}-collector.service`
+and `hermes-deals-edeka-monitor.service` share the fixed source selection:
+`User=andris`, `WorkingDirectory=/home/andris/hermes-deals`,
+`Environment=HOME=/home/andris`, and
+`docker compose exec -T --user 1000:1000 api`. The three collectors write
+source state; the EDEKA monitor reads state. The focused
+`backend/tests/test_aldi_cutover_selection.py` regression checks all four
+tracked unit commands, not installed systemd state. The ALDI host selection
+verifier proves the same shared container/digest/mount only **after** the
+installed Netto, ALDI, EDEKA collector and EDEKA monitor commands and
+environment are individually confirmed to match reviewed source. Any mismatch
+is STOP, not permission to retarget a timer or start a collector.
+
+Inventory the four installed services and timers and prevent old-path writers
+before state copying or API promotion. Do not run a collector merely to test
+this preflight. The ALDI write/API-read canary below is one bounded storage
+proof, not retailer-wide collection or publication acceptance.
 
 The old direct-main release helper accepts only its managed local
 `hermes-deals-api:*` image reference. A promoted GHCR API makes that helper
