@@ -1,10 +1,27 @@
 # Hermes Deals release paths: legacy and SIMPLE-DEPLOY
 
-**Source-only cutover status:** Issues [#930](https://github.com/rozkalnsandris/hermes-deals/issues/930)
-and [#992](https://github.com/rozkalnsandris/hermes-deals/issues/992)
-prepare SIMPLE-DEPLOY. GitHub source merges do not prove that the RPi5
-adoption, API promotion or collector cutover has happened. The installed
-host/runtime state must be checked separately before any LIVE decision.
+**Runtime cutover receipt (2026-10-23):** The owner-authorized RPi5
+SIMPLE-DEPLOY API-only activation completed with source SHA
+`84366a83cf907404febe113b5739a2c1fc1fb3fa` and immutable GHCR digest
+`sha256:6f94ac0e8479b26ba15cdd8207a2f6907743130b7df948bcce0e0e037eff8446`.
+The independently read-only-verified ALDI snapshot matched RAW bytes, its
+`SourceSnapshot` row and the API's latest-source response. Netto, ALDI and
+EDEKA collector timers were subsequently restored; EDEKA monitor stayed
+inactive. These are owner terminal receipts documented in
+[#992](https://github.com/rozkalnsandris/hermes-deals/issues/992), not
+standing authorization for more LIVE operations or proof of all-retailer
+freshness and full booklet coverage.
+
+**Legacy release retirement in source:** This change keeps both historical
+workflows for audit, but gates their GitHub Actions jobs behind an event predicate that cannot
+match their configured trigger: manual/control `.github/workflows/deploy-main.yml` cannot start
+the self-hosted legacy release, and issue-comment
+`.github/workflows/hermes-direct-main-deploy.yml` cannot dispatch it.
+The safeguards become effective only **after this source PR is merged**.
+They do not cancel already-running/queued historical jobs, remove installed
+host helpers, change runner permissions or start/stop any host service.
+SIMPLE-DEPLOY remains the ordinary API release path. Any recovery needing
+the legacy path requires a distinct reviewed decision and LIVE authority.
 
 ## Legacy controlled release (pre-cutover reference)
 

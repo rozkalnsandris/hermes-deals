@@ -15,7 +15,9 @@ concurrency:
 jobs:
   authorize-and-dispatch:
     name: Authorize owner and dispatch existing deploy workflow
+    # Issue-comment dispatch is retired after #992 SIMPLE-DEPLOY cutover.
     if: >-
+      github.event_name == 'workflow_dispatch' &&
       github.event.issue.pull_request == null &&
       github.event.issue.number == 553 &&
       startsWith(github.event.comment.body, '/hermes-deploy ')
