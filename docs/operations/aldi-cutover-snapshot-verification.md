@@ -63,6 +63,25 @@ inspect Docker metadata only, not the private env file's contents. The command
 prints only fixed `PASS`/`STOP` and no-write markers; Docker inspection output
 and private container configuration are never relayed to the receipt.
 
+Before trusting that proof, the new source-only
+`tools/verify_hermes_installed_collector_units.py` checks all four **installed**
+collector/monitor services against the exact registered Git `main` commit.
+It accepts one `--expected-source-sha` argument, verifies a clean source
+checkout, exact Git blob bytes versus root-owned regular installed unit files
+(`0644`, no symlink/ACL), and checks the systemd `FragmentPath`,
+`DropInPaths`, `LoadState` and `NeedDaemonReload` properties before and
+after the file comparison. Any unexpected drop-in, path, source, permission,
+pending reload or daemon registration drift is `STOP` with no retry or reload.
+Only public-safe `PASS`/`STOP` output is emitted.
+
+**This script must not run as part of GitHub CI on a real host:** its tests
+use synthetic unit/Git/systemctl fixtures. Execution on RPi5 requires a
+separate exact owner-approved read-only host preflight. A PASS proves
+installed unit *source identity at that instant*, not collector quiescence,
+production API selection, successful source writes, or authorization to run
+any collector. Reconfirm immediately before any separately authorized LIVE
+cutover; no unit, service, timer or Docker mutation is performed here.
+
 Before trusting that proof, separately compare the **installed** ALDI systemd
 unit's `WorkingDirectory`, `User`, `HOME`, `ExecStart`, `--user 1000:1000` and
 Compose project/service selection with the reviewed source unit. A source unit
