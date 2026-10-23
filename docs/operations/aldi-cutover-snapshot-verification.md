@@ -51,7 +51,10 @@ promotion, with `--expected-container` and `--expected-digest`. Its fixed
 working directory and `docker compose ps -q api` selection match the ALDI
 unit's `docker compose exec api` context. It requires exactly one Compose API
 container, a running healthy API, the reviewed GHCR image ID at that digest,
-and the adopted writable raw bind plus read-only config bind. It also fails
+and the adopted writable raw bind plus read-only config bind. Nested
+binds or volumes below `/data/raw` or `/app/config` are forbidden: an
+additional mount could shadow a retailer's raw directory or the protected
+config file while both top-level binds still appear correct. It also fails
 closed unless the selected container has exactly one
 `RAW_SNAPSHOT_DIR=/data/raw` and one
 `SOURCES_CONFIG=/app/config/sources.json` environment entry; a correct bind

@@ -70,6 +70,14 @@ def verify(expected_container: str, expected_digest: str, *, run=_run) -> None:
 
     mounts = container.get("Mounts")
     require(isinstance(mounts, list))
+    require(all(isinstance(mount, dict) for mount in mounts))
+    # Exact root bindings do not rule out a nested bind/volume shadowing
+    # one retailer's snapshots or the protected sources.json config.
+    for mount in mounts:
+        destination = mount.get("Destination")
+        require(isinstance(destination, str))
+        require(not any(destination.startswith(root + "/")
+                        for root in ("/data/raw", "/app/config")))
     raw = [mount for mount in mounts if mount.get("Destination") == "/data/raw"]
     config = [mount for mount in mounts if mount.get("Destination") == "/app/config"]
     require(len(raw) == len(config) == 1)
