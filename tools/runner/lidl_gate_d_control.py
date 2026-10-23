@@ -320,10 +320,13 @@ LEGACY_UNIT_HASHES = {
     ALERT_UNIT: "d3b0d215f05d0e4c94df47633310bd464701f4243bdf34631f76c4bd8526a43e",
 }
 
-# The sole additional service version observed on RPi5 for #906 on 2026-10-18.
-# Read-only evidence showed the only difference was the pinned ExecStart SHA.
+# Exact additional service versions observed on RPi5 for #906.
+# 228d... was the pre-v2 installed service seen on 2026-10-18.
+# 74bc... is the Gate D v2 service generated and activated from
+# main@291375aa5818cfa45e6ee09029202e7358326436 later that day.
 # Both other unit hashes must still match exactly; no broad drift allowlist.
 OBSERVED_LEGACY_SERVICE_SHA256 = "228d32d26ed6cd5cc76b5a4cfab347a7249c5b316065b23f8174f24f09ef8d77"
+OBSERVED_PRIOR_V2_SERVICE_SHA256 = "74bc57ec5bfb65a728dfe9b57310686aacf5bb945bb3f8d0f2bf98840cc51523"
 
 
 def legacy_unit_hashes() -> dict[str, str] | None:
@@ -336,7 +339,8 @@ def legacy_unit_hashes() -> dict[str, str] | None:
     if observed == LEGACY_UNIT_HASHES:
         return observed
     if (
-        observed[SERVICE_UNIT] == OBSERVED_LEGACY_SERVICE_SHA256
+        observed[SERVICE_UNIT]
+        in {OBSERVED_LEGACY_SERVICE_SHA256, OBSERVED_PRIOR_V2_SERVICE_SHA256}
         and all(observed[name] == LEGACY_UNIT_HASHES[name] for name in (TIMER_UNIT, ALERT_UNIT))
     ):
         return observed

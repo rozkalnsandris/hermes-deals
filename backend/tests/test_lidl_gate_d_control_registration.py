@@ -300,24 +300,46 @@ def test_exact_legacy_migrates_and_preserves_original_bytes(tmp_path, monkeypatc
 
 
 
-def observed_service_fixture(tmp_path, monkeypatch):
+def observed_service_fixture(tmp_path, monkeypatch, *, prior_v2=False):
     d, config, staged, commands = migration_fixture(tmp_path, monkeypatch)
     service = d.UNIT_DIR / d.SERVICE_UNIT
     old_bytes = service.read_bytes()
     original_sha_file = d.sha_file
+    service_sha = (
+        d.OBSERVED_PRIOR_V2_SERVICE_SHA256
+        if prior_v2
+        else d.OBSERVED_LEGACY_SERVICE_SHA256
+    )
 
     def attested_sha(path):
-        service_backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_LEGACY_SERVICE_SHA256}"
+        service_backup = d.UNIT_DIR / f".{d.SERVICE_UNIT}.legacy-{service_sha}"
         if path in {service, service_backup} and path.read_bytes() == old_bytes:
-            return d.OBSERVED_LEGACY_SERVICE_SHA256
+            return service_sha
         return original_sha_file(path)
 
     monkeypatch.setattr(d, "sha_file", attested_sha)
     assert d.legacy_unit_hashes() == {
         **d.LEGACY_UNIT_HASHES,
-        d.SERVICE_UNIT: d.OBSERVED_LEGACY_SERVICE_SHA256,
+        d.SERVICE_UNIT: service_sha,
     }
     return d, config, staged, commands, old_bytes
+
+
+def test_exact_prior_v2_service_migrates_forward(tmp_path, monkeypatch):
+    d, config, staged, commands, old_bytes = observed_service_fixture(
+        tmp_path, monkeypatch, prior_v2=True
+    )
+
+    result = d.activate(config, staged)
+
+    assert result["legacy_forward_migration"] is True
+    service_backup = (
+        d.UNIT_DIR
+        / f".{d.SERVICE_UNIT}.legacy-{d.OBSERVED_PRIOR_V2_SERVICE_SHA256}"
+    )
+    assert service_backup.read_bytes() == old_bytes
+    assert (d.UNIT_DIR / d.SERVICE_UNIT).read_bytes() == staged[d.SERVICE_UNIT].read_bytes()
+    assert any(cmd[1:3] == ["stop", d.TIMER_UNIT] for cmd in commands)
 
 
 def test_exact_observed_service_migrates_with_existing_timer_alert_backups(tmp_path, monkeypatch):
