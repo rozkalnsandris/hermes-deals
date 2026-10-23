@@ -18,6 +18,20 @@ rejects app DDL and broad schema/database permissions, verifies reader role,
 runs complete backend pytest in a locked environment and a PostgreSQL
 FastAPI health smoke, and emits a sanitized summary only after PASS.
 
+## Exact registered engine provenance
+
+The installed root-owned Bash wrapper is hash-checked by the dispatcher.
+It reads Python engine bytes from the exact registered Git commit via
+`git cat-file blob <registered-sha>:tools/b15m2_v08_shadow.py`.
+It never executes the mutable host checkout Python file. The helper
+retains its clean-main, origin, export-path and migration preflight.
+
+This fixes only a source-code binding gap. **The V08 audit remains
+NOT LIVE-ready:** current isolated PostgreSQL uses trust authentication,
+so SCRAM positive/negative proof is incomplete; the API smoke covers
+only /api/health rather than complete API/DB CRUD regression.
+The owner must not treat a run as full #20 acceptance evidence.
+
 Zero-row probes test privileges, not persisted CRUD behavior. Additional
 gates remain for SCRAM authentication and full API/database CRUD regression,
 production unchanged proofs, real runtime execution and GitHub artifacts.
