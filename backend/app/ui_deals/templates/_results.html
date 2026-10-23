@@ -1,0 +1,34 @@
+<section id="deal-results" aria-live="polite">
+  <p class="muted">Atrasti {{ payload.available_count }} · rādīti {{ page_start }}–{{ page_end }}</p>
+
+  {% if payload.deals %}
+  <div class="deals">
+    {% for deal in payload.deals %}
+    <article class="deal" data-source-chain="{{ deal.source_chain }}" data-offer-id="{{ deal.source_offer_id }}">
+      <h2>{{ deal.product_name_raw }}</h2>
+      {% if deal.brand_raw %}<div class="muted">{{ deal.brand_raw }}</div>{% endif %}
+      {% if deal.package_text_raw %}<div>{{ deal.package_text_raw }}</div>{% endif %}
+      <div class="price">{{ '%.2f'|format(deal.price_eur) }} €</div>
+      {% if deal.regular_price_eur %}<div class="muted">Parasti {{ '%.2f'|format(deal.regular_price_eur) }} €</div>{% endif %}
+      {% if deal.unit_price_eur and deal.unit_label %}<div class="muted">{{ '%.2f'|format(deal.unit_price_eur) }} €/{{ deal.unit_label }}</div>{% endif %}
+      <div class="muted">{{ deal.source_store_name or deal.source_chain }}</div>
+      <div class="badges">
+        {% if deal.discount_percent %}<span class="badge">-{{ deal.discount_percent }}%</span>{% endif %}
+        {% if deal.requires_app %}<span class="badge">Lietotne</span>{% endif %}
+        {% if deal.coupon_required %}<span class="badge">Kupons</span>{% endif %}
+        {% if deal.canonical_comparable %}<span class="badge">Salīdzināms</span>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>Šiem filtriem piedāvājumi nav atrasti.</p>
+  {% endif %}
+
+  {% if previous_url or next_url %}
+  <nav aria-label="Piedāvājumu lapas">
+    <span>{% if previous_url %}<a class="button" href="{{ previous_url }}" hx-get="{{ previous_url }}" hx-target="#deal-results" hx-swap="outerHTML" hx-push-url="true">← Iepriekšējie</a>{% endif %}</span>
+    <span>{% if next_url %}<a class="button" href="{{ next_url }}" hx-get="{{ next_url }}" hx-target="#deal-results" hx-swap="outerHTML" hx-push-url="true">Nākamie →</a>{% endif %}</span>
+  </nav>
+  {% endif %}
+</section>
