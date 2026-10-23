@@ -29,6 +29,14 @@ UNITS = (
     "hermes-deals-edeka-monitor.service",
 )
 SOURCE_PREFIX = "infra/systemd/"
+NETTO_DROPIN_SOURCE = "infra/systemd/netto-collector-dropins/10-skip-sunday.conf"
+NETTO_DROPIN_PATH = (
+    SYSTEMD / "hermes-deals-netto-collector.service.d" / "10-skip-sunday.conf"
+)
+NETTO_DROPIN_SIZE = 379
+NETTO_DROPIN_SHA256 = (
+    "7470b0b5dcd97db62eb6b521e7376b5044e4f5ce234d436118d66f1536066c72"
+)
 MAX_BYTES = 64 * 1024
 HEX_SHA = re.compile(r"[0-9a-f]{40}\Z")
 
@@ -105,29 +113,55 @@ def _identity(info: os.stat_result) -> tuple[int, ...]:
 
 def _installed_equal_to_git_blob(path: Path, blob: bytes) -> None:
     require(0 < len(blob) <= MAX_BYTES)
-    require(path.parent == SYSTEMD and path.name in UNITS)
-    before = os.stat(path, follow_symlinks=False)
-    _check_metadata(before)
-    fd = os.open(
-        path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+    require(
+        (path.parent == SYSTEMD and path.name in UNITS)
+        or path == NETTO_DROPIN_PATH
+    )
+    # Pin the directory identity as well as the leaf. In particular, the
+    # one allowed drop-in directory must not itself be a symlink or writable
+    # by the collector; a matching leaf checksum alone is not sufficient.
+    parent_before = os.stat(path.parent, follow_symlinks=False)
+    require(stat.S_ISDIR(parent_before.st_mode))
+    require(parent_before.st_uid == parent_before.st_gid == 0)
+    require(not parent_before.st_mode & 0o022)
+    parent_fd = os.open(
+        path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
     try:
-        opened = os.fstat(fd)
-        require(_identity(before) == _identity(opened))
+        require(_identity(os.fstat(parent_fd)) == _identity(parent_before))
         require(not {
             "system.posix_acl_access", "system.posix_acl_default",
-        }.intersection(os.listxattr(fd)))
-        contents = os.read(fd, MAX_BYTES + 1)
-        require(len(contents) == opened.st_size)
-        require(
-            hashlib.sha256(contents).digest() == hashlib.sha256(blob).digest()
+        }.intersection(os.listxattr(parent_fd)))
+        before = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        _check_metadata(before)
+        fd = os.open(
+            path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=parent_fd,
         )
-        require(_identity(os.fstat(fd)) == _identity(opened))
+        try:
+            opened = os.fstat(fd)
+            require(_identity(before) == _identity(opened))
+            require(not {
+                "system.posix_acl_access", "system.posix_acl_default",
+            }.intersection(os.listxattr(fd)))
+            contents = os.read(fd, MAX_BYTES + 1)
+            require(len(contents) == opened.st_size)
+            require(
+                hashlib.sha256(contents).digest() == hashlib.sha256(blob).digest()
+            )
+            require(_identity(os.fstat(fd)) == _identity(opened))
+            require(_identity(
+                os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            ) == _identity(before))
+        finally:
+            os.close(fd)
+        require(_identity(os.fstat(parent_fd)) == _identity(parent_before))
         require(
-            _identity(os.stat(path, follow_symlinks=False)) == _identity(before)
+            _identity(os.stat(path.parent, follow_symlinks=False))
+            == _identity(parent_before)
         )
     finally:
-        os.close(fd)
+        os.close(parent_fd)
 
 
 def verify(
@@ -145,18 +179,26 @@ def verify(
     )
     for unit in UNITS:
         path = SYSTEMD / unit
+        netto = unit == UNITS[0]
         expected = {
             "LoadState": "loaded",
             "FragmentPath": str(path),
-            "DropInPaths": "",
+            "DropInPaths": str(NETTO_DROPIN_PATH) if netto else "",
             "NeedDaemonReload": "no",
         }
         require(_properties(unit, run) == expected)
         tracked_path = SOURCE_PREFIX + unit
         blob = _git(run, "cat-file", "blob", sha + ":" + tracked_path)
         scan(path, blob)
-        # Re-read systemd state after the file comparison. A changed daemon
-        # registration or pending reload is STOP, never a reload instruction.
+        if netto:
+            # Historical host observation from 2026-10-23 pins this *one*
+            # intentional current-only Sunday skip. No other drop-ins pass.
+            extra = _git(run, "cat-file", "blob", sha + ":" + NETTO_DROPIN_SOURCE)
+            require(len(extra) == NETTO_DROPIN_SIZE)
+            require(hashlib.sha256(extra).hexdigest() == NETTO_DROPIN_SHA256)
+            scan(NETTO_DROPIN_PATH, extra)
+        # Re-read systemd state after both the unit and any reviewed drop-in.
+        # A changed registration or pending reload is STOP, not a mutation.
         require(_properties(unit, run) == expected)
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import io
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -17,9 +18,10 @@ spec = importlib.util.spec_from_file_location("hermes_installed_units", FILE)
 units = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(units)
 SHA = "a" * 40
+DROPIN = FILE.parents[1] / "infra/systemd/netto-collector-dropins/10-skip-sunday.conf"
 
 
-def fake_source(*, changed=None, dirty=False, wrong_sha=False):
+def fake_source(*, changed=None, dirty=False, wrong_sha=False, changed_dropin=False):
     seen = []
     scanned = []
 
@@ -36,6 +38,8 @@ def fake_source(*, changed=None, dirty=False, wrong_sha=False):
             if op == "remote":
                 return b"https://github.com/rozkalnsandris/hermes-deals.git\n"
             if op == "cat-file":
+                if args[5].endswith(units.NETTO_DROPIN_SOURCE):
+                    return b"untrusted override" if changed_dropin else DROPIN.read_bytes()
                 return b"[Unit]\nDescription=Reviewed\n"
             raise AssertionError(args)
         if args[:2] == ("systemctl", "show"):
@@ -43,7 +47,11 @@ def fake_source(*, changed=None, dirty=False, wrong_sha=False):
             path = units.SYSTEMD / name
             properties = {
                 "LoadState": "loaded", "FragmentPath": str(path),
-                "DropInPaths": "", "NeedDaemonReload": "no",
+                "DropInPaths": (
+                    str(units.NETTO_DROPIN_PATH) if name == units.UNITS[0]
+                    else ""
+                ),
+                "NeedDaemonReload": "no",
             }
             if changed and name == units.UNITS[0]:
                 properties.update(changed)
@@ -62,17 +70,30 @@ class InstalledUnitTests(TestCase):
         # The synthetic test does not depend on any host checkout existing.
         with patch.object(type(units.REPO), "is_dir", return_value=True):
             units.verify(SHA, run=run, scan=scan)
-        self.assertEqual([path.name for path, _ in scanned], list(units.UNITS))
+        self.assertEqual(
+            [path.name for path, _ in scanned],
+            [units.UNITS[0], "10-skip-sunday.conf", *units.UNITS[1:]],
+        )
+        self.assertEqual(scanned[1][0], units.NETTO_DROPIN_PATH)
+        self.assertEqual(len(scanned[1][1]), units.NETTO_DROPIN_SIZE)
+        self.assertEqual(
+            hashlib.sha256(scanned[1][1]).hexdigest(), units.NETTO_DROPIN_SHA256
+        )
         self.assertEqual(
             len([a for a in seen if a[:2] == ("systemctl", "show")]), 8
         )
         self.assertEqual(
-            len([a for a in seen if len(a) > 3 and a[3] == "cat-file"]), 4
+            len([a for a in seen if len(a) > 3 and a[3] == "cat-file"]), 5
         )
 
     def test_mismatched_installed_path_or_dropin_refused(self):
         for changed in (
+            {"DropInPaths": ""},
             {"DropInPaths": "/etc/systemd/system/override.conf"},
+            {"DropInPaths": (
+                str(units.NETTO_DROPIN_PATH) + " "
+                "/etc/systemd/system/unknown.conf"
+            )},
             {"FragmentPath": "/run/systemd/system/other.service"},
             {"NeedDaemonReload": "yes"},
             {"LoadState": "not-found"},
@@ -91,6 +112,36 @@ class InstalledUnitTests(TestCase):
                     with self.assertRaises(units.Stop):
                         units.verify(SHA, run=run, scan=scan)
                 self.assertEqual(scanned, [])
+
+    def test_exact_observed_dropin_bytes_are_pinned_in_repository(self):
+        raw = DROPIN.read_bytes()
+        self.assertEqual(len(raw), units.NETTO_DROPIN_SIZE)
+        self.assertEqual(
+            hashlib.sha256(raw).hexdigest(), units.NETTO_DROPIN_SHA256
+        )
+        self.assertIn(
+            b'ExecCondition=/bin/sh -c \'test "$(/usr/bin/date +%%u)" -ne 7\'',
+            raw,
+        )
+
+    def test_different_netto_dropin_source_is_rejected_before_scan(self):
+        run, scan, _, scanned = fake_source(changed_dropin=True)
+        with patch.object(type(units.REPO), "is_dir", return_value=True):
+            with self.assertRaises(units.Stop):
+                units.verify(SHA, run=run, scan=scan)
+        self.assertEqual([p.name for p, _ in scanned], [units.UNITS[0]])
+
+    def test_other_host_dropin_files_are_not_allowlisted(self):
+        unknown = (
+            units.SYSTEMD / "hermes-deals-aldi-collector.service.d"
+            / "10-skip-sunday.conf"
+        )
+        with self.assertRaises(units.Stop):
+            units._installed_equal_to_git_blob(unknown, b"test")
+        with self.assertRaises(units.Stop):
+            units._installed_equal_to_git_blob(
+                units.NETTO_DROPIN_PATH.parent / "other.conf", b"test"
+            )
 
     def test_invalid_sha_fails_before_host_reads(self):
         run, scan, seen, _ = fake_source()

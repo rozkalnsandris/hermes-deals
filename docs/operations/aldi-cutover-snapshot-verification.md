@@ -70,8 +70,19 @@ It accepts one `--expected-source-sha` argument, verifies a clean source
 checkout, exact Git blob bytes versus root-owned regular installed unit files
 (`0644`, no symlink/ACL), and checks the systemd `FragmentPath`,
 `DropInPaths`, `LoadState` and `NeedDaemonReload` properties before and
-after the file comparison. Any unexpected drop-in, path, source, permission,
-pending reload or daemon registration drift is `STOP` with no retry or reload.
+after the file comparison. The only allowed exception to an empty
+`DropInPaths` is Netto's observed
+`/etc/systemd/system/hermes-deals-netto-collector.service.d/10-skip-sunday.conf`.
+Its exact 379-byte content is retained in
+`infra/systemd/netto-collector-dropins/10-skip-sunday.conf` and bound to
+SHA-256 `7470b0b5dcd97db62eb6b521e7376b5044e4f5ce234d436118d66f1536066c72`.
+The host observation on 2026-10-23 established root:root `0644`, and the
+directive `ExecCondition=/bin/sh -c 'test "$(/usr/bin/date +%%u)" -ne 7'`
+skips only the current-only Netto collector on Sunday. The verifier checks
+the exact Git blob, trusted parent directory, installed leaf metadata, SHA,
+and re-read systemd registration. Missing, modified, additional or unrelated
+drop-ins, path/source/permission drift, or a pending reload mean `STOP`.
+No drop-in is installed or reloaded by source verification.
 Only public-safe `PASS`/`STOP` output is emitted.
 
 **This script must not run as part of GitHub CI on a real host:** its tests
