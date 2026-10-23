@@ -12,8 +12,19 @@ def test_v08_wrapper_is_dispatcher_bound():
     text = WRAPPER.read_text(encoding="utf-8")
     assert text.startswith("#!/usr/bin/env bash")
     assert "set -Eeuo pipefail" in text
-    assert "/home/andris/hermes-deals/tools/b15m2_v08_shadow.py" in text
+    assert 'SHA="' + "$" + '{HERMES_AUDIT_EXPECTED_HEAD:-}"' in text
+    assert 'cat-file -t "$SHA:$ENGINE"' in text
+    assert 'cat-file blob "$SHA:$ENGINE"' in text
+    assert "/usr/bin/python3 -" in text
+    assert "exec /usr/bin/python3 /home/andris/hermes-deals/tools/" not in text
+    assert "HERMES_AUDIT_TRIGGER" in text
+    assert "HERMES_AUDIT_EXPECTED_BRANCH" in text
     assert "sudo" not in text
+
+
+def test_v08_wrapper_bash_syntax_is_valid():
+    import subprocess
+    subprocess.run(["bash", "-n", str(WRAPPER)], check=True)
 
 
 def test_v08_guardrails_fail_closed():
