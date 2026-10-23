@@ -59,12 +59,9 @@ def fake_source(*, changed=None, dirty=False, wrong_sha=False):
 class InstalledUnitTests(TestCase):
     def test_exact_four_units_rechecked_and_all_blobs_compared(self):
         run, scan, seen, scanned = fake_source()
-        with patch.object(units.REPO, "is_dir", return_value=True), patch.object(
-            type(units.REPO), "is_dir", return_value=True
-        ):
-            # The real checkout is intentionally unavailable in CI.
-            with patch.object(units, "REPO", Path(__file__).resolve().parents[2]):
-                units.verify(SHA, run=run, scan=scan)
+        # The synthetic test does not depend on any host checkout existing.
+        with patch.object(type(units.REPO), "is_dir", return_value=True):
+            units.verify(SHA, run=run, scan=scan)
         self.assertEqual([path.name for path, _ in scanned], list(units.UNITS))
         self.assertEqual(
             len([a for a in seen if a[:2] == ("systemctl", "show")]), 8
