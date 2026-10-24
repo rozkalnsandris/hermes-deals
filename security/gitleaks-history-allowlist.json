@@ -243,5 +243,12 @@
     "line": 197,
     "commit": "ba32498d0275f483adae286752e58e2cfb843d0a",
     "reason": "Deterministic public Lidl flyer identifier binding the exact #906 frozen review-pack workflow to the reviewed family; not authentication material."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-frozen-review-pack-906.yml",
+    "line": 197,
+    "commit": "9048f215496dee4ef7ba7765ff37e4c7ad970515",
+    "reason": "Same deterministic public Lidl flyer identifier after PR #1071 reached main via squash merge; not authentication material."
   }
 ]
