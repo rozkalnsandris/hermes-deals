@@ -152,7 +152,7 @@ def test_workflow_validates_sanitized_summary_and_reports_without_retry() -> Non
     assert "method=\"POST\"" in text
     assert "issues/906/comments" in text
     assert "<!-- hermes-lidl-gate-b-frozen-review-pack-906-status -->" in text
-    assert "retry" not in text.lower().split("  report:\n", 1)[1].split("automatic_retry", 1)[0]
+    report = text.split("  report:\n", 1)[1]\n    assert "rerun" not in report.lower()\n    assert "workflow_dispatch" not in report
 
 
 def test_workflow_uploads_no_raw_pdf_or_corpus_path() -> None:
