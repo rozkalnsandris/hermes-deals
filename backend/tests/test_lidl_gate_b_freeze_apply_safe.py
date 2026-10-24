@@ -5,7 +5,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import stat
 import sys
 import tempfile
 import unittest
@@ -56,24 +55,32 @@ class LidlGateBFreezeApplySafeTest(unittest.TestCase):
         MODULE.restore_original_filter()
         self.temp.cleanup()
 
-    def _write_source(self, directory: Path) -> None:
+    def _write_staging(self, directory: Path) -> None:
         directory.mkdir(mode=0o700)
-        (directory / "source.pdf").write_bytes(self.pdf)
-        (directory / "source.json").write_bytes(self.raw)
+        files = {
+            "source.pdf": self.pdf,
+            "source.json": self.raw,
+            "discovery-meta.json": b'{"source":"test"}\n',
+        }
+        for name, content in files.items():
+            path = directory / name
+            path.write_bytes(content)
+            path.chmod(0o600)
 
-    def test_exact_source_inside_valid_private_staging_is_ignored(self) -> None:
+    def test_exact_active_private_staging_is_forwarded_to_current_planner(self) -> None:
         staging = self.flyers_root / ".gate-b-freeze-7517c52e27c6f661.staging"
-        self._write_source(staging)
-        os.chmod(staging, 0o700)
+        self._write_staging(staging)
         MODULE.install_safe_staging_filter()
         MODULE.plan_module._corpus_identity_conflicts(
             self.flyers_root,
             source_pdf_sha256=self.pdf_sha,
             stable_identity=self.identity,
+            active_private_staging=staging,
         )
 
-    def test_exact_source_inside_regular_corpus_directory_still_blocks(self) -> None:
-        self._write_source(self.flyers_root / "aktionsprospekt-existing")
+    def test_staging_is_not_ignored_without_exact_active_path(self) -> None:
+        staging = self.flyers_root / ".gate-b-freeze-7517c52e27c6f661.staging"
+        self._write_staging(staging)
         MODULE.install_safe_staging_filter()
         with self.assertRaisesRegex(
             MODULE.plan_module.LidlGateBFreezePlanError,
@@ -85,24 +92,25 @@ class LidlGateBFreezeApplySafeTest(unittest.TestCase):
                 stable_identity=self.identity,
             )
 
-    def test_staging_with_non_private_mode_fails_closed(self) -> None:
+    def test_active_private_staging_with_non_private_mode_fails_closed(self) -> None:
         staging = self.flyers_root / ".gate-b-freeze-7517c52e27c6f661.staging"
-        self._write_source(staging)
+        self._write_staging(staging)
         os.chmod(staging, 0o755)
         MODULE.install_safe_staging_filter()
         with self.assertRaisesRegex(
             MODULE.plan_module.LidlGateBFreezePlanError,
-            "Gate B staging mode must be 0700",
+            "active private staging mode mismatch",
         ):
             MODULE.plan_module._corpus_identity_conflicts(
                 self.flyers_root,
                 source_pdf_sha256=self.pdf_sha,
                 stable_identity=self.identity,
+                active_private_staging=staging,
             )
 
-    def test_symlinked_staging_fails_closed(self) -> None:
+    def test_symlinked_active_private_staging_fails_closed(self) -> None:
         target = self.root / "outside-staging"
-        self._write_source(target)
+        self._write_staging(target)
         staging = self.flyers_root / ".gate-b-freeze-7517c52e27c6f661.staging"
         staging.symlink_to(target, target_is_directory=True)
         MODULE.install_safe_staging_filter()
@@ -114,6 +122,7 @@ class LidlGateBFreezeApplySafeTest(unittest.TestCase):
                 self.flyers_root,
                 source_pdf_sha256=self.pdf_sha,
                 stable_identity=self.identity,
+                active_private_staging=staging,
             )
 
     def test_safe_entrypoint_patches_apply_replan_dependency(self) -> None:
