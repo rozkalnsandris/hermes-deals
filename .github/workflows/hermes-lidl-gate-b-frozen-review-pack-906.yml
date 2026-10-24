@@ -122,7 +122,7 @@ jobs:
                   raise SystemExit("issue comments response is not a list")
               for comment in comments:
                   comment_body = str(comment.get("body") or "")
-                  if marker in comment_body and f"authorization comment: \`{auth_id}\`" in comment_body:
+                  if marker in comment_body and f"authorization comment: `{auth_id}`" in comment_body:
                       consumed = True
                       break
               if consumed or len(comments) < 100:
@@ -295,25 +295,25 @@ jobs:
           if success:
               state = "PASS"
               details = (
-                  f"- source PDF SHA-256: \`{os.environ['SOURCE_PDF_SHA256']}\`\n"
-                  f"- pages: \`{os.environ['PAGE_COUNT']}/76\`\n"
-                  f"- staging scan tree SHA-256: \`{os.environ['SCAN_TREE_SHA256']}\`\n"
-                  f"- render tree SHA-256: \`{os.environ['RENDER_TREE_SHA256']}\`\n"
-                  f"- manifest SHA-256: \`{os.environ['MANIFEST_SHA256']}\`\n"
-                  f"- renderer: \`{os.environ['RENDERER']}\`\n"
-                  f"- artifact ID: \`{os.environ['ARTIFACT_ID']}\`\n"
-                  f"- artifact digest: \`{os.environ['ARTIFACT_DIGEST']}\`\n"
-                  "- independent render replay: \`BYTE_IDENTICAL_PASS\`\n"
+                  f"- source PDF SHA-256: `{os.environ['SOURCE_PDF_SHA256']}`\n"
+                  f"- pages: `{os.environ['PAGE_COUNT']}/76`\n"
+                  f"- staging scan tree SHA-256: `{os.environ['SCAN_TREE_SHA256']}`\n"
+                  f"- render tree SHA-256: `{os.environ['RENDER_TREE_SHA256']}`\n"
+                  f"- manifest SHA-256: `{os.environ['MANIFEST_SHA256']}`\n"
+                  f"- renderer: `{os.environ['RENDERER']}`\n"
+                  f"- artifact ID: `{os.environ['ARTIFACT_ID']}`\n"
+                  f"- artifact digest: `{os.environ['ARTIFACT_DIGEST']}`\n"
+                  "- independent render replay: `BYTE_IDENTICAL_PASS`\n"
               )
           else:
               state = "BLOCKED"
-              details = f"- render job: \`{os.environ.get('RENDER_JOB_RESULT') or 'unknown'}\`\n"
+              details = f"- render job: `{os.environ.get('RENDER_JOB_RESULT') or 'unknown'}`\n"
 
           body = (
               marker
               + f"## Lidl Gate B #906 frozen visual review pack — {state}\n\n"
-              + f"- authorization comment: \`{os.environ['AUTHORIZATION_COMMENT_ID']}\`\n"
-              + f"- start-signal comment: \`{os.environ['TRIGGER_COMMENT_ID']}\`\n"
+              + f"- authorization comment: `{os.environ['AUTHORIZATION_COMMENT_ID']}`\n"
+              + f"- start-signal comment: `{os.environ['TRIGGER_COMMENT_ID']}`\n"
               + f"- workflow: {os.environ['RUN_URL']}\n"
               + details
               + "\nSafety: exact frozen PDF read + private render evidence + bounded JPEG/manifest artifact only. "
