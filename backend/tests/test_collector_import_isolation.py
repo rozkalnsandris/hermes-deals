@@ -21,7 +21,7 @@ class CollectorImportIsolationTest(unittest.TestCase):
                 def find_spec(self, fullname, path=None, target=None):
                     for retailer in ("aldi", "edeka", "lidl", "netto"):
                         prefixes = ("app." + retailer + "_", "app.parsers." + retailer)
-                        if retailer != selected and fullname.startswith(prefixes):
+                        if selected not in (retailer, "api") and fullname.startswith(prefixes):
                             raise AssertionError("Unrelated retailer imported: " + fullname)
                     return None
 
@@ -101,6 +101,33 @@ class CollectorImportIsolationTest(unittest.TestCase):
                 collect.assert_called_once()
                 assert collect.call_args.args[3] == 20
         """, selected="netto")
+
+
+    def test_api_bootstrap_preserves_existing_routes_and_patches(self) -> None:
+        self.run_isolated("""
+            import app.main as main
+            import app.netto_daily_special_api as daily
+            import app.weekly_special_api as weekly
+            from app.netto_daily_special_runtime_patch import latest_manifest_snapshot
+            from app.weekly_special_runtime_patch import isolated_explicit_daily_specials
+            from app.current_deals_route_installer import installed_fast_current_deals
+            from app.canonical_catalog_route_installer import (
+                installed_fast_canonical_catalog,
+                installed_fast_canonical_ui_overview,
+            )
+
+            assert daily._latest_snapshot is latest_manifest_snapshot
+            assert weekly._explicit_daily_specials is isolated_explicit_daily_specials
+            expected = {
+                "/api/v1/deals/current": installed_fast_current_deals,
+                "/api/v1/catalog": installed_fast_canonical_catalog,
+                "/api/v1/ui/overview": installed_fast_canonical_ui_overview,
+            }
+            for path, endpoint in expected.items():
+                routes = [r for r in main.app.routes if getattr(r, "path", None) == path]
+                assert len(routes) == 1, (path, len(routes))
+                assert routes[0].endpoint is endpoint, path
+        """, selected="api")
 
 
 if __name__ == "__main__":

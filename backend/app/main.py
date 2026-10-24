@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+# Install API compatibility hooks before importing or registering routes.
+# Package imports and collector CLIs must not initialize the HTTP application.
+from app import netto_daily_special_runtime_patch as _netto_daily_special_runtime_patch
+from app import weekly_special_runtime_patch as _weekly_special_runtime_patch
+from app import current_deals_route_installer as _current_deals_route_installer
+from app import canonical_catalog_route_installer as _canonical_catalog_route_installer
+
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
