@@ -236,5 +236,12 @@
     "line": 36,
     "commit": "bedd946ca12456055a54b1811a60098c3a44818d",
     "reason": "Literal synthetic-only fixture used solely for Docker Compose config rendering in an isolated temporary env file; never a runtime credential or database connection. The source now uses the existing approved CI placeholder."
+  },
+  {
+    "rule_id": "generic-api-key",
+    "file": ".github/workflows/hermes-lidl-gate-b-frozen-review-pack-906.yml",
+    "line": 197,
+    "commit": "ba32498d0275f483adae286752e58e2cfb843d0a",
+    "reason": "Deterministic public Lidl flyer identifier binding the exact #906 frozen review-pack workflow to the reviewed family; not authentication material."
   }
 ]
