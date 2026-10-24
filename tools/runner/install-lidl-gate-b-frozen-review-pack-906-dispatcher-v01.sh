@@ -72,7 +72,7 @@ git_source merge-base --is-ancestor "$EXPECTED_SHA" refs/remotes/origin/main || 
 DISPATCHER_BLOB="$(git_source rev-parse "$EXPECTED_SHA:$DISPATCHER_REL")"
 [[ "$DISPATCHER_BLOB" == "$EXPECTED_DISPATCHER_BLOB" ]] || fail 'registered dispatcher Git blob mismatch'
 
-TMP="$(mktemp -d /tmp/hermes-deals-lidl-frozen-review-pack-603-installer.XXXXXX)"
+TMP="$(mktemp -d /tmp/hermes-deals-lidl-frozen-review-pack-906-installer.XXXXXX)"
 cleanup() {
   rm -rf -- "$TMP"
 }
@@ -85,7 +85,7 @@ chmod 0755 "$TMP/dispatcher"
 
 TAG_A='NOPASS'
 TAG_B='WD'
-printf 'Cmnd_Alias HERMES_DEALS_LIDL_FROZEN_REVIEW_PACK_603 = %s ^[1-9][0-9]* [1-9][0-9]*$\ngithub-runner ALL=(root) %s%s: HERMES_DEALS_LIDL_FROZEN_REVIEW_PACK_603\n' \
+printf 'Cmnd_Alias HERMES_DEALS_LIDL_FROZEN_REVIEW_PACK_906 = %s ^[1-9][0-9]* [1-9][0-9]*$\ngithub-runner ALL=(root) %s%s: HERMES_DEALS_LIDL_FROZEN_REVIEW_PACK_906\n' \
   "$DISPATCHER" "$TAG_A" "$TAG_B" > "$TMP/sudoers"
 chmod 0440 "$TMP/sudoers"
 visudo -cf "$TMP/sudoers" >/dev/null || fail 'generated sudoers policy is invalid or regex matching is unavailable'
