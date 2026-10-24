@@ -7,18 +7,6 @@ from pathlib import Path
 
 from app.db import SessionLocal
 from app.offer_store import save_offer_candidates
-from app.aldi_current_policy import apply_aldi_current_page_policy
-from app.lidl_inspector import inspect_lidl_source
-from app.lidl_bundle_inspector import inspect_lidl_bundle
-from app.lidl_api_inspector import inspect_lidl_api
-from app.lidl_page_schema_inspector import inspect_lidl_page_schema
-from app.lidl_ocr_inspector import inspect_lidl_ocr
-from app.lidl_candidate_precision import audit_candidate_precision
-from app.lidl_offer_candidate_shadow import map_strict_ready_offer_candidates
-from app.lidl_source_provenance import bind_lidl_source_snapshot
-from app.lidl_offer_persistence import persist_lidl_strict_ready_offers
-from app.parsers.aldi_nord import AldiNordParserContext, parse_aldi_nord_snapshot
-from app.parsers.edeka import EdekaParserContext, parse_edeka_snapshot
 from app.probe import probe_source, snapshot_as_dict
 from app.settings import get_settings
 from app.source_config import SourceConfig, load_sources
@@ -85,6 +73,9 @@ def _collect_netto(min_offers: int) -> int:
 
 
 def _collect_aldi_nord(min_offers: int) -> int:
+    from app.aldi_current_policy import apply_aldi_current_page_policy
+    from app.parsers.aldi_nord import AldiNordParserContext, parse_aldi_nord_snapshot
+
     source = _source_by_name("aldi_nord")
     with SessionLocal() as db:
         print(f"[collect] aldi_nord fetch: {source.url}", flush=True)
@@ -153,6 +144,8 @@ def _collect_aldi_nord(min_offers: int) -> int:
 
 
 def _inspect_lidl(max_pages: int) -> int:
+    from app.lidl_inspector import inspect_lidl_source
+
     source = _source_by_name("lidl")
     settings = get_settings()
     with SessionLocal() as db:
@@ -188,6 +181,8 @@ def _inspect_lidl(max_pages: int) -> int:
 
 
 def _inspect_lidl_bundle() -> int:
+    from app.lidl_bundle_inspector import inspect_lidl_bundle
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-discovery.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -218,6 +213,8 @@ def _inspect_lidl_bundle() -> int:
 
 
 def _inspect_lidl_api() -> int:
+    from app.lidl_api_inspector import inspect_lidl_api
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-discovery.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -280,6 +277,8 @@ def _inspect_lidl_api() -> int:
 
 
 def _inspect_lidl_pages() -> int:
+    from app.lidl_page_schema_inspector import inspect_lidl_page_schema
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-api-structure-analysis.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -337,6 +336,8 @@ def _inspect_lidl_pages() -> int:
 
 
 def _inspect_lidl_ocr(max_pages: int) -> int:
+    from app.lidl_ocr_inspector import inspect_lidl_ocr
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-page-schema-analysis.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -437,6 +438,8 @@ def _inspect_lidl_ocr(max_pages: int) -> int:
 
 
 def _dry_run_lidl_grocery() -> int:
+    from app.lidl_ocr_inspector import inspect_lidl_ocr
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-page-schema-analysis.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -489,6 +492,8 @@ def _dry_run_lidl_grocery() -> int:
 
 
 def _audit_lidl_candidate_precision() -> int:
+    from app.lidl_candidate_precision import audit_candidate_precision
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-ocr-full-grocery-dry-run.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -539,6 +544,8 @@ def _audit_lidl_candidate_precision() -> int:
 
 
 def _shadow_map_lidl_offer_candidates() -> int:
+    from app.lidl_offer_candidate_shadow import map_strict_ready_offer_candidates
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-candidate-precision-audit.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -579,6 +586,8 @@ def _shadow_map_lidl_offer_candidates() -> int:
     return 0
 
 def _bind_lidl_source_snapshot() -> int:
+    from app.lidl_source_provenance import bind_lidl_source_snapshot
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-offer-candidate-shadow.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -631,6 +640,8 @@ def _bind_lidl_source_snapshot() -> int:
 
 
 def _persist_lidl_strict_ready() -> int:
+    from app.lidl_offer_persistence import persist_lidl_strict_ready_offers
+
     settings = get_settings()
     analysis_dir = settings.raw_snapshot_dir / "lidl-analysis"
     reports = sorted(analysis_dir.glob("*-lidl-source-provenance-binding.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -694,6 +705,8 @@ def _persist_lidl_strict_ready() -> int:
     return 0
 
 def _collect_edeka(min_offers: int) -> int:
+    from app.parsers.edeka import EdekaParserContext, parse_edeka_snapshot
+
     source = _source_by_name("edeka")
 
     # Validate complete store identity before probe_source(), because
