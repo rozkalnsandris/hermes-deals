@@ -344,6 +344,7 @@ jobs:
       - name: Run PostgreSQL current-deals contracts
         run: |
           python -m pytest -q -s \
+            tests/test_pdf_retention.py \
             tests/test_price_history_discovery.py \
             tests/test_current_deals_sql_postgresql_contract.py \
             tests/test_current_deals_sql_postgresql_runtime.py \
