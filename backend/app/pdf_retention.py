@@ -65,8 +65,8 @@ def register_pdf_acquisition(
     statement = insert(PdfAcquisition).values(
         pdf_sha256=pdf_sha256, evidence_ref=evidence_ref,
         acquired_at=acquired_at, recorded_at=recorded_at,
-    ).on_conflict_do_nothing(index_elements=["pdf_sha256", "evidence_ref"])
-    result = db.execute(statement)
+    ).on_conflict_do_nothing(index_elements=["pdf_sha256", "evidence_ref"]).returning(PdfAcquisition.pdf_sha256)
+    inserted_sha = db.execute(statement).scalar_one_or_none()
     existing = db.execute(select(PdfAcquisition.acquired_at).where(
         PdfAcquisition.pdf_sha256 == pdf_sha256,
         PdfAcquisition.evidence_ref == evidence_ref,
@@ -74,7 +74,7 @@ def register_pdf_acquisition(
     existing = _stored_utc(existing) if existing is not None else None
     if existing != acquired_at:
         raise ValueError("immutable PDF acquisition conflicts with existing evidence")
-    return result.rowcount == 1
+    return inserted_sha is not None
 
 
 @dataclass(frozen=True)
