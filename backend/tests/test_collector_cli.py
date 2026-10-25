@@ -78,6 +78,7 @@ class CollectorCliEdekaRoutingTest(unittest.TestCase):
         from unittest.mock import Mock, patch
 
         import app.collector_cli as collector_cli
+        import app.edeka_collector_cli as edeka_cli
         from app.source_config import SourceConfig
 
         incomplete = SourceConfig(
@@ -95,12 +96,12 @@ class CollectorCliEdekaRoutingTest(unittest.TestCase):
 
         with (
             patch.object(
-                collector_cli,
-                "_source_by_name",
+                edeka_cli,
+                "_edeka_source",
                 return_value=incomplete,
             ),
             patch.object(
-                collector_cli,
+                edeka_cli,
                 "SessionLocal",
                 Mock(),
             ) as session_local,
@@ -111,7 +112,7 @@ class CollectorCliEdekaRoutingTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 ValueError,
-                "requires store_internal_id",
+                "internal market ID mismatch",
             ):
                 collector_cli._collect_edeka(150)
 

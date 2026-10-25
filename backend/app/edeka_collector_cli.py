@@ -6,6 +6,7 @@ import sys
 
 from app.db import SessionLocal
 from app.edeka_store_offers import (
+    _validate_source,
     collect_edeka_store_offers,
     parse_edeka_store_offers_snapshot,
 )
@@ -32,6 +33,7 @@ def _edeka_source() -> SourceConfig:
 
 def collect_edeka(min_offers: int) -> int:
     source = _edeka_source()
+    _validate_source(source)
     with SessionLocal() as db:
         result = collect_edeka_store_offers(db, source)
         snapshot = result.snapshot
