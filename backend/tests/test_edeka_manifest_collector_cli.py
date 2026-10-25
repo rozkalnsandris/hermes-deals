@@ -42,6 +42,10 @@ class _SessionContext:
 
 
 class EdekaManifestCollectorCliTest(unittest.TestCase):
+    def collect(self, minimum: int) -> int:
+        from app.edeka_collector_cli import collect_edeka
+        return collect_edeka(minimum)
+
     def test_unchanged_source_replays_and_verifies_offer_write(self) -> None:
         import app.edeka_collector_cli as cli
 
@@ -82,7 +86,7 @@ class EdekaManifestCollectorCliTest(unittest.TestCase):
             ),
             patch.object(cli, "save_offer_candidates", save_offers),
         ):
-            result = cli.collect_edeka(1)
+            result = self.collect(1)
 
         self.assertEqual(result, 0)
         parse_snapshot.assert_called_once()
@@ -133,7 +137,7 @@ class EdekaManifestCollectorCliTest(unittest.TestCase):
                 return_value=1,
             ) as save_offers,
         ):
-            result = cli.collect_edeka(1)
+            result = self.collect(1)
 
         self.assertEqual(result, 0)
         parse_snapshot.assert_called_once()
@@ -176,7 +180,7 @@ class EdekaManifestCollectorCliTest(unittest.TestCase):
             ),
             patch.object(cli, "save_offer_candidates") as save_offers,
         ):
-            result = cli.collect_edeka(150)
+            result = self.collect(150)
 
         self.assertEqual(result, 3)
         save_offers.assert_not_called()
@@ -195,6 +199,32 @@ class EdekaManifestCollectorCliTest(unittest.TestCase):
             service,
         )
         self.assertNotIn("collect --source edeka", service)
+
+    def test_failed_manifest_never_parses_or_saves(self) -> None:
+        import app.edeka_collector_cli as cli
+        failed = SimpleNamespace(success=False, error="fixture unavailable", http_status=503)
+        with (
+            patch.object(cli, "_edeka_source", return_value=_source()),
+            patch.object(cli, "SessionLocal", return_value=_SessionContext()),
+            patch.object(cli, "collect_edeka_store_offers",
+                         return_value=EdekaCollectionResult(failed, False)),
+            patch.object(cli, "parse_edeka_store_offers_snapshot") as parse,
+            patch.object(cli, "save_offer_candidates") as save,
+        ):
+            self.assertEqual(self.collect(150), 2)
+        parse.assert_not_called()
+        save.assert_not_called()
+
+
+class EdekaSharedCollectorCliTest(EdekaManifestCollectorCliTest):
+    def collect(self, minimum: int) -> int:
+        import sys
+        from app.collector_cli import main
+        with patch.object(sys, "argv", [
+            "collector", "collect", "--source", "edeka",
+            "--min-offers", str(minimum),
+        ]):
+            return main()
 
 
 if __name__ == "__main__":

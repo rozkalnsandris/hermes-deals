@@ -705,66 +705,10 @@ def _persist_lidl_strict_ready() -> int:
     return 0
 
 def _collect_edeka(min_offers: int) -> int:
-    from app.parsers.edeka import EdekaParserContext, parse_edeka_snapshot
+    from app.edeka_collector_cli import collect_edeka
 
-    source = _source_by_name("edeka")
+    return collect_edeka(min_offers)
 
-    # Validate complete store identity before probe_source(), because
-    # probe_source() persists a SourceSnapshot by design.
-    if not source.store_external_id:
-        raise ValueError("EDEKA source requires store_external_id")
-    if not source.store_internal_id:
-        raise ValueError("EDEKA source requires store_internal_id")
-    if not source.store_name:
-        raise ValueError("EDEKA source requires store_name")
-
-    with SessionLocal() as db:
-        print(f"[collect] edeka fetch: {source.url}", flush=True)
-        snapshot = probe_source(db, source)
-        if not snapshot.success or not snapshot.snapshot_path:
-            print(
-                f"ERROR: EDEKA snapshot failed: "
-                f"{snapshot.error or snapshot.http_status}",
-                file=sys.stderr,
-            )
-            return 2
-
-        context = EdekaParserContext(
-            snapshot_id=snapshot.id,
-            source_url=snapshot.final_url or snapshot.source_url,
-            collected_at=snapshot.collected_at,
-            public_market_id=source.store_external_id,
-            internal_market_id=source.store_internal_id,
-            store_name=source.store_name,
-        )
-        offers = parse_edeka_snapshot(Path(snapshot.snapshot_path), context)
-
-        if len(offers) < min_offers:
-            print(
-                f"ERROR: EDEKA parser produced only {len(offers)} offers; "
-                f"minimum gate is {min_offers}. No offer rows were written. "
-                "The SourceSnapshot remains persisted as provenance.",
-                file=sys.stderr,
-            )
-            return 3
-
-        count = save_offer_candidates(db, offers)
-        print(
-            f"[collect] edeka parser={offers[0].parser_version} "
-            f"saved={count} snapshot={snapshot.id}"
-        )
-        print("\n=== EDEKA SAMPLE ===")
-        for offer in offers[:8]:
-            app = (
-                f" app={offer.app_price_eur}"
-                if offer.app_price_eur is not None
-                else ""
-            )
-            print(
-                f"- {offer.product_name_raw}: {offer.price_eur} EUR{app} "
-                f"valid={offer.valid_from}..{offer.valid_until}"
-            )
-    return 0
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="hermes-deals-collector")

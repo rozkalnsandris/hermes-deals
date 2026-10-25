@@ -52,8 +52,8 @@ class CollectorImportIsolationTest(unittest.TestCase):
                         raise AssertionError("Expected argparse help exit")
                 """)
 
-    def test_aldi_and_edeka_reach_source_failure_without_other_retailers(self) -> None:
-        for retailer, source in (("aldi", "aldi_nord"), ("edeka", "edeka")):
+    def test_aldi_reaches_source_failure_without_other_retailers(self) -> None:
+        for retailer, source in (("aldi", "aldi_nord"),):
             with self.subTest(source=source):
                 self.run_isolated(f"""
                     from types import SimpleNamespace
@@ -81,6 +81,37 @@ class CollectorImportIsolationTest(unittest.TestCase):
                         probe.assert_called_once()
                         save.assert_not_called()
                 """, selected=retailer)
+
+    def test_edeka_manifest_failure_without_other_retailers(self) -> None:
+        self.run_isolated("""
+            from types import SimpleNamespace
+            from unittest.mock import MagicMock, patch
+            import app.collector_cli as cli
+            import app.edeka_collector_cli as edeka
+            from app.source_config import SourceConfig
+
+            source = SourceConfig(
+                chain="edeka", enabled=True, priority=2,
+                url="https://www.edeka.de/maerkte/071897/angebote/",
+                scope="family_primary_edeka", notes="", keywords=(),
+                store_external_id="071897", store_internal_id="587881",
+                store_name="EDEKA Patzer",
+            )
+            failed = SimpleNamespace(success=False, error="fixture unavailable", http_status=503)
+            sys.argv = ["collector", "collect", "--source", "edeka"]
+            with (
+                patch.object(edeka, "_edeka_source", return_value=source),
+                patch.object(edeka, "SessionLocal", MagicMock()),
+                patch.object(edeka, "collect_edeka_store_offers",
+                             return_value=SimpleNamespace(snapshot=failed)) as collect,
+                patch.object(edeka, "save_offer_candidates") as save,
+                patch.object(cli, "probe_source") as legacy_probe,
+            ):
+                assert cli.main() == 2
+                collect.assert_called_once()
+                save.assert_not_called()
+                legacy_probe.assert_not_called()
+        """, selected="edeka")
 
     def test_netto_dispatch_without_other_retailers(self) -> None:
         self.run_isolated("""
