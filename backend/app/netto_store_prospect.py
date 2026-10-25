@@ -14,9 +14,11 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.models import SourceSnapshot
+from app.pdf_retention import pdf_retention, register_pdf_acquisition
 from app.parsers.netto import NettoParserContext, parse_netto_html
 from app.schemas import OfferCandidate
 from app.settings import get_settings
@@ -361,14 +363,19 @@ def _write_bundle(
     *,
     source: SourceConfig,
     collected_at: datetime,
+    pdf_registry_engine: Engine | None = None,
 ) -> tuple[Path,str]:
+    """Write existing V3 evidence; optionally admit PDFs through the shared registry.
+
+    The engine is explicit until inventory reconciliation and schema rollout.
+    A separate transaction durably records acquisition before any file is written.
+    """
     if not bundle.prospect_pdf:
         raise ValueError("Netto current prospect PDF evidence is required")
     _validate_prospect_pdf(bundle.prospect_pdf)
 
     settings=get_settings()
     root=settings.raw_snapshot_dir/"netto"
-    root.mkdir(parents=True,exist_ok=True)
     stamp=collected_at.strftime("%Y%m%dT%H%M%SZ")
 
     store_sha=sha256(bundle.store_html).hexdigest()
@@ -385,8 +392,6 @@ def _write_bundle(
 
     store_path=root/f"{stamp}-5659-store-{store_sha[:12]}.html"
     prospect_path=root/f"{stamp}-5659-{bundle.prospect_slug}-{prospect_sha[:12]}.html"
-    write_immutable(store_path, bundle.store_html)
-    write_immutable(prospect_path, bundle.prospect_html)
 
     publication_path = None
     publication_sha = None
@@ -397,11 +402,9 @@ def _write_bundle(
             / f"{stamp}-5659-{bundle.prospect_slug}-publication-"
             f"{publication_sha[:12]}.json"
         )
-        write_immutable(publication_path, bundle.publication_json)
 
     pdf_sha = sha256(bundle.prospect_pdf).hexdigest()
     pdf_path = root / f"5659-{bundle.prospect_slug}-{pdf_sha}.pdf"
-    write_immutable(pdf_path, bundle.prospect_pdf)
 
     manifest={
         "schema_version":3,
@@ -439,11 +442,43 @@ def _write_bundle(
     data=json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
     digest=sha256(data).hexdigest()
     path=root/f"{stamp}-5659-store-prospect-manifest-{digest[:12]}.json"
+
+    if pdf_registry_engine is not None:
+        checked_at = datetime.now(timezone.utc)
+        with Session(pdf_registry_engine) as registry:
+            current = pdf_retention(registry, pdf_sha, as_of=checked_at)
+            if current.state == "unregistered" and (
+                pdf_path.exists() or pdf_path.is_symlink()
+            ):
+                raise ValueError(
+                    "Netto PDF acquisition_unknown: reconcile the existing copy "
+                    "before registering a new download"
+                )
+            register_pdf_acquisition(
+                registry, pdf_sha256=pdf_sha,
+                evidence_ref=f"netto-manifest:{digest}#prospect_pdf",
+                acquired_at=collected_at, recorded_at=checked_at,
+            )
+            retention = pdf_retention(registry, pdf_sha, as_of=checked_at)
+            # A later filesystem/snapshot failure must not erase the acquisition
+            # and allow a retry to start a new 30-day window.
+            registry.commit()
+        if retention.state != "within_retention":
+            raise ValueError(f"Netto PDF retention denied: {retention.state}")
+
+    root.mkdir(parents=True,exist_ok=True)
+    write_immutable(store_path, bundle.store_html)
+    write_immutable(prospect_path, bundle.prospect_html)
+    if publication_path is not None:
+        write_immutable(publication_path, bundle.publication_json)
+    write_immutable(pdf_path, bundle.prospect_pdf)
     write_immutable(path, data)
     return path,digest
 
 
-def collect_netto_store_prospect(db: Session, source: SourceConfig) -> SourceSnapshot:
+def collect_netto_store_prospect(
+    db: Session, source: SourceConfig, *, pdf_registry_engine: Engine | None = None,
+) -> SourceSnapshot:
     now=datetime.now(timezone.utc)
     snapshot=SourceSnapshot(
         source_chain=source.chain,
@@ -458,7 +493,10 @@ def collect_netto_store_prospect(db: Session, source: SourceConfig) -> SourceSna
     )
     try:
         bundle=fetch_netto_store_prospect(source)
-        manifest_path,digest=_write_bundle(bundle,source=source,collected_at=now)
+        manifest_path,digest=_write_bundle(
+            bundle, source=source, collected_at=now,
+            pdf_registry_engine=pdf_registry_engine,
+        )
         snapshot.final_url=bundle.prospect_url
         snapshot.http_status=200
         snapshot.elapsed_ms=bundle.elapsed_ms

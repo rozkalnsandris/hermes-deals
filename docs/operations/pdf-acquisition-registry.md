@@ -51,11 +51,13 @@ Additive Alembic revision `0009_pdf_acquisitions` follows
 mtime/ctime, retailer publication time, ZIP upload time or current time.
 SourceSnapshot, offers, prices and product links are not modified.
 
-No existing collector, API endpoint, preview reader or scheduler calls this module
-yet. The normal image CMD starts Uvicorn, not Alembic. CI applies the new migration
-only to isolated test databases. Production schema rollout and writer/reader
-integration still require their own validated steps. Do not enable a writer with
-an empty registry and assume existing PDF content is newly acquired.
+The Netto store-prospect collector and its existing bundle writer now accept an
+explicit `pdf_registry_engine` argument. No CLI, scheduled job or existing caller
+supplies it by default. API/preview readers remain unwired. The normal image CMD
+starts Uvicorn, not Alembic. CI applies migrations only to isolated test databases.
+Production schema rollout and integration activation require their own validated
+steps. Do not enable a writer with an empty registry and assume existing PDF
+content is newly acquired.
 
 ## Remaining integration
 
@@ -67,8 +69,9 @@ an empty registry and assume existing PDF content is newly acquired.
 - [ ] Register verified acquisition before publishing new bytes; writer and reader
   must deny unknown, unregistered and expired identities. Coordinate concurrent
   admission and cleanup before activation; a read here is not a filesystem lock.
-- [ ] Connect Netto first through its existing PDF writer; preserve its HTML
-  primary path. Adapt Lidl corpus/replay last.
+- [x] Prepare an explicit registry connection in Netto's existing PDF writer and
+  store-prospect collector; preserve the default capture and HTML primary paths.
+- [ ] Activate Netto only after the prerequisites below. Adapt Lidl corpus/replay last.
 - [ ] Append per-copy deletion receipts only after verified physical outcomes.
   Keep the acquisition observations after deletion so redownload cannot renew TTL.
 - [ ] Implement bounded dry-run/apply cleanup and backup/archive deadlines no later
@@ -78,3 +81,48 @@ an empty registry and assume existing PDF content is newly acquired.
 Validation includes 29/30/31-day and exact-deadline boundaries, DST, duplicate and
 earlier observations, unknown ages, conflicting references, caller rollback,
 additive migration preservation and concurrent registration on PostgreSQL 18.
+
+## Explicit Netto writer connection (not activated)
+
+`_write_bundle(..., pdf_registry_engine=engine)` and
+`collect_netto_store_prospect(..., pdf_registry_engine=engine)` use the same
+shared acquisition table. This is an argument, not a new collector, environment
+switch, database or scheduler. Omission preserves the legacy capture path and
+does not query the new table; this legacy mode does **not** enforce retention.
+
+With the argument supplied, the existing writer validates the PDF and computes
+the unchanged V3 manifest before file I/O. It records the observation in an owned,
+separate Session and commits before writing any bundle file. A later file error
+or caller rollback cannot erase that acquisition. The evidence reference binds
+the computed manifest SHA and PDF field. A failed write can leave an acquisition
+without a published manifest: it records acquired bytes, not proof of publication.
+The source URL, store and paths remain in the manifest when publication succeeds.
+
+The collector's existing `collected_at` is captured before the network fetch,
+so it is a conservative acquisition bound. Direct callers must provide an aware,
+verified acquisition time, never a replay/import time. The admission check uses
+the current UTC wall clock, not that historical timestamp. A later observation
+cannot extend a known deadline. Unknown/expired content is denied before any
+bundle files are written. An unregistered PDF already present at the destination
+(including a dangling symlink) is denied for reconciliation instead of assigned
+today's age. Registry/schema/commit errors never fall back to unguarded writing.
+
+This local check cannot discover the same content under another name, root or
+archive. Activation requires the full existing-copy inventory and reconciliation
+in the **shared** registry; a fresh per-run database is not acceptable. The
+registry engine must provide an independent connection, not the caller's active
+Connection or a shared single-connection transaction. No schema is created here.
+
+Admission alone is not the complete 30-day lifecycle: it does not lock concurrent
+historical reconciliation/cleanup against filesystem publication, remove existing
+copies, or prevent a slow write from crossing a deadline. Keep this connection
+disarmed until coordinated publication/cleanup, reader expiry and a deletion
+schedule with reserve before the deadline are validated. Weekly/held-out capture
+callers remain on the legacy path pending that same integration; they are not
+silently connected to a production database.
+
+CI runs the new admission tests with real synthetic PDFs/files and separate
+database transactions on both SQLite and the migrated PostgreSQL 18 service.
+They cover replay/renaming, exact expiry, unknown/pre-existing copies, failed
+writes and commits, missing schema, invalid timestamps, collector denial and
+unchanged V3/default behavior. They make no live-retailer or storage-coverage claim.
