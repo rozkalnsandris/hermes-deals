@@ -31,17 +31,20 @@ def _roots(values: list[Path]) -> list[Path]:
 
 
 def _kind(header: bytes, name: str) -> str | None:
-    if b"%PDF-" in header[:1024]:
-        return "pdf"
     lower = name.lower()
-    if lower.endswith(".pdf"):
-        return "invalid_pdf_header"
+    # A ZIP with an uncompressed PDF member also contains %PDF- near its start.
+    # Recognize archive containers before inspecting embedded PDF signatures.
     if (
         header.startswith((b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"BZh",
                            b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c", b"Rar!"))
         or header[257:262] == b"ustar"
-        or lower.endswith((".zip", ".tar", ".tgz", ".tar.gz", ".gz", ".bz2", ".xz", ".7z", ".rar"))
     ):
+        return "archive_uninspected"
+    if b"%PDF-" in header[:1024]:
+        return "pdf"
+    if lower.endswith(".pdf"):
+        return "invalid_pdf_header"
+    if lower.endswith((".zip", ".tar", ".tgz", ".tar.gz", ".gz", ".bz2", ".xz", ".7z", ".rar")):
         return "archive_uninspected"
     if (
         header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"II*\x00", b"MM\x00*"))
@@ -108,7 +111,7 @@ def inventory(
                             finding(root_index, relative, "file_size_limit")
                             continue
                         flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-                        with os.fdopen(os.open(name, flags, dir_fd=directory_fd), "rb") as handle:
+                        with os.fdopen(os.open(name, flags, dir_fd=directory_fd), "rb", buffering=0) as handle:
                             opened = os.fstat(handle.fileno())
                             if not stat.S_ISREG(opened.st_mode) or (
                                 opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns

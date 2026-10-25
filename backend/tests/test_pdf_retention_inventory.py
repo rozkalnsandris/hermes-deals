@@ -3,6 +3,8 @@ from __future__ import annotations
 import errno
 from importlib.util import module_from_spec, spec_from_file_location
 import json
+from io import BytesIO
+import zipfile
 import os
 from pathlib import Path
 import subprocess
@@ -156,3 +158,22 @@ def test_cli_outputs_json_and_leaves_input_contents_and_mtime_unchanged(tmp_path
                             text=True, capture_output=True, timeout=10)
     assert failed.returncode == 2
     assert json.loads(failed.stdout)["status"] == "inventory_partial"
+
+def test_zip_containing_uncompressed_pdf_is_not_a_pdf(tmp_path):
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as handle:
+        handle.writestr("source.pdf", PDF)
+    assert b"%PDF-" in archive.getvalue()[:1024]
+    (tmp_path / "source.bin").write_bytes(archive.getvalue())
+    report = inventory.inventory([tmp_path])
+    assert report["assets"][0]["kind"] == "archive_uninspected"
+    assert report["archive_contents_inspected"] is False
+
+
+def test_budget_counts_full_hash_and_stops_before_next_candidate(tmp_path):
+    (tmp_path / "a.bin").write_bytes(PDF + b"x" * 5000)
+    (tmp_path / "b.bin").write_bytes(PDF)
+    report = inventory.inventory([tmp_path], max_total_bytes=len(PDF) + 5000)
+    assert report["read_bytes"] == len(PDF) + 5000
+    assert len(report["assets"]) == 1
+    assert report["status"] == "inventory_partial"
