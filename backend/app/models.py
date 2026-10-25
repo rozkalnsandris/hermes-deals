@@ -449,3 +449,22 @@ class HouseholdState(Base):
         DateTime(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+
+class PdfAcquisition(Base):
+    """Append-only acquisition evidence; PDF bytes and price history live elsewhere."""
+
+    __tablename__ = "pdf_acquisitions"
+    __table_args__ = (
+        CheckConstraint("length(pdf_sha256) = 64 AND lower(pdf_sha256) = pdf_sha256",
+                        name="ck_pdf_acquisitions_sha"),
+        CheckConstraint("length(trim(evidence_ref)) > 0",
+                        name="ck_pdf_acquisitions_evidence"),
+        CheckConstraint("acquired_at IS NULL OR acquired_at <= recorded_at",
+                        name="ck_pdf_acquisitions_time_order"),
+    )
+
+    pdf_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    evidence_ref: Mapped[str] = mapped_column(String(255), primary_key=True)
+    acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
