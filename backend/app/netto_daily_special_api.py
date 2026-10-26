@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from hashlib import sha256
@@ -13,6 +13,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.aldi_nord_daily_special import (
@@ -21,6 +22,7 @@ from app.aldi_nord_daily_special import (
 )
 from app.db import get_db
 from app.models import SourceSnapshot
+from app.pdf_retention import PdfRetentionDenied, pdf_retention
 from app.parsers.netto_daily_special import (
     extract_pdf_daily_special_candidates,
 )
@@ -149,6 +151,57 @@ def _publication_images(manifest: dict[str, Any]) -> dict[int, str]:
             "at1600",
         )
     return result
+
+
+def read_netto_daily_specials(
+    snapshot: SourceSnapshot, *, pdf_registry_engine: Engine,
+) -> tuple[OfferCandidate, ...]:
+    """Verify lifecycle on every call, including cache hits; no caller activation."""
+    if (snapshot.source_chain != "netto" or not snapshot.success
+            or snapshot.scope != "family_primary_netto"):
+        raise ValueError("Netto daily-special snapshot identity mismatch")
+    if not snapshot.snapshot_path or not snapshot.sha256:
+        raise ValueError("Immutable Netto snapshot binding is unavailable")
+    manifest_path = _verify_file(snapshot.snapshot_path, snapshot.sha256, "Netto manifest")
+    if manifest_path is None:
+        raise ValueError("Netto manifest path is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Netto manifest must be a JSON object")
+    if (str(manifest.get("store_external_id")) != _SOURCE_STORE_EXTERNAL_ID
+            or manifest.get("scope") != "family_primary_netto"):
+        raise ValueError("Netto daily-special manifest identity mismatch")
+    pdf_path = manifest.get("prospect_pdf_path")
+    pdf_sha = manifest.get("prospect_pdf_sha256")
+    if pdf_path is None and pdf_sha is None and (
+        manifest.get("strategy") == "netto_store_html_v1"
+        or (
+            manifest.get("strategy") in {
+                "netto_store_page_plus_current_prospect_v1",
+                "netto_store_page_plus_current_prospect_pdf_v2",
+            }
+            and manifest.get("validity_source_type", "prospect_html_meta") == "prospect_html_meta"
+        )
+    ):
+        return ()
+    if not isinstance(pdf_path, str) or not pdf_path or not isinstance(pdf_sha, str):
+        raise ValueError("Netto PDF manifest lacks path or SHA")
+
+    with Session(pdf_registry_engine) as registry:
+        retention = pdf_retention(registry, pdf_sha, as_of=datetime.now(timezone.utc))
+        if retention.state != "within_retention":
+            raise PdfRetentionDenied(retention)
+        offers = _cached_snapshot_offers(
+            str(snapshot.id), snapshot.snapshot_path, snapshot.sha256,
+            snapshot.source_url, snapshot.final_url or "",
+            snapshot.collected_at.isoformat(),
+        )
+        # A slow cold parse may cross the deadline. Never cache the admission
+        # decision or let a warm legacy cache bypass the current registry state.
+        retention = pdf_retention(registry, pdf_sha, as_of=datetime.now(timezone.utc))
+        if retention.state != "within_retention":
+            raise PdfRetentionDenied(retention)
+    return offers
 
 
 @lru_cache(maxsize=8)

@@ -150,8 +150,40 @@ availability. Tests preserve a stored price and its SourceSnapshot after an
 expired, missing PDF is refused; a full replay cannot manufacture new offers.
 
 Omitting the argument keeps legacy replay behavior. No production/API/CLI caller
-is activated by this change. The independent daily-special PDF API, preview
-readers, physical-copy inventory, coordinated read/write/cleanup and deadline
-enforcement during long operations remain separate TODOs. The exception is the
+is activated by this change. Daily-special HTTP/weekly activation, preview readers, physical-copy inventory,
+coordinated read/write/cleanup and deadline enforcement during long operations
+remain separate TODOs. The exception is the
 typed boundary for a future caller; this change does not add a UI status or change
 the existing Offers page.
+
+
+## Explicit Netto daily-special cache connection (not activated)
+
+`read_netto_daily_specials(snapshot, pdf_registry_engine=engine)` wraps the
+existing daily-special parser/cache in the same module. It verifies the successful
+Netto family snapshot identity and immutable manifest SHA on every call, then
+checks the shared acquisition registry outside `lru_cache`. A warmed cache,
+including one populated by a legacy caller, cannot bypass the current deadline.
+The check uses UTC wall time, independent of the requested offer date or historical
+snapshot date, both before the cache call and after potentially slow parsing.
+
+Expired, unknown-age, unregistered or not-yet-acquired content raises the existing
+`PdfRetentionDenied`; registry failures propagate. Neither case becomes an empty
+successful replay. Explicit HTML-only legacy manifests return no PDF-derived daily
+offers without querying the registry; missing required V3 metadata is an error.
+Cold reads retain existing PDF/publication integrity errors. The cache contains
+structured offers, not PDF bytes: a warm result within retention does not prove
+that the original PDF still exists. Denial does not erase persisted price history.
+
+HTTP `daily_specials` and the weekly view still use the unchanged legacy entry.
+This explicit function is source preparation, not an activated 30-day policy or a
+new UI status. No PDF files, registry rows or production configuration are changed
+by adding it. The before/after checks do not lock cleanup or reconciliation against
+a read, and do not physically interrupt a parser at the deadline. Activation still
+requires the shared inventory, migration and coordinated lifecycle prerequisites.
+
+CI exercises real manifests/PDF files and SQLite plus migrated PostgreSQL, with a
+synthetic daily parser result to isolate the cache boundary. Tests cover warmed
+cache expiry, unknown ages, manifest tampering, slow parsing across expiry,
+HTML-only manifests, cold file failures and registry outages. Existing daily API
+and no-PDF regressions run in the focused SQLite step before the full suite.
