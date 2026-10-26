@@ -467,7 +467,7 @@ def test_expired_missing_pdf_keeps_persisted_price_and_source_provenance(reader)
         row = OfferCandidateRecord(
             source_chain="netto", source_offer_id=offer.source_offer_id,
             product_name_raw=offer.product_name_raw, price_eur=offer.price_eur,
-            source_url=offer.source_url, snapshot_id=offer.snapshot_id,
+            source_url=str(offer.source_url), snapshot_id=offer.snapshot_id,
             collected_at=offer.collected_at, parser_version=offer.parser_version,
             raw_payload=offer.raw_payload,
         )
