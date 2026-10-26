@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
+from unittest.mock import Mock
 
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
@@ -16,6 +17,8 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app import netto_store_prospect as netto
+from app import netto_daily_special_api as daily
+from app.parsers.netto_daily_special import NettoDailySpecialCandidate, NettoDailySpecialPage
 from app.models import OfferCandidateRecord, PdfAcquisition, SourceSnapshot
 from app.pdf_retention import PdfRetentionDenied, pdf_retention, register_pdf_acquisition
 from app.parsers.netto import NettoParserContext
@@ -488,3 +491,233 @@ def test_expired_missing_pdf_keeps_persisted_price_and_source_provenance(reader)
         assert snapshot.success and snapshot.sha256 == manifest_sha
         assert snapshot.snapshot_path == str(reader.path)
     assert reader.path.exists()
+
+
+@pytest.fixture
+def daily_reader(reader, monkeypatch):
+    clock = SimpleNamespace(now=NOW)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.now.astimezone(tz)
+
+    monkeypatch.setattr(daily, "datetime", Clock)
+    snapshot = SourceSnapshot(
+        id=reader.parser_context.snapshot_id, source_chain="netto",
+        source_url=reader.ctx.source.url, final_url="https://example.invalid/hz43",
+        scope="family_primary_netto", success=True,
+        collected_at=reader.parser_context.collected_at,
+        snapshot_path=str(reader.path), sha256=sha256(reader.path.read_bytes()).hexdigest(),
+        strategy_hint=netto.MANIFEST_STRATEGY_V3,
+    )
+    candidate = NettoDailySpecialCandidate(
+        source_offer_id="synthetic-daily-berry", product_name_raw="Brombeeren",
+        package_text_raw="125 g Schale", price_eur=Decimal("1.49"),
+        regular_price_eur=Decimal("1.99"), single_price_eur=None,
+        unit_price_eur=None, bundle_quantity=None,
+        valid_from=date(2026, 10, 24), valid_until=date(2026, 10, 24),
+        is_daily_special=True, special_valid_on=date(2026, 10, 24),
+        special_type="saturday_special", special_source_text="SAMSTAGS 24.10.26",
+        special_source_kind="prospect_pdf_page", special_source_page=1,
+        special_confidence="high", source_text_excerpt="Brombeeren | 1.49",
+        source_geometry=(),
+    )
+    page = NettoDailySpecialPage(
+        page_number=1, special_valid_on=candidate.special_valid_on,
+        special_type=candidate.special_type, special_source_text=candidate.special_source_text,
+        special_confidence="high", special_source_geometry=(),
+    )
+    extractor = Mock(return_value=[(page, [candidate], "c" * 64)])
+    monkeypatch.setattr(daily, "extract_pdf_daily_special_candidates", extractor)
+    daily._cached_snapshot_offers.cache_clear()
+    yield SimpleNamespace(reader=reader, snapshot=snapshot, clock=clock, extractor=extractor)
+    daily._cached_snapshot_offers.cache_clear()
+
+
+def read_daily(case):
+    return daily.read_netto_daily_specials(
+        case.snapshot, pdf_registry_engine=case.reader.ctx.engine,
+    )
+
+
+def rewrite_daily_manifest(case):
+    case.reader.path.write_text(json.dumps(case.reader.manifest))
+    case.snapshot.sha256 = sha256(case.reader.path.read_bytes()).hexdigest()
+
+
+def test_daily_reader_reuses_cache_but_preserves_source_binding(daily_reader):
+    case = daily_reader
+    seed(case.reader.ctx, NOW)
+    offers = read_daily(case)
+    assert read_daily(case) is offers
+    assert case.extractor.call_count == 1
+    assert daily._cached_snapshot_offers.cache_info().hits == 1
+    assert len(offers) == 1 and offers[0].price_eur == Decimal("1.49")
+    assert offers[0].snapshot_id == case.snapshot.id
+    assert offers[0].raw_payload["source_pdf_sha256"] == case.reader.ctx.sha
+    assert offers[0].raw_payload["source_snapshot_sha256"] == case.snapshot.sha256
+    assert offers[0].raw_payload["shadow_only"] is True
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_daily_warm_cache_cannot_bypass_exact_expiry(daily_reader, missing):
+    case = daily_reader
+    seed(case.reader.ctx, NOW - timedelta(days=29))
+    assert read_daily(case)
+    if missing:
+        Path(case.reader.manifest["prospect_pdf_path"]).unlink()
+    case.clock.now = NOW + timedelta(days=1)
+    before_hits = daily._cached_snapshot_offers.cache_info().hits
+    with pytest.raises(PdfRetentionDenied) as error:
+        read_daily(case)
+    assert error.value.retention.state == "raw_expired"
+    assert case.extractor.call_count == 1
+    assert daily._cached_snapshot_offers.cache_info().hits == before_hits
+
+
+def test_daily_legacy_cache_cannot_bypass_unknown_acquisition(daily_reader):
+    case = daily_reader
+    s = case.snapshot
+    # Prime the unchanged legacy cache without consulting the registry.
+    assert daily._cached_snapshot_offers(
+        str(s.id), s.snapshot_path, s.sha256, s.source_url, s.final_url,
+        s.collected_at.isoformat(),
+    )
+    seed(case.reader.ctx, None)
+    with pytest.raises(PdfRetentionDenied) as error:
+        read_daily(case)
+    assert error.value.retention.state == "acquisition_unknown"
+    assert case.extractor.call_count == 1
+
+
+@pytest.mark.parametrize("age,state", [
+    ("unregistered", "unregistered"),
+    (None, "acquisition_unknown"),
+    (timedelta(days=31), "raw_expired"),
+])
+def test_daily_denied_content_never_opens_pdf(daily_reader, monkeypatch, age, state):
+    case = daily_reader
+    if age != "unregistered":
+        seed(case.reader.ctx, None if age is None else NOW - age)
+    original = Path.read_bytes
+    pdf = Path(case.reader.manifest["prospect_pdf_path"])
+
+    def forbid_pdf(path):
+        if path == pdf:
+            raise AssertionError("denied daily PDF must not be read")
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", forbid_pdf)
+    with pytest.raises(PdfRetentionDenied) as error:
+        read_daily(case)
+    assert error.value.retention.state == state
+    case.extractor.assert_not_called()
+
+
+def test_daily_parse_crossing_deadline_does_not_return_cached_result(daily_reader):
+    case = daily_reader
+    seed(case.reader.ctx, NOW - timedelta(days=30) + timedelta(seconds=1))
+    result = case.extractor.return_value
+
+    def slow_parse(*args, **kwargs):
+        case.clock.now = NOW + timedelta(seconds=2)
+        return result
+
+    case.extractor.side_effect = slow_parse
+    with pytest.raises(PdfRetentionDenied) as error:
+        read_daily(case)
+    assert error.value.retention.state == "raw_expired"
+    with pytest.raises(PdfRetentionDenied):
+        read_daily(case)
+    assert case.extractor.call_count == 1
+
+
+def test_daily_warm_cache_rechecks_manifest_sha(daily_reader):
+    case = daily_reader
+    seed(case.reader.ctx, NOW)
+    assert read_daily(case)
+    case.reader.path.write_text("{}")
+    with pytest.raises(RuntimeError, match="manifest SHA mismatch"):
+        read_daily(case)
+    assert case.extractor.call_count == 1
+
+
+@pytest.mark.parametrize("field", ["prospect_pdf_path", "prospect_pdf_sha256", "both"])
+def test_daily_v3_missing_metadata_is_not_html_only(daily_reader, field):
+    case = daily_reader
+    for key in (["prospect_pdf_path", "prospect_pdf_sha256"] if field == "both" else [field]):
+        case.reader.manifest.pop(key)
+    rewrite_daily_manifest(case)
+    with pytest.raises(ValueError, match="lacks path or SHA"):
+        read_daily(case)
+    case.extractor.assert_not_called()
+
+
+@pytest.mark.parametrize("strategy", [
+    "netto_store_html_v1", netto.MANIFEST_STRATEGY_V1, netto.MANIFEST_STRATEGY_V2,
+])
+def test_daily_declared_html_only_needs_no_registry(daily_reader, monkeypatch, strategy):
+    case = daily_reader
+    case.reader.manifest["strategy"] = strategy
+    case.reader.manifest.pop("prospect_pdf_path")
+    case.reader.manifest.pop("prospect_pdf_sha256")
+    rewrite_daily_manifest(case)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("HTML-only source must not query PDF registry")
+
+    monkeypatch.setattr(daily, "pdf_retention", unexpected)
+    assert read_daily(case) == ()
+    case.extractor.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["missing", "corrupt"])
+def test_daily_cold_cache_preserves_live_file_errors(daily_reader, failure):
+    case = daily_reader
+    seed(case.reader.ctx, NOW)
+    path = Path(case.reader.manifest["prospect_pdf_path"])
+    if failure == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(b"corrupt")
+    with pytest.raises(RuntimeError, match="file is missing|SHA mismatch"):
+        read_daily(case)
+    case.extractor.assert_not_called()
+
+
+def test_daily_registry_failure_does_not_fall_back_to_warm_cache(daily_reader, monkeypatch):
+    case = daily_reader
+    seed(case.reader.ctx, NOW)
+    assert read_daily(case)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("registry unavailable")
+
+    monkeypatch.setattr(daily, "pdf_retention", unavailable)
+    with pytest.raises(RuntimeError, match="registry unavailable"):
+        read_daily(case)
+    assert case.extractor.call_count == 1
+
+
+@pytest.mark.parametrize("field,value", [
+    ("source_chain", "aldi_nord"), ("scope", "other"), ("success", False),
+])
+def test_daily_snapshot_identity_is_checked_before_cache(daily_reader, field, value):
+    case = daily_reader
+    seed(case.reader.ctx, NOW)
+    assert read_daily(case)
+    setattr(case.snapshot, field, value)
+    with pytest.raises(ValueError, match="snapshot identity"):
+        read_daily(case)
+    assert case.extractor.call_count == 1
+
+
+@pytest.mark.parametrize("field,value", [("store_external_id", "9999"), ("scope", "other")])
+def test_daily_manifest_identity_is_checked(daily_reader, field, value):
+    case = daily_reader
+    case.reader.manifest[field] = value
+    rewrite_daily_manifest(case)
+    with pytest.raises(ValueError, match="manifest identity"):
+        read_daily(case)
+    case.extractor.assert_not_called()
