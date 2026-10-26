@@ -53,7 +53,8 @@ SourceSnapshot, offers, prices and product links are not modified.
 
 The Netto store-prospect collector and its existing bundle writer now accept an
 explicit `pdf_registry_engine` argument. No CLI, scheduled job or existing caller
-supplies it by default. API/preview readers remain unwired. The normal image CMD
+supplies it by default. Store-prospect replay also accepts an explicit registry
+connection (see below); API/preview readers remain unwired. The normal image CMD
 starts Uvicorn, not Alembic. CI applies migrations only to isolated test databases.
 Production schema rollout and integration activation require their own validated
 steps. Do not enable a writer with an empty registry and assume existing PDF
@@ -126,3 +127,31 @@ database transactions on both SQLite and the migrated PostgreSQL 18 service.
 They cover replay/renaming, exact expiry, unknown/pre-existing copies, failed
 writes and commits, missing schema, invalid timestamps, collector denial and
 unchanged V3/default behavior. They make no live-retailer or storage-coverage claim.
+
+## Explicit Netto replay connection (not activated)
+
+`parse_netto_store_prospect_snapshot(..., pdf_registry_engine=engine)` checks
+the shared registry before opening PDF bytes. V3 always requires its PDF; older
+manifests require it when validity comes from PDF text. Those paths now share one
+PDF read and SHA verification, so V3/PDF validity no longer reads the file twice.
+The existing PDF format, source/store and date-consistency checks remain.
+
+Only `within_retention` proceeds. The evaluation uses current UTC time, never
+the historical parser context date. Other states raise `PdfRetentionDenied`,
+whose `retention` attribute exposes the content SHA, state and available deadline.
+For expired content this yields `raw_expired` even if the PDF was already
+removed. It is neither a successful full replay nor a deletion/corruption receipt.
+For content still within its term, missing files and SHA mismatches retain their
+ordinary errors. Registry errors do not fall back to PDF access.
+
+Legacy HTML-only V1/V2 manifests require neither PDF nor registry. The separate
+HTML-primary collector/replay and persisted prices remain independent of PDF
+availability. Tests preserve a stored price and its SourceSnapshot after an
+expired, missing PDF is refused; a full replay cannot manufacture new offers.
+
+Omitting the argument keeps legacy replay behavior. No production/API/CLI caller
+is activated by this change. The independent daily-special PDF API, preview
+readers, physical-copy inventory, coordinated read/write/cleanup and deadline
+enforcement during long operations remain separate TODOs. The exception is the
+typed boundary for a future caller; this change does not add a UI status or change
+the existing Offers page.

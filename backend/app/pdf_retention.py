@@ -85,6 +85,14 @@ class PdfRetention:
     expires_at: datetime | None = None
 
 
+class PdfRetentionDenied(ValueError):
+    """The PDF lifecycle denies reading bytes; not a corruption/deletion receipt."""
+
+    def __init__(self, retention: PdfRetention):
+        self.retention = retention
+        super().__init__(f"PDF unavailable: {retention.state}")
+
+
 def pdf_retention(db: Session, pdf_sha256: str, *, as_of: datetime) -> PdfRetention:
     """Compute the earliest deadline; never claim bytes exist or were deleted.
 
