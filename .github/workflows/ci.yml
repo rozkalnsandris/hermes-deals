@@ -280,6 +280,12 @@ jobs:
         run: |
           python -m compileall -q app tests alembic
 
+      - name: Run PDF registry and Netto writer contracts
+        env:
+          DATABASE_URL: "sqlite+pysqlite:///:memory:"
+        run: |
+          python -m pytest -q tests/test_pdf_retention.py tests/test_netto_pdf_retention.py tests/test_netto_store_prospect.py tests/test_netto_weekly_live_source.py
+
       - name: Run complete test suite
         env:
           DATABASE_URL: "sqlite+pysqlite:///:memory:"
@@ -345,6 +351,7 @@ jobs:
         run: |
           python -m pytest -q -s \
             tests/test_pdf_retention.py \
+            tests/test_netto_pdf_retention.py \
             tests/test_price_history_discovery.py \
             tests/test_current_deals_sql_postgresql_contract.py \
             tests/test_current_deals_sql_postgresql_runtime.py \
