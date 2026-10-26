@@ -18,7 +18,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.models import SourceSnapshot
-from app.pdf_retention import pdf_retention, register_pdf_acquisition
+from app.pdf_retention import PdfRetentionDenied, pdf_retention, register_pdf_acquisition
 from app.parsers.netto import NettoParserContext, parse_netto_html
 from app.schemas import OfferCandidate
 from app.settings import get_settings
@@ -530,7 +530,10 @@ def collect_netto_store_prospect(
 def parse_netto_store_prospect_snapshot(
     manifest_path: Path,
     context: NettoParserContext,
+    *,
+    pdf_registry_engine: Engine | None = None,
 ) -> list[OfferCandidate]:
+    """Replay source evidence; an explicit registry denies unavailable PDF content."""
     manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError("Netto manifest must be a JSON object")
@@ -561,16 +564,24 @@ def parse_netto_store_prospect_snapshot(
     )
     publication_json=b""
     prospect_pdf=b""
-    if strategy == MANIFEST_STRATEGY_V3:
+    if strategy == MANIFEST_STRATEGY_V3 or validity_source_type == "prospect_pdf_text":
         pdf_path_value = manifest.get("prospect_pdf_path")
         pdf_sha = manifest.get("prospect_pdf_sha256")
         if not isinstance(pdf_path_value, str) or not isinstance(pdf_sha, str):
-            raise ValueError("Netto V3 manifest lacks PDF path or SHA")
+            raise ValueError("Netto manifest lacks PDF path or SHA")
+        if pdf_registry_engine is not None:
+            with Session(pdf_registry_engine) as registry:
+                retention = pdf_retention(
+                    registry, pdf_sha, as_of=datetime.now(timezone.utc),
+                )
+            if retention.state != "within_retention":
+                raise PdfRetentionDenied(retention)
         pdf_path = Path(pdf_path_value)
         prospect_pdf = pdf_path.read_bytes()
         if sha256(prospect_pdf).hexdigest()!=pdf_sha:
             raise ValueError("Netto prospect PDF SHA mismatch")
-        _validate_prospect_pdf(prospect_pdf)
+        if strategy == MANIFEST_STRATEGY_V3:
+            _validate_prospect_pdf(prospect_pdf)
 
     if validity_source_type=="prospect_html_meta":
         start,end,_=extract_prospect_validity(prospect_bytes)
@@ -579,10 +590,6 @@ def parse_netto_store_prospect_snapshot(
         publication_json=publication_path.read_bytes()
         if sha256(publication_json).hexdigest()!=manifest["publication_sha256"]:
             raise ValueError("Netto publication API SHA mismatch")
-        pdf_path=Path(manifest["prospect_pdf_path"])
-        prospect_pdf=pdf_path.read_bytes()
-        if sha256(prospect_pdf).hexdigest()!=manifest["prospect_pdf_sha256"]:
-            raise ValueError("Netto prospect PDF SHA mismatch")
         start,end,_=extract_pdf_prospect_validity(prospect_pdf)
     else:
         raise ValueError("Unexpected Netto validity source type")
