@@ -461,6 +461,7 @@ def test_expired_missing_pdf_keeps_persisted_price_and_source_provenance(reader)
             id=offer.snapshot_id, source_chain="netto", source_url=ctx.source.url,
             collected_at=offer.collected_at, sha256=manifest_sha,
             snapshot_path=str(reader.path), success=True,
+            strategy_hint=netto.MANIFEST_STRATEGY_V3,
         ))
         db.flush()
         row = OfferCandidateRecord(
