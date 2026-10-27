@@ -250,5 +250,12 @@
     "line": 197,
     "commit": "9048f215496dee4ef7ba7765ff37e4c7ad970515",
     "reason": "Same deterministic public Lidl flyer identifier after PR #1071 reached main via squash merge; not authentication material."
+  },
+  {
+    "rule_id": "database-url-password",
+    "file": "backend/tests/test_pdf_retention_inventory.py",
+    "line": 387,
+    "commit": "0964fdaf8812410ab05622ff83c7dbc183d31f5d",
+    "reason": "Synthetic-only URL constructed by the PDF inventory CLI error-sanitization test and raised as a mocked exception; never used for a database connection or real credential. Current fixture uses the already-approved ci-placeholder-not-a-secret marker."
   }
 ]

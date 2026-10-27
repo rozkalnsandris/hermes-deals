@@ -384,7 +384,7 @@ def test_registry_cli_failure_never_prints_partial_json_or_credentials(tmp_path,
 
     def fail(report, database_url):
         report["registry_checked_at"] = "partial"
-        raise RuntimeError("postgresql://name:private-secret@private-host/database")
+        raise RuntimeError("postgresql://name:ci-placeholder-not-a-secret@private-host/database")
 
     monkeypatch.setattr(inventory, "registry_report", fail)
     monkeypatch.setattr(sys, "argv", [str(TOOL), str(tmp_path), "--with-registry"])
@@ -395,6 +395,7 @@ def test_registry_cli_failure_never_prints_partial_json_or_credentials(tmp_path,
     assert output.out == ""
     assert "registry lookup failed" in output.err
     assert "private-" not in output.err
+    assert "ci-placeholder-not-a-secret" not in output.err
 
 
 def test_postgresql_registry_connection_is_readonly_and_repeatable(registry_case, monkeypatch):
