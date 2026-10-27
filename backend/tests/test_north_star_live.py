@@ -1359,3 +1359,255 @@ def test_other_empty_views_do_not_show_favorite_instructions(data):
         assert "sirds pogu" not in page.text
         assert 'name="q"' in page.text
     assert "Cenu vēsturē nekas nav atrasts" in page.text
+
+
+# Booklet integration uses synthetic JSON metadata and persisted test rows only.
+def booklet_source(db, tmp_path, monkeypatch, **overrides):
+    from hashlib import sha256
+    import json
+    from types import SimpleNamespace
+    import app.netto_booklets as booklets
+
+    monkeypatch.setattr(booklets, "get_settings", lambda: SimpleNamespace(raw_snapshot_dir=tmp_path))
+    publication = tmp_path / "publication.json"
+    publication.write_text(json.dumps({"spreads": [{"pages": ["/test-booklet/page1", "/test-booklet/page2"]}]}))
+    manifest = {
+        "strategy": booklets.STRATEGIES[-1], "store_external_id": "5659",
+        "store_name": "Netto · sintētiska testa filiāle", "scope": "family_primary_netto",
+        "store_url": "https://www.netto-online.de/filialen/test-5659",
+        "selected_store_cookie_present": True,
+        "valid_from": "2026-09-28", "valid_until": "2026-10-04",
+        "publication_path": str(publication), "publication_sha256": sha256(publication.read_bytes()).hexdigest(),
+        "prospect_url": "https://view.publitas.com/netto-marken-discount/test-booklet/",
+        "prospect_pdf_sha256": "a" * 64,
+    }
+    manifest.update(overrides)
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    snapshot = SourceSnapshot(
+        source_chain="netto", source_url=manifest["store_url"], scope="family_primary_netto",
+        collected_at=datetime(2026, 10, 1, 8, tzinfo=timezone.utc),
+        strategy_hint=booklets.STRATEGIES[-1], success=True,
+        snapshot_path=str(path), sha256=sha256(path.read_bytes()).hexdigest(),
+    )
+    db.add(snapshot)
+    db.commit()
+    return snapshot, manifest
+
+
+def booklet_offer(db, snapshot, *, page=1, raw=None, **values):
+    return offer(db, chain="netto", store="5659", snapshot_id=snapshot.id,
+                 name="Sintētisks testa piens", sku=None,
+                 raw_payload=raw if raw is not None else {"source_pdf_sha256": "a" * 64, "special_source_page": page},
+                 **values)
+
+
+def test_booklet_pages_and_details_reuse_existing_ui(data, tmp_path, monkeypatch):
+    from app.netto_booklets import build_netto_booklet
+    db, client, _ = data
+    snapshot, _ = booklet_source(db, tmp_path, monkeypatch)
+    row = booklet_offer(db, snapshot, page=2)
+    context = build_netto_booklet(db, DAY, 2)
+    assert context["state"] == "ready" and context["offers"] == [row]
+    assert context["page_count"] == 2 and context["next_href"] is None
+    assert context["image_url"] == "https://view.publitas.com/test-booklet/page2-at1600.jpg"
+    assert not list(tmp_path.glob("*.pdf"))
+    url = "/ui/home/?view=booklets&date=2026-10-01&page=2"
+    for headers in ({}, {"HX-Request": "true"}):
+        response = client.get(url, headers=headers)
+        assert response.status_code == 200, response.text
+        assert "Nedēļas bukleti" in response.text and "Sintētisks testa piens" in response.text
+        assert 'name="page" value="2"' in response.text
+        assert 'id="booklet-zoom"' in response.text
+        assert response.headers["Cache-Control"] == "no-store"
+        assert ("<!doctype html>" in response.text.lower()) == (not headers)
+        detail = client.get(url + f"&product={row.id}", headers=headers)
+        assert detail.status_code == 200
+        assert "Cenu novērojumi" in detail.text
+        assert 'href="/ui/home/?view=booklets&amp;date=2026-10-01&amp;page=2"' in detail.text
+    assert db.scalar(select(func.count()).select_from(HouseholdState)) == 0
+    normal = client.get("/ui/home/?view=deals&date=2026-10-01")
+    assert normal.status_code == 200 and 'class="booklet-reader"' not in normal.text
+    assert 'view=booklets' in normal.text
+
+
+@pytest.mark.parametrize("action,state_key", [("add", "shopping"), ("favorite", "favorites")])
+def test_booklet_actions_preserve_page_and_write_existing_household(data, tmp_path, monkeypatch, action, state_key):
+    db, client, _ = data
+    snapshot, _ = booklet_source(db, tmp_path, monkeypatch)
+    row = booklet_offer(db, snapshot, page=2)
+    url = "/ui/home/?view=booklets&date=2026-10-01&page=2"
+    html = client.get(url).text
+    values = {"csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', html)[1],
+              "version": re.search(r'name="version" value="([^"]+)"', html)[1],
+              "return_view": "booklets", "date": "2026-10-01", "page": "2", "product_id": str(row.id)}
+    result = client.post(f"/ui/home/actions/{action}", data=values, headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert result.status_code == 303
+    assert parse_qs(urlsplit(result.headers["location"]).query)["page"] == ["2"]
+    assert parse_qs(urlsplit(result.headers["location"]).query)["view"] == ["booklets"]
+    assert len(read_household(db, "test-family")[0][state_key]) == 1
+    conflict = client.post(f"/ui/home/actions/{action}", data=values, headers={"Origin": "http://testserver"})
+    assert conflict.status_code == 409
+    assert 'page2-at1600.jpg' in conflict.text and 'name="page" value="2"' in conflict.text
+
+
+@pytest.mark.parametrize("page", ["0", "-1", "201", "bad"])
+def test_booklet_invalid_page_is_422(data, page):
+    _, client, _ = data
+    assert client.get(f"/ui/home/?view=booklets&date=2026-10-01&page={page}").status_code == 422
+
+
+def test_booklet_empty_unlinked_missing_and_date_reset(data, tmp_path, monkeypatch):
+    db, client, _ = data
+    url = "/ui/home/?view=booklets&date=2026-10-01"
+    assert 'data-booklet-state="empty"' in client.get(url).text
+    booklet_source(db, tmp_path, monkeypatch)
+    html = client.get(url + "&page=2").text
+    assert "Produkti vēl nav piesaistīti" in html
+    assert "DEMONSTRĀCIJAS DATI" not in html
+    assert 'href="/ui/home/?view=booklets&amp;date=2026-10-02"' in html
+    missing = client.get(url + "&page=3").text
+    assert 'data-booklet-state="missing_page"' in missing and "Atvērt pirmo lapu" in missing
+    assert 'data-booklet-state="empty"' in client.get("/ui/home/?view=booklets&date=2026-10-05").text
+
+
+@pytest.mark.parametrize("raw", [
+    {}, [], {"source_pdf_sha256": "b" * 64, "special_source_page": 1},
+    {"source_pdf_sha256": "a" * 64, "special_source_page": 2},
+    {"source_pdf_sha256": "a" * 64, "special_source_page": "1"},
+    {"source_pdf_sha256": "a" * 64, "special_source_page": True},
+    {"source_pdf_sha256": "a" * 64, "special_source_page": 1, "shadow_only": True},
+    {"source_pdf_sha256": "a" * 64, "special_source_page": 1, "db_write_eligible": False},
+])
+def test_booklet_never_guesses_unproven_offer_links(data, tmp_path, monkeypatch, raw):
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    snapshot, _ = booklet_source(db, tmp_path, monkeypatch)
+    booklet_offer(db, snapshot, raw=raw)
+    assert build_netto_booklet(db, DAY)["offers"] == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("source_chain", "lidl"), ("source_store_external_id", "other"),
+    ("valid_from", date(2026, 10, 2)), ("valid_until", date(2026, 9, 30)),
+    ("collected_at", datetime(2026, 10, 2, 0, tzinfo=timezone.utc)),
+    ("snapshot_id", None),
+])
+def test_booklet_excludes_wrong_offer_provenance(data, tmp_path, monkeypatch, field, value):
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    snapshot, _ = booklet_source(db, tmp_path, monkeypatch)
+    row = booklet_offer(db, snapshot)
+    if field == "snapshot_id":
+        value = offer(db).snapshot_id
+    setattr(row, field, value)
+    db.commit()
+    assert build_netto_booklet(db, DAY)["offers"] == []
+
+
+@pytest.mark.parametrize("overrides", [
+    {"store_external_id": "other"}, {"scope": "other"}, {"selected_store_cookie_present": False},
+    {"strategy": "netto_store_page_plus_current_prospect_v1"},
+    {"valid_until": "2026-09-01"}, {"valid_from": "invalid"},
+    {"publication_sha256": "b" * 64}, {"publication_path": "/missing/publication.json"},
+    {"prospect_url": "https://attacker.invalid/booklet"}, {"prospect_url": "javascript:alert(1)"},
+])
+def test_booklet_rejects_unverifiable_manifest(data, tmp_path, monkeypatch, overrides):
+    from app.netto_booklets import build_netto_booklet
+    db, client, _ = data
+    booklet_source(db, tmp_path, monkeypatch, **overrides)
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+    html = client.get("/ui/home/?view=booklets&date=2026-10-01").text
+    assert "Mēģini vēlāk" in html and str(tmp_path) not in html
+
+
+@pytest.mark.parametrize("paths", [
+    ["//attacker.invalid/page"], ["/../page"], ["/x?evil=1"], ["/x#fragment"],
+    ["https://attacker.invalid/page"], [], ["/same", "/same"], ["/page" + str(i) for i in range(201)],
+])
+def test_booklet_rejects_invalid_publication_paths(data, tmp_path, monkeypatch, paths):
+    from hashlib import sha256
+    import json
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    snapshot, manifest = booklet_source(db, tmp_path, monkeypatch)
+    publication = tmp_path / "publication.json"
+    publication.write_text(json.dumps({"spreads": [{"pages": paths}]}))
+    manifest["publication_sha256"] = sha256(publication.read_bytes()).hexdigest()
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    snapshot.sha256 = sha256(path.read_bytes()).hexdigest()
+    db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+
+
+def test_booklet_metadata_integrity_boundary(data, tmp_path, monkeypatch):
+    from app.netto_booklets import build_netto_booklet, _verified_json, MAX_JSON
+    from hashlib import sha256
+    db, _, _ = data
+    snapshot, _ = booklet_source(db, tmp_path, monkeypatch)
+    snapshot.collected_at = datetime(2026, 10, 2, 0, tzinfo=timezone.utc)
+    db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "empty"
+    snapshot.collected_at = datetime(2026, 10, 1, 8, tzinfo=timezone.utc)
+    snapshot.sha256 = "c" * 64
+    db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+    for page in (0, 201, True):
+        with pytest.raises(ValueError):
+            build_netto_booklet(db, DAY, page)
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(b"{}")
+    with pytest.raises(ValueError):
+        _verified_json(str(outside), sha256(b"{}").hexdigest(), tmp_path / "child")
+    for content in (b"[]", b"x" * (MAX_JSON + 1)):
+        outside.write_bytes(content)
+        with pytest.raises(ValueError):
+            _verified_json(str(outside), sha256(content).hexdigest(), tmp_path)
+
+
+def test_booklet_escapes_source_labels_and_exports_ci_preview(data, tmp_path, monkeypatch):
+    import os
+    from pathlib import Path
+    import shutil
+    db, client, _ = data
+    snapshot, _ = booklet_source(db, tmp_path, monkeypatch, store_name="<script>source-label</script>")
+    row = booklet_offer(db, snapshot)
+    html = client.get("/ui/home/?view=booklets&date=2026-10-01").text
+    assert "&lt;script&gt;source-label&lt;/script&gt;" in html
+    assert "<script>source-label</script>" not in html
+    output = os.getenv("BOOKLET_UI_EVIDENCE_DIR")
+    if not output:
+        return
+    target = Path(output)
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(Path(__file__).parents[1] / "app/north_star/static", target / "static", dirs_exist_ok=True)
+    # A clearly labelled synthetic sheet, never an imitation of retailer data.
+    (target / "test-page.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="840" height="1120" viewBox="0 0 840 1120">'
+        '<rect width="840" height="1120" fill="#fff7ce"/><rect width="840" height="150" fill="#f7d644"/>'
+        '<g font-family="sans-serif" fill="#263b30"><text x="45" y="70" font-size="40">SINTĒTISKA TESTA LAPA</text>'
+        '<text x="45" y="120" font-size="25">Tikai UI pārbaudei · nav veikala piedāvājums</text>'
+        '<rect x="45" y="195" width="750" height="380" rx="15" fill="white"/>'
+        '<text x="85" y="265" font-size="34">Sintētisks testa piens</text>'
+        '<rect x="110" y="310" width="130" height="210" rx="15" fill="#d9e9e0"/>'
+        '<text x="350" y="400" font-size="76">1,29 €</text><text x="350" y="455" font-size="28">Testa iepakojums · 1 l</text>'
+        '<rect x="45" y="615" width="350" height="380" rx="15" fill="white"/>'
+        '<rect x="425" y="615" width="370" height="380" rx="15" fill="white"/>'
+        '<text x="85" y="690" font-size="26">Lapas laukums</text><text x="465" y="690" font-size="26">Lapas laukums</text>'
+        '<text x="45" y="1070" font-size="24">Produkta darbības — blakus esošajā sarakstā</text></g></svg>'
+    )
+    html = html.replace("/ui/home/static/", "static/").replace(
+        "https://view.publitas.com/test-booklet/page1-at1600.jpg", "test-page.svg"
+    ).replace("SAGLABĀTIE DATI", "SINTĒTISKI TESTA DATI").replace(
+        "&lt;script&gt;source-label&lt;/script&gt;", "Sintētiska testa filiāle"
+    )
+    # Browser layout assertion is test-only; the application gains no JS state.
+    html = html.replace("</body>", '<script src="layout-proof.js"></script></body>')
+    (target / "layout-proof.js").write_text(
+        'addEventListener("load",()=>{setTimeout(()=>{'
+        'document.documentElement.dataset.bookletOverflow=String(document.documentElement.scrollWidth>innerWidth);'
+        'document.documentElement.dataset.bookletImage=String(document.querySelector(".booklet-page-image").naturalWidth>0);'
+        '},100);});'
+    )
+    (target / "booklets.html").write_text(html)

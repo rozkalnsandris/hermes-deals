@@ -107,6 +107,12 @@ def _return_context(values, day, view):
     if ingredient_context:
         context["recipe_id"] = ingredient_context["recipe_id"]
         context["ingredient_id"] = ingredient_context["ingredient_id"]
+    if target_view == "booklets":
+        try:
+            page = int(values.get("page", "1"))
+            context["page"] = page if 1 <= page <= 200 else 1
+        except (TypeError, ValueError):
+            context["page"] = 1
     if target_view not in RETURN_FILTER_VIEWS:
         return context
 
@@ -145,7 +151,7 @@ def _date_navigation(params, day, view):
     filters = {
         key: value
         for key, value in _return_context(params, day, view).items()
-        if key not in {"view", "date", "offset"}
+        if key not in {"view", "date", "offset", "page"}
     }
 
     def href(target):
@@ -288,6 +294,12 @@ def home(request: Request, db: Session = Depends(get_db)):
     view = params.get("view", "overview")
     if view not in NAV:
         raise HTTPException(404, "Sadaļa nav atrasta.")
+    try:
+        booklet_page = int(params.get("page", "1")) if view == "booklets" else 1
+        if not 1 <= booklet_page <= 200:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(422, "Norādi bukleta lapu no 1 līdz 200.")
     ingredient_context = _ingredient_context(params, day)
     sort = params.get("sort", "name")
     if sort not in SORT_OPTIONS:
@@ -300,7 +312,7 @@ def home(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(422, "Nederīgs lapas numurs.")
     try:
         context = build_live_context(db, household_key(), day, view=view, query=params.get("q", "")[:100],
-                                     retailer=params.get("retailer", "")[:32], sort=sort, product=params.get("product"), offset=offset)
+                                     retailer=params.get("retailer", "")[:32], sort=sort, product=params.get("product"), offset=offset, booklet_page=booklet_page)
     except SQLAlchemyError:
         db.rollback()
         log.warning("North-star data read failed; check database and migration 0008")
@@ -372,6 +384,7 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
             retailer=return_context.get("retailer", ""),
             sort=return_context.get("sort", "name"),
             offset=return_context.get("offset", 0),
+            booklet_page=return_context.get("page", 1),
         )
         context.update(_date_navigation(return_context, day, view))
         context.update(_return_navigation(return_context, day, view))

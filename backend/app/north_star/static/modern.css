@@ -291,3 +291,44 @@ main { padding: 32px 36px 0; max-width: 1720px; }
   .day-options { grid-template-columns: repeat(7,minmax(44px,1fr)); overflow-x: auto; padding-bottom: 3px; }
   .selected-day strong { font-size: .8125rem; }
 }
+
+/* Original booklet pages, independently of the Offers layout. */
+.booklet-heading { display:flex; align-items:center; gap:20px; flex-wrap:wrap; margin-bottom:20px; }
+.booklet-heading > div { display:flex; align-items:center; gap:14px; margin-right:auto; }
+.booklet-heading .store-mark { width:48px; height:48px; font-size:14px; }
+.booklet-heading h2,.booklet-heading p { margin:0; }
+.booklet-heading p { color:var(--muted); font-size:.875rem; }
+.booklet-period { background:#edf4ec; color:#24553b; border-radius:8px; padding:8px 12px; font-size:.875rem; }
+.booklet-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,320px); gap:22px; align-items:start; }
+.booklet-reader { min-width:0; padding:18px; }
+.booklet-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.booklet-controls [aria-disabled] { opacity:.45; }
+.booklet-page-form { display:flex; align-items:center; gap:8px; }
+.booklet-page-form select { min-width:82px; }
+.booklet-zoom-toggle { position:absolute; width:1px; height:1px; opacity:0; min-height:0; }
+.booklet-zoom-label { display:inline-flex; gap:8px; align-items:center; margin-bottom:14px; cursor:pointer; }
+.booklet-zoom-toggle:focus-visible + label { outline:3px solid #176947; outline-offset:3px; }
+.booklet-zoom-toggle:checked + label { background:#e8f3e8; border-color:#176947; color:#174c35; }
+.booklet-canvas { overflow:auto; max-height:78vh; background:#e9edeb; padding:12px; border:1px solid #dde4df; border-radius:10px; }
+.booklet-page-image { display:block; width:100%; max-width:900px; height:auto; margin:auto; background:#fff; box-shadow:0 3px 16px #1c302521; }
+.booklet-zoom-toggle:checked ~ .booklet-canvas .booklet-page-image { width:1400px; max-width:none; }
+.booklet-products { min-width:0; position:sticky; top:18px; }
+.booklet-products .offer-grid { grid-template-columns:1fr; }
+.booklet-unlinked { padding:24px 0 4px; color:var(--muted); }
+.booklet-unlinked h3 { color:#213b30; margin-top:12px; }
+.booklet-empty-actions { display:flex; flex-wrap:wrap; gap:12px; justify-content:center; }
+@media(max-width:1100px) {
+  .booklet-layout { grid-template-columns:minmax(0,1fr); }
+  .booklet-products { position:static; }
+}
+@media(max-width:600px) {
+  .booklet-heading { gap:12px; padding:18px; }
+  .booklet-heading > div { width:100%; }
+  .booklet-reader { padding:10px; }
+  .booklet-controls { gap:6px; }
+  .booklet-controls > .button { min-width:44px; padding:8px; }
+  .booklet-controls > .button span { display:none; }
+  .booklet-page-form { gap:5px; }
+  .booklet-page-form .button { padding:8px; }
+  .booklet-canvas { padding:4px; }
+}
