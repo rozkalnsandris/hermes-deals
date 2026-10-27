@@ -73,6 +73,7 @@ def build_netto_booklet(db, day: date, page: int = 1):
     root = get_settings().raw_snapshot_dir.resolve()
     latest_available = None
     for snapshot in snapshots:
+        in_window = None
         try:
             manifest = _verified_json(snapshot.snapshot_path, snapshot.sha256, root)
             if (manifest.get("strategy") != snapshot.strategy_hint
@@ -85,6 +86,16 @@ def build_netto_booklet(db, day: date, page: int = 1):
             end = date.fromisoformat(manifest["valid_until"])
             if start > end:
                 raise ValueError("Invalid date window")
+            in_window = start <= day <= end
+            if not in_window:
+                if latest_available is not None or start > day:
+                    continue
+                observed = snapshot.collected_at
+                if observed.tzinfo is None:
+                    observed = observed.replace(tzinfo=ZoneInfo("UTC"))
+                archive_day = max(start, observed.astimezone(ZoneInfo("Europe/Berlin")).date())
+                if archive_day > end:
+                    continue
             publication = _verified_json(manifest.get("publication_path"), manifest.get("publication_sha256"), root)
             paths = publication_page_paths(publication)
             if not paths or len(paths) > 200 or len(set(paths)) != len(paths):
@@ -105,18 +116,13 @@ def build_netto_booklet(db, day: date, page: int = 1):
                 selected = [value for name, value in viewer_query if name == key]
                 if selected and selected != [STORE]:
                     raise ValueError("Conflicting viewer store")
-            if not start <= day <= end:
+            if not in_window:
                 # An archive link is a separate dated view, never today's offers.
-                observed = snapshot.collected_at
-                if observed.tzinfo is None:
-                    observed = observed.replace(tzinfo=ZoneInfo("UTC"))
-                archive_day = max(start, observed.astimezone(ZoneInfo("Europe/Berlin")).date())
-                if latest_available is None and end < day and archive_day <= end:
-                    latest_available = {
-                        **empty,
-                        "latest_label": f"{start:%d.%m.%Y}–{end:%d.%m.%Y}",
-                        "latest_href": booklet_href(archive_day, 1),
-                    }
+                latest_available = {
+                    **empty,
+                    "latest_label": f"{start:%d.%m.%Y}–{end:%d.%m.%Y}",
+                    "latest_href": booklet_href(archive_day, 1),
+                }
                 continue
             if page > len(paths):
                 return {**empty, "state": "missing_page", "message": "Šāda lapa bukletā nav pieejama."}
@@ -152,6 +158,9 @@ def build_netto_booklet(db, day: date, page: int = 1):
                 "next_href": booklet_href(day, page + 1) if page < len(paths) else None,
             }
         except (OSError, ValueError, TypeError, KeyError):
+            if in_window is False:
+                # Non-selected publication metadata is optional archive evidence.
+                continue
             # A corrupt newest source must not silently fall back to older pages.
             return {**empty, "state": "unavailable",
                     "message": "Saglabātās bukleta lapas pašlaik nevar pārbaudīt. Mēģini vēlāk."}

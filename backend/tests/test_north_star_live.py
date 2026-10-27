@@ -1744,3 +1744,17 @@ def test_booklet_production_observed_september_manifest_is_not_october_failure(d
     assert october["latest_label"] == "24.09.2026–26.09.2026"
     assert october["latest_href"] == "/ui/home/?view=booklets&date=2026-09-26&page=1"
     assert build_netto_booklet(db, date(2026, 9, 26))["state"] == "ready"
+
+
+@pytest.mark.parametrize("selected_day,valid_from", [
+    (DAY, "2026-10-02"), (date(2026, 10, 27), "2026-09-28"),
+])
+def test_booklet_nonselected_missing_publication_does_not_break_date_view(
+        data, tmp_path, monkeypatch, selected_day, valid_from):
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    booklet_source(db, tmp_path, monkeypatch, valid_from=valid_from,
+                   publication_path=str(tmp_path / "missing.json"))
+    result = build_netto_booklet(db, selected_day)
+    assert result["state"] == "empty"
+    assert "latest_href" not in result
