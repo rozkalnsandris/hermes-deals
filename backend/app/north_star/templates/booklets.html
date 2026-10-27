@@ -31,6 +31,7 @@
 <section class="panel empty-state booklet-empty" data-booklet-state="{{ booklet.state }}">
   {{ icon('booklets',40) }}<h2>{{ 'Bukleta lapas pašlaik nav pieejamas' if booklet.state == 'unavailable' else 'Šai dienai buklets nav pieejams' }}</h2>
   <p>{{ booklet.message }}</p>
+  {% if booklet.latest_href|default(false) %}<p>Pēdējais pieejamais buklets: {{ booklet.latest_label }}.</p><p><a class="text-link" href="{{ booklet.latest_href }}">Atvērt šo bukletu</a></p>{% endif %}
   <div class="booklet-empty-actions">{% if booklet.state == 'missing_page' %}<a class="button button-primary" href="{{ base_path }}/?view=booklets&amp;date={{ selected_date }}&amp;page=1">Atvērt pirmo lapu</a>{% endif %}<a class="button button-outline" href="{{ base_path }}/?view=deals&amp;date={{ selected_date }}&amp;retailer=netto">Netto piedāvājumi</a></div>
 </section>
 {% endif %}
