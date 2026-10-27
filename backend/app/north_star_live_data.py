@@ -75,7 +75,7 @@ def offer_view(row, day, *, favorite_id=None, eligibility=None):
     savings = regular - amount if regular is not None and amount is not None and regular > amount and not conditions else None
     row_id = getattr(row, "offer_candidate_id", None) or row.id
     return {"is_current": bool((base_current or app_current) and amount is not None), "id": str(row_id), "name": row.product_name_raw, "package": row.package_text_raw or "Iepakojums nav norādīts",
-            "category": "food", "emoji": "🛒", "image_url": safe_url(row.source_image_url), "source_url": safe_url(row.source_url),
+            "category": "food", "emoji": "📦", "image_url": safe_url(row.source_image_url), "source_url": safe_url(row.source_url),
             "retailer_id": row.source_chain, "retailer": dict(STORES).get(row.source_chain, row.source_chain),
             "store_name": row.source_store_name, "store_id": row.source_store_external_id,
             "price_label": money(amount) + (f"/{row.unit_label}" if not fixed and row.unit_label and amount is not None else ""),
