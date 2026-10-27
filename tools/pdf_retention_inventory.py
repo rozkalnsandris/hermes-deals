@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
+import sys
 
 
 def _roots(values: list[Path]) -> list[Path]:
@@ -182,18 +185,78 @@ def inventory(
     }
 
 
+def retention_report(report: dict, db, *, as_of: datetime) -> dict:
+    """Annotate observed PDF groups; never infer age, mutate input, or write DB."""
+    from app.pdf_retention import pdf_retention
+
+    if not isinstance(as_of, datetime) or as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError("registry evaluation time must include a timezone")
+    as_of = as_of.astimezone(timezone.utc)
+    result = deepcopy(report)
+    result["schema_version"] = 2
+    result["registry_checked_at"] = as_of.isoformat()
+    # A caller's pending ORM changes must not be flushed by a report query.
+    with db.no_autoflush:
+        for asset in result["assets"]:
+            if asset["kind"] != "pdf":
+                continue
+            retention = pdf_retention(db, asset["sha256"], as_of=as_of)
+            asset["acquisition_status"] = retention.state
+            asset["first_acquired_at"] = (
+                retention.first_acquired_at.isoformat() if retention.first_acquired_at else None
+            )
+            asset["expires_at"] = retention.expires_at.isoformat() if retention.expires_at else None
+    return result
+
+
+def registry_report(report: dict, database_url: str) -> dict:
+    """Use the existing backend registry in one owned, read-only PostgreSQL snapshot."""
+    # Keep the default inventory standard-library-only and independent of app.db.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import NullPool
+
+    url = make_url(database_url)
+    if url.drivername != "postgresql+psycopg":
+        raise ValueError("registry inventory requires postgresql+psycopg DATABASE_URL")
+    engine = create_engine(url, poolclass=NullPool, connect_args={"connect_timeout": 10})
+    try:
+        with engine.connect().execution_options(
+            isolation_level="REPEATABLE READ", postgresql_readonly=True,
+        ) as connection:
+            with Session(bind=connection, autoflush=False) as db:
+                db.execute(text("SET LOCAL statement_timeout = '10s'"))
+                # Verify the actual server transaction, not merely a client setting.
+                if db.scalar(text("SHOW transaction_read_only")) != "on":
+                    raise RuntimeError("registry transaction is not read-only")
+                return retention_report(report, db, as_of=datetime.now(timezone.utc))
+    finally:
+        engine.dispose()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("roots", nargs="+", type=Path, help="explicit absolute storage directories")
     parser.add_argument("--max-files", type=int, default=10000, help="maximum directory entries")
     parser.add_argument("--max-file-bytes", type=int, default=256 * 1024 * 1024)
     parser.add_argument("--max-total-bytes", type=int, default=4 * 1024 * 1024 * 1024)
+    parser.add_argument("--with-registry", action="store_true",
+                        help="annotate PDFs using a read-only PostgreSQL DATABASE_URL from the environment")
     args = parser.parse_args()
     try:
         report = inventory(args.roots, max_files=args.max_files,
                            max_file_bytes=args.max_file_bytes, max_total_bytes=args.max_total_bytes)
     except (ValueError, OSError) as error:
         parser.exit(2, f"inventory failed: {error}\n")
+    if args.with_registry:
+        try:
+            report = registry_report(report, os.environ.get("DATABASE_URL", ""))
+        except Exception:
+            # Driver/SQL errors may include credentials, server addresses or SQL.
+            # Fail without JSON rather than publishing a partially enriched report.
+            parser.exit(2, "registry lookup failed; verify PostgreSQL DATABASE_URL, schema and read access\n")
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
     return 0 if report["status"] == "inventory_complete" else 2
 

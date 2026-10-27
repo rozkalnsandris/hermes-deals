@@ -11,8 +11,8 @@ implement the 30-day lifecycle or prove that deployed storage complies.
 python tools/pdf_retention_inventory.py /absolute/path/to/raw /absolute/path/to/corpus
 ```
 
-The command writes JSON to stdout. It uses only Python's standard library on Linux.
-It does not connect to a retailer or database, extract archives, render documents,
+The command writes JSON to stdout. Its default mode uses only Python's standard library on Linux.
+By default it does not connect to a retailer or database, extract archives, render documents,
 modify source files, delete files, or install a scheduler. No default directory is
 scanned. Only supply exact storage roots covered by the current task's read scope;
 do not use a home directory as a substitute for a storage inventory.
@@ -42,15 +42,58 @@ publishing a public receipt.
 
 ## No invented retention dates
 
-`first_acquired_at` and `expires_at` are null. Filesystem mtime/ctime, archive
+Without `--with-registry`, `first_acquired_at` and `expires_at` are null. Filesystem mtime/ctime, archive
 upload time, retailer publication time and source.json dateTime are not accepted
 as proof of the first acquisition. A copied/redownloaded PDF can have a recent
 mtime while already being older than 30 days.
 
-A future lifecycle registry must bind evidence of first acquisition to content
-SHA256 and propagate one absolute deadline to all copies and derived previews.
-This tool deliberately does not consume a guessed timestamp or produce deletion
-candidates. Its output is inventory input, not a deletion authorization.
+The [acquisition registry](pdf-acquisition-registry.md) binds evidence of first
+acquisition to content SHA256. The optional report below applies its existing
+calculation to observed PDF copies. Preview parent binding remains unimplemented.
+This tool does not consume a guessed timestamp or produce an executable deletion
+plan. Its output is inventory input, not a deletion authorization.
+
+## Compare observed PDFs with the registry
+
+Using the backend's installed dependencies and an explicitly configured
+`DATABASE_URL` environment variable:
+
+```sh
+python tools/pdf_retention_inventory.py /absolute/path/to/raw --with-registry
+```
+
+This is the same command and traversal. Registry mode requires
+`postgresql+psycopg`, the existing migrated acquisition table and read access.
+It does not read a default database URL or load app startup/configuration. Keep
+credentials in the execution environment, not in arguments or published output.
+No database schema, acquisition rows, source snapshots or prices are written.
+A connection/driver/schema/query error exits 2 with a generic diagnostic and no
+JSON; it never silently falls back to an unannotated or partly annotated result.
+
+The connection owns one PostgreSQL REPEATABLE READ, READ ONLY transaction and
+verifies the server's read-only setting. Connection and individual statement
+timeouts are 10 seconds. The existing inventory limits also bound the number of
+PDF groups queried. One UTC wall-clock timestamp, captured after file traversal,
+is used for all evaluations; no CLI option can reset acquisition dates. The
+report is an observation, not a filesystem lock or a current deletion plan.
+
+Enriched JSON uses `schema_version: 2` and adds `registry_checked_at`. Each
+`kind: pdf` group keeps its observed copies and receives `acquisition_status`,
+`first_acquired_at` and `expires_at` from the existing `pdf_retention` function.
+States include `within_retention`, `raw_expired`, `acquisition_unknown`,
+`unregistered` and `not_yet_acquired`. Unknown evidence stays unknown even if a
+newer download exists; a known expired upper bound can still prove expiry.
+Every duplicate location in one group shares the same content deadline.
+
+Archives, images and invalid PDF headers keep unknown dates; they are not
+promoted to verified PDF copies by a registry match. Partial findings and all
+coverage flags are preserved. Even an all-green selection keeps
+`retention_compliance: unknown` and `deletion_authorized: false`: backup/archive
+coverage, preview bindings and physical cleanup are not proven by this report.
+Exit 0 still means traversal/report completion, including when expired PDFs were
+observed; it is not a compliance verdict. Default output remains schema version
+1 with no database dependency. No scheduled job or production invocation is
+activated by adding this mode.
 
 ## Audited storage and reader boundaries
 
