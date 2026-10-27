@@ -16,6 +16,7 @@ from app.household_service import read_household
 from app.meal_service import meal_context, quantity_label
 from app.meal_pricing import INGREDIENTS, requirement_price
 from app.models import OfferCandidateRecord
+from app.netto_booklets import build_netto_booklet
 from app.price_intelligence import (
     build_offer_price_intelligence, summarize_price_history, _series_predicate,
     history_cutoff, list_price_history_series, observed_price,
@@ -23,7 +24,7 @@ from app.price_intelligence import (
 
 D = Decimal
 STORES = [("lidl", "LIDL"), ("netto", "Netto"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA")]
-NAV = ["overview", "deals", "list", "planner", "recipes", "favorites", "history", "statistics", "settings"]
+NAV = ["overview", "deals", "booklets", "list", "planner", "recipes", "favorites", "history", "statistics", "settings"]
 UNIT_MODES = {"unit_price_only", "example_total_plus_unit", "app_example_total_plus_unit"}
 
 
@@ -144,7 +145,7 @@ def history_view(details):
             "truncated": details.history_truncated, "summary": summary}
 
 
-def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0):
+def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0, booklet_page=1):
     state, version = read_household(db, household_id)
     def quote_for(row, *, favorite_id=None):
         return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
@@ -324,10 +325,13 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         recipe.update(cost_label=money(used / recipe["servings"]) if complete else "—",
                       purchase_label=money(purchase) if complete else "—", known_cost_label=money(used) if covered else "—",
                       price_coverage=f"{covered}/{len(recipe['ingredients'])}", price_complete=complete, conditional_price_used=conditional_used)
+    booklet = build_netto_booklet(db, day, booklet_page) if view == "booklets" else None
+    if booklet:
+        booklet["offers"] = [quote_for(row, favorite_id=favorite_latest.get(str(row.id))) for row in booklet["offers"]]
     return {**meals, "ingredient_choices": list(INGREDIENTS.values()), "demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
             "selected_date": day.isoformat(), "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),
-            "settings": state["settings"], "personal_offers": personal_offers, "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
+            "booklet": booklet, "settings": state["settings"], "personal_offers": personal_offers, "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],

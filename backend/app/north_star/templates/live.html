@@ -4,6 +4,8 @@
 {% block content %}
 {% if read_error %}
 <section class="panel empty-state error-state" role="alert" tabindex="-1" data-error-focus>{% if error_status|default(false) %}<p class="eyebrow">KĻŪDA {{ error_status }}</p>{% endif %}<h2>{{ error_title|default('Dati pašlaik nav pieejami') }}</h2><p>{{ error_message }}</p><a class="button button-outline" href="{{ error_action_href|default(base_path ~ '/?view=' ~ view ~ '&date=' ~ selected_date) }}">{{ error_action_label|default('Mēģināt vēlreiz') }}</a></section>
+{% elif view == 'booklets' %}
+{% include 'booklets.html' %}
 {% elif view in ['overview', 'deals', 'favorites', 'history'] %}
 {% if view == 'overview' %}
 <div class="dashboard-grid"><div class="dashboard-column">
