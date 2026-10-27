@@ -37,7 +37,7 @@
 {%- endmacro %}
 
 {% macro product_picture(p) -%}
-<span class="product-picture category-{{ p.category|default('food') }}" aria-hidden="true">{{ p.emoji|default('🛒') }}{% if p.image_url %}<img src="{{ p.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}</span>
+<span class="product-picture category-{{ p.category|default('food') }}" aria-hidden="true">{% if p.image_url %}<img src="{{ p.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}{{ p.emoji|default('📦') }}{% endif %}</span>
 {%- endmacro %}
 
 {% macro deal_table(rows, view, date, token, compact=false) -%}

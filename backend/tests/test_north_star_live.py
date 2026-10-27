@@ -103,6 +103,28 @@ def test_real_pages_never_fall_back_to_demo(data, view):
     assert db.scalar(select(func.count()).select_from(HouseholdState)) == 0  # GET does not create state.
 
 
+def test_live_offer_image_does_not_layer_cart_behind_transparent_image(data):
+    db, client, _ = data
+    offer(db, source_image_url="https://example.invalid/transparent-product.png")
+    page = client.get("/ui/home/?view=deals&date=2026-10-01")
+    assert page.status_code == 200
+    assert re.search(
+        r'class="product-picture category-food" aria-hidden="true"><img '
+        r'src="https://example.invalid/transparent-product.png"',
+        page.text,
+    )
+    assert "🛒" not in page.text
+
+
+def test_live_offer_without_image_shows_neutral_placeholder_not_cart(data):
+    db, client, _ = data
+    offer(db)
+    page = client.get("/ui/home/?view=deals&date=2026-10-01")
+    assert page.status_code == 200
+    assert 'class="product-picture category-food" aria-hidden="true">📦</span>' in page.text
+    assert "🛒" not in page.text
+
+
 def test_two_clients_share_persistent_list_and_reject_stale_form(data):
     db, first, engine = data
     milk = offer(db)
