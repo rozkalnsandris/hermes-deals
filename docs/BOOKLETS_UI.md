@@ -52,3 +52,24 @@ Deployment and the actual availability of saved manifests/publication metadata
 on RPi have not been verified by this source PR. The UI can truthfully be empty
 until a matching retained source is available. No collector, migration or
 production write is authorized or performed by this step.
+
+## Production compatibility diagnosis (2026-10-27)
+
+Read-only SSH diagnosis of API revision eb207d3 found a verified 71-page V3
+publication from September 26. The collector stores the original request URL
+in SourceSnapshot but the final store URL includes `?stores_id=5659`.
+Compare only that explicit selected-store variation; keep HTTPS, official host,
+same branch path and all other query parameters bound. The official viewer host
+`wochenprospekt.netto-online.de` is supported, with conflicting viewer store IDs
+rejected. Original manifest/publication SHA verification remains unchanged.
+
+If the selected date has no booklet, a separately dated last-available archive
+link is shown when verified publication metadata can be read and the observation
+was made within its validity. It never labels historical offers as current.
+
+The latest production Netto observation on October 27 uses
+`netto_store_html_v1`, while the latest V3 booklet is September 26
+(valid September 24–26). Consequently this compatibility fix does not supply a
+current-week booklet. Integration of current publication metadata into the
+active HTML collection path remains tracked in #1069. No PDF read, collection,
+replay, deployment or production mutation was performed during diagnosis.

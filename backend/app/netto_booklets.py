@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -38,6 +38,20 @@ def _verified_json(path_value, digest, root):
     return data
 
 
+def _store_url_key(value):
+    """Compare the request/final URL without losing selected-branch evidence."""
+    url = urlsplit(value)
+    if (url.scheme != "https" or url.netloc not in {"www.netto-online.de", "netto-online.de"}
+            or url.username or url.fragment
+            or not url.path.startswith("/filialen/") or not url.path.endswith("/" + STORE)):
+        raise ValueError("Invalid store URL")
+    query = parse_qsl(url.query, keep_blank_values=True, max_num_fields=20)
+    selected = [value for key, value in query if key == "stores_id"]
+    if selected and selected != [STORE]:
+        raise ValueError("Conflicting selected store")
+    return url.netloc, url.path, sorted((key, value) for key, value in query if key != "stores_id")
+
+
 def booklet_href(day, page):
     return "/ui/home/?" + urlencode({"view": "booklets", "date": day.isoformat(), "page": page})
 
@@ -57,21 +71,20 @@ def build_netto_booklet(db, day: date, page: int = 1):
     if not snapshots:
         return empty
     root = get_settings().raw_snapshot_dir.resolve()
+    latest_available = None
     for snapshot in snapshots:
         try:
             manifest = _verified_json(snapshot.snapshot_path, snapshot.sha256, root)
             if (manifest.get("strategy") != snapshot.strategy_hint
                     or str(manifest.get("store_external_id")) != STORE
                     or manifest.get("scope") != "family_primary_netto"
-                    or manifest.get("store_url") != snapshot.source_url
+                    or _store_url_key(manifest.get("store_url", "")) != _store_url_key(snapshot.source_url)
                     or manifest.get("selected_store_cookie_present") is not True):
                 raise ValueError("Source identity mismatch")
             start = date.fromisoformat(manifest["valid_from"])
             end = date.fromisoformat(manifest["valid_until"])
             if start > end:
                 raise ValueError("Invalid date window")
-            if not start <= day <= end:
-                continue
             publication = _verified_json(manifest.get("publication_path"), manifest.get("publication_sha256"), root)
             paths = publication_page_paths(publication)
             if not paths or len(paths) > 200 or len(set(paths)) != len(paths):
@@ -83,9 +96,28 @@ def build_netto_booklet(db, day: date, page: int = 1):
                 raise ValueError("Invalid page asset path")
             source = urlsplit(manifest.get("prospect_url", ""))
             if (source.scheme != "https" or source.netloc not in {
-                    "www.netto-online.de", "netto-online.de", "view.publitas.com"
-            } or source.username):
+                    "www.netto-online.de", "netto-online.de", "view.publitas.com",
+                    "wochenprospekt.netto-online.de"
+            } or source.username or source.fragment):
                 raise ValueError("Invalid official source URL")
+            viewer_query = parse_qsl(source.query, keep_blank_values=True, max_num_fields=20)
+            for key in ("storeid", "stores_id"):
+                selected = [value for name, value in viewer_query if name == key]
+                if selected and selected != [STORE]:
+                    raise ValueError("Conflicting viewer store")
+            if not start <= day <= end:
+                # An archive link is a separate dated view, never today's offers.
+                observed = snapshot.collected_at
+                if observed.tzinfo is None:
+                    observed = observed.replace(tzinfo=ZoneInfo("UTC"))
+                archive_day = max(start, observed.astimezone(ZoneInfo("Europe/Berlin")).date())
+                if latest_available is None and end < day and archive_day <= end:
+                    latest_available = {
+                        **empty,
+                        "latest_label": f"{start:%d.%m.%Y}–{end:%d.%m.%Y}",
+                        "latest_href": booklet_href(archive_day, 1),
+                    }
+                continue
             if page > len(paths):
                 return {**empty, "state": "missing_page", "message": "Šāda lapa bukletā nav pieejama."}
             pdf_sha = manifest.get("prospect_pdf_sha256")
@@ -123,4 +155,4 @@ def build_netto_booklet(db, day: date, page: int = 1):
             # A corrupt newest source must not silently fall back to older pages.
             return {**empty, "state": "unavailable",
                     "message": "Saglabātās bukleta lapas pašlaik nevar pārbaudīt. Mēģini vēlāk."}
-    return empty
+    return latest_available or empty
