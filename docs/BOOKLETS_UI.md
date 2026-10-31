@@ -105,3 +105,29 @@ local pages, no page count, no inferred end date, and no matched offer/product
 links. Only the exact verified start date is eligible; other selected dates do
 not inherit an unproven period. Existing V1–V3 fully verified publication pages
 take priority. No new network GET, PDF, collector, migration, or data writes.
+
+## PDF-free verified HTML publication pages
+
+The active `netto_store_html_v1` collector may fetch the selected store's
+official viewer HTML and Publitas JSON for each dated teaser (maximum four).
+A publication is accepted only when the viewer's explicit metadata validity
+starts on the exact same date as its store-bound teaser, the end date is
+explicit (at most 14 days after start), and the official API JSON exposes
+valid, distinct, bounded page paths. Redirects, wrong MIME types/hosts,
+malformed metadata and missing dates are rejected. Invalid viewer data never
+blocks separately validated retailer offer imports. There is **no PDF fetch**.
+
+The response bytes are stored immutably by SHA under `raw/netto-html` and
+referenced in the existing HTML snapshot manifest as `booklet_publications`.
+The existing Jinja booklet reader reads only the newest successful HTML
+snapshot (respecting the selected Berlin day cutoff), independently verifies
+its manifest, selected store, source HTML and dated teaser bindings, viewer
+HTML validity and group identity, API URL and publication JSON/page hashes,
+then renders verified official page images with **no linked offer claims**.
+The V1–V3 reader remains higher priority. Corrupt metadata fails closed;
+without full metadata the original start-day-only external link remains an
+explicitly limited fallback. No independent collector process, schema change,
+migration, household action, PDF or inferred offer identity is introduced.
+
+Production collection and display availability are still unverified until
+a separately authorized deployment/collector run and read-only canary.
