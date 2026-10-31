@@ -77,7 +77,7 @@ def _verified_html(path_value, digest, root):
     return content
 
 
-def _html_teaser_link(db, day, cutoff):
+def _html_teaser_link(db, day, cutoff, page):
     """Official link on its verified start day only; no inferred validity or pages.
 
     Successful HTML snapshots have already passed the selected-store cookie gate
@@ -224,7 +224,7 @@ def build_netto_booklet(db, day: date, page: int = 1):
         SourceSnapshot.collected_at < cutoff,
     ).order_by(SourceSnapshot.collected_at.desc(), SourceSnapshot.id.desc()).limit(50)).all()
     if not snapshots:
-        return _html_teaser_link(db, day, cutoff) or empty
+        return _html_teaser_link(db, day, cutoff, page) or empty
     root = get_settings().raw_snapshot_dir.resolve()
     latest_available = None
     for snapshot in snapshots:
@@ -319,5 +319,5 @@ def build_netto_booklet(db, day: date, page: int = 1):
             # A corrupt newest source must not silently fall back to older pages.
             return {**empty, "state": "unavailable",
                     "message": "Saglabātās bukleta lapas pašlaik nevar pārbaudīt. Mēģini vēlāk."}
-    fallback = _html_teaser_link(db, day, cutoff)
+    fallback = _html_teaser_link(db, day, cutoff, page)
     return {**(latest_available or empty), **fallback} if fallback else latest_available or empty

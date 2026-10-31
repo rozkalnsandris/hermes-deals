@@ -82,3 +82,16 @@ def test_invalid_slug_never_requests_external_url():
     with source(lambda req: (_ for _ in ()).throw(AssertionError("network"))) as client:
         with pytest.raises(ValueError):
             fetch_one(client, "../leak", date(2026, 11, 2))
+
+@pytest.mark.parametrize("payload", [
+    {"spreads": [{"pages": ["/valid", None]}]},
+    {"spreads": [{"pages": ["/valid", {"path": "/lost"}]}]},
+    {"spreads": [{"pages": "/valid"}]},
+    {"spreads": [{"pages": []}, {"pages": ["/valid"]}]},
+    {"spreads": ["invalid-spread"]},
+    {"spreads": [{"not_pages": ["/valid"]}]},
+    {"spreads": None},
+])
+def test_partial_or_malformed_publication_cannot_silently_drop_pages(payload):
+    with pytest.raises(ValueError):
+        validated_pages(payload)

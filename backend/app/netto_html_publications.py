@@ -9,12 +9,10 @@ from dataclasses import dataclass
 from datetime import date
 import json
 import re
-from urllib.parse import urlsplit
 
 import httpx
 
 from app.netto_store_prospect import extract_prospect_validity
-from app.retailer_targeted_shadow import publication_page_paths
 from app.structured_source_shadow import extract_netto_group_slug
 
 _SLUG = re.compile(r"[A-Za-z0-9_-]{1,128}")
@@ -38,11 +36,24 @@ class PublicationCapture:
 def validated_pages(payload: dict) -> list[str]:
     if not isinstance(payload, dict):
         raise ValueError("Netto publication must be a JSON object")
-    paths = publication_page_paths(payload)
-    if not paths or len(paths) > 200 or len(set(paths)) != len(paths):
-        raise ValueError("Invalid Netto publication page count")
-    if any(not isinstance(path, str)
-           or not _PATH.fullmatch(path)
+    spreads = payload.get("spreads")
+    if not isinstance(spreads, list) or not spreads:
+        raise ValueError("Invalid Netto publication spreads")
+    paths: list[str] = []
+    for spread in spreads:
+        if not isinstance(spread, dict):
+            raise ValueError("Invalid Netto publication spread")
+        pages = spread.get("pages")
+        if not isinstance(pages, list) or not pages:
+            raise ValueError("Missing Netto publication spread pages")
+        if any(not isinstance(page, str) for page in pages):
+            raise ValueError("Invalid Netto publication page type")
+        paths.extend(pages)
+        if len(paths) > 200:
+            raise ValueError("Too many Netto publication pages")
+    if len(set(paths)) != len(paths):
+        raise ValueError("Duplicate Netto publication page paths")
+    if any(not _PATH.fullmatch(path)
            or path.startswith("//")
            or ".." in path.split("/") for path in paths):
         raise ValueError("Invalid Netto publication asset path")
