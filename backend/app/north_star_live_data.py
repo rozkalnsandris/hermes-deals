@@ -25,6 +25,8 @@ from app.price_intelligence import (
 D = Decimal
 STORES = [("lidl", "LIDL"), ("netto", "Netto"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA")]
 NAV = ["overview", "deals", "booklets", "list", "planner", "recipes", "favorites", "history", "statistics", "settings"]
+# A retailer appearing in this selector is not proof that booklet pages exist.
+BOOKLET_RETAILERS = (("netto", "Netto"), ("lidl", "LIDL"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA"), ("kaufland", "Kaufland"))
 UNIT_MODES = {"unit_price_only", "example_total_plus_unit", "app_example_total_plus_unit"}
 
 
@@ -145,7 +147,7 @@ def history_view(details):
             "truncated": details.history_truncated, "summary": summary}
 
 
-def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0, booklet_page=1):
+def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0, booklet_page=1, booklet_retailer="netto"):
     state, version = read_household(db, household_id)
     def quote_for(row, *, favorite_id=None):
         return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
@@ -325,13 +327,26 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         recipe.update(cost_label=money(used / recipe["servings"]) if complete else "—",
                       purchase_label=money(purchase) if complete else "—", known_cost_label=money(used) if covered else "—",
                       price_coverage=f"{covered}/{len(recipe['ingredients'])}", price_complete=complete, conditional_price_used=conditional_used)
-    booklet = build_netto_booklet(db, day, booklet_page) if view == "booklets" else None
-    if booklet:
+    booklet = None
+    if view == "booklets":
+        names = dict(BOOKLET_RETAILERS)
+        if booklet_retailer not in names:
+            raise ValueError("Unsupported booklet retailer")
+        if booklet_retailer == "netto":
+            booklet = build_netto_booklet(db, day, booklet_page)
+        else:
+            # No other retailer has a registered, verified page reader yet.
+            # Never substitute the Netto publication or infer pages from offers.
+            booklet = {
+                "state": "unavailable", "offers": [],
+                "message": "Šī veikala oriģinālā bukleta lapas vēl nav pieslēgtas pārbaudītam avotam.",
+            }
+        booklet = {**booklet, "retailer_id": booklet_retailer, "retailer_name": names[booklet_retailer]}
         booklet["offers"] = [quote_for(row, favorite_id=favorite_latest.get(str(row.id))) for row in booklet["offers"]]
     return {**meals, "ingredient_choices": list(INGREDIENTS.values()), "demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
             "selected_date": day.isoformat(), "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),
-            "booklet": booklet, "settings": state["settings"], "personal_offers": personal_offers, "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
+            "booklet": booklet, "booklet_retailers": BOOKLET_RETAILERS, "settings": state["settings"], "personal_offers": personal_offers, "offers": offers, "favorites": favorites, "retailers": [{"id": key, "name": name} for key, name in STORES],
             "shopping": {"rows": shopping_rows, "count": len(shopping_rows), "checked_count": sum(item["checked"] for item in shopping_rows),
                          "total_label": money(None if required and unknown == required else total), "unknown_count": unknown, "required": required},
             "ranked_stores": ranked, "best_store": best_single, "two_store_plan": pair, "pair_status": pair_status, "preferred_retailers": preferred, "branch_options": [branch_options[key] for key in sorted(branch_options)],

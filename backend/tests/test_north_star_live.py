@@ -2025,3 +2025,48 @@ def test_booklet_verified_publication_still_wins_over_html_teaser(data, tmp_path
     assert ready["state"] == "ready"
     assert ready["page_count"] == 2
 
+
+
+
+def test_booklet_selector_preserves_netto_and_never_fabricates_other_pages(data, monkeypatch):
+    _, client, _ = data
+    base = "/ui/home/?view=booklets&date=2026-10-01"
+    original = client.get(base)
+    assert original.status_code == 200
+    assert 'data-booklet-state="empty"' in original.text
+    assert '<option value="netto" selected' in original.text
+    assert "Netto piedāvājumi" in original.text
+
+    # Unverified publishers must not be rendered from Netto records, even when
+    # the visitor explicitly selects a known other retailer.
+    import app.north_star_live_data as live_data
+    def forbidden_netto(*args, **kwargs):
+        raise AssertionError("Netto reader must not run for another retailer")
+    monkeypatch.setattr(live_data, "build_netto_booklet", forbidden_netto)
+    for retailer, name in live_data.BOOKLET_RETAILERS:
+        if retailer == "netto":
+            continue
+        response = client.get(base + "&retailer=" + retailer)
+        assert response.status_code == 200, response.text
+        assert 'data-booklet-state="unavailable"' in response.text
+        assert "vēl nav pieslēgtas pārbaudītam avotam" in response.text
+        assert '<option value="' + retailer + '" selected' in response.text
+        assert name + " piedāvājumi" in response.text
+        assert "Netto piedāvājumi" not in response.text
+        assert 'class="booklet-page-image"' not in response.text
+        assert "Atvērt veikala bukletu" not in response.text
+        assert "view=booklets&amp;date=2026-10-02&amp;retailer=" + retailer in response.text
+        assert "page=1&amp;retailer=" not in response.text
+
+    assert client.get(base + "&retailer=unknown").status_code == 422
+    assert client.get(base + "&retailer=lidl%3Fpage%3D2").status_code == 422
+
+
+def test_booklet_selection_keeps_day_navigation_and_resets_page(data):
+    _, client, _ = data
+    response = client.get("/ui/home/?view=booklets&date=2026-10-01&retailer=lidl&page=2")
+    assert response.status_code == 200
+    # A new day is a new publication lookup; keep the selected store, not page.
+    assert "view=booklets&amp;date=2026-10-02&amp;retailer=lidl" in response.text
+    assert "view=booklets&amp;date=2026-10-02&amp;page=2" not in response.text
+    assert 'name="retailer"' in response.text

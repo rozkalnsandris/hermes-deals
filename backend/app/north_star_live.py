@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.household_service import HouseholdConflict, change_household, empty_household
 from app.meal_service import BY_ID
-from app.north_star_live_data import NAV, build_live_context
+from app.north_star_live_data import BOOKLET_RETAILERS, NAV, build_live_context
 
 BASE_PATH = "/ui/home"
 ASSETS = Path(__file__).resolve().parent / "north_star"
@@ -108,6 +108,9 @@ def _return_context(values, day, view):
         context["recipe_id"] = ingredient_context["recipe_id"]
         context["ingredient_id"] = ingredient_context["ingredient_id"]
     if target_view == "booklets":
+        booklet_retailer = values.get("retailer") or "netto"
+        if booklet_retailer in dict(BOOKLET_RETAILERS) and booklet_retailer != "netto":
+            context["retailer"] = booklet_retailer
         try:
             page = int(values.get("page", "1"))
             context["page"] = page if 1 <= page <= 200 else 1
@@ -300,6 +303,9 @@ def home(request: Request, db: Session = Depends(get_db)):
             raise ValueError
     except ValueError:
         raise HTTPException(422, "Norādi bukleta lapu no 1 līdz 200.")
+    booklet_retailer = params.get("retailer", "netto") if view == "booklets" else "netto"
+    if view == "booklets" and booklet_retailer not in dict(BOOKLET_RETAILERS):
+        raise HTTPException(422, "Neatbalstīts bukleta veikals.")
     ingredient_context = _ingredient_context(params, day)
     sort = params.get("sort", "name")
     if sort not in SORT_OPTIONS:
@@ -312,7 +318,7 @@ def home(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(422, "Nederīgs lapas numurs.")
     try:
         context = build_live_context(db, household_key(), day, view=view, query=params.get("q", "")[:100],
-                                     retailer=params.get("retailer", "")[:32], sort=sort, product=params.get("product"), offset=offset, booklet_page=booklet_page)
+                                     retailer=params.get("retailer", "")[:32], sort=sort, product=params.get("product"), offset=offset, booklet_page=booklet_page, booklet_retailer=booklet_retailer)
     except SQLAlchemyError:
         db.rollback()
         log.warning("North-star data read failed; check database and migration 0008")
@@ -385,6 +391,7 @@ async def change(action: str, request: Request, db: Session = Depends(get_db)):
             sort=return_context.get("sort", "name"),
             offset=return_context.get("offset", 0),
             booklet_page=return_context.get("page", 1),
+            booklet_retailer=return_context.get("retailer", "netto") if view == "booklets" else "netto",
         )
         context.update(_date_navigation(return_context, day, view))
         context.update(_return_navigation(return_context, day, view))
