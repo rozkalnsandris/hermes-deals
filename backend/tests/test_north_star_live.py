@@ -1813,7 +1813,7 @@ def html_booklet_source(db, tmp_path, monkeypatch, *,
 
 def attach_html_publication(snapshot, manifest, tmp_path, *,
                             start="01.10.26", end="03.10.26",
-                            group="netto", paths=None):
+                            group="netto", paths=None, sizes=None):
     from hashlib import sha256
     import json
     root = tmp_path / "netto-html"
@@ -1824,9 +1824,12 @@ def attach_html_publication(snapshot, manifest, tmp_path, *,
     ).encode()
     viewer_path = root / f"{sha256(viewer).hexdigest()}.html"
     viewer_path.write_bytes(viewer)
-    publication = json.dumps({"spreads": [
+    publication_data = {"spreads": [
         {"pages": paths if paths is not None else ["/hz40/page-1", "/hz40/page-2"]}
-    ]}).encode()
+    ]}
+    if sizes is not None:
+        publication_data["sizes"] = sizes
+    publication = json.dumps(publication_data).encode()
     publication_path = root / f"{sha256(publication).hexdigest()}.json"
     publication_path.write_bytes(publication)
     manifest["booklet_publications"] = [{
@@ -1884,6 +1887,37 @@ def test_netto_html_verified_publication_pages_without_pdf(data, tmp_path, monke
     assert 'data-booklet-next' in page.text
     assert not list(tmp_path.rglob("*.pdf"))
     assert build_netto_booklet(db, date(2026, 10, 4))["state"] == "empty"
+
+
+@pytest.mark.parametrize(
+    ("sizes", "expected"),
+    [
+        ({"at2400": {"width": 2100, "height": 3000},
+          "at2000": {"width": 1750, "height": 2500}},
+         "https://view.publitas.com/hz40/page-2-at2400.jpg"),
+        ({"at2000": {"width": 1750, "height": 2500}},
+         "https://view.publitas.com/hz40/page-2-at2000.jpg"),
+        ({"at2400": {"width": "invalid", "height": 3000}}, None),
+        ({}, None),
+    ],
+)
+def test_netto_zoom_only_uses_verified_declared_image_size(
+        data, tmp_path, monkeypatch, sizes, expected):
+    from app.netto_booklets import build_netto_booklet
+    db, client, _ = data
+    snap, manifest, _ = html_booklet_source(db, tmp_path, monkeypatch)
+    attach_html_publication(snap, manifest, tmp_path, sizes=sizes)
+    db.commit()
+    selected = build_netto_booklet(db, date(2026, 10, 2), 2)
+    assert selected["state"] == "ready"
+    assert selected["pages"][1]["zoom_image_url"] == expected
+    assert selected["pages"][1]["image_url"].endswith("/hz40/page-2-at1600.jpg")
+    page = client.get("/ui/home/?view=booklets&date=2026-10-02&page=2")
+    assert page.status_code == 200
+    if expected:
+        assert f'data-booklet-zoom-image-url="{expected}"' in page.text
+    else:
+        assert 'data-booklet-zoom-image-url' not in page.text
 
 
 @pytest.mark.parametrize("tamper", [
