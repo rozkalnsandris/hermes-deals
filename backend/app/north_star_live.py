@@ -11,6 +11,7 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from secrets import token_urlsafe
+from time import perf_counter
 from urllib.parse import parse_qs, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
@@ -316,6 +317,7 @@ def home(request: Request, db: Session = Depends(get_db)):
             raise ValueError
     except ValueError:
         raise HTTPException(422, "Nederīgs lapas numurs.")
+    context_started = perf_counter()
     try:
         context = build_live_context(db, household_key(), day, view=view, query=params.get("q", "")[:100],
                                      retailer=params.get("retailer", "")[:32], sort=sort, product=params.get("product"), offset=offset, booklet_page=booklet_page, booklet_retailer=booklet_retailer)
@@ -327,13 +329,19 @@ def home(request: Request, db: Session = Depends(get_db)):
         context.update(_return_navigation(params, day, view))
         context["ingredient_context"] = ingredient_context if view == "deals" else None
         return render(request, context, status=503)
+    context_done = perf_counter()
     context.update(_date_navigation(params, day, view))
     context.update(_return_navigation(params, day, view))
     context["ingredient_context"] = ingredient_context if view == "deals" else None
     if params.get("saved") == "1":
         context["notice"] = "Izmaiņas saglabātas."
         context["notice_kind"] = "success"
-    return render(request, context)
+    response = render(request, context)
+    response.headers["Server-Timing"] = (
+        f"home-context;dur={(context_done - context_started) * 1000:.1f}, "
+        f"home-render;dur={(perf_counter() - context_done) * 1000:.1f}"
+    )
+    return response
 
 
 @router.post("/actions/{action}")
