@@ -11,13 +11,20 @@
     <form method="get" class="booklet-page-form" {% if booklet.swipeable|default(false) %}data-booklet-page-form hx-boost="false"{% endif %}><input type="hidden" name="view" value="booklets"><input type="hidden" name="date" value="{{ selected_date }}"><label for="booklet-page">Lapa</label><select id="booklet-page" name="page">{% for p in booklet.pages %}<option value="{{ p.number }}" {% if booklet.swipeable|default(false) %}data-booklet-image-url="{{ p.image_url }}"{% endif %} {% if p.number == booklet.page %}selected{% endif %}>{{ p.number }} / {{ booklet.page_count }}</option>{% endfor %}</select><button class="button button-outline">Atvērt</button></form>
     {% if booklet.swipeable|default(false) %}<a class="button button-outline" data-booklet-next href="{{ booklet.next_href or booklet.pages[-1].href }}" aria-label="Nākamā bukleta lapa" hx-boost="false" {% if not booklet.next_href %}aria-disabled="true"{% endif %}><span>Nākamā</span> ›</a>{% elif booklet.next_href %}<a class="button button-outline" href="{{ booklet.next_href }}" aria-label="Nākamā bukleta lapa"><span>Nākamā</span> ›</a>{% else %}<span class="button button-outline" aria-disabled="true"><span>Nākamā</span> ›</span>{% endif %}
   </nav>
-  <input class="booklet-zoom-toggle" type="checkbox" id="booklet-zoom"><label class="button button-outline booklet-zoom-label" for="booklet-zoom">{{ icon('search',16) }} Palielināt lapu</label>
-  {% if booklet.swipeable|default(false) %}<button class="button button-outline booklet-fullscreen" data-booklet-fullscreen type="button" hidden aria-expanded="false">⛶ Pilnekrāns</button><p class="booklet-swipe-hint">Atver pilnekrānā, lai šķirstītu ar pirkstu vai bultiņām.</p>{% endif %}
-  <div class="booklet-canvas" tabindex="0" aria-label="{{ 'Šķirstāms Netto buklets' if booklet.swipeable|default(false) else 'Bukleta attēls; palielinātu lapu var ritināt' }}" {% if booklet.swipeable|default(false) %}data-booklet-swipe="{{ booklet.page }}"{% endif %}>
+  {% if booklet.swipeable|default(false) %}<button class="button button-outline booklet-fullscreen" data-booklet-fullscreen type="button" hidden aria-expanded="false">⛶ Pilnekrāns</button><p class="booklet-swipe-hint">Pieskaries vākam, lai atvērtu lasītāju pilnekrānā.</p>{% else %}<input class="booklet-zoom-toggle" type="checkbox" id="booklet-zoom"><label class="button button-outline booklet-zoom-label" for="booklet-zoom">{{ icon('search',16) }} Palielināt lapu</label>{% endif %}
+  <div class="booklet-canvas" tabindex="0" aria-label="{{ 'Atvērt Netto bukletu pilnekrānā' if booklet.swipeable|default(false) else 'Bukleta attēls; palielinātu lapu var ritināt' }}" {% if booklet.swipeable|default(false) %}data-booklet-swipe="{{ booklet.page }}"{% endif %}>
     {% if booklet.swipeable|default(false) %}
-    <img class="booklet-page-image" data-booklet-image src="{{ booklet.image_url }}" alt="Netto buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async">
+    <img class="booklet-page-image" data-booklet-image src="{{ booklet.image_url }}" alt="Netto buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async" draggable="false">
     {% else %}<img class="booklet-page-image" src="{{ booklet.image_url }}" alt="Netto buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async">{% endif %}
   </div>
+  {% if booklet.swipeable|default(false) %}<div class="booklet-viewer-hud" data-booklet-viewer-hud hidden>
+    <button type="button" class="booklet-viewer-close" data-booklet-viewer-close aria-label="Aizvērt pilnekrāna bukletu">×</button>
+    <nav class="booklet-viewer-pages" aria-label="Pilnekrāna lapošana">
+      <button type="button" data-booklet-viewer-prev aria-label="Iepriekšējā lapa">‹</button>
+      <span data-booklet-viewer-count aria-live="polite">{{ booklet.page }} / {{ booklet.page_count }}</span>
+      <button type="button" data-booklet-viewer-next aria-label="Nākamā lapa">›</button>
+    </nav>
+  </div>{% endif %}
   <p class="fine-print">Lapa <span {% if booklet.swipeable|default(false) %}data-booklet-counter{% endif %}>{{ booklet.page }}</span> no {{ booklet.page_count }} · attēls no veikala bukleta publicētāja. Ja attēls neielādējas, <a class="text-link" href="{{ booklet.source_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false">atver veikala bukletu</a>.</p>
 </section>
 <aside class="panel booklet-products" aria-label="Ar lapu sasaistītie produkti">

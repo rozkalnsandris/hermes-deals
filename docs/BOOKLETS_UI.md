@@ -145,3 +145,20 @@ distinct linked-offer provenance. No PDF or speculative hotspot mapping.
 ## One-image fullscreen reader correction
 
 Only the currently selected, SHA-verified publication page is an HTML image. Other verified image URLs are options, not DOM images or downloads. A fullscreen button opens a viewport-filling reader with next/previous, keyboard navigation and touch swipes; the CSS overlay stays usable when native Fullscreen API is denied. Ordinary server links work when JavaScript is unavailable. Assets use a changed versioned URL to avoid serving old JavaScript and CSS from browser caches. No PDF, invented hotspots, or offer mapping is introduced.
+
+## Immersive viewer and focal-point zoom (#1069)
+
+The cover image itself enters fullscreen, while the separate button remains.
+The reader hides the ordinary page selector, outer zoom button and explanatory
+labels when open. Only an overlay close button and compact prev/counter/next
+controls are shown. Browser Fullscreen API is requested with
+`navigationUI: hide`; the full-viewport CSS fallback remains on unsupported
+mobile browsers, and browser-generated fullscreen guidance cannot be hidden by
+the application. Native-image selection/dragging is disabled.
+
+Inside the reader: two-finger pinch scales the selected image 1–5x around
+the gesture midpoint; a single finger pans while zoomed, or changes the page
+with a horizontal swipe while at fit scale. Desktop clicks on the image zoom
+around the cursor, and a subsequent click resets zoom. All page changes reset
+zoom and use only previously verified publication URL options. The reader still
+holds only one image and does not request a PDF or infer product identity.
