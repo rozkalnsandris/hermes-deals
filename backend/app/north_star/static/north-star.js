@@ -48,6 +48,7 @@
     const reader = document.querySelector('.booklet-swipe');
     const canvas = reader?.querySelector('[data-booklet-swipe]');
     const image = canvas?.querySelector('[data-booklet-image]');
+    const retailerName = reader?.dataset.bookletStoreName || 'Netto';
     const form = reader?.querySelector('[data-booklet-page-form]');
     const select = form?.querySelector('select[name="page"]');
     const prev = reader?.querySelector('[data-booklet-prev]');
@@ -138,7 +139,7 @@
       select.value = String(number);
       image.src = options[number - 1].dataset.bookletImageUrl;
       // A page change always begins with the verified standard image.
-      image.alt = 'Netto buklets, ' + number + '. lapa no ' + options.length;
+      image.alt = retailerName + ' buklets, ' + number + '. lapa no ' + options.length;
       counter.textContent = String(number);
       hudCount.textContent = number + ' / ' + options.length;
       for (const [link, target, disabled] of [
@@ -164,7 +165,7 @@
       if (!isOpen()) return;
       reader.classList.remove('booklet-viewer-open');
       document.body.classList.remove('booklet-viewer-active');
-      canvas.setAttribute('aria-label', 'Atvērt Netto bukletu pilnekrānā');
+      canvas.setAttribute('aria-label', 'Atvērt ' + retailerName + ' bukletu pilnekrānā');
       canvas.setAttribute('aria-expanded', 'false');
       hud.hidden = true;
       resetZoom();
@@ -176,7 +177,7 @@
       if (isOpen()) return;
       reader.classList.add('booklet-viewer-open');
       document.body.classList.add('booklet-viewer-active');
-      canvas.setAttribute('aria-label', 'Netto buklets. Pietuvini ar plus/mīnus pogām, peles ritentiņu vai diviem pirkstiem; šķirsti ar bultiņām.');
+      canvas.setAttribute('aria-label', retailerName + ' buklets. Pietuvini ar plus/mīnus pogām, peles ritentiņu vai diviem pirkstiem; šķirsti ar bultiņām.');
       canvas.setAttribute('aria-expanded', 'true');
       hud.hidden = false;
       resetZoom();

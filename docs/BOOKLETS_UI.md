@@ -223,3 +223,21 @@ Enabled links have a clear green outline and focus indicator; boundary links
 remain visibly inactive and non-focusable. Page URLs, fullscreen HUD controls,
 touch gestures, zoom and image provenance are unchanged. Assets use
 `netto-viewer-v7` for cache-busting.
+
+
+## Shared booklet reader presentation contract (#1069)
+
+The original Netto Jinja reader and JavaScript zoom/fullscreen controls
+now take retailer name and retailer key from explicit server-side booklet
+context rather than hardcoding them in labels, alt text, store badge or offer
+navigation. Missing fields retain the existing Netto default, keeping
+existing bookmarked Netto deep links, controls and source validation intact.
+The reader is exercised with a **synthetic** LIDL context, not proof of
+production Lidl booklet availability.
+
+Additional retailers require independently verified, selected-store-bound
+page metadata, dates, source identity and safe image URLs before their reader
+may be enabled. Lidl Gate B corpus freeze (#906) remains owner-gated; ALDI Nord,
+EDEKA and Kaufland still require page source evidence. Do not guess image URLs,
+cache extra PDFs or infer offer/product identity. The UI static asset key is
+`booklet-viewer-v8`.
