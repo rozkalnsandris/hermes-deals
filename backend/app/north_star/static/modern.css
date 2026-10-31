@@ -302,7 +302,15 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 .booklet-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,320px); gap:22px; align-items:start; }
 .booklet-reader { min-width:0; padding:18px; }
 .booklet-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
-.booklet-controls [aria-disabled] { opacity:.45; }
+.booklet-controls [aria-disabled="true"] { opacity:.45; pointer-events:none; cursor:default; }
+.booklet-controls [data-booklet-prev]:not([aria-disabled="true"]),
+.booklet-controls [data-booklet-next]:not([aria-disabled="true"]) {
+  background:#e8f3e8; border-color:#176947; color:#174c35; font-weight:650;
+}
+.booklet-controls [data-booklet-prev]:not([aria-disabled="true"]):hover,
+.booklet-controls [data-booklet-next]:not([aria-disabled="true"]):hover { background:#d8ecd7; }
+.booklet-controls [data-booklet-prev]:focus-visible,
+.booklet-controls [data-booklet-next]:focus-visible { outline:3px solid #176947; outline-offset:2px; }
 .booklet-page-form { display:flex; align-items:center; gap:8px; }
 .booklet-page-form select { min-width:82px; }
 .booklet-zoom-toggle { position:absolute; width:1px; height:1px; opacity:0; min-height:0; }
@@ -334,11 +342,9 @@ main { padding: 32px 36px 0; max-width: 1720px; }
 }
 
 /* #1069: one official page; independent zoom for immersive reader. */
-.booklet-fullscreen[hidden], .booklet-viewer-hud[hidden] { display:none!important; }
+.booklet-viewer-hud[hidden] { display:none!important; }
 .booklet-swipe .booklet-canvas { display:block; overflow:auto; max-height:none; cursor:zoom-in; }
 .booklet-swipe .booklet-page-image { width:100%; height:auto; max-width:900px; margin-inline:auto; }
-.booklet-swipe-hint { color:var(--muted); margin:0 0 12px; font-size:.8125rem; }
-.booklet-fullscreen { margin-left:8px; }
 body.booklet-viewer-active { overflow:hidden!important; }
 .booklet-reader.booklet-viewer-open {
   position:fixed; inset:0; z-index:1200; box-sizing:border-box; margin:0;
@@ -347,8 +353,6 @@ body.booklet-viewer-active { overflow:hidden!important; }
   display:flex; align-items:stretch; overflow:hidden;
 }
 .booklet-reader.booklet-viewer-open .booklet-controls,
-.booklet-reader.booklet-viewer-open .booklet-fullscreen,
-.booklet-reader.booklet-viewer-open .booklet-swipe-hint,
 .booklet-reader.booklet-viewer-open .fine-print { display:none!important; }
 .booklet-reader.booklet-viewer-open .booklet-canvas {
   flex:1 1 auto; display:flex; align-items:center; justify-content:center;
