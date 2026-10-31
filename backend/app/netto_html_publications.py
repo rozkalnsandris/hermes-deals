@@ -12,8 +12,6 @@ import re
 
 import httpx
 
-from app.netto_store_prospect import extract_prospect_validity
-from app.structured_source_shadow import extract_netto_group_slug
 
 _SLUG = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _PATH = re.compile(r"/[A-Za-z0-9_./-]+")
@@ -76,6 +74,11 @@ def _response(client: httpx.Client, url: str, content_type: str, limit: int) -> 
 def fetch_one(client: httpx.Client, slug: str, expected_start: date) -> PublicationCapture:
     if not _SLUG.fullmatch(slug) or not isinstance(expected_start, date):
         raise ValueError("Invalid Netto booklet teaser identity")
+    # Avoid loading unrelated retailer parsers on the Netto collector cold path.
+    # Only the selected viewer needs the legacy validity/group parsers.
+    from app.netto_store_prospect import extract_prospect_validity
+    from app.structured_source_shadow import extract_netto_group_slug
+
     viewer_url = f"https://wochenprospekt.netto-online.de/{slug}/?storeid=5659"
     viewer_html = _response(client, viewer_url, "text/html", _MAX_HTML)
     start, end, validity_text = extract_prospect_validity(viewer_html)
