@@ -43,7 +43,7 @@
     if (restoreFocus && returnTarget?.isConnected && returnTarget.getClientRects().length) returnTarget.focus();
   }
 
-  // Show exactly one SHA-verified image; page URLs remain server-owned.
+  // Source-owned page URLs; the browser manages only fullscreen and image gestures.
   function initializeBookletSwipe() {
     const reader = document.querySelector('.booklet-swipe');
     const canvas = reader?.querySelector('[data-booklet-swipe]');
@@ -54,22 +54,63 @@
     const next = reader?.querySelector('[data-booklet-next]');
     const counter = reader?.querySelector('[data-booklet-counter]');
     const toggle = reader?.querySelector('[data-booklet-fullscreen]');
-    const zoom = reader?.querySelector('.booklet-zoom-toggle');
-    if (!reader || !canvas || !image || !form || !select || !prev || !next || !counter || !toggle) return;
+    const hud = reader?.querySelector('[data-booklet-viewer-hud]');
+    const closeButton = hud?.querySelector('[data-booklet-viewer-close]');
+    const hudPrev = hud?.querySelector('[data-booklet-viewer-prev]');
+    const hudNext = hud?.querySelector('[data-booklet-viewer-next]');
+    const hudCount = hud?.querySelector('[data-booklet-viewer-count]');
+    if (!reader || !canvas || !image || !form || !select || !prev || !next ||
+        !counter || !toggle || !hud || !closeButton || !hudPrev || !hudNext || !hudCount) return;
     if (reader.dataset.bookletReady) return;
     const options = [...select.options];
     if (!options.length || options.some(option => !option.dataset.bookletImageUrl)) return;
     let page = Number(select.value);
     if (!Number.isInteger(page) || page < 1 || page > options.length) return;
-    let touchStart = null;
     let nativeEntered = false;
+    let lastTouch = 0;
+    let gesture = null;
+    let scale = 1;
+    let x = 0;
+    let y = 0;
+    const maxZoom = 5;
+    const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+    const isOpen = () => reader.classList.contains('booklet-viewer-open');
+    function applyTransform() {
+      const bounds = canvas.getBoundingClientRect();
+      const maxX = Math.max(0, (image.offsetWidth * scale - bounds.width) / 2);
+      const maxY = Math.max(0, (image.offsetHeight * scale - bounds.height) / 2);
+      x = clamp(x, -maxX, maxX);
+      y = clamp(y, -maxY, maxY);
+      image.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + scale + ')';
+      canvas.classList.toggle('is-zoomed', scale > 1.01);
+    }
+    function resetZoom() {
+      scale = 1;
+      x = 0;
+      y = 0;
+      gesture = null;
+      applyTransform();
+    }
+    function zoomAt(nextScale, clientX, clientY) {
+      const bounds = canvas.getBoundingClientRect();
+      const cx = bounds.left + bounds.width / 2;
+      const cy = bounds.top + bounds.height / 2;
+      const next = clamp(nextScale, 1, maxZoom);
+      x = clientX - cx - (clientX - cx - x) * next / scale;
+      y = clientY - cy - (clientY - cy - y) * next / scale;
+      scale = next;
+      if (scale === 1) { x = 0; y = 0; }
+      applyTransform();
+    }
     function navigate(number, updateUrl = true) {
       if (!Number.isInteger(number) || number < 1 || number > options.length) return;
+      if (number !== page) resetZoom();
       page = number;
       select.value = String(number);
       image.src = options[number - 1].dataset.bookletImageUrl;
       image.alt = 'Netto buklets, ' + number + '. lapa no ' + options.length;
       counter.textContent = String(number);
+      hudCount.textContent = number + ' / ' + options.length;
       for (const [link, target, disabled] of [
         [prev, Math.max(1, number - 1), number === 1],
         [next, Math.min(options.length, number + 1), number === options.length],
@@ -80,7 +121,8 @@
         link.setAttribute('aria-disabled', String(disabled));
         link.tabIndex = disabled ? -1 : 0;
       }
-      if (zoom) zoom.checked = false;
+      hudPrev.disabled = number === 1;
+      hudNext.disabled = number === options.length;
       if (updateUrl) {
         const url = new URL(location.href);
         url.searchParams.set('page', String(number));
@@ -88,63 +130,136 @@
       }
     }
     function close() {
+      if (!isOpen()) return;
       reader.classList.remove('booklet-viewer-open');
       document.body.classList.remove('booklet-viewer-active');
+      canvas.setAttribute('aria-label', 'Atvērt Netto bukletu pilnekrānā');
       toggle.setAttribute('aria-expanded', 'false');
-      toggle.textContent = '⛶ Pilnekrāns';
+      hud.hidden = true;
+      resetZoom();
       if (document.fullscreenElement === reader) document.exitFullscreen().catch(() => {});
       nativeEntered = false;
       toggle.focus({ preventScroll:true });
     }
     function open() {
+      if (isOpen()) return;
       reader.classList.add('booklet-viewer-open');
       document.body.classList.add('booklet-viewer-active');
+      canvas.setAttribute('aria-label', 'Netto bukleta attēls. Divu pirkstu žests pietuvina; bultiņas pāršķir lapas.');
       toggle.setAttribute('aria-expanded', 'true');
-      toggle.textContent = '× Aizvērt pilnekrānu';
-      canvas.focus({ preventScroll:true });
-      // The fixed viewport overlay works even when iOS denies native fullscreen.
-      if (document.fullscreenEnabled && reader.requestFullscreen) reader.requestFullscreen().catch(() => {});
+      hud.hidden = false;
+      resetZoom();
+      closeButton.focus({ preventScroll:true });
+      // Native fullscreen may reject; the full-viewport overlay still works.
+      if (document.fullscreenEnabled && reader.requestFullscreen) {
+        reader.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+      }
     }
     for (const [link, delta] of [[prev, -1], [next, 1]]) {
       link.addEventListener('click', event => {
-        if (!reader.classList.contains('booklet-viewer-open')) return;
+        if (!isOpen()) return;
         event.preventDefault();
         navigate(page + delta);
       });
     }
+    for (const [button, delta] of [[hudPrev, -1], [hudNext, 1]]) {
+      button.addEventListener('click', () => navigate(page + delta));
+    }
     form.addEventListener('submit', event => {
-      if (!reader.classList.contains('booklet-viewer-open')) return;
+      if (!isOpen()) return;
       event.preventDefault();
       navigate(Number(select.value));
     });
     toggle.hidden = false;
-    toggle.addEventListener('click', () => {
-      if (reader.classList.contains('booklet-viewer-open')) close();
-      else open();
+    toggle.addEventListener('click', open);
+    closeButton.addEventListener('click', close);
+    image.addEventListener('click', event => {
+      if (!isOpen()) { open(); return; }
+      // Touch gestures must not produce a synthetic mouse zoom click.
+      if (Date.now() - lastTouch < 700 || event.button !== 0) return;
+      if (scale > 1.01) resetZoom();
+      else zoomAt(2.5, event.clientX, event.clientY);
+    });
+    canvas.addEventListener('keydown', event => {
+      if (!isOpen() && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        open();
+      }
     });
     reader.addEventListener('fullscreenchange', () => {
       if (document.fullscreenElement === reader) nativeEntered = true;
       else if (nativeEntered) close();
     });
+    const point = touch => ({ x: touch.clientX, y: touch.clientY });
+    const middle = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     canvas.addEventListener('touchstart', event => {
-      if (!reader.classList.contains('booklet-viewer-open') || event.touches.length !== 1 || zoom?.checked) return;
-      touchStart = { x:event.touches[0].clientX, y:event.touches[0].clientY };
+      lastTouch = Date.now();
+      if (!isOpen()) return;
+      if (event.touches.length >= 2) {
+        const a = point(event.touches[0]), b = point(event.touches[1]);
+        const focus = middle(a, b);
+        const rect = canvas.getBoundingClientRect();
+        const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        gesture = {
+          type: 'pinch', distance: Math.max(1, distance(a, b)), scale,
+          anchorX: (focus.x - center.x - x) / scale,
+          anchorY: (focus.y - center.y - y) / scale,
+        };
+      } else if (event.touches.length === 1 && !gesture) {
+        gesture = { type: scale > 1.01 ? 'pan' : 'swipe',
+          origin: point(event.touches[0]), x, y };
+      }
     }, { passive:true });
+    canvas.addEventListener('touchmove', event => {
+      if (!isOpen() || !gesture) return;
+      lastTouch = Date.now();
+      if (gesture.type === 'pinch' && event.touches.length >= 2) {
+        event.preventDefault();
+        const a = point(event.touches[0]), b = point(event.touches[1]);
+        const focus = middle(a, b);
+        const rect = canvas.getBoundingClientRect();
+        scale = clamp(gesture.scale * distance(a, b) / gesture.distance, 1, maxZoom);
+        x = focus.x - (rect.left + rect.width / 2) - gesture.anchorX * scale;
+        y = focus.y - (rect.top + rect.height / 2) - gesture.anchorY * scale;
+        if (scale === 1) { x = 0; y = 0; }
+        applyTransform();
+      } else if (gesture.type === 'pan' && event.touches.length === 1) {
+        event.preventDefault();
+        x = gesture.x + event.touches[0].clientX - gesture.origin.x;
+        y = gesture.y + event.touches[0].clientY - gesture.origin.y;
+        applyTransform();
+      } else if (gesture.type === 'swipe' && event.touches.length === 1) {
+        event.preventDefault();
+      }
+    }, { passive:false });
     canvas.addEventListener('touchend', event => {
-      if (!touchStart || !reader.classList.contains('booklet-viewer-open') || event.changedTouches.length !== 1) return;
-      const dx = event.changedTouches[0].clientX - touchStart.x;
-      const dy = event.changedTouches[0].clientY - touchStart.y;
-      touchStart = null;
-      if (Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy) * 1.3) navigate(page + (dx < 0 ? 1 : -1));
+      lastTouch = Date.now();
+      if (!isOpen() || !gesture) return;
+      if (gesture.type === 'swipe' && event.touches.length === 0 && event.changedTouches.length === 1) {
+        const dx = event.changedTouches[0].clientX - gesture.origin.x;
+        const dy = event.changedTouches[0].clientY - gesture.origin.y;
+        if (Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy) * 1.3) navigate(page + (dx < 0 ? 1 : -1));
+      }
+      gesture = null; // Do not turn the remaining finger of a pinch into a swipe.
     }, { passive:true });
+    canvas.addEventListener('touchcancel', () => { gesture = null; }, { passive:true });
     reader.addEventListener('keydown', event => {
-      if (!reader.classList.contains('booklet-viewer-open')) return;
+      if (!isOpen()) return;
       if (event.key === 'Escape') { event.stopPropagation(); close(); return; }
       if (event.target.closest('select,button,input')) return;
+      if (event.key === '0') { event.preventDefault(); resetZoom(); return; }
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        zoomAt(scale * 1.5, rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return;
+      }
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       event.preventDefault();
-      navigate(page + (event.key === 'ArrowRight' ? 1 : -1));
+      if (scale <= 1.01) navigate(page + (event.key === 'ArrowRight' ? 1 : -1));
     });
+    window.addEventListener('resize', () => { if (isOpen()) applyTransform(); });
     reader.dataset.bookletReady = 'true';
     navigate(page, false);
   }

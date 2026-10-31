@@ -1,0 +1,35 @@
+"""Source-level contract for the one-image viewer; runtime behavior needs mobile canary."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+JS = (ROOT / "backend/app/north_star/static/north-star.js").read_text(encoding="utf-8")
+CSS = (ROOT / "backend/app/north_star/static/modern.css").read_text(encoding="utf-8")
+INDEX = (ROOT / "backend/app/north_star/templates/index.html").read_text(encoding="utf-8")
+TEMPLATE = (ROOT / "backend/app/north_star/templates/booklets.html").read_text(encoding="utf-8")
+
+
+def test_immersive_viewer_does_not_obscure_booklet_with_original_controls():
+    assert ".booklet-reader.booklet-viewer-open .booklet-controls," in CSS
+    assert ".booklet-reader.booklet-viewer-open .booklet-fullscreen," in CSS
+    assert ".booklet-reader.booklet-viewer-open .booklet-canvas {" in CSS
+    assert "touch-action:none" in CSS
+    assert "data-booklet-viewer-hud" in TEMPLATE
+    assert "data-booklet-viewer-close" in TEMPLATE
+    assert "data-booklet-viewer-count" in TEMPLATE
+    assert 'data-booklet-image src="{{ booklet.image_url }}"' in TEMPLATE
+    assert 'class="booklet-slide"' not in TEMPLATE
+
+
+def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
+    assert "image.addEventListener('click', event => {" in JS
+    assert "if (!isOpen()) { open(); return; }" in JS
+    assert "requestFullscreen({ navigationUI: 'hide' })" in JS
+    assert "canvas.addEventListener('touchmove'" in JS
+    assert "event.touches.length >= 2" in JS
+    assert "anchorX" in JS and "anchorY" in JS
+    assert "event.preventDefault();" in JS
+    assert "if (scale <= 1.01) navigate(" in JS
+    assert "lastTouch < 700" in JS
+    assert "scale = 1" in JS and "resetZoom()" in JS
+    assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
+    assert "netto-viewer-v3" in INDEX

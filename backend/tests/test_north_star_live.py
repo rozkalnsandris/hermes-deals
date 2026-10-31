@@ -1874,6 +1874,10 @@ def test_netto_html_verified_publication_pages_without_pdf(data, tmp_path, monke
     assert page.text.count('class="booklet-page-image"') == 1
     assert 'data-booklet-image' in page.text
     assert 'data-booklet-fullscreen' in page.text
+    assert 'data-booklet-viewer-close' in page.text
+    assert 'data-booklet-viewer-prev' in page.text
+    assert 'data-booklet-viewer-next' in page.text
+    assert 'draggable="false"' in page.text
     assert 'data-booklet-image-url="https://view.publitas.com/hz40/page-1-at1600.jpg"' in page.text
     assert 'data-booklet-next' in page.text
     assert not list(tmp_path.rglob("*.pdf"))
