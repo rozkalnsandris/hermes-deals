@@ -162,3 +162,15 @@ with a horizontal swipe while at fit scale. Desktop clicks on the image zoom
 around the cursor, and a subsequent click resets zoom. All page changes reset
 zoom and use only previously verified publication URL options. The reader still
 holds only one image and does not request a PDF or infer product identity.
+
+## Separate image zoom from product selection (#1069)
+
+In the immersive reader, clicking the cover still opens fullscreen, but a
+single click on the open page no longer zooms. This keeps future verified
+product hotspots possible without conflicting with a magnifier (hotspots and
+product mappings are **not** implemented by this change). Desktop controls
+are separate 44px + / − buttons, wheel/trackpad zoom over the page at the
+pointer, and keyboard + / −. Mouse dragging pans an enlarged page. Mobile
+pinch zoom and one-finger panning/swiping retain their previous behavior.
+The zoom level is visible and clamped to 100–500%; changing pages resets it.
+No collector/DB/offer/PDF/LIVE changes.
