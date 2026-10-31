@@ -185,8 +185,10 @@ def _html_teaser_link(db, day, cutoff, page):
                 "store_name": manifest.get("store_name") or "Netto · filiāle 5659",
                 "valid_label": f"{start:%d.%m.%Y}–{end:%d.%m.%Y}",
                 "snapshot_id": str(snapshot.id),
-                "pages": [{"number": index, "href": booklet_href(day, index)}
-                          for index in range(1, len(paths) + 1)],
+                "swipeable": True,
+                "pages": [{"number": index, "href": booklet_href(day, index),
+                           "image_url": publitas_page_image_url(asset, "at1600")}
+                          for index, asset in enumerate(paths, 1)],
                 "previous_href": booklet_href(day, page - 1) if page > 1 else None,
                 "next_href": booklet_href(day, page + 1) if page < len(paths) else None,
             }

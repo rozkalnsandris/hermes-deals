@@ -131,3 +131,13 @@ migration, household action, PDF or inferred offer identity is introduced.
 
 Production collection and display availability are still unverified until
 a separately authorized deployment/collector run and read-only canary.
+
+## Native swipe reading (#1069)
+
+Only fully verified `netto_store_html_v1` publications expose all
+SHA-validated official Publitas page image URLs to a horizontal native
+CSS scroll-snap reader. Nonselected images lazy-load. Minimal JavaScript
+synchronizes page selection, arrows, the counter and shareable page URL,
+without navigating away on each swipe. Browser fullscreen and keyboard
+arrows are optional. Legacy V1–V3 keep their per-page navigation and
+distinct linked-offer provenance. No PDF or speculative hotspot mapping.

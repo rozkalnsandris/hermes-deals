@@ -1860,10 +1860,18 @@ def test_netto_html_verified_publication_pages_without_pdf(data, tmp_path, monke
         assert selected["page_count"] == 2
         assert selected["valid_label"] == "01.10.2026–03.10.2026"
         assert selected["image_url"] == "https://view.publitas.com/hz40/page-2-at1600.jpg"
+        assert selected["swipeable"] is True
+        assert [p["image_url"] for p in selected["pages"]] == [
+            "https://view.publitas.com/hz40/page-1-at1600.jpg",
+            "https://view.publitas.com/hz40/page-2-at1600.jpg",
+        ]
     page = client.get("/ui/home/?view=booklets&date=2026-10-02&page=2")
     assert page.status_code == 200
     assert "booklet-page-image" in page.text
     assert "hz40/page-2-at1600.jpg" in page.text
+    assert 'data-booklet-swipe="2"' in page.text
+    assert page.text.count('class="booklet-slide"') == 2
+    assert 'data-booklet-next' in page.text
     assert not list(tmp_path.rglob("*.pdf"))
     assert build_netto_booklet(db, date(2026, 10, 4))["state"] == "empty"
 
