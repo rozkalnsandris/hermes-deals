@@ -97,8 +97,8 @@ def test_real_pages_never_fall_back_to_demo(data, view):
     assert response.status_code == 200, response.text
     assert response.headers["Referrer-Policy"] == "same-origin"
     timings = response.headers["Server-Timing"]
-    assert re.search(r"home-context;dur=\\d+\\.\\d", timings)
-    assert re.search(r"home-render;dur=\\d+\\.\\d", timings)
+    assert re.search(r"home-context;dur=\d+\.\d", timings)
+    assert re.search(r"home-render;dur=\d+\.\d", timings)
     assert "SAGLABĀTIE DATI" in response.text
     assert "DEMONSTRĀCIJAS DATI" not in response.text
     assert "2,46 € / porcija" not in response.text
