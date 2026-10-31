@@ -204,3 +204,22 @@ normal browser rasterization behavior applies. CSS `transform` positioning,
 verified `at2400` / `at2000` variant selection, mobile pinch/swipe,
 and desktop + / − zoom remain untouched. New CSS is cache-busted with
 `netto-viewer-v6`. No product hotspots, PDF, persistence, or LIVE mutation.
+
+
+## Inline viewer cleanup and page-navigation states (#1069)
+
+The official Netto page image remains the opener for the immersive reader;
+the cover is also keyboard-operable via the focusable canvas (Enter/Space).
+Remove the redundant inline fullscreen button and hint, and remove the
+fallback sentence linking to the retailer from beneath the image. The
+verified retailer URL remains in the booklet header. Page number and source
+provenance remain beneath the image.
+
+Inline previous/next links now receive `aria-disabled="true"` only at the
+first/last page boundary. Enabled links remove the disabled attribute;
+CSS styles the disabled state with `[aria-disabled="true"]` instead of
+`[aria-disabled]`, which had also dimmed `aria-disabled="false"`.
+Enabled links have a clear green outline and focus indicator; boundary links
+remain visibly inactive and non-focusable. Page URLs, fullscreen HUD controls,
+touch gestures, zoom and image provenance are unchanged. Assets use
+`netto-viewer-v7` for cache-busting.

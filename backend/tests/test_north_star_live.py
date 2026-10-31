@@ -1876,7 +1876,9 @@ def test_netto_html_verified_publication_pages_without_pdf(data, tmp_path, monke
     assert 'class="booklet-slide"' not in page.text
     assert page.text.count('class="booklet-page-image"') == 1
     assert 'data-booklet-image' in page.text
-    assert 'data-booklet-fullscreen' in page.text
+    assert 'data-booklet-fullscreen' not in page.text
+    assert 'Pieskaries vākam' not in page.text
+    assert 'Ja attēls neielādējas' not in page.text
     assert 'data-booklet-viewer-close' in page.text
     assert 'data-booklet-viewer-prev' in page.text
     assert 'data-booklet-viewer-next' in page.text

@@ -10,7 +10,9 @@ TEMPLATE = (ROOT / "backend/app/north_star/templates/booklets.html").read_text(e
 
 def test_immersive_viewer_does_not_obscure_booklet_with_original_controls():
     assert ".booklet-reader.booklet-viewer-open .booklet-controls," in CSS
-    assert ".booklet-reader.booklet-viewer-open .booklet-fullscreen," in CSS
+    assert "data-booklet-fullscreen" not in TEMPLATE
+    assert "booklet-swipe-hint" not in TEMPLATE
+    assert "Ja attēls neielādējas" not in TEMPLATE
     assert ".booklet-reader.booklet-viewer-open .booklet-canvas {" in CSS
     assert "touch-action:none" in CSS
     assert "data-booklet-viewer-hud" in TEMPLATE
@@ -33,7 +35,7 @@ def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
     assert "zoomAt(2.5, event.clientX, event.clientY)" not in JS
     assert "scale = 1" in JS and "resetZoom()" in JS
     assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
-    assert "netto-viewer-v6" in INDEX
+    assert "netto-viewer-v7" in INDEX
 
 
 def test_separate_zoom_keeps_product_click_unbound():
@@ -60,7 +62,7 @@ def test_zoom_resolution_uses_only_verified_data_and_falls_back_on_asset_failure
     assert "image.src = option.dataset.bookletImageUrl" in JS
     assert "scale > 1.01" in JS
     assert 'data-booklet-zoom-image-url="{{ p.zoom_image_url }}"' in TEMPLATE
-    assert "netto-viewer-v6" in INDEX
+    assert "netto-viewer-v7" in INDEX
 
 
 def test_fullscreen_booklet_image_rerasterizes_when_scaled():
@@ -70,4 +72,26 @@ def test_fullscreen_booklet_image_rerasterizes_when_scaled():
     assert "will-change" not in image_rules
     assert "transform-origin:center center" in image_rules
     assert "object-fit:contain" in image_rules
-    assert "netto-viewer-v6" in INDEX
+    assert "netto-viewer-v7" in INDEX
+
+
+def test_inline_booklet_navigation_highlights_only_enabled_pages():
+    # The bug was CSS [aria-disabled], which also matches "false".
+    assert '.booklet-controls [aria-disabled="true"]' in CSS
+    assert '.booklet-controls [aria-disabled] {' not in CSS
+    assert '[data-booklet-prev]:not([aria-disabled="true"])' in CSS
+    assert '[data-booklet-next]:not([aria-disabled="true"])' in CSS
+    assert "if (disabled) link.setAttribute('aria-disabled', 'true');" in JS
+    assert "else link.removeAttribute('aria-disabled');" in JS
+    assert 'link.tabIndex = disabled ? -1 : 0' in JS
+    assert 'number === 1' in JS and 'number === options.length' in JS
+
+
+def test_cover_and_keyboard_still_open_reader_without_fullscreen_button():
+    assert 'role="button" aria-expanded="false" data-booklet-swipe=' in TEMPLATE
+    assert "canvas.setAttribute('aria-expanded', 'true');" in JS
+    assert "canvas.setAttribute('aria-expanded', 'false');" in JS
+    assert "canvas.focus({ preventScroll:true });" in JS
+    assert "image.addEventListener('click', () => { if (!isOpen()) open(); });" in JS
+    assert "if (!isOpen() && (event.key === 'Enter' || event.key === ' '))" in JS
+    assert "data-booklet-fullscreen" not in JS
