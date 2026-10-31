@@ -5,17 +5,20 @@
 </section>
 {% if booklet.state == 'ready' %}
 <div class="booklet-layout">
-<section class="panel booklet-reader" aria-label="Bukleta lapas">
+<section class="panel booklet-reader{% if booklet.swipeable|default(false) %} booklet-swipe{% endif %}" aria-label="Bukleta lapas">
   <nav class="booklet-controls" aria-label="Bukleta lapošana">
-    {% if booklet.previous_href %}<a class="button button-outline" href="{{ booklet.previous_href }}" aria-label="Iepriekšējā bukleta lapa">‹ <span>Iepriekšējā</span></a>{% else %}<span class="button button-outline" aria-disabled="true">‹ <span>Iepriekšējā</span></span>{% endif %}
-    <form method="get" class="booklet-page-form"><input type="hidden" name="view" value="booklets"><input type="hidden" name="date" value="{{ selected_date }}"><label for="booklet-page">Lapa</label><select id="booklet-page" name="page">{% for p in booklet.pages %}<option value="{{ p.number }}" {% if p.number == booklet.page %}selected{% endif %}>{{ p.number }} / {{ booklet.page_count }}</option>{% endfor %}</select><button class="button button-outline">Atvērt</button></form>
-    {% if booklet.next_href %}<a class="button button-outline" href="{{ booklet.next_href }}" aria-label="Nākamā bukleta lapa"><span>Nākamā</span> ›</a>{% else %}<span class="button button-outline" aria-disabled="true"><span>Nākamā</span> ›</span>{% endif %}
+    {% if booklet.swipeable|default(false) %}<a class="button button-outline" data-booklet-prev href="{{ booklet.previous_href or booklet.pages[0].href }}" aria-label="Iepriekšējā bukleta lapa" hx-boost="false" {% if not booklet.previous_href %}aria-disabled="true"{% endif %}>‹ <span>Iepriekšējā</span></a>{% elif booklet.previous_href %}<a class="button button-outline" href="{{ booklet.previous_href }}" aria-label="Iepriekšējā bukleta lapa">‹ <span>Iepriekšējā</span></a>{% else %}<span class="button button-outline" aria-disabled="true">‹ <span>Iepriekšējā</span></span>{% endif %}
+    <form method="get" class="booklet-page-form" {% if booklet.swipeable|default(false) %}data-booklet-page-form hx-boost="false"{% endif %}><input type="hidden" name="view" value="booklets"><input type="hidden" name="date" value="{{ selected_date }}"><label for="booklet-page">Lapa</label><select id="booklet-page" name="page">{% for p in booklet.pages %}<option value="{{ p.number }}" {% if p.number == booklet.page %}selected{% endif %}>{{ p.number }} / {{ booklet.page_count }}</option>{% endfor %}</select><button class="button button-outline">Atvērt</button></form>
+    {% if booklet.swipeable|default(false) %}<a class="button button-outline" data-booklet-next href="{{ booklet.next_href or booklet.pages[-1].href }}" aria-label="Nākamā bukleta lapa" hx-boost="false" {% if not booklet.next_href %}aria-disabled="true"{% endif %}><span>Nākamā</span> ›</a>{% elif booklet.next_href %}<a class="button button-outline" href="{{ booklet.next_href }}" aria-label="Nākamā bukleta lapa"><span>Nākamā</span> ›</a>{% else %}<span class="button button-outline" aria-disabled="true"><span>Nākamā</span> ›</span>{% endif %}
   </nav>
   <input class="booklet-zoom-toggle" type="checkbox" id="booklet-zoom"><label class="button button-outline booklet-zoom-label" for="booklet-zoom">{{ icon('search',16) }} Palielināt lapu</label>
-  <div class="booklet-canvas" tabindex="0" aria-label="Bukleta attēls; palielinātu lapu var ritināt">
-    <img class="booklet-page-image" src="{{ booklet.image_url }}" alt="Netto buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async">
+  {% if booklet.swipeable|default(false) %}<button class="button button-outline booklet-fullscreen" data-booklet-fullscreen type="button" hidden>⛶ Pilnekrāns</button><p class="booklet-swipe-hint">Šķirsti lapas ar pirkstu pa kreisi vai labi.</p>{% endif %}
+  <div class="booklet-canvas" tabindex="0" aria-label="{{ 'Šķirstāms Netto buklets' if booklet.swipeable|default(false) else 'Bukleta attēls; palielinātu lapu var ritināt' }}" {% if booklet.swipeable|default(false) %}data-booklet-swipe="{{ booklet.page }}"{% endif %}>
+    {% if booklet.swipeable|default(false) %}
+    {% for p in booklet.pages %}<div class="booklet-slide" data-booklet-slide="{{ p.number }}" data-booklet-href="{{ p.href }}"><img class="booklet-page-image" src="{{ p.image_url }}" alt="Netto buklets, {{ p.number }}. lapa no {{ booklet.page_count }}" loading="{{ 'eager' if p.number == booklet.page else 'lazy' }}" referrerpolicy="no-referrer" decoding="async"></div>{% endfor %}
+    {% else %}<img class="booklet-page-image" src="{{ booklet.image_url }}" alt="Netto buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async">{% endif %}
   </div>
-  <p class="fine-print">Lapa {{ booklet.page }} no {{ booklet.page_count }} · attēls no veikala bukleta publicētāja. Ja attēls neielādējas, <a class="text-link" href="{{ booklet.source_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false">atver veikala bukletu</a>.</p>
+  <p class="fine-print">Lapa <span {% if booklet.swipeable|default(false) %}data-booklet-counter{% endif %}>{{ booklet.page }}</span> no {{ booklet.page_count }} · attēls no veikala bukleta publicētāja. Ja attēls neielādējas, <a class="text-link" href="{{ booklet.source_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false">atver veikala bukletu</a>.</p>
 </section>
 <aside class="panel booklet-products" aria-label="Ar lapu sasaistītie produkti">
   <p class="eyebrow">ŠAJĀ LAPĀ</p><h2>Atvērt produktu</h2>
