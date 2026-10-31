@@ -2073,3 +2073,31 @@ def test_booklet_selection_keeps_day_navigation_and_resets_page(data):
     assert "view=booklets&amp;date=2026-10-02&amp;retailer=lidl" in response.text
     assert "view=booklets&amp;date=2026-10-02&amp;page=2" not in response.text
     assert 'name="retailer"' in response.text
+
+
+
+def test_aldi_official_links_are_not_fake_embedded_pages(data, monkeypatch):
+    from datetime import date
+    from app.aldi_booklets import build_aldi_nord_booklet
+    import app.north_star_live_data as live_data
+
+    _, client, _ = data
+    monkeypatch.setattr(
+        live_data, "build_aldi_nord_booklet",
+        lambda day: build_aldi_nord_booklet(day, today=date(2026, 10, 31)),
+    )
+    for day, path in (
+        ("2026-10-29", "aldi-aktuell.html"),
+        ("2026-11-02", "aldi-vorschau.html"),
+    ):
+        response = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=" + day)
+        assert response.status_code == 200
+        assert 'data-booklet-state="external_link"' in response.text
+        assert "https://www.aldi-nord.de/prospekte/" + path in response.text
+        assert "Atlasītā datuma publikācija un lapas nav neatkarīgi apstiprinātas" in response.text
+        assert 'class="booklet-page-image"' not in response.text
+        assert "Netto piedāvājumi" not in response.text
+
+    old = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=2026-10-10")
+    assert 'data-booklet-state="unavailable"' in old.text
+    assert "https://www.aldi-nord.de/prospekte/" not in old.text

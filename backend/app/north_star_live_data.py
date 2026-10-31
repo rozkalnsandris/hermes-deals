@@ -17,6 +17,7 @@ from app.meal_service import meal_context, quantity_label
 from app.meal_pricing import INGREDIENTS, requirement_price
 from app.models import OfferCandidateRecord
 from app.netto_booklets import build_netto_booklet
+from app.aldi_booklets import build_aldi_nord_booklet
 from app.lidl_booklets import build_lidl_booklet
 from app.price_intelligence import (
     build_offer_price_intelligence, summarize_price_history, _series_predicate,
@@ -337,6 +338,8 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
             booklet = build_netto_booklet(db, day, booklet_page)
         elif booklet_retailer == "lidl":
             booklet = build_lidl_booklet(db, day, booklet_page)
+        elif booklet_retailer == "aldi_nord":
+            booklet = build_aldi_nord_booklet(day)
         else:
             # No other retailer has a registered, verified page reader yet.
             # Never substitute the Netto publication or infer pages from offers.

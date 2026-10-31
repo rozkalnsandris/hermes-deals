@@ -280,3 +280,23 @@ do not refresh server-side offer binding. A frozen 76-page source in #906
 alone is not proof of available published offers at runtime. This source-only
 change does not execute collectors, render/retain PDFs, alter the DB, Review,
 publication, the 30-day PDF retention mechanism, or production deployment.
+
+
+
+## ALDI Nord first-party brochure fallback (#1069)
+
+For the Berlin-local current and next week, the ALDI Nord selector now offers
+ALDI's stable official current/preview brochure landing pages at
+`https://www.aldi-nord.de/prospekte/aldi-aktuell.html` and
+`https://www.aldi-nord.de/prospekte/aldi-vorschau.html`.
+The chosen calendar week selects only the landing page, NOT a verified edition,
+validity period, page count or region. The UI explicitly says publication
+metadata has not been verified. Historical and later dates remain unavailable
+rather than pointing to a mismatched live edition.
+
+This is not an embedded original-page booklet. The ALDI structured offer feed
+and new-baseline weekly screenshot are not PDF/iPaper page evidence. The next
+necessary source step is an independently verified official magazine/iPaper
+page manifest (source identity, region, validity, all page URLs and retention)
+followed by the existing shared image reader. No price/product matching,
+PDF acquisition, DB/Review/publication, collector, or LIVE mutation is implied.
