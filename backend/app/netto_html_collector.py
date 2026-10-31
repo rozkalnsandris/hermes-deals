@@ -116,6 +116,7 @@ def immutable(path: Path, data: bytes) -> None:
 
 
 def parse_pages(pages: list[HtmlPage], source: SourceConfig, snapshot_id, now: datetime):
+
     offers, rejected, cards = [], [], 0
     for page in pages:
         validate_url(page.url)
@@ -132,6 +133,29 @@ def parse_pages(pages: list[HtmlPage], source: SourceConfig, snapshot_id, now: d
     if not cards or len({o.source_offer_id for o in offers}) != len(offers):
         raise ValueError("Netto empty or overlapping catalogue identities")
     return offers, rejected, cards
+
+
+def booklet_teaser_evidence(pages: list[HtmlPage]) -> dict:
+    """Optional, store-bound booklet starts. Never infer expiry or offer identity.
+
+    A malformed brochure is unavailable, not grounds to reject valid HTML offers.
+    """
+    stores = [page for page in pages if page.role == "store"]
+    if not stores:
+        return {"state": "not_observed", "starts": {}}
+    if len(stores) != 1:
+        return {"state": "unavailable", "starts": {}}
+    from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts
+
+    try:
+        starts = extract_netto_booklet_teaser_starts(
+            stores[0].content.decode("utf-8", errors="replace"), "5659",
+        )
+    except (ValueError, TypeError):
+        return {"state": "unavailable", "starts": {}}
+    return {"state": "observed", "starts": {
+        slug: day.isoformat() for slug, day in starts.items()
+    }}
 
 
 def semantic(offers, rejected) -> str:
@@ -156,6 +180,9 @@ def replay(snapshot: SourceSnapshot, source: SourceConfig):
             raise ValueError("Netto HTML SHA mismatch")
         pages.append(HtmlPage(entry["url"], entry["final_url"], content, entry["role"]))
     offers, rejected, cards = parse_pages(pages, source, snapshot.id, datetime.fromisoformat(manifest["collected_at"]))
+    if ("booklet_teaser_evidence" in manifest
+            and manifest["booklet_teaser_evidence"] != booklet_teaser_evidence(pages)):
+        raise ValueError("Netto booklet teaser evidence mismatch")
     if semantic(offers, rejected) != manifest["semantic_sha256"] or cards != manifest["cards"]:
         raise ValueError("Netto manifest replay mismatch")
     return offers, manifest["semantic_sha256"]
@@ -187,11 +214,15 @@ def collect_html(db: Session, source: SourceConfig, root: Path, min_offers: int,
         snapshot.snapshot_path, snapshot.sha256 = str(capture_path), sha256(capture).hexdigest()
         offers, rejected, cards = parse_pages(pages, source, snapshot.id, now)
         fingerprint = semantic(offers, rejected)
+        teaser_evidence = booklet_teaser_evidence(pages)
         manifest = {
             "strategy": STRATEGY, "snapshot_id": str(snapshot.id), "source_url": source.url,
             "store_external_id": "5659", "store_name": source.store_name, "scope": source.scope,
             "collected_at": now.isoformat(), "pages": entries, "cards": cards,
             "rejected": rejected, "semantic_sha256": fingerprint,
+            # Derived solely from the same SHA-bound store HTML. Does not claim
+            # a full validity window, available images, or a PDF.
+            "booklet_teaser_evidence": teaser_evidence,
             # Compatibility envelope for existing weekly snapshot selection;
             # each offer keeps its own card-local dates. No PDF is claimed.
             "valid_from": min((o.valid_from for o in offers), default=None).isoformat() if offers else None,
@@ -216,9 +247,12 @@ def collect_html(db: Session, source: SourceConfig, root: Path, min_offers: int,
         if previous is not None:
             old_offers, old_fingerprint = replay(previous, source)
             if old_fingerprint == fingerprint:
-                # Check the complete persisted set even when the source is unchanged.
-                saved = save_offer_candidates(db, old_offers)
-                return HtmlImportResult(str(previous.id), saved, len(offers), cards, len(rejected))
+                # Offer identity can be unchanged when the store reveals a new
+                # publication. Keep a new snapshot for a changed teaser binding.
+                old_manifest = json.loads(Path(previous.snapshot_path).read_bytes())
+                if old_manifest.get("booklet_teaser_evidence") == teaser_evidence:
+                    saved = save_offer_candidates(db, old_offers)
+                    return HtmlImportResult(str(previous.id), saved, len(offers), cards, len(rejected))
         snapshot.success = True
         db.add(snapshot)
         db.flush()

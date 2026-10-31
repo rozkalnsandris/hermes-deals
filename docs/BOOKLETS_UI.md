@@ -73,3 +73,19 @@ The latest production Netto observation on October 27 uses
 current-week booklet. Integration of current publication metadata into the
 active HTML collection path remains tracked in #1069. No PDF read, collection,
 replay, deployment or production mutation was performed during diagnosis.
+
+## Store-bound HTML booklet teaser metadata (source-only)
+
+The existing `netto_store_html_v1` collector now derives the optional
+`booklet_teaser_evidence` field from its already fetched, selected-store HTML.
+The field records only official viewer slug → same-teaser start date; its values
+are checked again against the SHA-verified store HTML on replay. If the brochure
+markup is ambiguous, the field is `unavailable` without blocking valid offer
+import. When offer prices do not change but the dated booklet teaser changes,
+a new immutable observation is kept instead of deduplicating away that evidence.
+
+These starts are **not** proof of `valid_until`, publication pages, PDFs,
+product identity or complete weekly coverage. The household booklet reader still
+requires independently verified publication metadata before displaying pages;
+no new booklet-page UI is claimed by this source-only change. The collector
+requires separate LIVE authorization before any production run.
