@@ -53,7 +53,6 @@
     const prev = reader?.querySelector('[data-booklet-prev]');
     const next = reader?.querySelector('[data-booklet-next]');
     const counter = reader?.querySelector('[data-booklet-counter]');
-    const toggle = reader?.querySelector('[data-booklet-fullscreen]');
     const hud = reader?.querySelector('[data-booklet-viewer-hud]');
     const closeButton = hud?.querySelector('[data-booklet-viewer-close]');
     const hudPrev = hud?.querySelector('[data-booklet-viewer-prev]');
@@ -63,7 +62,7 @@
     const zoomOut = hud?.querySelector('[data-booklet-zoom-out]');
     const zoomLevel = hud?.querySelector('[data-booklet-zoom-level]');
     if (!reader || !canvas || !image || !form || !select || !prev || !next ||
-        !counter || !toggle || !hud || !closeButton || !hudPrev || !hudNext || !hudCount ||
+        !counter || !hud || !closeButton || !hudPrev || !hudNext || !hudCount ||
         !zoomIn || !zoomOut || !zoomLevel) return;
     if (reader.dataset.bookletReady) return;
     const options = [...select.options];
@@ -149,7 +148,8 @@
         const url = new URL(link.href, location.href);
         url.searchParams.set('page', String(target));
         link.href = url.pathname + url.search;
-        link.setAttribute('aria-disabled', String(disabled));
+        if (disabled) link.setAttribute('aria-disabled', 'true');
+        else link.removeAttribute('aria-disabled');
         link.tabIndex = disabled ? -1 : 0;
       }
       hudPrev.disabled = number === 1;
@@ -165,19 +165,19 @@
       reader.classList.remove('booklet-viewer-open');
       document.body.classList.remove('booklet-viewer-active');
       canvas.setAttribute('aria-label', 'Atvērt Netto bukletu pilnekrānā');
-      toggle.setAttribute('aria-expanded', 'false');
+      canvas.setAttribute('aria-expanded', 'false');
       hud.hidden = true;
       resetZoom();
       if (document.fullscreenElement === reader) document.exitFullscreen().catch(() => {});
       nativeEntered = false;
-      toggle.focus({ preventScroll:true });
+      canvas.focus({ preventScroll:true });
     }
     function open() {
       if (isOpen()) return;
       reader.classList.add('booklet-viewer-open');
       document.body.classList.add('booklet-viewer-active');
       canvas.setAttribute('aria-label', 'Netto buklets. Pietuvini ar plus/mīnus pogām, peles ritentiņu vai diviem pirkstiem; šķirsti ar bultiņām.');
-      toggle.setAttribute('aria-expanded', 'true');
+      canvas.setAttribute('aria-expanded', 'true');
       hud.hidden = false;
       resetZoom();
       closeButton.focus({ preventScroll:true });
@@ -201,8 +201,6 @@
       event.preventDefault();
       navigate(Number(select.value));
     });
-    toggle.hidden = false;
-    toggle.addEventListener('click', open);
     closeButton.addEventListener('click', close);
     // One click opens the cover; clicks within the reader are reserved for verified product hotspots.
     image.addEventListener('click', () => { if (!isOpen()) open(); });
