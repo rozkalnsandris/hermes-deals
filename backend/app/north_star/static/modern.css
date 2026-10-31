@@ -360,7 +360,7 @@ body.booklet-viewer-active { overflow:hidden!important; }
 .booklet-reader.booklet-viewer-open .booklet-canvas.is-panning { cursor:grabbing; }
 .booklet-reader.booklet-viewer-open .booklet-page-image {
   display:block; width:auto; height:auto; max-width:100%; max-height:100%;
-  object-fit:contain; transform-origin:center center; will-change:transform;
+  object-fit:contain; transform-origin:center center;
   user-select:none; -webkit-user-select:none; -webkit-user-drag:none;
 }
 .booklet-viewer-hud { display:none; }

@@ -189,3 +189,18 @@ When metadata lacks a usable size, the standard image remains unchanged.
 The browser fetches no PDF, tiles or speculative URLs, and does not request
 the next page's high-resolution image. Zoom, pan, swipe and product selection
 boundaries are unchanged. No source acquisition, database or LIVE change.
+
+
+## Fullscreen image clarity when scaling (#1069)
+
+A desktop Chrome visual canary showed significantly sharper Netto booklet
+text after changing the immersive image element's CSS `will-change` from
+`transform` to `auto` at 145%+ zoom. Chromium documents that
+`will-change: transform` can avoid re-rasterizing on JavaScript-driven scale
+changes, leaving scaled text blurry (see
+https://googlechrome.github.io/samples/css-will-change-transform-rasterization/index.html).
+The fullscreen image therefore no longer forces `will-change: transform`;
+normal browser rasterization behavior applies. CSS `transform` positioning,
+verified `at2400` / `at2000` variant selection, mobile pinch/swipe,
+and desktop + / − zoom remain untouched. New CSS is cache-busted with
+`netto-viewer-v6`. No product hotspots, PDF, persistence, or LIVE mutation.
