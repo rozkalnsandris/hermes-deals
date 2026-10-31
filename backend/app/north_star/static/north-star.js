@@ -247,7 +247,8 @@
     reader.addEventListener('keydown', event => {
       if (!isOpen()) return;
       if (event.key === 'Escape') { event.stopPropagation(); close(); return; }
-      if (event.target.closest('select,button,input')) return;
+      // Arrow keys must also work when the viewer close/control buttons have focus.
+      if (event.target.closest('select,input')) return;
       if (event.key === '0') { event.preventDefault(); resetZoom(); return; }
       if (event.key === '+' || event.key === '=') {
         event.preventDefault();
