@@ -237,7 +237,8 @@ production Lidl booklet availability.
 
 Additional retailers require independently verified, selected-store-bound
 page metadata, dates, source identity and safe image URLs before their reader
-may be enabled. Lidl Gate B corpus freeze (#906) remains owner-gated; ALDI Nord,
+may be enabled. Lidl's Oct 26–31 frozen corpus was promoted and verified (#906), but
+new weeks and UI publication still require exact-source gates. ALDI Nord,
 EDEKA and Kaufland still require page source evidence. Do not guess image URLs,
 cache extra PDFs or infer offer/product identity. The UI static asset key is
 `booklet-viewer-v8`.
