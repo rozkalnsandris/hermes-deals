@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Base, OfferCandidateRecord, SourceSnapshot
 from app.netto_html_collector import HtmlPage, collect_html, fetch_pages, replay
+from app.netto_html_publications import PublicationCapture
 from app.parsers.netto import NettoParserContext
 from app.parsers.netto_listing import LISTING_URL, STORE_PATH, parse_listing
 from app.source_config import SourceConfig
@@ -138,6 +139,11 @@ class NettoHtmlImportTest(unittest.TestCase):
         self.mock=patch('app.netto_html_collector.fetch_pages',return_value=self.pages)
         self.mock.start()
         self.addCleanup(self.mock.stop)
+        self.mock_publications = patch(
+            'app.netto_html_collector.fetch_publications', return_value=([], [])
+        )
+        self.mock_publications.start()
+        self.addCleanup(self.mock_publications.stop)
 
     def collect(self, minimum=1):
         return collect_html(self.db,SOURCE,Path(self.tmp.name),minimum,now=NOW)
@@ -285,6 +291,47 @@ class NettoHtmlImportTest(unittest.TestCase):
             "hz45_hasb": "2026-11-02",
         })
         self.assertEqual(len(replay(latest, SOURCE)[0]), first.offers)
+
+    def test_metadata_publication_is_retained_without_pdf_or_offer_mapping(self):
+        from datetime import date
+        from hashlib import sha256
+        self.pages.insert(0, self._store_with_teaser("hz45_hasb", "ab Montag, 02.11.26"))
+        publication = b'{"spreads":[{"pages":["/test/one","/test/two"]}]}'
+        html = (
+            b'<meta name="description" content="Montag, 02.11.26 - Samstag, 07.11.26">'
+            b'<script>{"groupSlug":"netto"}</script>'
+        )
+        cap = PublicationCapture(
+            "hz45_hasb", date(2026, 11, 2), date(2026, 11, 7),
+            "02.11.26 - 07.11.26",
+            "https://wochenprospekt.netto-online.de/hz45_hasb/?storeid=5659",
+            html, "https://api.publitas.com/v1/groups/netto/publications/hz45_hasb.json",
+            publication,
+        )
+        with patch('app.netto_html_collector.fetch_publications',
+                   return_value=([cap], [])):
+            result = self.collect()
+        snap = self.db.get(SourceSnapshot, UUID(result.snapshot_id))
+        manifest = json.loads(Path(snap.snapshot_path).read_bytes())
+        row = manifest["booklet_publications"][0]
+        self.assertEqual((row["valid_from"], row["valid_until"]),
+                         ("2026-11-02", "2026-11-07"))
+        self.assertEqual(Path(row["publication_path"]).read_bytes(), publication)
+        self.assertEqual(row["publication_sha256"], sha256(publication).hexdigest())
+        self.assertEqual(Path(row["prospect_path"]).read_bytes(), html)
+        self.assertFalse(list(Path(self.tmp.name).rglob('*.pdf')))
+        self.assertEqual(self.count(), result.offers)
+
+    def test_metadata_failure_never_blocks_verified_html_offers(self):
+        self.pages.insert(0, self._store_with_teaser("hz45_hasb", "ab Montag, 02.11.26"))
+        with patch('app.netto_html_collector.fetch_publications',
+                   return_value=([], ["hz45_hasb"])):
+            result = self.collect()
+        snap = self.db.get(SourceSnapshot, UUID(result.snapshot_id))
+        manifest = json.loads(Path(snap.snapshot_path).read_bytes())
+        self.assertEqual(manifest["booklet_publications"], [])
+        self.assertEqual(manifest["booklet_publication_failures"], ["hz45_hasb"])
+        self.assertEqual(self.count(), result.offers)
 
     def test_malformed_teaser_is_unavailable_without_blocking_offers(self):
         self.pages.insert(0, self._store_with_teaser("hz45_hasb", "ab Dienstag, 02.11.26"))

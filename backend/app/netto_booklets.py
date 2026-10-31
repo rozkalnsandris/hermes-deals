@@ -12,6 +12,9 @@ from sqlalchemy import select
 from app.models import OfferCandidateRecord, SourceSnapshot
 from app.retailer_targeted_shadow import publication_page_paths, publitas_page_image_url
 from app.settings import get_settings
+from app.netto_store_prospect import extract_prospect_validity
+from app.netto_html_publications import validated_pages
+from app.structured_source_shadow import extract_netto_group_slug
 
 STRATEGIES = (
     "netto_store_page_plus_current_prospect_v1",
@@ -56,6 +59,24 @@ def booklet_href(day, page):
     return "/ui/home/?" + urlencode({"view": "booklets", "date": day.isoformat(), "page": page})
 
 
+def _verified_html(path_value, digest, root):
+    if not isinstance(path_value, str) or not isinstance(digest, str):
+        raise ValueError("Missing Netto HTML source binding")
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError("Invalid Netto HTML SHA")
+    path = Path(path_value)
+    if path.is_symlink():
+        raise ValueError("Symlinked Netto HTML evidence")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(root / "netto-html") or resolved.suffix != ".html":
+        raise ValueError("Netto HTML evidence outside permitted root")
+    with resolved.open("rb") as handle:
+        content = handle.read(8 * 1024 * 1024 + 1)
+    if len(content) > 8 * 1024 * 1024 or sha256(content).hexdigest() != digest:
+        raise ValueError("Netto HTML source integrity failure")
+    return content
+
+
 def _html_teaser_link(db, day, cutoff):
     """Official link on its verified start day only; no inferred validity or pages.
 
@@ -98,19 +119,7 @@ def _html_teaser_link(db, day, cutoff):
         for key in ("url", "final_url"):
             if _store_url_key(entry[key]) != _store_url_key(snapshot.source_url):
                 raise ValueError("HTML store URL mismatch")
-        path = Path(entry["path"])
-        if path.is_symlink():
-            raise ValueError("Symlinked HTML evidence")
-        resolved = path.resolve(strict=True)
-        if not resolved.is_relative_to(root / "netto-html") or resolved.suffix != ".html":
-            raise ValueError("HTML source outside permitted root")
-        digest = entry["sha256"]
-        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-            raise ValueError("Invalid HTML SHA")
-        with resolved.open("rb") as handle:
-            raw = handle.read(8 * 1024 * 1024 + 1)
-        if len(raw) > 8 * 1024 * 1024 or sha256(raw).hexdigest() != digest:
-            raise ValueError("HTML source integrity failure")
+        raw = _verified_html(entry["path"], entry["sha256"], root)
         from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts
         starts = extract_netto_booklet_teaser_starts(raw.decode("utf-8", errors="replace"), STORE)
         derived = {"state": "observed", "starts": {
@@ -119,6 +128,69 @@ def _html_teaser_link(db, day, cutoff):
         if ("booklet_teaser_evidence" in manifest
                 and manifest["booklet_teaser_evidence"] != derived):
             raise ValueError("HTML teaser metadata does not match source")
+        # The active HTML collector can save only metadata with an explicit
+        # viewer HTML validity range AND a verified official publication JSON.
+        # Unrelated unverified source data must not become pages/offer identity.
+        records = manifest.get("booklet_publications", [])
+        if not isinstance(records, list) or len(records) > 4:
+            raise ValueError("Invalid Netto HTML publication metadata")
+        selected = []
+        seen = set()
+        for record in records:
+            if not isinstance(record, dict):
+                raise ValueError("Invalid Netto HTML publication entry")
+            slug = record["slug"]
+            if not isinstance(slug, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", slug):
+                raise ValueError("Invalid publication slug")
+            if slug in seen or slug not in starts:
+                raise ValueError("Unbound or duplicated Netto publication")
+            seen.add(slug)
+            viewer_url = f"https://wochenprospekt.netto-online.de/{slug}/?storeid={STORE}"
+            if record["prospect_url"] != viewer_url:
+                raise ValueError("Netto viewer URL mismatch")
+            viewer = _verified_html(record["prospect_path"], record["prospect_sha256"], root)
+            start, end, text = extract_prospect_validity(viewer)
+            if (start != starts[slug] or end < start or (end - start).days > 14
+                    or record["valid_from"] != start.isoformat()
+                    or record["valid_until"] != end.isoformat()
+                    or record["validity_text"] != text):
+                raise ValueError("Netto publication validity mismatch")
+            group = extract_netto_group_slug(viewer.decode("utf-8", errors="replace"))
+            if (not isinstance(group, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", group)
+                    or record["publication_api_url"] !=
+                    f"https://api.publitas.com/v1/groups/{group}/publications/{slug}.json"):
+                raise ValueError("Netto publication API identity mismatch")
+            publication_path = Path(record["publication_path"]).resolve(strict=True)
+            if not publication_path.is_relative_to(root / "netto-html"):
+                raise ValueError("Netto publication JSON outside evidence root")
+            publication = _verified_json(
+                record["publication_path"], record["publication_sha256"], root
+            )
+            paths = validated_pages(publication)
+            if start <= day <= end:
+                selected.append((record, paths, start, end))
+        if len(selected) > 1:
+            raise ValueError("Multiple Netto publications cover one day")
+        if selected:
+            record, paths, start, end = selected[0]
+            if page > len(paths):
+                return {"state": "missing_page", "offers": [],
+                        "message": "Šāda lapa bukletā nav pieejama."}
+            return {
+                "state": "ready", "offers": [], "page": page,
+                "page_count": len(paths),
+                "image_url": publitas_page_image_url(paths[page - 1], "at1600"),
+                "source_url": record["prospect_url"],
+                "store_name": manifest.get("store_name") or "Netto · filiāle 5659",
+                "valid_label": f"{start:%d.%m.%Y}–{end:%d.%m.%Y}",
+                "snapshot_id": str(snapshot.id),
+                "pages": [{"number": index, "href": booklet_href(day, index)}
+                          for index in range(1, len(paths) + 1)],
+                "previous_href": booklet_href(day, page - 1) if page > 1 else None,
+                "next_href": booklet_href(day, page + 1) if page < len(paths) else None,
+            }
+
         matching = [slug for slug, start in starts.items() if start == day]
         if not matching:
             return None

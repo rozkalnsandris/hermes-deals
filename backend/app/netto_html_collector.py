@@ -22,6 +22,7 @@ from app.parsers.netto_listing import (
     LISTING_URL, PARSER_VERSION, STORE_PATH, parse_listing, validate_store, validate_url,
 )
 from app.source_config import SourceConfig
+from app.netto_html_publications import fetch_publications
 
 STRATEGY = "netto_store_html_v1"
 
@@ -215,6 +216,31 @@ def collect_html(db: Session, source: SourceConfig, root: Path, min_offers: int,
         offers, rejected, cards = parse_pages(pages, source, snapshot.id, now)
         fingerprint = semantic(offers, rejected)
         teaser_evidence = booklet_teaser_evidence(pages)
+        # Independent, bounded official viewer/API requests. Publication capture
+        # is optional and never changes the validity or identity of HTML offers.
+        captures, publication_failures = fetch_publications(
+            teaser_evidence["starts"] if teaser_evidence["state"] == "observed" else {}
+        )
+        booklet_publications = []
+        for captured in captures:
+            viewer_digest = sha256(captured.viewer_html).hexdigest()
+            publication_digest = sha256(captured.publication_json).hexdigest()
+            viewer_path = root / f"{viewer_digest}.html"
+            publication_path = root / f"{publication_digest}.json"
+            immutable(viewer_path, captured.viewer_html)
+            immutable(publication_path, captured.publication_json)
+            booklet_publications.append({
+                "slug": captured.slug,
+                "valid_from": captured.start.isoformat(),
+                "valid_until": captured.end.isoformat(),
+                "validity_text": captured.validity_text,
+                "prospect_url": captured.viewer_url,
+                "prospect_path": str(viewer_path),
+                "prospect_sha256": viewer_digest,
+                "publication_api_url": captured.publication_api_url,
+                "publication_path": str(publication_path),
+                "publication_sha256": publication_digest,
+            })
         manifest = {
             "strategy": STRATEGY, "snapshot_id": str(snapshot.id), "source_url": source.url,
             "store_external_id": "5659", "store_name": source.store_name, "scope": source.scope,
@@ -223,6 +249,8 @@ def collect_html(db: Session, source: SourceConfig, root: Path, min_offers: int,
             # Derived solely from the same SHA-bound store HTML. Does not claim
             # a full validity window, available images, or a PDF.
             "booklet_teaser_evidence": teaser_evidence,
+            "booklet_publications": booklet_publications,
+            "booklet_publication_failures": publication_failures,
             # Compatibility envelope for existing weekly snapshot selection;
             # each offer keeps its own card-local dates. No PDF is claimed.
             "valid_from": min((o.valid_from for o in offers), default=None).isoformat() if offers else None,
@@ -250,7 +278,9 @@ def collect_html(db: Session, source: SourceConfig, root: Path, min_offers: int,
                 # Offer identity can be unchanged when the store reveals a new
                 # publication. Keep a new snapshot for a changed teaser binding.
                 old_manifest = json.loads(Path(previous.snapshot_path).read_bytes())
-                if old_manifest.get("booklet_teaser_evidence") == teaser_evidence:
+                if (old_manifest.get("booklet_teaser_evidence") == teaser_evidence
+                        and old_manifest.get("booklet_publications", []) == booklet_publications
+                        and old_manifest.get("booklet_publication_failures", []) == publication_failures):
                     saved = save_offer_candidates(db, old_offers)
                     return HtmlImportResult(str(previous.id), saved, len(offers), cards, len(rejected))
         snapshot.success = True

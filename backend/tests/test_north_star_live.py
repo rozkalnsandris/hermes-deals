@@ -1812,6 +1812,96 @@ def html_booklet_source(db, tmp_path, monkeypatch, *,
 
 
 @pytest.mark.parametrize("with_field", [True, False])
+
+def attach_html_publication(snapshot, manifest, tmp_path, *,
+                            start="01.10.26", end="03.10.26",
+                            group="netto", paths=None):
+    from hashlib import sha256
+    import json
+    root = tmp_path / "netto-html"
+    viewer = (
+        '<meta name="description" content="Donnerstag, '+start+
+        ' - Samstag, '+end+'"><script>{"groupSlug":"'+group+
+        '"}</script>'
+    ).encode()
+    viewer_path = root / f"{sha256(viewer).hexdigest()}.html"
+    viewer_path.write_bytes(viewer)
+    publication = json.dumps({"spreads": [
+        {"pages": paths if paths is not None else ["/hz40/page-1", "/hz40/page-2"]}
+    ]}).encode()
+    publication_path = root / f"{sha256(publication).hexdigest()}.json"
+    publication_path.write_bytes(publication)
+    manifest["booklet_publications"] = [{
+        "slug": "hz40_hasb", "valid_from": "2026-10-01",
+        "valid_until": "2026-10-03",
+        "validity_text": "01.10.26 - Samstag, 03.10.26",
+        "prospect_url": "https://wochenprospekt.netto-online.de/hz40_hasb/?storeid=5659",
+        "prospect_path": str(viewer_path),
+        "prospect_sha256": sha256(viewer).hexdigest(),
+        "publication_api_url":
+            "https://api.publitas.com/v1/groups/netto/publications/hz40_hasb.json",
+        "publication_path": str(publication_path),
+        "publication_sha256": sha256(publication).hexdigest(),
+    }]
+    manifest_path = root / f"{snapshot.id}.json"
+    manifest_path.write_text(json.dumps(manifest))
+    snapshot.sha256 = sha256(manifest_path.read_bytes()).hexdigest()
+    return viewer_path, publication_path
+
+
+def test_netto_html_verified_publication_pages_without_pdf(data, tmp_path, monkeypatch):
+    from app.netto_booklets import build_netto_booklet
+    db, client, _ = data
+    snap, manifest, _ = html_booklet_source(db, tmp_path, monkeypatch)
+    attach_html_publication(snap, manifest, tmp_path)
+    db.commit()
+    for d in [DAY, date(2026, 10, 2), date(2026, 10, 3)]:
+        selected = build_netto_booklet(db, d, 2)
+        assert selected["state"] == "ready"
+        assert selected["offers"] == []
+        assert selected["page_count"] == 2
+        assert selected["valid_label"] == "01.10.2026–03.10.2026"
+        assert selected["image_url"] == "https://view.publitas.com/hz40/page-2-at1600.jpg"
+    page = client.get("/ui/home/?view=booklets&date=2026-10-02&page=2")
+    assert page.status_code == 200
+    assert "booklet-page-image" in page.text
+    assert "hz40/page-2-at1600.jpg" in page.text
+    assert not list(tmp_path.rglob("*.pdf"))
+    assert build_netto_booklet(db, date(2026, 10, 4))["state"] == "empty"
+
+
+@pytest.mark.parametrize("tamper", [
+    "wrong_end", "wrong_group", "wrong_pages", "wrong_sha",
+])
+def test_netto_html_publication_requires_verified_source(data, tmp_path, monkeypatch, tamper):
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    snap, manifest, _ = html_booklet_source(db, tmp_path, monkeypatch)
+    viewer_path, pub_path = attach_html_publication(snap, manifest, tmp_path)
+    db.commit()
+    if tamper == "wrong_end":
+        manifest["booklet_publications"][0]["valid_until"] = "2026-10-04"
+    elif tamper == "wrong_group":
+        manifest["booklet_publications"][0]["publication_api_url"] = (
+            "https://api.publitas.com/v1/groups/wrong/publications/hz40_hasb.json"
+        )
+    elif tamper == "wrong_pages":
+        manifest["booklet_publications"][0]["publication_path"] = str(viewer_path)
+        manifest["booklet_publications"][0]["publication_sha256"] = (
+            manifest["booklet_publications"][0]["prospect_sha256"]
+        )
+    else:
+        pub_path.write_bytes(b'{"spreads":[]}')
+    if tamper != "wrong_sha":
+        import json
+        from hashlib import sha256
+        path = tmp_path / "netto-html" / f"{snap.id}.json"
+        path.write_text(json.dumps(manifest))
+        snap.sha256 = sha256(path.read_bytes()).hexdigest()
+        db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+
+
 def test_booklet_uses_verified_official_link_on_start_day_only(data, tmp_path, monkeypatch, with_field):
     from app.netto_booklets import build_netto_booklet
     db, client, _ = data
