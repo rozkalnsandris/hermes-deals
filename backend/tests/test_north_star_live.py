@@ -1758,3 +1758,127 @@ def test_booklet_nonselected_missing_publication_does_not_break_date_view(
     result = build_netto_booklet(db, selected_day)
     assert result["state"] == "empty"
     assert "latest_href" not in result
+
+
+# HTML teaser-only fallback — official link without invented publication pages.
+def html_booklet_source(db, tmp_path, monkeypatch, *,
+                        start="ab Donnerstag, 01.10.26", slug="hz40_hasb",
+                        collected=datetime(2026, 9, 30, 8, tzinfo=timezone.utc),
+                        with_field=True):
+    from hashlib import sha256
+    from types import SimpleNamespace
+    import json
+    import app.netto_booklets as booklets
+    monkeypatch.setattr(booklets, "get_settings", lambda: SimpleNamespace(raw_snapshot_dir=tmp_path))
+    store_url = "https://www.netto-online.de/filialen/dortmund/rauschenbuschstr-1/5659"
+    raw = (
+        f'<div class="prospekt-teaser-item"><a href="https://wochenprospekt.netto-online.de/{slug}/?storeid=5659">Prospekt</a>'
+        f'<div class="prospekt-teaser-item-container">Filial-Angebote {start} Zum Prospekt</div></div>'
+    ).encode()
+    store = tmp_path / "netto-html"
+    store.mkdir(exist_ok=True)
+    path = store / f"{sha256(raw).hexdigest()}.html"
+    path.write_bytes(raw)
+    snap = SourceSnapshot(
+        source_chain="netto", scope="family_primary_netto",
+        source_url=store_url, strategy_hint="netto_store_html_v1",
+        collected_at=collected, success=True,
+    )
+    db.add(snap)
+    db.flush()
+    manifest = {
+        "strategy": "netto_store_html_v1", "snapshot_id": str(snap.id),
+        "source_url": store_url, "store_external_id": "5659",
+        "scope": "family_primary_netto",
+        "pages": [{
+            "role": "store", "url": store_url + "?stores_id=5659",
+            "final_url": store_url + "?stores_id=5659",
+            "path": str(path), "sha256": sha256(raw).hexdigest(),
+        }],
+    }
+    if with_field:
+        from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts
+        starts = extract_netto_booklet_teaser_starts(raw.decode())
+        manifest["booklet_teaser_evidence"] = {
+            "state": "observed",
+            "starts": {slug: day.isoformat() for slug, day in starts.items()},
+        }
+    manifest_path = store / f"{snap.id}.json"
+    manifest_path.write_text(json.dumps(manifest))
+    snap.snapshot_path = str(manifest_path)
+    snap.sha256 = sha256(manifest_path.read_bytes()).hexdigest()
+    db.commit()
+    return snap, manifest, path
+
+
+@pytest.mark.parametrize("with_field", [True, False])
+def test_booklet_uses_verified_official_link_on_start_day_only(data, tmp_path, monkeypatch, with_field):
+    from app.netto_booklets import build_netto_booklet
+    db, client, _ = data
+    html_booklet_source(db, tmp_path, monkeypatch, with_field=with_field)
+    preview = build_netto_booklet(db, DAY)
+    assert preview["state"] == "external_link"
+    assert preview["offers"] == []
+    assert preview["source_url"] == "https://wochenprospekt.netto-online.de/hz40_hasb/?storeid=5659"
+    assert "image_url" not in preview and "page_count" not in preview
+    response = client.get("/ui/home/?view=booklets&date=2026-10-01")
+    assert response.status_code == 200
+    assert 'data-booklet-state="external_link"' in response.text
+    assert "Pilns derīguma periods nav apstiprināts" in response.text
+    assert 'target="_blank"' in response.text
+    assert "hz40_hasb" in response.text
+    assert "booklet-page-image" not in response.text
+    for other in [date(2026, 9, 30), date(2026, 10, 2)]:
+        result = build_netto_booklet(db, other)
+        assert result["state"] == "empty"
+        assert "source_url" not in result
+
+
+def test_booklet_html_teaser_tampering_and_latest_corruption_fail_closed(data, tmp_path, monkeypatch):
+    from hashlib import sha256
+    import json
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    first, manifest, store_path = html_booklet_source(db, tmp_path, monkeypatch)
+    store_path.write_bytes(b"changed")
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+    store_path.write_bytes(
+        ('<div class="prospekt-teaser-item"><a href="https://wochenprospekt.netto-online.de/hz40_hasb/?storeid=5659">Prospekt</a>'
+         '<div class="prospekt-teaser-item-container">Filial-Angebote ab Donnerstag, 01.10.26 Zum Prospekt</div></div>').encode()
+    )
+    manifest["booklet_teaser_evidence"]["starts"]["hz40_hasb"] = "2026-10-08"
+    manifest_path = tmp_path / "netto-html" / f"{first.id}.json"
+    manifest_path.write_text(json.dumps(manifest))
+    first.sha256 = sha256(manifest_path.read_bytes()).hexdigest()
+    db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+
+
+def test_booklet_html_invalid_store_and_late_observation_not_shown(data, tmp_path, monkeypatch):
+    import json
+    from hashlib import sha256
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    snap, manifest, _ = html_booklet_source(db, tmp_path, monkeypatch)
+    manifest["pages"][0]["final_url"] = (
+        "https://www.netto-online.de/filialen/dortmund/rauschenbuschstr-1/5659?stores_id=6071"
+    )
+    p = tmp_path / "netto-html" / f"{snap.id}.json"
+    p.write_text(json.dumps(manifest))
+    snap.sha256 = sha256(p.read_bytes()).hexdigest()
+    db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "unavailable"
+    snap.collected_at = datetime(2026, 10, 2, 8, tzinfo=timezone.utc)
+    db.commit()
+    assert build_netto_booklet(db, DAY)["state"] == "empty"
+
+
+def test_booklet_verified_publication_still_wins_over_html_teaser(data, tmp_path, monkeypatch):
+    from app.netto_booklets import build_netto_booklet
+    db, _, _ = data
+    html_booklet_source(db, tmp_path, monkeypatch)
+    booklet_source(db, tmp_path, monkeypatch)
+    ready = build_netto_booklet(db, DAY)
+    assert ready["state"] == "ready"
+    assert ready["page_count"] == 2
+

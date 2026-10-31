@@ -56,6 +56,89 @@ def booklet_href(day, page):
     return "/ui/home/?" + urlencode({"view": "booklets", "date": day.isoformat(), "page": page})
 
 
+def _html_teaser_link(db, day, cutoff):
+    """Official link on its verified start day only; no inferred validity or pages.
+
+    Successful HTML snapshots have already passed the selected-store cookie gate
+    in the collector. Replay the raw store bytes and verify manifest bindings here.
+    Historical pre-teaser-field manifests remain compatible.
+    """
+    snapshot = db.scalar(select(SourceSnapshot).where(
+        SourceSnapshot.source_chain == "netto",
+        SourceSnapshot.scope == "family_primary_netto",
+        SourceSnapshot.success.is_(True),
+        SourceSnapshot.strategy_hint == "netto_store_html_v1",
+        SourceSnapshot.collected_at < cutoff,
+    ).order_by(SourceSnapshot.collected_at.desc(), SourceSnapshot.id.desc()).limit(1))
+    if snapshot is None:
+        return None
+    unavailable = {
+        "state": "unavailable", "offers": [],
+        "message": "Jaunākā Netto bukleta avota pārbaude neizdevās.",
+    }
+    try:
+        root = get_settings().raw_snapshot_dir.resolve()
+        manifest = _verified_json(snapshot.snapshot_path, snapshot.sha256, root)
+        if (manifest.get("strategy") != "netto_store_html_v1"
+                or manifest.get("snapshot_id") != str(snapshot.id)
+                or manifest.get("source_url") != snapshot.source_url
+                or manifest.get("scope") != snapshot.scope
+                or str(manifest.get("store_external_id")) != STORE
+                or _store_url_key(snapshot.source_url) != _store_url_key(
+                    "https://www.netto-online.de/filialen/dortmund/rauschenbuschstr-1/5659"
+                )):
+            raise ValueError("Netto HTML snapshot identity mismatch")
+        entries = manifest.get("pages")
+        if not isinstance(entries, list):
+            raise ValueError("Missing HTML evidence pages")
+        stores = [entry for entry in entries if isinstance(entry, dict) and entry.get("role") == "store"]
+        if len(stores) != 1:
+            raise ValueError("Ambiguous HTML store evidence")
+        entry = stores[0]
+        for key in ("url", "final_url"):
+            if _store_url_key(entry[key]) != _store_url_key(snapshot.source_url):
+                raise ValueError("HTML store URL mismatch")
+        path = Path(entry["path"])
+        if path.is_symlink():
+            raise ValueError("Symlinked HTML evidence")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(root / "netto-html") or resolved.suffix != ".html":
+            raise ValueError("HTML source outside permitted root")
+        digest = entry["sha256"]
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ValueError("Invalid HTML SHA")
+        with resolved.open("rb") as handle:
+            raw = handle.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024 or sha256(raw).hexdigest() != digest:
+            raise ValueError("HTML source integrity failure")
+        from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts
+        starts = extract_netto_booklet_teaser_starts(raw.decode("utf-8", errors="replace"), STORE)
+        derived = {"state": "observed", "starts": {
+            slug: start.isoformat() for slug, start in starts.items()
+        }}
+        if ("booklet_teaser_evidence" in manifest
+                and manifest["booklet_teaser_evidence"] != derived):
+            raise ValueError("HTML teaser metadata does not match source")
+        matching = [slug for slug, start in starts.items() if start == day]
+        if not matching:
+            return None
+        if len(matching) != 1 or not re.fullmatch(r"[A-Za-z0-9_-]+", matching[0]):
+            raise ValueError("Ambiguous dated Netto viewer")
+        return {
+            "state": "external_link", "offers": [],
+            "source_url": f"https://wochenprospekt.netto-online.de/{matching[0]}/?storeid={STORE}",
+            "start_label": day.strftime("%d.%m.%Y"),
+            "store_name": "Netto · filiāle 5659",
+            "message": (
+                "Apstiprināta oriģinālā bukleta saite un sākuma datums. "
+                "Pilns derīguma periods un bukleta lapas vēl nav pārbaudītas."
+            ),
+        }
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError):
+        # Never select an older HTML teaser after corruption of the newest one.
+        return unavailable
+
+
 def build_netto_booklet(db, day: date, page: int = 1):
     if type(page) is not int or not 1 <= page <= 200:
         raise ValueError("Invalid booklet page")
@@ -69,7 +152,7 @@ def build_netto_booklet(db, day: date, page: int = 1):
         SourceSnapshot.collected_at < cutoff,
     ).order_by(SourceSnapshot.collected_at.desc(), SourceSnapshot.id.desc()).limit(50)).all()
     if not snapshots:
-        return empty
+        return _html_teaser_link(db, day, cutoff) or empty
     root = get_settings().raw_snapshot_dir.resolve()
     latest_available = None
     for snapshot in snapshots:
@@ -164,4 +247,5 @@ def build_netto_booklet(db, day: date, page: int = 1):
             # A corrupt newest source must not silently fall back to older pages.
             return {**empty, "state": "unavailable",
                     "message": "Saglabātās bukleta lapas pašlaik nevar pārbaudīt. Mēģini vēlāk."}
-    return latest_available or empty
+    fallback = _html_teaser_link(db, day, cutoff)
+    return {**(latest_available or empty), **fallback} if fallback else latest_available or empty
