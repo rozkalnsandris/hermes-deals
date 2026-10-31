@@ -33,7 +33,7 @@ def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
     assert "zoomAt(2.5, event.clientX, event.clientY)" not in JS
     assert "scale = 1" in JS and "resetZoom()" in JS
     assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
-    assert "netto-viewer-v5" in INDEX
+    assert "netto-viewer-v6" in INDEX
 
 
 def test_separate_zoom_keeps_product_click_unbound():
@@ -60,4 +60,14 @@ def test_zoom_resolution_uses_only_verified_data_and_falls_back_on_asset_failure
     assert "image.src = option.dataset.bookletImageUrl" in JS
     assert "scale > 1.01" in JS
     assert 'data-booklet-zoom-image-url="{{ p.zoom_image_url }}"' in TEMPLATE
-    assert "netto-viewer-v5" in INDEX
+    assert "netto-viewer-v6" in INDEX
+
+
+def test_fullscreen_booklet_image_rerasterizes_when_scaled():
+    image_rules = CSS.split(
+        ".booklet-reader.booklet-viewer-open .booklet-page-image {", 1
+    )[1].split("}", 1)[0]
+    assert "will-change" not in image_rules
+    assert "transform-origin:center center" in image_rules
+    assert "object-fit:contain" in image_rules
+    assert "netto-viewer-v6" in INDEX
