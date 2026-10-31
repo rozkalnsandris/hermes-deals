@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from bs4 import BeautifulSoup
 import httpx
@@ -240,6 +240,62 @@ class NettoHtmlImportTest(unittest.TestCase):
         self.assertFalse(snapshot.success)
         self.assertEqual(self.count(),0)
 
+
+    def _store_with_teaser(self, slug, start):
+        content = (
+            '<div class="prospekt-teaser-item"><a href='
+            f'"https://wochenprospekt.netto-online.de/{slug}/?storeid=5659">'
+            'Prospekt</a><div class="prospekt-teaser-item-container">'
+            f'Filial-Angebote {start} Zum Prospekt</div></div>'
+        ).encode()
+        return HtmlPage(SOURCE.url, SOURCE.url, content, "store")
+
+    def test_booklet_teaser_starts_are_sha_bound_to_html_snapshot(self):
+        from hashlib import sha256
+        self.pages.insert(0, self._store_with_teaser("hz44_hasb_4", "ab Montag, 26.10.26"))
+        first = self.collect()
+        snapshot = self.db.get(SourceSnapshot, UUID(first.snapshot_id))
+        manifest_path = Path(snapshot.snapshot_path)
+        manifest = json.loads(manifest_path.read_bytes())
+        self.assertEqual(manifest["booklet_teaser_evidence"], {
+            "state": "observed", "starts": {"hz44_hasb_4": "2026-10-26"},
+        })
+        self.assertEqual(len(replay(snapshot, SOURCE)[0]), first.offers)
+        manifest["booklet_teaser_evidence"]["starts"]["hz44_hasb_4"] = "2026-11-02"
+        damaged = json.dumps(manifest).encode()
+        manifest_path.write_bytes(damaged)
+        snapshot.sha256 = sha256(damaged).hexdigest()
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "teaser evidence mismatch"):
+            replay(snapshot, SOURCE)
+
+    def test_changed_booklet_keeps_new_snapshot_with_unchanged_offers(self):
+        from datetime import timedelta
+        self.pages.insert(0, self._store_with_teaser("hz44_hasb_4", "ab Montag, 26.10.26"))
+        first = self.collect()
+        again = collect_html(self.db, SOURCE, Path(self.tmp.name), 1, now=NOW + timedelta(minutes=5))
+        self.assertEqual(again.snapshot_id, first.snapshot_id)
+        self.pages[0] = self._store_with_teaser("hz45_hasb", "ab Montag, 02.11.26")
+        second = collect_html(self.db, SOURCE, Path(self.tmp.name), 1, now=NOW + timedelta(minutes=10))
+        self.assertNotEqual(second.snapshot_id, first.snapshot_id)
+        self.assertEqual(self.count(), first.offers + second.offers)
+        latest = self.db.get(SourceSnapshot, UUID(second.snapshot_id))
+        manifest = json.loads(Path(latest.snapshot_path).read_bytes())
+        self.assertEqual(manifest["booklet_teaser_evidence"]["starts"], {
+            "hz45_hasb": "2026-11-02",
+        })
+        self.assertEqual(len(replay(latest, SOURCE)[0]), first.offers)
+
+    def test_malformed_teaser_is_unavailable_without_blocking_offers(self):
+        self.pages.insert(0, self._store_with_teaser("hz45_hasb", "ab Dienstag, 02.11.26"))
+        result = self.collect()
+        snapshot = self.db.get(SourceSnapshot, UUID(result.snapshot_id))
+        manifest = json.loads(Path(snapshot.snapshot_path).read_bytes())
+        self.assertEqual(manifest["booklet_teaser_evidence"], {
+            "state": "unavailable", "starts": {},
+        })
+        self.assertEqual(self.count(), result.offers)
+        self.assertEqual(len(replay(snapshot, SOURCE)[0]), result.offers)
 
     def test_existing_weekly_pdf_reader_accepts_html_envelope_without_fake_pdf(self):
         from app.weekly_special_api import _explicit_daily_specials
