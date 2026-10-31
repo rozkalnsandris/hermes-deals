@@ -21,8 +21,8 @@ def test_immersive_viewer_does_not_obscure_booklet_with_original_controls():
 
 
 def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
-    assert "image.addEventListener('click', event => {" in JS
-    assert "if (!isOpen()) { open(); return; }" in JS
+    assert "image.addEventListener('click', () => { if (!isOpen()) open(); });" in JS
+    assert "if (!isOpen()) { open(); return; }" not in JS
     assert "requestFullscreen({ navigationUI: 'hide' })" in JS
     assert "canvas.addEventListener('touchmove'" in JS
     assert "event.touches.length >= 2" in JS
