@@ -89,3 +89,19 @@ product identity or complete weekly coverage. The household booklet reader still
 requires independently verified publication metadata before displaying pages;
 no new booklet-page UI is claimed by this source-only change. The collector
 requires separate LIVE authorization before any production run.
+
+## Start-day official viewer link fallback (source-only)
+
+When no verified current publication pages exist, the booklet UI may display an
+**official external viewer link** on the precise start day proven by one teaser in
+the latest successful `netto_store_html_v1` snapshot. The source store HTML and
+manifest must pass SHA256, store 5659 URL, role, path and scope checks. The optional
+teaser field in new manifests is compared to the re-extracted same-card evidence;
+older immutable manifests without that field remain readable through their
+verified HTML. Corrupt latest source never falls back to older HTML.
+
+This fallback is an explicit `external_link` state, **not** `ready`: it has no
+local pages, no page count, no inferred end date, and no matched offer/product
+links. Only the exact verified start date is eligible; other selected dates do
+not inherit an unproven period. Existing V1–V3 fully verified publication pages
+take priority. No new network GET, PDF, collector, migration, or data writes.
