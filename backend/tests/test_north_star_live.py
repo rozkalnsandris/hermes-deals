@@ -96,6 +96,9 @@ def test_real_pages_never_fall_back_to_demo(data, view):
     response = client.get(f"/ui/home/?view={view}&date=2026-10-01")
     assert response.status_code == 200, response.text
     assert response.headers["Referrer-Policy"] == "same-origin"
+    timings = response.headers["Server-Timing"]
+    assert re.search(r"home-context;dur=\d+\.\d", timings)
+    assert re.search(r"home-render;dur=\d+\.\d", timings)
     assert "SAGLABĀTIE DATI" in response.text
     assert "DEMONSTRĀCIJAS DATI" not in response.text
     assert "2,46 € / porcija" not in response.text
@@ -2075,7 +2078,6 @@ def test_booklet_selection_keeps_day_navigation_and_resets_page(data):
     assert "view=booklets&amp;date=2026-10-02&amp;retailer=lidl" in response.text
     assert "view=booklets&amp;date=2026-10-02&amp;page=2" not in response.text
     assert 'name="retailer"' in response.text
-
 
 
 def test_aldi_official_links_are_not_fake_embedded_pages(data, monkeypatch):

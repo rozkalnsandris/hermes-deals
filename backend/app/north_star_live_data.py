@@ -149,10 +149,70 @@ def history_view(details):
             "truncated": details.history_truncated, "summary": summary}
 
 
+def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
+    names = dict(BOOKLET_RETAILERS)
+    if retailer not in names:
+        raise ValueError("Unsupported booklet retailer")
+    if retailer == "netto":
+        booklet = build_netto_booklet(db, day, page)
+    elif retailer == "lidl":
+        booklet = build_lidl_booklet(db, day, page)
+    elif retailer == "aldi_nord":
+        booklet = build_aldi_nord_booklet(day)
+    else:
+        # Never invent pages for a retailer without a verified page reader.
+        booklet = {
+            "state": "unavailable", "offers": [],
+            "message": "Šī veikala oriģinālā bukleta lapas vēl nav pieslēgtas pārbaudītam avotam.",
+        }
+    return {
+        **booklet,
+        "retailer_id": retailer,
+        "retailer_name": names[retailer],
+        "offers": [quote_for(row, favorite_id=favorite_latest.get(str(row.id))) for row in booklet["offers"]],
+    }
+
+
 def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0, booklet_page=1, booklet_retailer="netto"):
     state, version = read_household(db, household_id)
     def quote_for(row, *, favorite_id=None):
         return offer_view(row, day, favorite_id=favorite_id, eligibility=state.get("price_eligibility", {}))
+
+    # Browsing a booklet needs no current-deals ranking, basket planning, or recipe pricing.
+    # Product detail links retain the existing full context path below.
+    if view == "booklets" and not product:
+        favorite_latest = {}
+        if state["favorites"]:
+            favorite_rows = {
+                str(row.id): row for row in db.scalars(
+                    select(OfferCandidateRecord).where(
+                        OfferCandidateRecord.id.in_([UUID(key) for key in state["favorites"]])
+                    )
+                )
+            }
+            latest_favorites = {
+                key: latest_series(db, row, day) for key, row in favorite_rows.items()
+            }
+            favorite_latest = {
+                str(latest_favorites[key].id): key
+                for key in state["favorites"] if key in latest_favorites
+            }
+        booklet = _booklet_page_context(
+            db, day, booklet_page, booklet_retailer, quote_for, favorite_latest
+        )
+        start = day - timedelta(days=day.weekday())
+        return {
+            "demo": False, "base_path": "/ui/home", "view": view,
+            "state_version": version, "settings": state["settings"],
+            "shopping": {"count": len(state["shopping"])},
+            "selected_date": day.isoformat(),
+            "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
+            "prev_date": (day - timedelta(days=7)).isoformat(),
+            "next_date": (day + timedelta(days=7)).isoformat(),
+            "booklet": booklet, "booklet_retailers": BOOKLET_RETAILERS,
+            "selected_product": None, "has_offers": bool(booklet["offers"]),
+            "notice": "", "read_error": False,
+        }
 
     # Same Python services as JSON/details; no HTTP call to our own API and no browser pricing rules.
     if view == "history":
@@ -331,24 +391,9 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
                       price_coverage=f"{covered}/{len(recipe['ingredients'])}", price_complete=complete, conditional_price_used=conditional_used)
     booklet = None
     if view == "booklets":
-        names = dict(BOOKLET_RETAILERS)
-        if booklet_retailer not in names:
-            raise ValueError("Unsupported booklet retailer")
-        if booklet_retailer == "netto":
-            booklet = build_netto_booklet(db, day, booklet_page)
-        elif booklet_retailer == "lidl":
-            booklet = build_lidl_booklet(db, day, booklet_page)
-        elif booklet_retailer == "aldi_nord":
-            booklet = build_aldi_nord_booklet(day)
-        else:
-            # No other retailer has a registered, verified page reader yet.
-            # Never substitute the Netto publication or infer pages from offers.
-            booklet = {
-                "state": "unavailable", "offers": [],
-                "message": "Šī veikala oriģinālā bukleta lapas vēl nav pieslēgtas pārbaudītam avotam.",
-            }
-        booklet = {**booklet, "retailer_id": booklet_retailer, "retailer_name": names[booklet_retailer]}
-        booklet["offers"] = [quote_for(row, favorite_id=favorite_latest.get(str(row.id))) for row in booklet["offers"]]
+        booklet = _booklet_page_context(
+            db, day, booklet_page, booklet_retailer, quote_for, favorite_latest
+        )
     return {**meals, "ingredient_choices": list(INGREDIENTS.values()), "demo": False, "base_path": "/ui/home", "view": view, "state_version": version,
             "selected_date": day.isoformat(), "week_label": f"{day.isocalendar().week}. nedēļa ({start:%d.%m.} – {start + timedelta(days=6):%d.%m.%Y})",
             "prev_date": (day - timedelta(days=7)).isoformat(), "next_date": (day + timedelta(days=7)).isoformat(),
