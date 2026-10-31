@@ -43,85 +43,110 @@
     if (restoreFocus && returnTarget?.isConnected && returnTarget.getClientRects().length) returnTarget.focus();
   }
 
-  // Swipe over source-verified official page images without refetching the app.
+  // Show exactly one SHA-verified image; page URLs remain server-owned.
   function initializeBookletSwipe() {
     const reader = document.querySelector('.booklet-swipe');
-    const track = reader?.querySelector('[data-booklet-swipe]');
-    if (!track || track.dataset.bookletReady) return;
-    const slides = [...track.querySelectorAll('[data-booklet-slide]')];
-    const form = reader.querySelector('[data-booklet-page-form]');
+    const canvas = reader?.querySelector('[data-booklet-swipe]');
+    const image = canvas?.querySelector('[data-booklet-image]');
+    const form = reader?.querySelector('[data-booklet-page-form]');
     const select = form?.querySelector('select[name="page"]');
-    const prev = reader.querySelector('[data-booklet-prev]');
-    const next = reader.querySelector('[data-booklet-next]');
-    const counter = reader.querySelector('[data-booklet-counter]');
-    const zoom = reader.querySelector('.booklet-zoom-toggle');
-    if (!slides.length || !select || !prev || !next || !counter) return;
-    let page = Math.max(1, Math.min(slides.length, Number(track.dataset.bookletSwipe) || 1));
-    let frame = 0;
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const href = number => slides[number - 1].dataset.bookletHref;
-    function update(number, address = true) {
-      if (number < 1 || number > slides.length) return;
+    const prev = reader?.querySelector('[data-booklet-prev]');
+    const next = reader?.querySelector('[data-booklet-next]');
+    const counter = reader?.querySelector('[data-booklet-counter]');
+    const toggle = reader?.querySelector('[data-booklet-fullscreen]');
+    const zoom = reader?.querySelector('.booklet-zoom-toggle');
+    if (!reader || !canvas || !image || !form || !select || !prev || !next || !counter || !toggle) return;
+    if (reader.dataset.bookletReady) return;
+    const options = [...select.options];
+    if (!options.length || options.some(option => !option.dataset.bookletImageUrl)) return;
+    let page = Number(select.value);
+    if (!Number.isInteger(page) || page < 1 || page > options.length) return;
+    let touchStart = null;
+    let nativeEntered = false;
+    function navigate(number, updateUrl = true) {
+      if (!Number.isInteger(number) || number < 1 || number > options.length) return;
       page = number;
       select.value = String(number);
+      image.src = options[number - 1].dataset.bookletImageUrl;
+      image.alt = 'Netto buklets, ' + number + '. lapa no ' + options.length;
       counter.textContent = String(number);
-      prev.href = href(Math.max(1, number - 1));
-      next.href = href(Math.min(slides.length, number + 1));
-      for (const [node, disabled] of [[prev, number === 1], [next, number === slides.length]]) {
-        node.setAttribute('aria-disabled', String(disabled));
-        node.tabIndex = disabled ? -1 : 0;
+      for (const [link, target, disabled] of [
+        [prev, Math.max(1, number - 1), number === 1],
+        [next, Math.min(options.length, number + 1), number === options.length],
+      ]) {
+        const url = new URL(link.href, location.href);
+        url.searchParams.set('page', String(target));
+        link.href = url.pathname + url.search;
+        link.setAttribute('aria-disabled', String(disabled));
+        link.tabIndex = disabled ? -1 : 0;
       }
-      if (address) {
+      if (zoom) zoom.checked = false;
+      if (updateUrl) {
         const url = new URL(location.href);
         url.searchParams.set('page', String(number));
         if (url.href !== location.href) history.replaceState(history.state, '', url.href);
       }
     }
-    function show(number, smooth = true) {
-      if (!Number.isInteger(number) || number < 1 || number > slides.length) return;
-      if (zoom?.checked) zoom.checked = false;
-      const width = slides[0].getBoundingClientRect().width;
-      if (!width) return;
-      // CSS scroll-behavior:smooth also applies to scrollTo({behavior:'auto'}).
-      // Direct jumps (including initial page 72) must not traverse all pages.
-      if (smooth && !reducedMotion.matches && Math.abs(number - page) === 1) {
-        track.scrollTo({ left: (number - 1) * width, behavior: 'smooth' });
-      } else {
-        track.style.scrollBehavior = 'auto';
-        track.scrollLeft = (number - 1) * width;
-        requestAnimationFrame(() => track.style.removeProperty('scroll-behavior'));
-      }
-      update(number);
+    function close() {
+      reader.classList.remove('booklet-viewer-open');
+      document.body.classList.remove('booklet-viewer-active');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.textContent = '⛶ Pilnekrāns';
+      if (document.fullscreenElement === reader) document.exitFullscreen().catch(() => {});
+      nativeEntered = false;
+      toggle.focus({ preventScroll:true });
     }
-    for (const [node, delta] of [[prev, -1], [next, 1]]) {
-      node.addEventListener('click', event => { event.preventDefault(); show(page + delta); });
+    function open() {
+      reader.classList.add('booklet-viewer-open');
+      document.body.classList.add('booklet-viewer-active');
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.textContent = '× Aizvērt pilnekrānu';
+      canvas.focus({ preventScroll:true });
+      // The fixed viewport overlay works even when iOS denies native fullscreen.
+      if (document.fullscreenEnabled && reader.requestFullscreen) reader.requestFullscreen().catch(() => {});
     }
-    form.addEventListener('submit', event => { event.preventDefault(); show(Number(select.value)); });
-    track.addEventListener('keydown', event => {
-      if (event.target !== track || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    for (const [link, delta] of [[prev, -1], [next, 1]]) {
+      link.addEventListener('click', event => {
+        if (!reader.classList.contains('booklet-viewer-open')) return;
+        event.preventDefault();
+        navigate(page + delta);
+      });
+    }
+    form.addEventListener('submit', event => {
+      if (!reader.classList.contains('booklet-viewer-open')) return;
       event.preventDefault();
-      show(page + (event.key === 'ArrowRight' ? 1 : -1));
+      navigate(Number(select.value));
     });
-    track.addEventListener('scroll', () => {
-      if (zoom?.checked || frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        const width = slides[0].getBoundingClientRect().width;
-        if (width) update(Math.max(1, Math.min(slides.length, Math.round(track.scrollLeft / width) + 1)));
-      });
+    toggle.hidden = false;
+    toggle.addEventListener('click', () => {
+      if (reader.classList.contains('booklet-viewer-open')) close();
+      else open();
+    });
+    reader.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement === reader) nativeEntered = true;
+      else if (nativeEntered) close();
+    });
+    canvas.addEventListener('touchstart', event => {
+      if (!reader.classList.contains('booklet-viewer-open') || event.touches.length !== 1 || zoom?.checked) return;
+      touchStart = { x:event.touches[0].clientX, y:event.touches[0].clientY };
     }, { passive:true });
-    const fullscreen = reader.querySelector('[data-booklet-fullscreen]');
-    if (fullscreen && reader.requestFullscreen && document.fullscreenEnabled) {
-      fullscreen.hidden = false;
-      fullscreen.addEventListener('click', () => {
-        if (document.fullscreenElement === reader) document.exitFullscreen();
-        else reader.requestFullscreen().catch(() => {});
-      });
-      reader.addEventListener('fullscreenchange', () => show(page, false));
-    }
-    track.dataset.bookletReady = 'true';
-    update(page, false);
-    requestAnimationFrame(() => show(page, false));
+    canvas.addEventListener('touchend', event => {
+      if (!touchStart || !reader.classList.contains('booklet-viewer-open') || event.changedTouches.length !== 1) return;
+      const dx = event.changedTouches[0].clientX - touchStart.x;
+      const dy = event.changedTouches[0].clientY - touchStart.y;
+      touchStart = null;
+      if (Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy) * 1.3) navigate(page + (dx < 0 ? 1 : -1));
+    }, { passive:true });
+    reader.addEventListener('keydown', event => {
+      if (!reader.classList.contains('booklet-viewer-open')) return;
+      if (event.key === 'Escape') { event.stopPropagation(); close(); return; }
+      if (event.target.closest('select,button,input')) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      navigate(page + (event.key === 'ArrowRight' ? 1 : -1));
+    });
+    reader.dataset.bookletReady = 'true';
+    navigate(page, false);
   }
   function initialize(swapped = false) {
     document.body.classList.remove('sidebar-open');

@@ -141,3 +141,7 @@ synchronizes page selection, arrows, the counter and shareable page URL,
 without navigating away on each swipe. Browser fullscreen and keyboard
 arrows are optional. Legacy V1–V3 keep their per-page navigation and
 distinct linked-offer provenance. No PDF or speculative hotspot mapping.
+
+## One-image fullscreen reader correction
+
+Only the currently selected, SHA-verified publication page is an HTML image. Other verified image URLs are options, not DOM images or downloads. A fullscreen button opens a viewport-filling reader with next/previous, keyboard navigation and touch swipes; the CSS overlay stays usable when native Fullscreen API is denied. Ordinary server links work when JavaScript is unavailable. Assets use a changed versioned URL to avoid serving old JavaScript and CSS from browser caches. No PDF, invented hotspots, or offer mapping is introduced.
