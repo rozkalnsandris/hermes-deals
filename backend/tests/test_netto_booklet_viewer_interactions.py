@@ -35,7 +35,7 @@ def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
     assert "zoomAt(2.5, event.clientX, event.clientY)" not in JS
     assert "scale = 1" in JS and "resetZoom()" in JS
     assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
-    assert "netto-viewer-v7" in INDEX
+    assert "booklet-viewer-v8" in INDEX
 
 
 def test_separate_zoom_keeps_product_click_unbound():
@@ -62,7 +62,7 @@ def test_zoom_resolution_uses_only_verified_data_and_falls_back_on_asset_failure
     assert "image.src = option.dataset.bookletImageUrl" in JS
     assert "scale > 1.01" in JS
     assert 'data-booklet-zoom-image-url="{{ p.zoom_image_url }}"' in TEMPLATE
-    assert "netto-viewer-v7" in INDEX
+    assert "booklet-viewer-v8" in INDEX
 
 
 def test_fullscreen_booklet_image_rerasterizes_when_scaled():
@@ -72,7 +72,7 @@ def test_fullscreen_booklet_image_rerasterizes_when_scaled():
     assert "will-change" not in image_rules
     assert "transform-origin:center center" in image_rules
     assert "object-fit:contain" in image_rules
-    assert "netto-viewer-v7" in INDEX
+    assert "booklet-viewer-v8" in INDEX
 
 
 def test_inline_booklet_navigation_highlights_only_enabled_pages():
@@ -95,3 +95,49 @@ def test_cover_and_keyboard_still_open_reader_without_fullscreen_button():
     assert "image.addEventListener('click', () => { if (!isOpen()) open(); });" in JS
     assert "if (!isOpen() && (event.key === 'Enter' || event.key === ' '))" in JS
     assert "data-booklet-fullscreen" not in JS
+
+
+def test_shared_reader_uses_source_bound_retailer_in_template_and_browser():
+    assert "{{ booklet.retailer_name|default('Netto') }}" in TEMPLATE
+    assert "booklet.retailer_id|default('netto')" in TEMPLATE
+    assert 'data-booklet-store-name="' in TEMPLATE
+    assert "const retailerName = reader?.dataset.bookletStoreName || 'Netto';" in JS
+    assert "image.alt = retailerName + ' buklets, '" in JS
+    assert "'Atvērt ' + retailerName + ' bukletu pilnekrānā'" in JS
+    assert "booklet-viewer-v8" in INDEX
+
+
+def test_shared_reader_renders_other_retailer_only_with_explicit_page_context():
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    env = Environment(
+        loader=FileSystemLoader(ROOT / "backend/app/north_star/templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+    source = {
+        "state": "ready", "retailer_id": "lidl", "retailer_name": "LIDL",
+        "store_name": "Sintētiska testa filiāle",
+        "valid_label": "02.11.2026–07.11.2026",
+        "source_url": "https://www.lidl.de/c/online-prospekte/s10005610/",
+        "swipeable": True, "page": 1, "page_count": 2,
+        "image_url": "https://example.invalid/synthetic-page-1.jpg",
+        "pages": [
+            {"number": 1, "href": "/ui/home/?view=booklets&page=1",
+             "image_url": "https://example.invalid/synthetic-page-1.jpg"},
+            {"number": 2, "href": "/ui/home/?view=booklets&page=2",
+             "image_url": "https://example.invalid/synthetic-page-2.jpg"},
+        ],
+        "offers": [], "previous_href": None,
+        "next_href": "/ui/home/?view=booklets&page=2",
+    }
+    rendered = env.get_template("booklets.html").render(
+        booklet=source, selected_date="2026-11-02", base_path="/ui/home",
+        csrf_token="synthetic", view="booklets",
+    )
+    assert 'data-booklet-store-name="LIDL"' in rendered
+    assert "LIDL buklets, 1. lapa no 2" in rendered
+    assert "Atvērt LIDL bukletu pilnekrānā" in rendered
+    assert "retailer=lidl" in rendered
+    assert "LIDL piedāvājumi" in rendered
+    assert "Netto piedāvājumi" not in rendered
+    assert "synthetic-page-1.jpg" in rendered
