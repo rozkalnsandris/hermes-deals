@@ -1811,8 +1811,6 @@ def html_booklet_source(db, tmp_path, monkeypatch, *,
     return snap, manifest, path
 
 
-@pytest.mark.parametrize("with_field", [True, False])
-
 def attach_html_publication(snapshot, manifest, tmp_path, *,
                             start="01.10.26", end="03.10.26",
                             group="netto", paths=None):
@@ -1902,6 +1900,7 @@ def test_netto_html_publication_requires_verified_source(data, tmp_path, monkeyp
     assert build_netto_booklet(db, DAY)["state"] == "unavailable"
 
 
+@pytest.mark.parametrize("with_field", [True, False])
 def test_booklet_uses_verified_official_link_on_start_day_only(data, tmp_path, monkeypatch, with_field):
     from app.netto_booklets import build_netto_booklet
     db, client, _ = data
