@@ -241,3 +241,21 @@ may be enabled. Lidl Gate B corpus freeze (#906) remains owner-gated; ALDI Nord,
 EDEKA and Kaufland still require page source evidence. Do not guess image URLs,
 cache extra PDFs or infer offer/product identity. The UI static asset key is
 `booklet-viewer-v8`.
+
+
+## Store selection, fail-closed reader routing (#1069)
+
+The booklet view accepts a server-allowlisted retailer selection: Netto, Lidl,
+ALDI Nord, EDEKA and Kaufland. Existing URLs without a retailer still open the
+original Netto reader and preserve its publication, image and offer validation.
+The selected retailer survives the Berlin day/week navigation; a date change
+starts a new page lookup. Unknown retailer IDs return HTTP 422.
+
+All non-Netto stores currently render an explicit **unavailable** state without
+any synthetic page, guessed official URL, implicit offer mapping or fallback to
+Netto. The shared reader is still a presentation capability, not evidence that
+new stores have published, registered, validated page data. In particular,
+Lidl #906 confirms a 76-page Oct 26–31 frozen corpus, but the future weekly
+source/production publication and 30-day raw/derived expiry contracts are
+separate gates. No LIVE, DB, corpus, parser, PDF or collector mutation is part
+of this change.
