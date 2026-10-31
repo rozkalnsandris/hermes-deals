@@ -33,7 +33,7 @@ def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
     assert "zoomAt(2.5, event.clientX, event.clientY)" not in JS
     assert "scale = 1" in JS and "resetZoom()" in JS
     assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
-    assert "netto-viewer-v4" in INDEX
+    assert "netto-viewer-v5" in INDEX
 
 
 def test_separate_zoom_keeps_product_click_unbound():
@@ -51,3 +51,13 @@ def test_separate_zoom_keeps_product_click_unbound():
     assert "canvas.addEventListener('pointermove'" in JS
     assert "scale > 1.01 ? 'pan' : 'swipe'" in JS
     assert ".booklet-reader.booklet-viewer-open .booklet-canvas.is-zoomed { cursor:grab; }" in CSS
+
+
+def test_zoom_resolution_uses_only_verified_data_and_falls_back_on_asset_failure():
+    assert "option.dataset.bookletZoomImageUrl" in JS
+    assert "failedHiResPages = new Set()" in JS
+    assert "image.addEventListener('error'" in JS
+    assert "image.src = option.dataset.bookletImageUrl" in JS
+    assert "scale > 1.01" in JS
+    assert 'data-booklet-zoom-image-url="{{ p.zoom_image_url }}"' in TEMPLATE
+    assert "netto-viewer-v5" in INDEX

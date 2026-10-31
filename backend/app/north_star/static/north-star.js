@@ -73,12 +73,28 @@
     let nativeEntered = false;
     let gesture = null;
     let mousePan = null;
+    const failedHiResPages = new Set();
     let scale = 1;
     let x = 0;
     let y = 0;
     const maxZoom = 5;
     const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
     const isOpen = () => reader.classList.contains('booklet-viewer-open');
+    function syncImageResolution() {
+      const option = options[page - 1];
+      if (!option) return;
+      // Higher resolutions are exposed only from SHA-verified Publitas sizes.
+      const high = option.dataset.bookletZoomImageUrl;
+      const fallback = option.dataset.bookletImageUrl;
+      const desired = scale > 1.01 && high && !failedHiResPages.has(page) ? high : fallback;
+      if (image.getAttribute('src') !== desired) image.src = desired;
+    }
+    image.addEventListener('error', () => {
+      const option = options[page - 1];
+      if (!option || image.getAttribute('src') !== option.dataset.bookletZoomImageUrl) return;
+      failedHiResPages.add(page);
+      image.src = option.dataset.bookletImageUrl;
+    });
     function applyTransform() {
       const bounds = canvas.getBoundingClientRect();
       const maxX = Math.max(0, (image.offsetWidth * scale - bounds.width) / 2);
@@ -90,6 +106,7 @@
       zoomIn.disabled = scale >= maxZoom - .001;
       zoomOut.disabled = scale <= 1.001;
       zoomLevel.textContent = Math.round(scale * 100) + '%';
+      syncImageResolution();
     }
     function resetZoom() {
       scale = 1;
@@ -121,6 +138,7 @@
       page = number;
       select.value = String(number);
       image.src = options[number - 1].dataset.bookletImageUrl;
+      // A page change always begins with the verified standard image.
       image.alt = 'Netto buklets, ' + number + '. lapa no ' + options.length;
       counter.textContent = String(number);
       hudCount.textContent = number + ' / ' + options.length;

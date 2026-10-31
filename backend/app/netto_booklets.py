@@ -168,12 +168,25 @@ def _html_teaser_link(db, day, cutoff, page):
                 record["publication_path"], record["publication_sha256"], root
             )
             paths = validated_pages(publication)
+            # Trust the SHA-verified publication's declared image sizes only.
+            # An absent or malformed high-resolution size is not an asset URL.
+            sizes = publication.get("sizes")
+            high_size = None
+            if isinstance(sizes, dict):
+                for candidate in ("at2400", "at2000"):
+                    dimensions = sizes.get(candidate)
+                    if (isinstance(dimensions, dict)
+                            and all(type(dimensions.get(axis)) in (int, float)
+                                    and 1 <= dimensions[axis] <= 10000
+                                    for axis in ("width", "height"))):
+                        high_size = candidate
+                        break
             if start <= day <= end:
-                selected.append((record, paths, start, end))
+                selected.append((record, paths, start, end, high_size))
         if len(selected) > 1:
             raise ValueError("Multiple Netto publications cover one day")
         if selected:
-            record, paths, start, end = selected[0]
+            record, paths, start, end, high_size = selected[0]
             if page > len(paths):
                 return {"state": "missing_page", "offers": [],
                         "message": "Šāda lapa bukletā nav pieejama."}
@@ -187,7 +200,9 @@ def _html_teaser_link(db, day, cutoff, page):
                 "snapshot_id": str(snapshot.id),
                 "swipeable": True,
                 "pages": [{"number": index, "href": booklet_href(day, index),
-                           "image_url": publitas_page_image_url(asset, "at1600")}
+                           "image_url": publitas_page_image_url(asset, "at1600"),
+                           "zoom_image_url": publitas_page_image_url(asset, high_size)
+                           if high_size else None}
                           for index, asset in enumerate(paths, 1)],
                 "previous_href": booklet_href(day, page - 1) if page > 1 else None,
                 "next_href": booklet_href(day, page + 1) if page < len(paths) else None,

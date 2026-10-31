@@ -174,3 +174,18 @@ pointer, and keyboard + / −. Mouse dragging pans an enlarged page. Mobile
 pinch zoom and one-finger panning/swiping retain their previous behavior.
 The zoom level is visible and clamped to 100–500%; changing pages resets it.
 No collector/DB/offer/PDF/LIVE changes.
+
+
+## Resolution-aware Netto zoom (verified publication metadata)
+
+The verified Netto HTML publication JSON may contain a `sizes` object
+with official Publitas page-image variants. Only a declared `at2400` or
+`at2000` variant with finite valid width/height is exposed as an optional
+higher-resolution URL for each SHA-validated page path. At normal scale the
+reader uses the original `at1600` asset; at zoom >100% it upgrades only
+the selected image. On asset load error the reader returns to the verified
+`at1600` URL and does not retry the failed higher resolution on that page.
+When metadata lacks a usable size, the standard image remains unchanged.
+The browser fetches no PDF, tiles or speculative URLs, and does not request
+the next page's high-resolution image. Zoom, pan, swipe and product selection
+boundaries are unchanged. No source acquisition, database or LIVE change.
