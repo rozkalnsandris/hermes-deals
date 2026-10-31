@@ -2049,7 +2049,10 @@ def test_booklet_selector_preserves_netto_and_never_fabricates_other_pages(data,
         response = client.get(base + "&retailer=" + retailer)
         assert response.status_code == 200, response.text
         assert 'data-booklet-state="unavailable"' in response.text
-        assert "vēl nav pieslēgtas pārbaudītam avotam" in response.text
+        if retailer == "lidl":
+            assert "nav saglabātu, publicētu un pārbaudītu Lidl" in response.text
+        else:
+            assert "vēl nav pieslēgtas pārbaudītam avotam" in response.text
         assert '<option value="' + retailer + '" selected' in response.text
         assert name + " piedāvājumi" in response.text
         assert "Netto piedāvājumi" not in response.text

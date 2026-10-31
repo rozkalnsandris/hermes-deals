@@ -260,3 +260,23 @@ Lidl #906 confirms a 76-page Oct 26–31 frozen corpus, but the future weekly
 source/production publication and 30-day raw/derived expiry contracts are
 separate gates. No LIVE, DB, corpus, parser, PDF or collector mutation is part
 of this change.
+
+
+## Lidl source-bound booklet pages (#1069)
+
+The same shared single-image full-screen viewer, swipe, previous/next controls
+and zoom resolution are used for Lidl; only the server-side source adapter is
+different. It reads already-saved \`lidl_public_flyer_json_canonical\` JSON
+under \`RAW_SNAPSHOT_DIR/lidl\`, verifies the exact snapshot SHA and bytes,
+official Lidl viewer/Schwarz self API, region, validity, contiguous full page
+list, and each official \`imgproxy.leaflets.schwarz\` image/zoom URL.
+It requires an independent **already-persisted DE06664 family-store offer**
+bound to the same snapshot and exact flyer/PDF/page provenance; region alone
+cannot prove store identity. Corrupt evidence fails closed, without falling
+back to a different/older publication. No page images are fabricated.
+
+Lidl page product cards are not enabled yet, because client-side page swipes
+do not refresh server-side offer binding. A frozen 76-page source in #906
+alone is not proof of available published offers at runtime. This source-only
+change does not execute collectors, render/retain PDFs, alter the DB, Review,
+publication, the 30-day PDF retention mechanism, or production deployment.
