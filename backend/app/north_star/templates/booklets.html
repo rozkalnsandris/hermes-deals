@@ -24,6 +24,11 @@
       <span data-booklet-viewer-count aria-live="polite">{{ booklet.page }} / {{ booklet.page_count }}</span>
       <button type="button" data-booklet-viewer-next aria-label="Nākamā lapa">›</button>
     </nav>
+    <div class="booklet-viewer-zoom" role="group" aria-label="Attēla pietuvināšana">
+      <button type="button" data-booklet-zoom-out aria-label="Attālināt attēlu" disabled>−</button>
+      <output data-booklet-zoom-level>100%</output>
+      <button type="button" data-booklet-zoom-in aria-label="Pietuvināt attēlu">+</button>
+    </div>
   </div>{% endif %}
   <p class="fine-print">Lapa <span {% if booklet.swipeable|default(false) %}data-booklet-counter{% endif %}>{{ booklet.page }}</span> no {{ booklet.page_count }} · attēls no veikala bukleta publicētāja. Ja attēls neielādējas, <a class="text-link" href="{{ booklet.source_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false">atver veikala bukletu</a>.</p>
 </section>

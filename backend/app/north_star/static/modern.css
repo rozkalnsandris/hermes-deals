@@ -333,7 +333,7 @@ main { padding: 32px 36px 0; max-width: 1720px; }
   .booklet-canvas { padding:4px; }
 }
 
-/* #1069: one official page; image tap opens immersive reader with focal-point zoom. */
+/* #1069: one official page; independent zoom for immersive reader. */
 .booklet-fullscreen[hidden], .booklet-viewer-hud[hidden] { display:none!important; }
 .booklet-swipe .booklet-canvas { display:block; overflow:auto; max-height:none; cursor:zoom-in; }
 .booklet-swipe .booklet-page-image { width:100%; height:auto; max-width:900px; margin-inline:auto; }
@@ -354,9 +354,10 @@ body.booklet-viewer-active { overflow:hidden!important; }
   flex:1 1 auto; display:flex; align-items:center; justify-content:center;
   min-height:0; width:100%; max-height:none; padding:0; overflow:hidden;
   border:0; border-radius:0; background:#15221b; touch-action:none;
-  overscroll-behavior:contain; cursor:zoom-in;
+  overscroll-behavior:contain; cursor:default;
 }
-.booklet-reader.booklet-viewer-open .booklet-canvas.is-zoomed { cursor:zoom-out; }
+.booklet-reader.booklet-viewer-open .booklet-canvas.is-zoomed { cursor:grab; }
+.booklet-reader.booklet-viewer-open .booklet-canvas.is-panning { cursor:grabbing; }
 .booklet-reader.booklet-viewer-open .booklet-page-image {
   display:block; width:auto; height:auto; max-width:100%; max-height:100%;
   object-fit:contain; transform-origin:center center; will-change:transform;
@@ -367,7 +368,8 @@ body.booklet-viewer-active { overflow:hidden!important; }
   display:contents; pointer-events:none;
 }
 .booklet-reader.booklet-viewer-open .booklet-viewer-close,
-.booklet-reader.booklet-viewer-open .booklet-viewer-pages {
+.booklet-reader.booklet-viewer-open .booklet-viewer-pages,
+.booklet-reader.booklet-viewer-open .booklet-viewer-zoom {
   position:fixed; z-index:2; pointer-events:auto;
   background:rgba(16,28,23,.82); color:white; border:1px solid #8ca09766;
   box-shadow:0 2px 14px #0004; backdrop-filter:blur(6px);
@@ -384,11 +386,25 @@ body.booklet-viewer-active { overflow:hidden!important; }
 .booklet-reader.booklet-viewer-open .booklet-viewer-pages button {
   width:44px; height:44px; border:0; background:transparent; color:white; font-size:27px;
 }
+.booklet-reader.booklet-viewer-open .booklet-viewer-zoom {
+  right:max(10px,env(safe-area-inset-right)); bottom:max(10px,env(safe-area-inset-bottom));
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:3px; border-radius:25px;
+}
+.booklet-reader.booklet-viewer-open .booklet-viewer-zoom button {
+  width:44px; height:44px; border:0; border-radius:50%; background:transparent;
+  color:white; font-size:25px; cursor:pointer;
+}
+.booklet-reader.booklet-viewer-open .booklet-viewer-zoom output {
+  min-width:44px; text-align:center; font-size:.75rem; font-variant-numeric:tabular-nums;
+}
+.booklet-reader.booklet-viewer-open .booklet-viewer-zoom button:disabled { opacity:.35; cursor:default; }
 .booklet-reader.booklet-viewer-open .booklet-viewer-pages button:disabled {
   opacity:.32; cursor:default;
 }
 .booklet-reader.booklet-viewer-open .booklet-viewer-pages span { min-width:54px; text-align:center; }
 .booklet-reader.booklet-viewer-open .booklet-viewer-close:focus-visible,
-.booklet-reader.booklet-viewer-open .booklet-viewer-pages button:focus-visible {
+.booklet-reader.booklet-viewer-open .booklet-viewer-pages button:focus-visible,
+.booklet-reader.booklet-viewer-open .booklet-viewer-zoom button:focus-visible {
   outline:3px solid #c9e892; outline-offset:2px;
 }

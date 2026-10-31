@@ -21,15 +21,33 @@ def test_immersive_viewer_does_not_obscure_booklet_with_original_controls():
 
 
 def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
-    assert "image.addEventListener('click', event => {" in JS
-    assert "if (!isOpen()) { open(); return; }" in JS
+    assert "image.addEventListener('click', () => { if (!isOpen()) open(); });" in JS
+    assert "if (!isOpen()) { open(); return; }" not in JS
     assert "requestFullscreen({ navigationUI: 'hide' })" in JS
     assert "canvas.addEventListener('touchmove'" in JS
     assert "event.touches.length >= 2" in JS
     assert "anchorX" in JS and "anchorY" in JS
     assert "event.preventDefault();" in JS
     assert "if (scale <= 1.01) navigate(" in JS
-    assert "lastTouch < 700" in JS
+    assert "lastTouch < 700" not in JS
+    assert "zoomAt(2.5, event.clientX, event.clientY)" not in JS
     assert "scale = 1" in JS and "resetZoom()" in JS
     assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
-    assert "netto-viewer-v3" in INDEX
+    assert "netto-viewer-v4" in INDEX
+
+
+def test_separate_zoom_keeps_product_click_unbound():
+    assert "image.addEventListener('click', () => { if (!isOpen()) open(); });" in JS
+    assert "image.addEventListener('click', event => {" not in JS
+    assert "data-booklet-zoom-in" in TEMPLATE and "data-booklet-zoom-out" in TEMPLATE
+    assert "data-booklet-zoom-level" in TEMPLATE
+    assert "zoomIn.addEventListener('click'" in JS
+    assert "zoomOut.addEventListener('click'" in JS
+    assert "canvas.addEventListener('wheel'" in JS
+    assert "event.deltaMode === 1" in JS
+    assert "event.cancelable" in JS and "passive:false" in JS
+    assert "event.clientX, event.clientY" in JS
+    assert "event.pointerType !== 'mouse'" in JS
+    assert "canvas.addEventListener('pointermove'" in JS
+    assert "scale > 1.01 ? 'pan' : 'swipe'" in JS
+    assert ".booklet-reader.booklet-viewer-open .booklet-canvas.is-zoomed { cursor:grab; }" in CSS

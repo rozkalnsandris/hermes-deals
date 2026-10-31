@@ -59,16 +59,20 @@
     const hudPrev = hud?.querySelector('[data-booklet-viewer-prev]');
     const hudNext = hud?.querySelector('[data-booklet-viewer-next]');
     const hudCount = hud?.querySelector('[data-booklet-viewer-count]');
+    const zoomIn = hud?.querySelector('[data-booklet-zoom-in]');
+    const zoomOut = hud?.querySelector('[data-booklet-zoom-out]');
+    const zoomLevel = hud?.querySelector('[data-booklet-zoom-level]');
     if (!reader || !canvas || !image || !form || !select || !prev || !next ||
-        !counter || !toggle || !hud || !closeButton || !hudPrev || !hudNext || !hudCount) return;
+        !counter || !toggle || !hud || !closeButton || !hudPrev || !hudNext || !hudCount ||
+        !zoomIn || !zoomOut || !zoomLevel) return;
     if (reader.dataset.bookletReady) return;
     const options = [...select.options];
     if (!options.length || options.some(option => !option.dataset.bookletImageUrl)) return;
     let page = Number(select.value);
     if (!Number.isInteger(page) || page < 1 || page > options.length) return;
     let nativeEntered = false;
-    let lastTouch = 0;
     let gesture = null;
+    let mousePan = null;
     let scale = 1;
     let x = 0;
     let y = 0;
@@ -83,12 +87,17 @@
       y = clamp(y, -maxY, maxY);
       image.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + scale + ')';
       canvas.classList.toggle('is-zoomed', scale > 1.01);
+      zoomIn.disabled = scale >= maxZoom - .001;
+      zoomOut.disabled = scale <= 1.001;
+      zoomLevel.textContent = Math.round(scale * 100) + '%';
     }
     function resetZoom() {
       scale = 1;
       x = 0;
       y = 0;
       gesture = null;
+      mousePan = null;
+      canvas.classList.remove('is-panning');
       applyTransform();
     }
     function zoomAt(nextScale, clientX, clientY) {
@@ -101,6 +110,10 @@
       scale = next;
       if (scale === 1) { x = 0; y = 0; }
       applyTransform();
+    }
+    function zoomCentered(factor) {
+      const bounds = canvas.getBoundingClientRect();
+      zoomAt(scale * factor, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
     }
     function navigate(number, updateUrl = true) {
       if (!Number.isInteger(number) || number < 1 || number > options.length) return;
@@ -145,7 +158,7 @@
       if (isOpen()) return;
       reader.classList.add('booklet-viewer-open');
       document.body.classList.add('booklet-viewer-active');
-      canvas.setAttribute('aria-label', 'Netto bukleta attēls. Divu pirkstu žests pietuvina; bultiņas pāršķir lapas.');
+      canvas.setAttribute('aria-label', 'Netto buklets. Pietuvini ar plus/mīnus pogām, peles ritentiņu vai diviem pirkstiem; šķirsti ar bultiņām.');
       toggle.setAttribute('aria-expanded', 'true');
       hud.hidden = false;
       resetZoom();
@@ -173,13 +186,40 @@
     toggle.hidden = false;
     toggle.addEventListener('click', open);
     closeButton.addEventListener('click', close);
-    image.addEventListener('click', event => {
-      if (!isOpen()) { open(); return; }
-      // Touch gestures must not produce a synthetic mouse zoom click.
-      if (Date.now() - lastTouch < 700 || event.button !== 0) return;
-      if (scale > 1.01) resetZoom();
-      else zoomAt(2.5, event.clientX, event.clientY);
+    // One click opens the cover; clicks within the reader are reserved for verified product hotspots.
+    image.addEventListener('click', () => { if (!isOpen()) open(); });
+    zoomIn.addEventListener('click', () => zoomCentered(1.5));
+    zoomOut.addEventListener('click', () => zoomCentered(1 / 1.5));
+    // Prevent native page scrolling only inside the active booklet canvas.
+    canvas.addEventListener('wheel', event => {
+      if (!isOpen()) return;
+      if (event.cancelable) event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
+      const delta = Math.max(-180, Math.min(180, event.deltaY * unit));
+      if (delta) zoomAt(scale * Math.exp(-delta / 320), event.clientX, event.clientY);
+    }, { passive:false });
+    // Drag with the mouse only while enlarged; touch keeps its existing pinch/pan behavior.
+    canvas.addEventListener('pointerdown', event => {
+      if (!isOpen() || event.pointerType !== 'mouse' || event.button !== 0 ||
+          scale <= 1.01 || event.target !== image) return;
+      mousePan = { id:event.pointerId, startX:event.clientX, startY:event.clientY, x, y };
+      canvas.setPointerCapture(event.pointerId);
+      canvas.classList.add('is-panning');
     });
+    canvas.addEventListener('pointermove', event => {
+      if (!mousePan || mousePan.id !== event.pointerId) return;
+      x = mousePan.x + event.clientX - mousePan.startX;
+      y = mousePan.y + event.clientY - mousePan.startY;
+      applyTransform();
+    });
+    function stopMousePan(event) {
+      if (!mousePan || mousePan.id !== event.pointerId) return;
+      mousePan = null;
+      canvas.classList.remove('is-panning');
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    }
+    canvas.addEventListener('pointerup', stopMousePan);
+    canvas.addEventListener('pointercancel', stopMousePan);
     canvas.addEventListener('keydown', event => {
       if (!isOpen() && (event.key === 'Enter' || event.key === ' ')) {
         event.preventDefault();
@@ -194,7 +234,6 @@
     const middle = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     canvas.addEventListener('touchstart', event => {
-      lastTouch = Date.now();
       if (!isOpen()) return;
       if (event.touches.length >= 2) {
         const a = point(event.touches[0]), b = point(event.touches[1]);
@@ -213,7 +252,6 @@
     }, { passive:true });
     canvas.addEventListener('touchmove', event => {
       if (!isOpen() || !gesture) return;
-      lastTouch = Date.now();
       if (gesture.type === 'pinch' && event.touches.length >= 2) {
         event.preventDefault();
         const a = point(event.touches[0]), b = point(event.touches[1]);
@@ -234,7 +272,6 @@
       }
     }, { passive:false });
     canvas.addEventListener('touchend', event => {
-      lastTouch = Date.now();
       if (!isOpen() || !gesture) return;
       if (gesture.type === 'swipe' && event.touches.length === 0 && event.changedTouches.length === 1) {
         const dx = event.changedTouches[0].clientX - gesture.origin.x;
@@ -252,8 +289,12 @@
       if (event.key === '0') { event.preventDefault(); resetZoom(); return; }
       if (event.key === '+' || event.key === '=') {
         event.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        zoomAt(scale * 1.5, rect.left + rect.width / 2, rect.top + rect.height / 2);
+        zoomCentered(1.5);
+        return;
+      }
+      if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        zoomCentered(1 / 1.5);
         return;
       }
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
