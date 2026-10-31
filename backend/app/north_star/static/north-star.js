@@ -82,7 +82,15 @@
       if (zoom?.checked) zoom.checked = false;
       const width = slides[0].getBoundingClientRect().width;
       if (!width) return;
-      track.scrollTo({ left: (number - 1) * width, behavior: smooth && !reducedMotion.matches ? 'smooth' : 'auto' });
+      // CSS scroll-behavior:smooth also applies to scrollTo({behavior:'auto'}).
+      // Direct jumps (including initial page 72) must not traverse all pages.
+      if (smooth && !reducedMotion.matches && Math.abs(number - page) === 1) {
+        track.scrollTo({ left: (number - 1) * width, behavior: 'smooth' });
+      } else {
+        track.style.scrollBehavior = 'auto';
+        track.scrollLeft = (number - 1) * width;
+        requestAnimationFrame(() => track.style.removeProperty('scroll-behavior'));
+      }
       update(number);
     }
     for (const [node, delta] of [[prev, -1], [next, 1]]) {
