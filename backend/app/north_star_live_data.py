@@ -25,6 +25,7 @@ from app.kaufland_verified_booklets import read_verified_kaufland_booklet
 from app.kaufland_booklets import build_kaufland_booklet
 from app.aldi_verified_booklets import read_verified_aldi_booklet
 from app.lidl_booklets import build_lidl_booklet
+from app.lidl_verified_booklets import read_verified_lidl_booklet
 from app.price_intelligence import (
     build_offer_price_intelligence, summarize_price_history, _series_predicate,
     history_cutoff, list_price_history_series, observed_price,
@@ -162,7 +163,8 @@ def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
     if retailer == "netto":
         booklet = build_netto_booklet(db, day, page)
     elif retailer == "lidl":
-        booklet = build_lidl_booklet(db, day, page)
+        verified = read_verified_lidl_booklet(day, page=page)
+        booklet = verified if verified is not None else build_lidl_booklet(db, day, page)
     elif retailer == "aldi_nord":
         # A promoted SHA-registered publication takes precedence over the
         # undated official catalogue; missing registration preserves fallback.

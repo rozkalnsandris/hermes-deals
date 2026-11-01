@@ -514,3 +514,43 @@ registration and controlled API restart require **separate owner LIVE
 authorization** with exact runtime preflight and a read-only UI canary.
 30-day metadata expiry blocks display, but does not automatically
 delete retained raw files or backups.
+
+
+## Lidl 6664 · Dortmund-Husener Straße original immutable image reader (#1069)
+
+The official Lidl public hub exposes the 02–07 November 2026 physical
+week flyer. The first-party generic API currently exposes 75 pages for
+flyer \`01a17709-8249-7615-b563-dc7ab8c43523\`, but returns region
+**0** even when queried with \`region_id=7\`; therefore this generic
+observation is **NOT proof of the selected family store**.
+The family store contract is \`DE06664\` (\`EntityID=6664\`), 44319
+Dortmund, Husener Straße 44, with independent control region \`7\`.
+Do not equate 0 with 7 or silently use a different store.
+
+The separately registered local reader
+\`backend/app/lidl_verified_booklets.py\` accepts only a SHA256-pinned
+\`RAW_SNAPSHOT_DIR/lidl-booklets\` containing \`capture.json\`,
+immutable \`hub.html\` and \`api.json\`, and all original normal
+and zoom JPEG images. Both raw source SHA256 values are checked.
+The captured selected-store hub must explicitly link the weekly
+\`/ar/7\` URL; first-party API must independently advertise region 7,
+the same dated edition and viewer URL, and original page identity.
+Every signed Schwarz CDN URL is decoded and bound to the *exact* flyer
+ID, page number and quality. All assets are SHA256-checked before
+reporting ready; missing, conflicting, altered or expired evidence
+fails closed.
+
+The display uses the existing immersive booklet navigation, zoom and
+swipe controls. It never invents offer/page hotspots, retail prices,
+or source-store identity. No registration preserves the existing
+published-source Lidl reader and its existing offer-provenance gates.
+\`LIDL_FAMILY_BOOKLET_CAPTURE_SHA256\` requires explicit owner LIVE
+registration after independently verified candidate capture.
+The 30-day expiry blocks viewing; physical cleanup of evidence files
+and backups is a distinct future owner-gated task.
+
+This step is only the **read-side preparation**. A source acquisition
+tool and verified family-region source are still required before
+separately authorized LIVE capture, promotion, env registration and
+API restart. The first-party generic region-0 75-page observation
+must NOT be activated as the family edition.
