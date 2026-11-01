@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.household_service import HouseholdConflict, change_household, empty_household
 from app.meal_service import BY_ID
+from app.edeka_verified_booklets import read_verified_edeka_image
 from app.north_star_live_data import BOOKLET_RETAILERS, NAV, build_live_context
 
 BASE_PATH = "/ui/home"
@@ -288,6 +289,18 @@ def render(request, context, *, status=200):
     context["csrf_token"] = token
     context["test_database"] = os.getenv("APP_ENV") == "test"
     return finish(templates.TemplateResponse(request=request, name="live.html", context=context, status_code=status), request, token)
+
+
+@router.get("/booklet-assets/edeka/{quality}/{page}")
+def edeka_booklet_asset(quality: str, page: int):
+    # Registered local evidence only. No upstream redirect or guessing.
+    try:
+        raw = read_verified_edeka_image(page, quality)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        raise HTTPException(404, "EDEKA bukleta attēls nav pieejams.")
+    return Response(content=raw, media_type="image/jpeg", headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.get("")
