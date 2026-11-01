@@ -27,6 +27,7 @@ from app.db import get_db
 from app.household_service import HouseholdConflict, change_household, empty_household
 from app.meal_service import BY_ID
 from app.edeka_verified_booklets import read_verified_edeka_image
+from app.kaufland_verified_booklets import read_verified_kaufland_image
 from app.north_star_live_data import BOOKLET_RETAILERS, NAV, build_live_context
 
 BASE_PATH = "/ui/home"
@@ -298,6 +299,17 @@ def edeka_booklet_asset(quality: str, page: int):
         raw = read_verified_edeka_image(page, quality)
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         raise HTTPException(404, "EDEKA bukleta attēls nav pieejams.")
+    return Response(content=raw, media_type="image/jpeg", headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    })
+
+
+@router.get("/booklet-assets/kaufland/{quality}/{page}")
+def kaufland_booklet_asset(quality: str, page: int):
+    try:
+        raw = read_verified_kaufland_image(page, quality)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        raise HTTPException(404, "Kaufland bukleta attēls nav pieejams.")
     return Response(content=raw, media_type="image/jpeg", headers={
         "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
     })

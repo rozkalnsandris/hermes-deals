@@ -21,6 +21,8 @@ from app.netto_booklets import build_netto_booklet
 from app.aldi_booklets import build_aldi_nord_booklet
 from app.edeka_booklets import build_edeka_booklet
 from app.edeka_verified_booklets import read_verified_edeka_booklet
+from app.kaufland_verified_booklets import read_verified_kaufland_booklet
+from app.kaufland_booklets import build_kaufland_booklet
 from app.aldi_verified_booklets import read_verified_aldi_booklet
 from app.lidl_booklets import build_lidl_booklet
 from app.price_intelligence import (
@@ -169,6 +171,9 @@ def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
     elif retailer == "edeka":
         verified = read_verified_edeka_booklet(day, page=page)
         booklet = verified if verified is not None else build_edeka_booklet(day)
+    elif retailer == "kaufland":
+        verified = read_verified_kaufland_booklet(day, page=page)
+        booklet = verified if verified is not None else build_kaufland_booklet(day)
     else:
         # Never invent pages for a retailer without a verified page reader.
         booklet = {

@@ -466,3 +466,29 @@ no-store and nosniff. The entry contains no fabricated offer links.
 The 30-day expiry is a display gate, not file deletion: actual purge,
 backup expiry, capture execution, configuration, activation and deploy
 remain separate LIVE permissions, with later mobile/desktop canary.
+
+
+## Kaufland Dortmund-Aplerbeck 1503 verified booklet reader (source-only #1069)
+
+The first-party store page at
+https://filiale.kaufland.de/service/filiale/dortmund-aplerbeck-1503.html
+links to the edition-specific viewer
+https://leaflets.kaufland.com/de-DE/DE_de_KDZ1_1503_D45/ar/1503.
+On 2026-11-01 this official viewer identified **01–07 November 2026**,
+**70 original pages**, and original image group
+\`01a1831f-2f9c-7e3d-96ff-72c3cf783f80\`. Other overlapping
+or thematic Kaufland publications must not be substituted.
+
+The source-only reader uses the existing Jinja fullscreen booklet UI,
+but only after a separately authorized immutable local capture has been
+promoted under \`RAW_SNAPSHOT_DIR/kaufland-booklets\` and
+\`KAUFLAND_APLERBECK_CAPTURE_SHA256\` registered. It checks the full
+70-page/2-quality corpus SHA256, official signed Schwarz CDN URLs decoded
+to the exact original flyer ID and page, selected-date validity and
+<=30-day expiry. It makes no product, hotspot or price claims. Without
+registration, the store's official catalogue link is shown honestly;
+invalid/expired registered content fails closed.
+
+**Capture script, retained evidence creation, promotion, deployment,
+configuration, real UI canary and actual 30-day file deletion** remain
+separate source and owner-LIVE gates. No production changes occur here.
