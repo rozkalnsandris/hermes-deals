@@ -15,10 +15,10 @@ tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tool)
 
 CLOCK = datetime(2026, 11, 1, 14, tzinfo=timezone.utc)
-SLUG = "aktionsprospekt-02-11-2026-07-11-2026-test12"
-VIEWER = "https://www.lidl.de/l/prospekte/" + SLUG + "/ar/7"
-FLYER = "01a17709-8249-7615-b563-dc7ab8c43523"
-API = tool.API_BASE+"?version=4&flyer_identifier="+SLUG+"&client=lidl&region_id=7"
+SLUG = reader.SLUG_ID
+VIEWER = "https://www.lidl.de/l/prospekte/" + SLUG + "/ar/21"
+FLYER = reader.FLYER_ID
+API = tool.API_BASE+"?version=4&flyer_identifier="+SLUG+"&client=lidl&region_id=21"
 
 
 def link(n,quality):
@@ -33,11 +33,11 @@ def reader_src(n,quality):
     return "https://imgproxy.leaflets.schwarz/"+("X"*43)+f"/rs:fit:{size}:{size}:1/g:no/{encoded}.jpg"
 
 
-def fixture(*,region="7",bad_hub=False,wrong_page=False):
-    hub_href=VIEWER if not bad_hub else VIEWER.replace("/ar/7","/ar/0")
+def fixture(*,region="21",bad_hub=False,wrong_page=False,missing_control=False):
+    hub_href=VIEWER if not bad_hub else VIEWER.replace("/ar/21","/ar/0")
     hub=f'<a href="{hub_href}">Lidl 02.11.2026–07.11.2026</a>'.encode()
     flyer={
-        "id":FLYER,"regions":[{"code":region}],"offerStartDate":"2026-11-02",
+        "id":FLYER,"regions":[{"code":region}]+([] if missing_control else [{"code":"7"}]),"offerStartDate":"2026-11-02",
         "offerEndDate":"2026-11-07","flyerUrlAbsolute":VIEWER,
         "pages":[],
     }
@@ -60,12 +60,12 @@ class Reply:
     def read(self,count):return self.source.read(count)
 
 
-def fake(request,timeout, *,region="7",bad_hub=False,wrong_page=False,
+def fake(request,timeout, *,region="21",bad_hub=False,wrong_page=False,missing_control=False,
          redirect=False,urls=None):
     url=request.full_url
     if urls is not None:
         urls.append(url)
-    hub,api=fixture(region=region,bad_hub=bad_hub,wrong_page=wrong_page)
+    hub,api=fixture(region=region,bad_hub=bad_hub,wrong_page=wrong_page,missing_control=missing_control)
     if url==tool.HUB:return Reply(url,hub,"text/html")
     if url==VIEWER:return Reply(url,b"<html><title>Lidl</title></html>","text/html")
     if url==API:return Reply(url,api,"application/json")
@@ -82,7 +82,7 @@ def fake(request,timeout, *,region="7",bad_hub=False,wrong_page=False,
 def test_candidate_3_pages_6_original_images_and_registration(tmp_path):
     urls=[]
     meta,files,hub,api=tool.capture(now=CLOCK,opener=lambda r,timeout:fake(r,timeout,urls=urls))
-    assert meta["page_count"]==3 and len(files)==6 and meta["region"]=="7"
+    assert meta["page_count"]==3 and len(files)==6 and meta["region"]=="21" and meta["control_region"]=="7"
     assert meta["store_external_id"]=="DE06664" and meta["pdf_retained"] is False
     assert meta["publication_authorized"] is False and meta["source_flyer_id"]==FLYER
     assert meta["expires_at"]==(CLOCK+timedelta(days=30)).isoformat()
@@ -108,9 +108,14 @@ def test_generic_region_zero_is_rejected_before_image_fetch_or_write(tmp_path):
     assert list(tmp_path.iterdir())==[]
 
 
-def test_without_ar7_hub_link_cannot_bind_store():
+def test_without_ar21_hub_link_cannot_bind_store():
     with pytest.raises(ValueError,match="Selected-store"):
         tool.capture(now=CLOCK,opener=lambda r,timeout:fake(r,timeout,bad_hub=True))
+
+
+def test_advertised_route21_without_selected_store_control7_rejected():
+    with pytest.raises(ValueError,match="region|edition"):
+        tool.capture(now=CLOCK,opener=lambda r,timeout:fake(r,timeout,missing_control=True))
 
 
 def test_non_contiguous_source_pages_fail_closed():

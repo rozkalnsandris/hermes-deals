@@ -21,7 +21,10 @@ SCHEMA = "lidl_family_original_image_capture_v1"
 HUB = "https://www.lidl.de/c/online-prospekte/s10005610/"
 STORE = "DE06664"
 ENTITY = "6664"
-REGION = "7"  # Source-discovery control; NOT sufficient store proof on its own.
+CONTROL_REGION = "7"  # Selected-store cookie control; never a flyer route identity.
+REGION = "21"  # Week 45 observed in selected-store HTML; checked against first-party API.
+FLYER_ID = "01a1770f-71cb-7322-ba85-b04b8c4bc460"
+SLUG_ID = "aktionsprospekt-02-11-2026-07-11-2026-84eded"
 START, END = date(2026, 11, 2), date(2026, 11, 7)
 QUALITIES = ("normal", "large")
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -95,7 +98,7 @@ def _viewer(value):
     parsed = urlsplit(value)
     if (parsed.scheme != "https" or parsed.netloc != "www.lidl.de"
             or parsed.username or parsed.password or parsed.fragment
-            or not re.fullmatch(r"/l/prospekte/aktionsprospekt-02-11-2026-07-11-2026-[a-z0-9]+/ar/7/?", parsed.path)):
+            or not re.fullmatch(r"/l/prospekte/aktionsprospekt-02-11-2026-07-11-2026-[a-z0-9]+/ar/21/?", parsed.path)):
         raise ValueError("Wrong Lidl edition or regional viewer")
     return parsed
 
@@ -152,6 +155,8 @@ def _source(root, meta):
         raise ValueError("API source digest drift")
     viewer = _viewer(meta.get("viewer_url"))
     slug = viewer.path.split("/")[3]
+    if slug != SLUG_ID:
+        raise ValueError("Different Lidl selected-store weekly edition")
     _api_url(meta.get("api_url"), slug)
     parser = _Links()
     parser.feed(hub.decode("utf-8", "strict"))
@@ -160,16 +165,16 @@ def _source(root, meta):
     candidates = [urlsplit(link) for link in parser.links]
     if not any(v.path == viewer.path and (not v.netloc or v.netloc == "www.lidl.de")
                and (not v.scheme or v.scheme == "https") for v in candidates):
-        raise ValueError("Missing selected-store hub publication link")
+        raise ValueError("Missing selected-store region-21 hub publication link")
     payload = json.loads(api, object_pairs_hook=_unique)
     if not isinstance(payload, dict) or payload.get("success") is not True or payload.get("version") != 4:
         raise ValueError("Publisher API not successful")
     flyer = payload.get("flyer")
     if not isinstance(flyer, dict):
         raise ValueError("Publisher flyer missing")
-    if (flyer.get("id") != meta.get("source_flyer_id")
+    if (flyer.get("id") != FLYER_ID or flyer.get("id") != meta.get("source_flyer_id")
             or not isinstance(flyer.get("regions"), list)
-            or REGION not in [x.get("code") for x in flyer["regions"] if isinstance(x, dict)]
+            or not {REGION, CONTROL_REGION}.issubset({str(x.get("code")) for x in flyer["regions"] if isinstance(x, dict)})
             or flyer.get("offerStartDate") != START.isoformat()
             or flyer.get("offerEndDate") != END.isoformat()
             or _viewer(flyer.get("flyerUrlAbsolute")).path != viewer.path):
@@ -202,14 +207,15 @@ def _manifest(root, digest, clock, *, verify_all):
     expected = {
         "schema": SCHEMA, "retailer": "lidl", "store_external_id": STORE,
         "store_entity_id": ENTITY, "scope": "physical_store_family_original",
-        "region": REGION, "source_page": HUB, "valid_from": START.isoformat(),
+        "region": REGION, "control_region": CONTROL_REGION,
+        "source_page": HUB, "valid_from": START.isoformat(),
         "valid_until": END.isoformat(), "state": "candidate_only_unregistered",
         "publication_authorized": False, "pdf_retained": False,
     }
     if any(type(meta.get(k)) is not type(v) or meta.get(k) != v for k,v in expected.items()):
         raise ValueError("Invalid store or source identity")
     fid = meta.get("source_flyer_id")
-    if not isinstance(fid, str) or not UUID.fullmatch(fid):
+    if not isinstance(fid, str) or not UUID.fullmatch(fid) or fid != FLYER_ID:
         raise ValueError("Unbound flyer identity")
     for name in ("hub_html_sha256", "api_json_sha256"):
         v = meta.get(name)

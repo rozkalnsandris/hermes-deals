@@ -1,7 +1,7 @@
 """Owner-LIVE-only, candidate-only original Lidl DE06664 booklet image capture.
 
-Never infer family store from region id or generic flyer 0. Acquire verified
-selected-store hub and exact publisher region 7 before writing any files.
+Never infer family store from control region 7 or generic flyer 0. Acquire verified
+selected-store hub and exact publisher route region 21 before writing any files.
 No PDFs, offer/Review/DB writes, production registration, or publication.
 """
 import argparse
@@ -19,6 +19,7 @@ from app import lidl_verified_booklets as v
 
 HUB = v.HUB
 REGION = v.REGION
+CONTROL_REGION = v.CONTROL_REGION
 ENTITY = v.ENTITY
 API_BASE = "https://endpoints.leaflets.schwarz/v4/flyer"
 DATE_FROM = v.START.isoformat()
@@ -28,13 +29,13 @@ EXPECTED_SLUG = re.compile(r"aktionsprospekt-02-11-2026-07-11-2026-[a-z0-9]+\Z")
 
 # The prior canonical source discovery's exact selected-store cookie format.
 STORE_COOKIE = quote(
-    f"ar={REGION};EntityID={ENTITY};zip=44319;city=Dortmund;street=Husener Straße 44",
+    f"ar={CONTROL_REGION};EntityID={ENTITY};zip=44319;city=Dortmund;street=Husener Straße 44",
     safe="",
 )
 HEADERS = {
     "User-Agent": "HermesDeals-Lidl-original-booklet/1",
     "Accept-Language": "de-DE,de;q=0.9",
-    "Cookie": f"st={ENTITY}; ar={STORE_COOKIE}; wh={REGION}; zn=DE1",
+    "Cookie": f"st={ENTITY}; ar={STORE_COOKIE}; wh={CONTROL_REGION}; zn=DE1",
 }
 
 
@@ -77,8 +78,11 @@ def _selected_viewer(hub):
             continue
         viewers[parsed.path]=url
     if len(viewers)!=1:
-        raise ValueError("Selected-store hub did not confirm one exact region-7 weekly flyer")
-    return next(iter(viewers.values()))
+        raise ValueError("Selected-store hub did not confirm one exact region-21 weekly flyer")
+    selected=next(iter(viewers.values()))
+    if v._viewer(selected).path.split("/")[3] != v.SLUG_ID:
+        raise ValueError("Selected-store weekly source identity differs from witnessed issue")
+    return selected
 
 
 def _publisher(raw, viewer, api_url):
@@ -89,11 +93,11 @@ def _publisher(raw, viewer, api_url):
     if not isinstance(flyer,dict):
         raise ValueError("Missing official source flyer")
     fid=flyer.get("id")
-    if not isinstance(fid,str) or not v.UUID.fullmatch(fid):
+    if not isinstance(fid,str) or not v.UUID.fullmatch(fid) or fid!=v.FLYER_ID:
         raise ValueError("Invalid official flyer identity")
     if (flyer.get("offerStartDate")!=DATE_FROM or flyer.get("offerEndDate")!=DATE_TO
         or not isinstance(flyer.get("regions"),list)
-        or REGION not in [str(row.get("code")) for row in flyer["regions"] if isinstance(row,dict)]
+        or not {REGION,CONTROL_REGION}.issubset({str(row.get("code")) for row in flyer["regions"] if isinstance(row,dict)})
         or v._viewer(flyer.get("flyerUrlAbsolute")).path!=v._viewer(viewer).path):
         raise ValueError("Wrong Lidl edition/store-region or generic region-0 source")
     slug=v._viewer(viewer).path.split("/")[3]
@@ -157,6 +161,7 @@ def capture(*, opener=urlopen, now=None):
         "schema":v.SCHEMA,"retailer":"lidl",
         "store_external_id":v.STORE,"store_entity_id":v.ENTITY,
         "scope":"physical_store_family_original","region":REGION,
+        "control_region":CONTROL_REGION,
         "source_page":HUB,"api_url":api_url,"viewer_url":viewer,
         "source_flyer_id":flyer_id,
         "hub_html_sha256":sha256(hub).hexdigest(),
