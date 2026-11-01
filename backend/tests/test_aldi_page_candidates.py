@@ -13,13 +13,14 @@ ROOT = "https://magazine.aldi-nord.de/aldi-nord/example-issue-2026/"
 IPAPER = "https://ipaper.ipapercms.dk/aldi-nord/example-issue-2026/"
 
 
-def html_with_pages(*, viewer=ROOT, pages=None, next_data=True):
+def html_with_pages(*, viewer=ROOT, pages=None, next_data=True, as_list=False):
     if pages is None:
         pages = [
             {"pageNumber": n, "url": f"{IPAPER}Image.ashx?PageNumber={n}"}
             for n in range(1, 4)
         ]
-    props = {"page": {"link": viewer}, "apiData": json.dumps([[{}, {"res": pages}]])}
+    api_data = [[{}, {"res": pages}]]
+    props = {"page": {"link": viewer}, "apiData": api_data if as_list else json.dumps(api_data)}
     body = json.dumps({"props": {"pageProps": props}})
     return f'<html><script type="application/json" id="__NEXT_DATA__">{body}</script></html>' if next_data else "<html />"
 
@@ -36,13 +37,11 @@ def test_bounded_complete_official_page_candidates_stay_unverified():
     assert not hasattr(result, "publication_ready")
 
 
-def test_nextjs_payload_can_be_object_but_not_arbitrary_dynamic_data():
-    content = html_with_pages().replace(
-        '"apiData": "', '"apiData": "', 1
-    )
-    # An object can be used by Next.js without changing the offline contract.
-    original = html_with_pages()
-    assert parse_aldi_page_candidates(original, landing_url=CURRENT).status == "unverified"
+def test_already_decoded_nextjs_api_data_list_is_supported():
+    original = html_with_pages(as_list=True)
+    result = parse_aldi_page_candidates(original, landing_url=CURRENT)
+    assert result.status == "unverified"
+    assert len(result.page_images) == 3
     assert set(LANDINGS) == {CURRENT, "https://www.aldi-nord.de/prospekte/aldi-vorschau.html"}
 
 

@@ -68,8 +68,9 @@ def _official_source_url(value: object) -> tuple[str, str]:
                 or url.port is not None or url.username or url.password
                 or url.fragment or not url.path.startswith("/aldi-nord/")):
             raise InvalidAldiPageCandidates("untrusted ALDI source URL")
-        if not url.path.strip("/").split("/")[-1]:
-            raise InvalidAldiPageCandidates("missing ALDI issue path")
+        segments = url.path.strip("/").split("/")
+        if len(segments) < 2 or any(part in {"", ".", ".."} for part in segments):
+            raise InvalidAldiPageCandidates("missing or unsafe ALDI issue path")
         if any(k.lower() in SENSITIVE_KEYS for k, _ in parse_qsl(url.query)):
             raise InvalidAldiPageCandidates("signed or sensitive ALDI URL")
     except ValueError as exc:
