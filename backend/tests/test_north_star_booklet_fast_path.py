@@ -67,12 +67,21 @@ def test_booklet_navigation_does_not_invent_other_retailer_pages(monkeypatch):
 
     monkeypatch.setattr(live_data, "build_netto_booklet", unexpected)
     monkeypatch.setattr(live_data, "build_lidl_booklet", unexpected)
+    from app.aldi_booklets import build_aldi_nord_booklet
+    monkeypatch.setattr(
+        live_data, "build_aldi_nord_booklet",
+        lambda day: build_aldi_nord_booklet(day, today=date(2026, 10, 31)),
+    )
 
     context = live_data.build_live_context(
         object(), "test-family", date(2026, 11, 2),
         view="booklets", booklet_retailer="aldi_nord",
     )
 
-    assert context["booklet"]["state"] == "unavailable"
+    assert context["booklet"]["state"] == "external_link"
+    assert context["booklet"]["source_url"] == "https://www.aldi-nord.de/prospekte/aldi-vorschau.html"
     assert context["booklet"]["offers"] == []
+    assert "pages" not in context["booklet"]
+    assert "page_count" not in context["booklet"]
+    assert "image_url" not in context["booklet"]
     assert context["booklet"]["retailer_name"] == "ALDI Nord"

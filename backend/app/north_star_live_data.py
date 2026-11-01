@@ -18,6 +18,7 @@ from app.meal_service import meal_context, quantity_label
 from app.meal_pricing import INGREDIENTS, requirement_price
 from app.models import OfferCandidateRecord
 from app.netto_booklets import build_netto_booklet
+from app.aldi_booklets import build_aldi_nord_booklet
 from app.lidl_booklets import build_lidl_booklet
 from app.price_intelligence import (
     build_offer_price_intelligence, summarize_price_history, _series_predicate,
@@ -157,6 +158,8 @@ def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
         booklet = build_netto_booklet(db, day, page)
     elif retailer == "lidl":
         booklet = build_lidl_booklet(db, day, page)
+    elif retailer == "aldi_nord":
+        booklet = build_aldi_nord_booklet(day)
     else:
         # Never invent pages for a retailer without a verified page reader.
         booklet = {
