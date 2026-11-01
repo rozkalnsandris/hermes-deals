@@ -19,13 +19,16 @@ from urllib.request import Request, urlopen
 STORE = "1503"
 FLYER_ID = "01a1831f-2f9c-7e3d-96ff-72c3cf783f80"
 START, END = "2026-11-01", "2026-11-07"
-PAGES = 70
+PAGES = 69
 SOURCE = "https://filiale.kaufland.de/service/filiale/dortmund-aplerbeck-1503.html"
 VIEWER = "https://leaflets.kaufland.com/de-DE/DE_de_KDZ1_1503_D45/ar/1503"
-VIEWER_PAGE = "https://leaflets.kaufland.com/de-DE/DE_de_KDZ1_1503_D45/view/flyer/page/"
+API = "https://endpoints.leaflets.schwarz/v4/flyer?flyer_identifier=DE_de_KDZ1_1503_D45&region_id=1503&region_code=1503"
+PROMOTION_ID = "01a17c12-30f4-7598-8e9f-60efaead0abe"
+PROMOTION_ORIGINAL = "s3://leaflets/flyer_promotions/01a17c12-30f4-7598-8e9f-60efaead0abe/image_1457x2400_10-29-2026_10-43-26.jpg"
 CDN = "https://imgproxy.leaflets.schwarz/"
 QUALITIES = ("normal", "large")
 MAX_HTML = 5 * 1024 * 1024
+MAX_JSON = 3 * 1024 * 1024
 MAX_IMAGE = 6 * 1024 * 1024
 MAX_TOTAL = 100 * 1024 * 1024
 MAX_MANIFEST = 256 * 1024
@@ -58,41 +61,37 @@ def _read(url, limit, mime, *, open_url=urlopen):
     return raw
 
 
-def _original(url):
-    """Return (page number, original asset path, rendered width)."""
+def _image_source(url, number, quality):
+    """Validate signed CDN address and decoded first-party original identity."""
     if not isinstance(url, str) or len(url) > 700:
-        return None
+        return False
     try:
-        p = urlsplit(url)
-        if (p.scheme != "https" or p.netloc != "imgproxy.leaflets.schwarz"
-                or p.query or p.fragment or p.username or p.password):
-            return None
-        parts = p.path.lstrip("/").split("/")
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or parsed.netloc != "imgproxy.leaflets.schwarz"
+                or parsed.query or parsed.fragment or parsed.username or parsed.password):
+            return False
+        parts = parsed.path.lstrip("/").split("/")
         if len(parts) != 4 or parts[2] != "g:no":
-            return None
-        if not re.fullmatch(r"[A-Za-z0-9_-]{40,64}", parts[0]):
-            return None
-        size = re.fullmatch(r"rs:fit:(800|1200|1600|2400):\1:1", parts[1])
-        if not size or not re.fullmatch(r"[A-Za-z0-9_-]+\.jpg", parts[3]):
-            return None
+            return False
+        if (not re.fullmatch(r"[A-Za-z0-9_-]{40,64}", parts[0])
+                or not re.fullmatch(r"[A-Za-z0-9_-]+\.jpg", parts[3])):
+            return False
         token = parts[3][:-4]
         original = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode("ascii")
-        match = re.fullmatch(
-            rf"s3://leaflets/images/{re.escape(FLYER_ID)}/page-(\d{{2}})_[0-9a-f]{{32}}\.png",
-            original,
-        )
-        if match:
-            page = int(match.group(1))
-            if 1 <= page <= PAGES:
-                return page, original, int(size.group(1))
-    except (ValueError, TypeError, UnicodeError, binascii.Error):
-        pass
-    return None
-
-
-def _image_links(raw):
-    text = unescape(raw.decode("utf-8", "strict")).replace("\\u002F", "/").replace("\\/", "/")
-    return sorted(set(IMAGE_LINK.findall(text)))
+        if 1 <= number <= 68:
+            size = "rs:fit:1200:1200:1" if quality == "normal" else "rs:fit:2400:2400:1"
+            if parts[1] != size:
+                return False
+            return bool(re.fullmatch(
+                rf"s3://leaflets/images/{re.escape(FLYER_ID)}/page-{number:02d}_[0-9a-f]{{32}}\.png",
+                original,
+            ))
+        if number == 69:
+            size = "rs:fill:729:1200:1" if quality == "normal" else "rs:fill:1458:2400:1"
+            return parts[1] == size and original == PROMOTION_ORIGINAL
+        return False
+    except (ValueError, UnicodeError, binascii.Error, TypeError):
+        return False
 
 
 def _verify_store(raw):
@@ -103,38 +102,51 @@ def _verify_store(raw):
     return sha256(raw).hexdigest()
 
 
-def _verify_viewer(raw):
-    text = unescape(raw.decode("utf-8", "strict"))
-    if not (re.search(r"01\.11\.2026\s*-\s*07\.11\.2026", text)
-            and re.search(r"(?:1\s*/\s*70|pageCount[\\\"]*\s*[:=]\s*70)", text)):
-        raise ValueError("Unverified first-party edition dates/page count")
+def _unique(pairs):
+    result = {}
+    for key, val in pairs:
+        if key in result:
+            raise ValueError("Duplicate first-party API metadata key")
+        result[key] = val
+    return result
 
 
-def _choose_urls(htmls):
-    groups = {n: {} for n in range(1, PAGES + 1)}
-    for html in htmls:
-        for url in _image_links(html):
-            found = _original(url)
-            if not found:
-                continue
-            number, original, pixels = found
-            options = groups[number]
-            if options and options["original"] != original:
-                raise ValueError("Conflicting original page identities")
-            options.setdefault("original", original)
-            if pixels not in options or url < options[pixels]:
-                options[pixels] = url
-    selected = {}
-    for number, options in groups.items():
-        sizes = sorted(x for x in options if type(x) is int)
-        if not sizes:
-            raise ValueError(f"Missing verified first-party page {number}")
-        normal = 1200 if 1200 in sizes else sizes[0]
-        selected[number] = {"normal": options[normal], "large": options[max(sizes)]}
-    return selected
+def _verify_api(raw):
+    data = json.loads(raw, object_pairs_hook=_unique)
+    if (not isinstance(data, dict) or data.get("success") is not True
+            or data.get("version") != 4 or not isinstance(data.get("flyer"), dict)):
+        raise ValueError("Unverified first-party flyer API response")
+    flyer = data["flyer"]
+    expected = {
+        "id": FLYER_ID, "startDate": START, "endDate": END,
+        "title": "01.11.2026 - 07.11.2026", "flyerUrlAbsolute": VIEWER,
+        "status": "current", "isActive": True,
+    }
+    if any(type(flyer.get(k)) is not type(v) or flyer.get(k) != v for k, v in expected.items()):
+        raise ValueError("Wrong Kaufland flyer edition or active state")
+    regions = flyer.get("regions")
+    if (not isinstance(regions, list)
+            or not any(isinstance(r, dict) and r.get("code") == STORE for r in regions)):
+        raise ValueError("Exact store region not published")
+    pages = flyer.get("pages")
+    if not isinstance(pages, list) or len(pages) != PAGES:
+        raise ValueError("Unexpected original-image page count")
+    for number, page in enumerate(pages, 1):
+        if not isinstance(page, dict) or type(page.get("number")) is not int or page["number"] != number:
+            raise ValueError("Noncontiguous first-party page list")
+        if number <= 68:
+            if page.get("type") != "STANDARD" or page.get("promotionId") is not None:
+                raise ValueError("Unexpected original flyer page type")
+        elif page.get("type") != "PROMOTION" or page.get("promotionId") != PROMOTION_ID:
+            raise ValueError("Unexpected separate promotional page")
+        for quality, field in (("normal", "image"), ("large", "zoom")):
+            if not _image_source(page.get(field), number, quality):
+                raise ValueError(f"Untrusted page {number} {quality} original URL")
+    return pages
 
 
 def capture(*, open_url=urlopen, now=None):
+    """Read original publisher API and every JPEG before any output write."""
     clock = now or datetime.now(timezone.utc)
     if clock.tzinfo is None or clock.utcoffset() is None:
         raise ValueError("UTC-aware clock required")
@@ -143,54 +155,45 @@ def capture(*, open_url=urlopen, now=None):
         raise ValueError("Pinned Kaufland capture window ended")
     landing = _read(SOURCE, MAX_HTML, "text/html", open_url=open_url)
     source_sha = _verify_store(landing)
-    first = _read(VIEWER_PAGE + "1", MAX_HTML, "text/html", open_url=open_url)
-    _verify_viewer(first)
-    # Official viewer uses page 1 then even-numbered spread URLs 2-3,
-    # 4-5 ... 68-69 and the final single page 70.
-    htmls = [first]
-    for n in range(2, PAGES + 1, 2):
-        htmls.append(_read(VIEWER_PAGE + str(n), MAX_HTML, "text/html", open_url=open_url))
-    chosen = _choose_urls(htmls)
+    api_raw = _read(API, MAX_JSON, "application/json", open_url=open_url)
+    published = _verify_api(api_raw)
     files, pages, total = {}, [], 0
-    for number in range(1, PAGES + 1):
-        row, downloaded = {"number": number}, {}
-        for quality in QUALITIES:
-            url = chosen[number][quality]
-            if url not in downloaded:
-                downloaded[url] = _read(url, MAX_IMAGE, "image/jpeg", open_url=open_url)
-            raw = downloaded[url]
-            total += len(raw)
+    for number, page in enumerate(published, 1):
+        row = {"number": number}
+        for quality, field in (("normal", "image"), ("large", "zoom")):
+            url = page[field]
+            data = _read(url, MAX_IMAGE, "image/jpeg", open_url=open_url)
+            total += len(data)
             if total > MAX_TOTAL:
-                raise ValueError("Unbounded Kaufland page capture")
-            path = f"pages/{quality}/bk_{number:02d}.jpg"
-            files[path] = raw
-            row[quality] = {"source_url": url, "path": path,
-                            "bytes": len(raw), "sha256": sha256(raw).hexdigest()}
+                raise ValueError("Unbounded Kaufland source capture")
+            rel = f"pages/{quality}/bk_{number:02d}.jpg"
+            files[rel] = data
+            row[quality] = {
+                "source_url": url, "path": rel, "bytes": len(data),
+                "sha256": sha256(data).hexdigest(),
+            }
         pages.append(row)
+    # The official publisher may rotate a shared alias. Fail closed on drift.
     if _verify_store(_read(SOURCE, MAX_HTML, "text/html", open_url=open_url)) != source_sha:
-        raise ValueError("Kaufland source rotated mid-capture")
-    again = _read(VIEWER_PAGE + "1", MAX_HTML, "text/html", open_url=open_url)
-    _verify_viewer(again)
-    for url in _image_links(again):
-        item = _original(url)
-        if item and item[0] == 1 and item[1] != _original(chosen[1]["normal"])[1]:
-            raise ValueError("Page one edition rotated")
+        raise ValueError("Kaufland market source rotated during capture")
+    fresh_api = _read(API, MAX_JSON, "application/json", open_url=open_url)
+    _verify_api(fresh_api)
+    if fresh_api != api_raw:
+        raise ValueError("Kaufland flyer API rotated during capture")
     for number in (1, PAGES):
-        for url in set(chosen[number].values()):
-            actual = _read(url, MAX_IMAGE, "image/jpeg", open_url=open_url)
-            quality = "normal" if url == chosen[number]["normal"] else "large"
-            if sha256(actual).hexdigest() != pages[number - 1][quality]["sha256"]:
-                raise ValueError("Publisher page changed mid-capture")
+        for quality, field in (("normal", "image"), ("large", "zoom")):
+            rel = f"pages/{quality}/bk_{number:02d}.jpg"
+            if _read(published[number - 1][field], MAX_IMAGE, "image/jpeg", open_url=open_url) != files[rel]:
+                raise ValueError("Publisher original image rotated during capture")
     return {
         "schema": "kaufland_aplerbeck_immutable_page_capture_v1",
         "retailer": "kaufland", "store_id": STORE, "source_flyer_id": FLYER_ID,
         "scope": "family_primary_kaufland", "source_page": SOURCE,
-        "source_html_sha256": source_sha, "viewer_url": VIEWER,
-        "valid_from": START, "valid_until": END, "page_count": PAGES,
-        "pages": pages, "observed_at": clock.isoformat(),
+        "source_html_sha256": source_sha, "api_json_sha256": sha256(api_raw).hexdigest(),
+        "viewer_url": VIEWER, "valid_from": START, "valid_until": END,
+        "page_count": PAGES, "pages": pages, "observed_at": clock.isoformat(),
         "expires_at": (clock + timedelta(days=30)).isoformat(),
-        "state": "candidate_only_unregistered",
-        "publisher_urls_may_rotate": True,
+        "state": "candidate_only_unregistered", "publisher_urls_may_rotate": True,
         "pdf_retained": False, "publication_authorized": False,
     }, files
 
@@ -237,12 +240,12 @@ def save_new_output(directory, meta, files):
         os.fsync(file.fileno())
     print("KAUFLAND_CAPTURE_DIR=" + str(directory))
     print("KAUFLAND_CAPTURE_MANIFEST_SHA256=" + sha256(manifest_raw).hexdigest())
-    print("KAUFLAND_PAGES_CAPTURED=70 IMAGE_FILES=140")
+    print("KAUFLAND_PAGES_CAPTURED=69 IMAGE_FILES=138")
     print("ACTIVATION=NOT_PERFORMED DB=UNCHANGED DEPLOY=UNCHANGED")
 
 
 def main():
-    ap = argparse.ArgumentParser(description="KAUFLAND Patzer candidate-only 70-page first-party capture")
+    ap = argparse.ArgumentParser(description="Kaufland Aplerbeck candidate-only 69-image-page first-party capture")
     ap.add_argument("--output-dir", type=Path, required=True,
                     help="Absolute, new, exclusive owner-authorized capture directory")
     args = ap.parse_args()
