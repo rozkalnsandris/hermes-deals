@@ -2058,6 +2058,8 @@ def test_booklet_selector_preserves_netto_and_never_fabricates_other_pages(data,
             assert "nav reģistrētas pārbaudītas ALDI Nord" in response.text
         elif retailer == "edeka":
             assert "nav reģistrētas pārbaudītas EDEKA Patzer" in response.text
+        elif retailer == "kaufland":
+            assert "nav reģistrēta pārbaudīta Kaufland bukleta" in response.text
         else:
             assert "vēl nav pieslēgtas pārbaudītam avotam" in response.text
         assert '<option value="' + retailer + '" selected' in response.text

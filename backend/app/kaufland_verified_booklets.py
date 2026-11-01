@@ -8,6 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 import base64
+import binascii
 import json
 import os
 import re
@@ -90,7 +91,7 @@ def _valid_image_url(url, number):
             rf"s3://leaflets/images/{re.escape(FLYER_ID)}/page-{number:02d}_[0-9a-f]{{32}}\.png",
             raw,
         ))
-    except (ValueError, UnicodeError, TypeError):
+    except (ValueError, UnicodeError, TypeError, binascii.Error):
         return False
 
 
