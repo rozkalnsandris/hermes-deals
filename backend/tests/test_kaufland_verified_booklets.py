@@ -52,6 +52,20 @@ def register(root, meta):
     return sha256(body).hexdigest()
 
 
+# First-party viewer source observed 2026-11-01; not synthetic identity.
+OFFICIAL_PAGE_1 = (
+    "https://imgproxy.leaflets.schwarz/"
+    "S7tG5WlnTAEVYFxqy9nvsRLUdGVhlemsxYxGX2vCMgE/"
+    "rs:fit:1200:1200:1/g:no/"
+    "czM6Ly9sZWFmbGV0cy9pbWFnZXMvMDFhMTgzMWYtMmY5Yy03ZTNkLTk2ZmYtNzJjM2NmNzgzZjgwL3BhZ2UtMDFfYmQ4ZjBiZGI3MzQ2ZDQyMmJkNzQwZmY2MGQ1ZjI3Y2EucG5n.jpg"
+)
+
+
+def test_official_original_image_url_is_bound_to_flyer():
+    assert v._valid_image_url(OFFICIAL_PAGE_1, 1)
+    assert not v._valid_image_url(OFFICIAL_PAGE_1, 2)
+
+
 def test_signed_urls_bound_to_exact_issue_page():
     assert v._valid_image_url(url(1), 1)
     assert not v._valid_image_url(url(1), 2)

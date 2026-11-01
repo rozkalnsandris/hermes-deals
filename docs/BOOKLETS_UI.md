@@ -476,7 +476,7 @@ links to the edition-specific viewer
 https://leaflets.kaufland.com/de-DE/DE_de_KDZ1_1503_D45/ar/1503.
 On 2026-11-01 this official viewer identified **01–07 November 2026**,
 **70 original pages**, and original image group
-\`01a1831f-2f9c-7e3d-96f-72c3cf783f80\`. Other overlapping
+\`01a1831f-2f9c-7e3d-96ff-72c3cf783f80\`. Other overlapping
 or thematic Kaufland publications must not be substituted.
 
 The source-only reader uses the existing Jinja fullscreen booklet UI,
