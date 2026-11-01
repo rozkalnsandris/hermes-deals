@@ -468,55 +468,49 @@ backup expiry, capture execution, configuration, activation and deploy
 remain separate LIVE permissions, with later mobile/desktop canary.
 
 
-## Kaufland Dortmund-Aplerbeck 1503 verified booklet reader (source-only #1069)
+## Kaufland Dortmund-Aplerbeck 1503 original-image reader and capture (#1069)
 
-The first-party store page at
+The official exact-store source
 https://filiale.kaufland.de/service/filiale/dortmund-aplerbeck-1503.html
-links to the edition-specific viewer
+links the **01–07 November 2026** edition at
 https://leaflets.kaufland.com/de-DE/DE_de_KDZ1_1503_D45/ar/1503.
-On 2026-11-01 this official viewer identified **01–07 November 2026**,
-**70 original pages**, and original image group
-\`01a1831f-2f9c-7e3d-96ff-72c3cf783f80\`. Other overlapping
-or thematic Kaufland publications must not be substituted.
+On 2026-11-01, the official JavaScript viewer displayed **70 UI positions**,
+but its same-session first-party API
+\`https://endpoints.leaflets.schwarz/v4/flyer?flyer_identifier=DE_de_KDZ1_1503_D45&region_id=1503&region_code=1503\`
+returned **69 actual image pages**: 68 \`STANDARD\` pages followed by one
+separately identified \`PROMOTION\` page. The final viewer position is
+a dynamically rendered recommendation area, **not a downloadable original page**.
 
-The source-only reader uses the existing Jinja fullscreen booklet UI,
-but only after a separately authorized immutable local capture has been
-promoted under \`RAW_SNAPSHOT_DIR/kaufland-booklets\` and
-\`KAUFLAND_APLERBECK_CAPTURE_SHA256\` registered. It checks the full
-70-page/2-quality corpus SHA256, official signed Schwarz CDN URLs decoded
-to the exact original flyer ID and page, selected-date validity and
-<=30-day expiry. It makes no product, hotspot or price claims. Without
-registration, the store's official catalogue link is shown honestly;
-invalid/expired registered content fails closed.
+The flyer identifier is \`01a1831f-2f9c-7e3d-96ff-72c3cf783f80\`.
+Its standard images are original first-party Schwarz CDN pages with signed
+normal 1200px and zoom 2400px URLs. Page 69 is the specifically published
+promotion \`01a17c12-30f4-7598-8e9f-60efaead0abe\`, whose signed
+\`rs:fill\` URLs have a separate original \`flyer_promotions\` identity.
+Neither an invented 70th page nor other overlapping Kaufland leaflets are
+accepted. **These image pages are not evidence of retailer offer/product
+identity or promotional price ownership.**
 
-**Capture script, retained evidence creation, promotion, deployment,
-configuration, real UI canary and actual 30-day file deletion** remain
-separate source and owner-LIVE gates. No production changes occur here.
+The network-free server reader
+\`backend/app/kaufland_verified_booklets.py\` uses the existing Jinja
+immersive booklet controls. Only a separately owner-LIVE-captured and
+promoted \`RAW_SNAPSHOT_DIR/kaufland-booklets/capture.json\` may be
+registered via \`KAUFLAND_APLERBECK_CAPTURE_SHA256\`. It checks all 69
+ordered original page identities, normal/zoom source signatures,
+138 locally stored JPEG SHA256 hashes, market 1503, edition validity,
+HTML/API provenance digests and the 30-day display expiry.
 
+\`tools/kaufland_aplerbeck_booklet_capture.py\` is a *one-shot*
+owner-LIVE-gated candidate capture tool. It validates the exact market
+landing and the first-party JSON API; it never guesses URLs by walking
+the JavaScript viewer route, and cannot manufacture product evidence.
+It fetches all 138 images and rechecks API/landing/cover invariants
+before creating an exclusive candidate directory. Missing, changed or
+ambiguous first-party evidence fails closed. No registration leaves an
+honest official store link; a corrupt registered source fails closed.
 
-## Kaufland 1503 candidate-only original JPEG acquisition (#1069)
-
-\`tools/kaufland_aplerbeck_booklet_capture.py\` is an **owner-LIVE-gated**
-one-shot collector for the verified **01–07 November 2026** original
-Kaufland Dortmund-Aplerbeck (1503) leaflet. It never runs in routine
-collectors, CI, production APIs or schedulers. The official viewer displays
-70 pages, with page one and even-numbered spread route URLs.
-The source tool reads the exact market landing and those dated viewer
-routes, **extracts** signed \`imgproxy.leaflets.schwarz\` URLs, decodes
-their original filenames, and requires *all 70 pages* from the single
-pinned first-party flyer UUID before downloading any output. Never
-manufacture CDN signatures or original page numbers. If any page is
-missing/ambiguous/rotated, STOP before writing a candidate. Signed
-1200px image may be the only exposed resolution: in that case both
-normal and large entries use the **same actual verified bytes**; this
-does not claim a separate high-resolution original exists.
-
-The candidate is written exclusively to a **new directory** on a
-separate owner-LIVE gate. \`capture.json\` retains source/store/edition,
-every exact original signed URL, SHA256/byte count, observed time and
-30-day expiry. Its \`candidate_only_unregistered\` state forbids implicit
-activation. Separate owner-LIVE approval is required for runtime capture,
-promotion under \`RAW_SNAPSHOT_DIR/kaufland-booklets\`, registration of
-\`KAUFLAND_APLERBECK_CAPTURE_SHA256\`, API restart and canary. No PDF,
-DB/Review/publication, or recurring run is in this PR. Expiry in
-the reader is a **display block**, not automatic physical file deletion.
+This source PR performs **no capture, raw/DB/collector writes, registration,
+deployment or API restart**. After merge, any candidate capture, promotion,
+registration and controlled API restart require **separate owner LIVE
+authorization** with exact runtime preflight and a read-only UI canary.
+30-day metadata expiry blocks display, but does not automatically
+delete retained raw files or backups.
