@@ -1,7 +1,17 @@
 from datetime import date
+from hashlib import sha256
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts as extract
+from app.netto_booklets import (
+    _TEASER_STARTS_CACHE,
+    _TEASER_STARTS_CACHE_LIMIT,
+    _verified_html,
+    _verified_teaser_starts,
+)
 
 
 def card(slug, start, *, url=None, additional=""):
@@ -78,3 +88,65 @@ class NettoBookletTeaserTest(unittest.TestCase):
     def test_invalid_date_rejected(self):
         with self.assertRaises(ValueError):
             extract(card("hz45_hasb", "ab Montag, 32.11.26"))
+
+class NettoVerifiedTeaserCacheTest(unittest.TestCase):
+    def setUp(self):
+        _TEASER_STARTS_CACHE.clear()
+
+    def tearDown(self):
+        _TEASER_STARTS_CACHE.clear()
+
+    def test_verified_source_parsed_once_and_returned_as_fresh_mapping(self):
+        raw = card("hz45_hasb", "ab Montag, 02.11.26").encode()
+        digest = sha256(raw).hexdigest()
+        with patch(
+            "app.netto_booklet_teasers.extract_netto_booklet_teaser_starts",
+            wraps=extract,
+        ) as parser:
+            first = _verified_teaser_starts(raw, digest)
+            first.clear()
+            second = _verified_teaser_starts(raw, digest)
+        self.assertEqual(second, {"hz45_hasb": date(2026, 11, 2)})
+        self.assertEqual(parser.call_count, 1)
+
+    def test_tampered_bytes_are_rejected_even_with_warm_cache(self):
+        raw = card("hz45_hasb", "ab Montag, 02.11.26").encode()
+        digest = sha256(raw).hexdigest()
+        self.assertIn("hz45_hasb", _verified_teaser_starts(raw, digest))
+        with self.assertRaisesRegex(ValueError, "integrity"):
+            _verified_teaser_starts(raw + b"tampered", digest)
+        self.assertEqual(len(_TEASER_STARTS_CACHE), 1)
+
+    def test_changed_raw_file_fails_before_cache_consultation(self):
+        raw = card("hz45_hasb", "ab Montag, 02.11.26").encode()
+        digest = sha256(raw).hexdigest()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence_dir = root / "netto-html"
+            evidence_dir.mkdir()
+            path = evidence_dir / "official.html"
+            path.write_bytes(raw)
+            self.assertEqual(
+                _verified_teaser_starts(_verified_html(str(path), digest, root), digest),
+                {"hz45_hasb": date(2026, 11, 2)},
+            )
+            path.write_bytes(raw + b"corrupted")
+            with self.assertRaisesRegex(ValueError, "integrity"):
+                _verified_html(str(path), digest, root)
+
+    def test_invalid_parsing_is_not_cached(self):
+        raw = card("hz45_hasb", "ab Dienstag, 02.11.26").encode()
+        with self.assertRaisesRegex(ValueError, "weekday mismatch"):
+            _verified_teaser_starts(raw, sha256(raw).hexdigest())
+        self.assertFalse(_TEASER_STARTS_CACHE)
+
+    def test_cache_is_bounded_and_drops_oldest_digest(self):
+        first_digest = None
+        for number in range(_TEASER_STARTS_CACHE_LIMIT + 1):
+            raw = card(f"hz45_{number}", "ab Montag, 02.11.26").encode()
+            digest = sha256(raw).hexdigest()
+            if first_digest is None:
+                first_digest = digest
+            _verified_teaser_starts(raw, digest)
+        self.assertEqual(len(_TEASER_STARTS_CACHE), _TEASER_STARTS_CACHE_LIMIT)
+        self.assertNotIn(first_digest, _TEASER_STARTS_CACHE)
