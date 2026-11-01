@@ -372,3 +372,32 @@ service configuration or deployment are each owner-LIVE gated. No routine
 collector or scheduled script is activated by merging this code. The metadata
 is not a store-binding claim; products remain unlinked until independently
 approved offer provenance is present.
+
+## EDEKA Patzer verified market catalogue entry (#1069)
+
+The source-backed family EDEKA market is **EDEKA Patzer 071897**
+(Eichwaldstraße 5–7, Dortmund-Wickede), exactly the existing
+`family_primary_edeka` collector identity in `backend/app/edeka_store_offers.py`.
+A public, first-party page on
+`https://www.edeka.de/maerkte/071897/prospekte/` shows the market-specific
+"Angebote der Woche" digital-brochure entry for **02–07 November 2026**
+(confirmed 2026-11-01 on the official market site). The page also lists a
+separate "SUUPER Angebote" entry; it must not be silently substituted for the
+ordinary weekly booklet. The official issue opens through a JavaScript dialog.
+
+`backend/app/edeka_booklets.py` provides an **external catalogue link
+only** for the current and following Berlin calendar weeks; it never infers
+that a selected date is the date of the catalogue's currently rotating
+edition. Past or distant selections show an unavailable state. No PDF, full
+page inventory, page images, hotspots or offer identity is fabricated.
+The existing shared UI continues showing an honest no-pages state until
+an independent immutable first-party issue and complete page inventory
+can be validated. Do not use a generic EDEKA Nordwest flyer or a
+different market as Patzer evidence.
+
+Next proof gate: independently capture the EDEKA Patzer weekly **viewer/dialog
+source**, official brochure identity, its exact publication dates and
+complete page image URLs or PDF, bind to market 071897, calculate SHA256,
+and implement a source-only reader against that verified input. Retained
+files/collectors/deploy/UI activation are separate owner-LIVE actions.
+No live EDEKA assets or production mutation were performed by this PR.
