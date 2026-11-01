@@ -401,3 +401,44 @@ complete page image URLs or PDF, bind to market 071897, calculate SHA256,
 and implement a source-only reader against that verified input. Retained
 files/collectors/deploy/UI activation are separate owner-LIVE actions.
 No live EDEKA assets or production mutation were performed by this PR.
+
+### EDEKA Patzer: current issue viewer and immutable image capture (2026-11-01)
+
+Official market 071897's 02–07 November 2026 **"Angebote der Woche"**
+iframe resolves to
+`https://blaetterkatalog.edeka.de/RHEINRUHR/1897/index.html`.
+The original first-party brochure exposes
+`/RHEINRUHR/1897/blaetterkatalog/normal/bk_N.jpg` (450×652)
+and `/large/bk_N.jpg` (1100×1594).
+Public browser verification: page 1 and page 34 exist in both resolutions,
+page **35** is absent in both. These are 34 first-party original pages for
+**EDEKA Patzer, Eichwaldstraße 5–7, Dortmund-Wickede**, distinct from the
+separate "SUUPER Angebote" catalogue and from other EDEKA markets.
+The official EDEKA market site identifies the 02–07 November validity.
+
+**Critical:** Unlike ALDI's issue-specific magazine slug, the EDEKA image
+paths contain only region/market identifiers, **not** a dated edition ID.
+They can be replaced while retaining the same URL, so linking their live
+`bk_N.jpg` URLs into a historical reader would invent immutable provenance.
+
+`tools/edeka_patzer_booklet_capture.py` is a **SOURCE-ONLY, NOT RUN**
+one-shot candidate capturer for this exact week. It:
+- checks the market-specific official HTML, weekly validity and exact weekly
+  iframe (never the SUUPER iframe);
+- acquires 34 × 2 bounded first-party JPEGs, validates source URLs,
+  Content-Type/JPEG structure, and an absent 35th page;
+- re-reads the first and last image in both qualities, rejecting a detected
+  upstream rotation during capture;
+- only after all read-only checks creates a **new**, exclusively written
+  34-page image corpus plus SHA256-bound `capture.json` with both official
+  source URLs, the first acquisition time and a 30-day expiry.
+  The capture is candidate-only and **cannot** activate the reader.
+
+No external PDF, DB writes, collector or service changes. No stored-image
+publication endpoint or automatic deletion exists yet. The 30-day deadline
+requires a separately authorized purge of captured image files and any copies
+or backups; a timestamp check alone does not delete files. Never run the
+capturer unattended or for another edition without new verified first-party
+evidence and a new source-reviewed contract. A downstream reader will need
+a separately SHA-registered local immutable asset path, explicit authorization
+and a full HTML/mobile navigation canary before activation.
