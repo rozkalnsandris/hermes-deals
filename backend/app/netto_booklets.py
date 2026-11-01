@@ -1,4 +1,5 @@
 """Read saved Netto publication metadata for the booklet UI; no PDF or network I/O."""
+from collections import OrderedDict
 from datetime import date, datetime, time, timedelta
 from hashlib import sha256
 import json
@@ -23,6 +24,9 @@ STRATEGIES = (
 )
 STORE = "5659"
 MAX_JSON = 2 * 1024 * 1024
+_TEASER_STARTS_CACHE_LIMIT = 8
+# Cache only the derived result, never unverified source bytes or household data.
+_TEASER_STARTS_CACHE: OrderedDict[str, tuple[tuple[str, date], ...]] = OrderedDict()
 
 
 def _verified_json(path_value, digest, root):
@@ -39,6 +43,33 @@ def _verified_json(path_value, digest, root):
     if not isinstance(data, dict):
         raise ValueError("Metadata must be an object")
     return data
+
+
+def _verified_teaser_starts(raw: bytes, digest: str) -> dict[str, date]:
+    """Memoize costly HTML parsing *after* verifying these exact source bytes.
+
+    Callers still run _verified_html on each request. A changed or missing raw
+    file must fail closed rather than being hidden by the derived-value cache.
+    Cached values are immutable; return a fresh mapping to prevent mutation.
+    """
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Invalid Netto HTML SHA")
+    if sha256(raw).hexdigest() != digest:
+        raise ValueError("Netto teaser source integrity failure")
+
+    cached = _TEASER_STARTS_CACHE.get(digest)
+    if cached is not None:
+        _TEASER_STARTS_CACHE.move_to_end(digest)
+        return dict(cached)
+
+    from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts
+    parsed = extract_netto_booklet_teaser_starts(raw.decode("utf-8", errors="replace"), STORE)
+    cached = tuple(sorted(parsed.items()))
+    _TEASER_STARTS_CACHE[digest] = cached
+    _TEASER_STARTS_CACHE.move_to_end(digest)
+    while len(_TEASER_STARTS_CACHE) > _TEASER_STARTS_CACHE_LIMIT:
+        _TEASER_STARTS_CACHE.popitem(last=False)
+    return dict(cached)
 
 
 def _store_url_key(value):
@@ -120,8 +151,7 @@ def _html_teaser_link(db, day, cutoff, page):
             if _store_url_key(entry[key]) != _store_url_key(snapshot.source_url):
                 raise ValueError("HTML store URL mismatch")
         raw = _verified_html(entry["path"], entry["sha256"], root)
-        from app.netto_booklet_teasers import extract_netto_booklet_teaser_starts
-        starts = extract_netto_booklet_teaser_starts(raw.decode("utf-8", errors="replace"), STORE)
+        starts = _verified_teaser_starts(raw, entry["sha256"])
         derived = {"state": "observed", "starts": {
             slug: start.isoformat() for slug, start in starts.items()
         }}
