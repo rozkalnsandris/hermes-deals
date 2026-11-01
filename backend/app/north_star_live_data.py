@@ -23,6 +23,7 @@ from app.edeka_booklets import build_edeka_booklet
 from app.edeka_verified_booklets import read_verified_edeka_booklet
 from app.kaufland_verified_booklets import read_verified_kaufland_booklet
 from app.kaufland_booklets import build_kaufland_booklet
+from app.rewe_booklets import build_rewe_booklet
 from app.aldi_verified_booklets import read_verified_aldi_booklet
 from app.lidl_booklets import build_lidl_booklet
 from app.price_intelligence import (
@@ -34,7 +35,7 @@ D = Decimal
 STORES = [("lidl", "LIDL"), ("netto", "Netto"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA")]
 NAV = ["overview", "deals", "booklets", "list", "planner", "recipes", "favorites", "history", "statistics", "settings"]
 # A retailer appearing in this selector is not proof that booklet pages exist.
-BOOKLET_RETAILERS = (("netto", "Netto"), ("lidl", "LIDL"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA"), ("kaufland", "Kaufland"))
+BOOKLET_RETAILERS = (("netto", "Netto"), ("lidl", "LIDL"), ("aldi_nord", "ALDI Nord"), ("edeka", "EDEKA"), ("kaufland", "Kaufland"), ("rewe", "REWE"))
 UNIT_MODES = {"unit_price_only", "example_total_plus_unit", "app_example_total_plus_unit"}
 
 
@@ -174,6 +175,8 @@ def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
     elif retailer == "kaufland":
         verified = read_verified_kaufland_booklet(day, page=page)
         booklet = verified if verified is not None else build_kaufland_booklet(day)
+    elif retailer == "rewe":
+        booklet = build_rewe_booklet(day)
     else:
         # Never invent pages for a retailer without a verified page reader.
         booklet = {

@@ -514,3 +514,35 @@ registration and controlled API restart require **separate owner LIVE
 authorization** with exact runtime preflight and a read-only UI canary.
 30-day metadata expiry blocks display, but does not automatically
 delete retained raw files or backups.
+
+
+## REWE Dortmund-Brackel market 260032 — first-party source gate (source-only #1069)
+
+This is a **candidate sixth booklet-selector entry**, not a change to the
+five currently trusted retailer/offer pipelines or Project Progress V2/V3.
+The exact chosen market is REWE, Flughafenstr. 147, Dortmund-Brackel,
+identified by its official REWE market URL with market ID \`260032\`:
+https://www.rewe.de/marktseite/dortmund/260032/rewe-markt-flughafenstr-147/
+
+On 2026-11-01 the linked first-party store offer listing for market 260032
+exposed dated offer cards but the publication widget explicitly reported a
+technical problem. No independent first-party original brochure image/PDF
+page URLs, page count, original issue SHA256, or selected-store-linked
+publication validity was verified. REWE Dortmund's own website links to
+REWE.de for its digital flyer. Third-party aggregator PDF copies, unrelated
+REWE markets and product-card thumbnail images **must not** be represented
+as the original selected-store booklet.
+
+\`app.rewe_booklets.build_rewe_booklet\` therefore returns \`external_link\`
+only for current/near-future calendar selections, pointing to the exact
+first-party store **offers** page, explicitly **not** a booklet.
+It does not invent flyer pages, offer bindings or prices. Other dates are
+\`unavailable\`. This does **not** deploy an original REWE booklet and may
+remain a fallback while first-party pages are unavailable.
+
+Next gate: identify official published page media with store 260032,
+issue/date/page identity, a safe bounded SHA256 capture and a registered
+local verified reader. Only then enable a \`ready\` original-booklet state.
+Separate owner authorizations are required for merge and all LIVE
+capture/registration/restart work. No new REWE production collector,
+database mapping, official PDF download or source-retention job is added.
