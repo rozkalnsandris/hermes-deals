@@ -2031,6 +2031,21 @@ def test_booklet_verified_publication_still_wins_over_html_teaser(data, tmp_path
 
 
 
+def test_rewe_brackel_selected_week_is_official_offers_link_not_a_verified_booklet(data):
+    _, client, _ = data
+    response = client.get("/ui/home/?view=booklets&date=2026-11-02&retailer=rewe")
+    assert response.status_code == 200
+    html = response.text
+    assert 'data-booklet-state="external_link"' in html
+    assert '<option value="rewe" selected' in html
+    assert "Atvērt REWE Brackel oficiālos piedāvājumus" in html
+    assert "rewe.de/angebote/dortmund/260032/rewe-flughafenstr-147/" in html
+    assert "nevis pārbaudītām" in html
+    assert 'class="booklet-page-image"' not in html
+    assert "/booklet-assets/rewe/" not in html
+    assert "REWE piedāvājumi" in html
+
+
 def test_booklet_selector_preserves_netto_and_never_fabricates_other_pages(data, monkeypatch):
     _, client, _ = data
     base = "/ui/home/?view=booklets&date=2026-10-01"
