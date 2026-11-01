@@ -442,3 +442,22 @@ capturer unattended or for another edition without new verified first-party
 evidence and a new source-reviewed contract. A downstream reader will need
 a separately SHA-registered local immutable asset path, explicit authorization
 and a full HTML/mobile navigation canary before activation.
+
+
+## EDEKA Patzer original-page reader (source-only, #1069)
+
+A separately registered EDEKA Patzer 071897 captured edition dated
+02–07 November 2026 may use the existing full-screen Jinja reader.
+The reader never renders EDEKA's rotating upstream JPEG URL.
+A separately owner-LIVE-authorized capture and promotion must preserve
+the byte-identical capture.json and pages/normal|large/bk_NN.jpg
+under RAW_SNAPSHOT_DIR/edeka-booklets. Explicit owner-LIVE registration
+of the capture.json SHA256 as EDEKA_PATZER_CAPTURE_SHA256 is required.
+No registration keeps the official market catalogue fallback.
+Corrupt/partial/expired registered images fail closed. The reader verifies
+all 68 local image hashes before reporting ready; the image endpoint checks
+registration, page identity and the exact requested JPEG hash and returns
+no-store and nosniff. The entry contains no fabricated offer links.
+The 30-day expiry is a display gate, not file deletion: actual purge,
+backup expiry, capture execution, configuration, activation and deploy
+remain separate LIVE permissions, with later mobile/desktop canary.
