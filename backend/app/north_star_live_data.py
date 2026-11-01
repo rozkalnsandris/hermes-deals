@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.basket_plan import best_two_store_plan
+from app import current_deals_fast_route as fast_current_deals
 from app.current_deals_service import build_current_deals
 from app.current_deals_state import build_current_deals_status
 from app.current_deals_sql_loader import load_sql_ranked_state_rows, materialize_only
@@ -173,6 +174,30 @@ def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
     }
 
 
+def _postgres_public_cache(db: Session) -> bool:
+    # Match the API cache boundary: isolated SQLite test databases are never cached.
+    try:
+        return db.get_bind().dialect.name == "postgresql"
+    except Exception:
+        return False
+
+
+def _current_deals_for_html(db: Session, day: date, *, query: str, retailer: str, sort: str, offset: int):
+    # Only the public, immutable-for-the-request offer projection is shared.
+    # Household favorites, shopping, eligibility, and recipe calculations remain
+    # request-local and are never part of the shared cache entry.
+    options = dict(
+        q=query or None, retailer=retailer or None, view="current",
+        app_only=False, coupon_only=False, discount_only=False, image_only=False,
+        sort=sort, offset=offset, limit=60,
+        state_row_loader=load_sql_ranked_state_rows,
+    )
+    with materialize_only("current"):
+        if _postgres_public_cache(db):
+            return fast_current_deals.cached_current_deals(db=db, as_of=day, **options)
+        return build_current_deals(db=db, effective_date=day, **options)
+
+
 def build_live_context(db: Session, household_id: str, day: date, *, view="overview", query="", retailer="", sort="name", product=None, offset=0, booklet_page=1, booklet_retailer="netto"):
     state, version = read_household(db, household_id)
     def quote_for(row, *, favorite_id=None):
@@ -221,10 +246,9 @@ def build_live_context(db: Session, household_id: str, day: date, *, view="overv
         )
         data_status = None
     else:
-        with materialize_only("current"):
-            current = build_current_deals(db=db, effective_date=day, q=query or None, retailer=retailer or None,
-                                         view="current", app_only=False, coupon_only=False, discount_only=False, image_only=False,
-                                         sort=sort, offset=offset, limit=60, state_row_loader=load_sql_ranked_state_rows)
+        current = _current_deals_for_html(
+            db, day, query=query, retailer=retailer, sort=sort, offset=offset
+        )
         catalogue, total_count = current.deals, current.available_count
         data_status = build_current_deals_status(db, current, day, retailer=retailer, query=query)
     bindings = state.get("ingredient_offers", {})
