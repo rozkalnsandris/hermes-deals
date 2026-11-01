@@ -2103,3 +2103,41 @@ def test_aldi_official_links_are_not_fake_embedded_pages(data, monkeypatch):
     old = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=2026-10-10")
     assert 'data-booklet-state="unavailable"' in old.text
     assert 'href="https://www.aldi-nord.de/prospekte.html"' not in old.text
+
+
+def test_aldi_registered_page_uses_shared_netto_zoom_and_navigation(data, monkeypatch):
+    """A synthetic registered source tests presentation only, not live coverage."""
+    import app.north_star_live_data as live_data
+
+    _, client, _ = data
+    def verified(day, page=1):
+        if day != date(2026, 11, 2):
+            return None
+        return {
+            "state": "ready", "offers": [], "page": page, "page_count": 2,
+            "image_url": "https://magazine.aldi-nord.de/valid/Image.ashx?PageNumber=1&ImageType=Normal",
+            "source_url": "https://magazine.aldi-nord.de/valid/",
+            "store_name": "ALDI Nord · valsts buklets (filiāle nav piesaistīta)",
+            "valid_label": "02.11.2026–07.11.2026", "swipeable": True,
+            "pages": [
+                {"number": idx, "href": f"/ui/home/?view=booklets&date=2026-11-02&page={idx}&retailer=aldi_nord",
+                 "image_url": f"https://magazine.aldi-nord.de/valid/Image.ashx?PageNumber={idx}&ImageType=Normal",
+                 "zoom_image_url": f"https://magazine.aldi-nord.de/valid/Image.ashx?PageNumber={idx}&ImageType=Zoom"}
+                for idx in (1, 2)
+            ],
+            "previous_href": "/ui/home/?view=booklets&date=2026-11-02&page=1&retailer=aldi_nord" if page == 2 else None,
+            "next_href": "/ui/home/?view=booklets&date=2026-11-02&page=2&retailer=aldi_nord" if page == 1 else None,
+        }
+    monkeypatch.setattr(live_data, "read_verified_aldi_booklet", verified)
+    response = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=2026-11-02")
+    assert response.status_code == 200
+    assert 'class="booklet-page-image"' in response.text
+    assert 'data-booklet-swipe="1"' in response.text
+    assert 'data-booklet-viewer-hud' in response.text
+    assert 'data-booklet-zoom-image-url=' in response.text
+    assert "ALDI Nord piedāvājumi" in response.text
+    assert "Produkti vēl nav piesaistīti" in response.text
+    assert "02.11.2026–07.11.2026" in response.text
+    second = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=2026-11-02&page=2")
+    assert second.status_code == 200
+    assert 'data-booklet-swipe="2"' in second.text

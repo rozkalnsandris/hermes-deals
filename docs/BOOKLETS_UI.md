@@ -320,3 +320,55 @@ To enable it, first obtain independently verifiable, immutable first-party
 publication evidence (exact official edition, Berlin dates, region/store,
 full page coverage, SHA/retention). Only then connect the existing shared
 reader without guessed offers or OCR identity.
+
+## ALDI Nord opt-in registered original-page reader (#1069)
+
+ALDI Nord now supports the exact same Jinja page navigation, fullscreen viewer,
+swipe, Zoom/Normal image sizes and unlinked-product panel as Netto. The adapter
+`backend/app/aldi_verified_booklets.py` does **not** download PDFs or
+create a guessed page sequence. It reads at most 256 KiB of an explicitly
+registered, immutable `RAW_SNAPSHOT_DIR/aldi-booklets/verified-manifest.json`.
+`ALDI_NORD_BOOKLET_MANIFEST_SHA256` must be the exact lowercase SHA256 of
+those bytes; absent registration preserves the official ALDI catalogue link.
+A corrupt/missing/expired registered source fails **unavailable**, never
+silently falls back to an older edition. The manifest expires at most 30 days
+after capture (display gate only: expiry does not delete files).
+
+Each entry must declare explicit official magazine viewer and PDF URL, PDF
+SHA256 and byte size, publisher validity, `national_unbound` scope (not
+a Dortmund branch), page count and every original first-party
+`Image.ashx?PageNumber=N&ImageType=Normal/Zoom` URL. The page list must be
+contiguous, same edition, with no unsigned/remote arbitrary host URL or
+extra query parameters. No product hotspots or offers are invented.
+
+PDFs captured 2026-11-01 into
+`/home/andris/Downloads/hermes-aldi-pdf-2026-w45-w46/` are **not**
+an activated backend data source and are not reachable via
+`RAW_SNAPSHOT_DIR`. Captured W45 43 pages / SHA256
+`37b4e379b8c8c570049bd0a6de29aa22582980a4ccf7de7ca79464b2c08484f6`,
+W46 47 pages / SHA256
+`7ac0ff94b3063f45f468c919ae969e75112860f642f7728f9fb0ff32ff3ac1ee`.
+These checks prove the PDFs, **not** that every page's live image URL was
+independently verified nor that any exact Aldi branch has matching offers.
+Activation requires first-party full page-list evidence, separately
+authorized immutable manifest promotion / registration and actual 30-day
+file purge. Merge is not authorization to copy/delete PDF files,
+change environment/service configuration, deploy or write DB rows.
+
+### Owner-gated original-page manifest preparation
+
+`tools/aldi_verified_booklet_prepare.py` is an **unexecuted** source-only
+one-shot helper for the previously downloaded Nov 2–7 and Nov 9–14 PDFs.
+It verifies both original PDF SHA256/byte counts/`pdfinfo` pages and then
+probes **every** expected first-party page URL in Normal and Zoom via HTTP
+range GET. It requires JPEG magic, the exact CDN redirected page/quality,
+a single paper ID within each edition, and different paper IDs between editions.
+Only after all **180** checks succeed will it create a *new* output manifest,
+exclusively (never overwrites). Signed CDN redirects are never retained.
+
+This only prepares candidate evidence. Execution on the host and any retained
+file mutation, raw snapshot promotion, digest registration, 30-day purge,
+service configuration or deployment are each owner-LIVE gated. No routine
+collector or scheduled script is activated by merging this code. The metadata
+is not a store-binding claim; products remain unlinked until independently
+approved offer provenance is present.
