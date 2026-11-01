@@ -171,6 +171,7 @@ def test_invalid_source_url_page_quality_and_date(tmp_path):
     root,meta=corpus(tmp_path)
     meta["pages"][0]["large"]["source_url"]=src_url(1,"normal")
     assert read(root,register(root,meta))["state"]=="unavailable"
+    meta["pages"][0]["large"]["source_url"]=src_url(1,"large")
     assert v.read_verified_lidl_booklet(date(2026,11,8),root=root,manifest_sha256=register(root,meta),now=NOW) is None
     assert not v._image_source(src_url(1,"normal"),2,"normal",FLYER)
     assert not v._image_source(src_url(1,"normal"),1,"large",FLYER)
