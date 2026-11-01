@@ -20,9 +20,10 @@ SCHEMA = "kaufland_aplerbeck_immutable_page_capture_v1"
 SOURCE = "https://filiale.kaufland.de/service/filiale/dortmund-aplerbeck-1503.html"
 VIEWER = "https://leaflets.kaufland.com/de-DE/DE_de_KDZ1_1503_D45/ar/1503"
 IMAGE_BASE = "https://imgproxy.leaflets.schwarz/"
+PROMOTION_ORIGINAL = "s3://leaflets/flyer_promotions/01a17c12-30f4-7598-8e9f-60efaead0abe/image_1457x2400_10-29-2026_10-43-26.jpg"
 FLYER_ID = "01a1831f-2f9c-7e3d-96ff-72c3cf783f80"
 START, END = date(2026, 11, 1), date(2026, 11, 7)
-COUNT = 70
+COUNT = 69
 QUALITIES = ("normal", "large")
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 MAX_MANIFEST = 256 * 1024
@@ -70,7 +71,7 @@ def _read_file(root: Path, components: tuple[str, ...], limit: int) -> bytes:
         os.close(directory)
 
 
-def _valid_image_url(url, number):
+def _valid_image_url(url, number, quality=None):
     if not isinstance(url, str) or len(url) > 700:
         return False
     try:
@@ -82,15 +83,23 @@ def _valid_image_url(url, number):
         if len(parts) != 4 or parts[2] != "g:no":
             return False
         if (not re.fullmatch(r"[A-Za-z0-9_-]{40,64}", parts[0])
-                or not re.fullmatch(r"rs:fit:(800|1200|1600|2400):\1:1", parts[1])
                 or not re.fullmatch(r"[A-Za-z0-9_-]+\.jpg", parts[3])):
             return False
         token = parts[3][:-4]
         raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode("ascii")
-        return bool(re.fullmatch(
-            rf"s3://leaflets/images/{re.escape(FLYER_ID)}/page-{number:02d}_[0-9a-f]{{32}}\.png",
-            raw,
-        ))
+        if 1 <= number <= 68:
+            sizes = {"normal": "rs:fit:1200:1200:1", "large": "rs:fit:2400:2400:1"}
+            if parts[1] not in ([sizes[quality]] if quality in sizes else list(sizes.values())):
+                return False
+            return bool(re.fullmatch(
+                rf"s3://leaflets/images/{re.escape(FLYER_ID)}/page-{number:02d}_[0-9a-f]{{32}}\.png",
+                raw,
+            ))
+        if number == 69:
+            sizes = {"normal": "rs:fill:729:1200:1", "large": "rs:fill:1458:2400:1"}
+            return raw == PROMOTION_ORIGINAL and parts[1] in (
+                [sizes[quality]] if quality in sizes else list(sizes.values()))
+        return False
     except (ValueError, UnicodeError, TypeError, binascii.Error):
         return False
 
@@ -125,9 +134,10 @@ def _manifest(root, digest, clock, *, verify_all):
     }
     if any(type(meta.get(k)) is not type(v) or meta.get(k) != v for k, v in expected.items()):
         raise ValueError("Wrong market, edition or source provenance")
-    html_sha = meta.get("source_html_sha256")
-    if not isinstance(html_sha, str) or not SHA.fullmatch(html_sha):
-        raise ValueError("Missing source HTML digest")
+    for key in ("source_html_sha256", "api_json_sha256"):
+        digest_value = meta.get(key)
+        if not isinstance(digest_value, str) or not SHA.fullmatch(digest_value):
+            raise ValueError("Missing source provenance digest")
     observed = datetime.fromisoformat(meta["observed_at"].replace("Z", "+00:00"))
     expires = datetime.fromisoformat(meta["expires_at"].replace("Z", "+00:00"))
     if (observed.tzinfo is None or expires.tzinfo is None or observed > clock
@@ -144,7 +154,7 @@ def _manifest(root, digest, clock, *, verify_all):
             item = row.get(quality)
             if (not isinstance(item, dict)
                     or item.get("path") != f"pages/{quality}/bk_{number:02d}.jpg"
-                    or not _valid_image_url(item.get("source_url"), number)):
+                    or not _valid_image_url(item.get("source_url"), number, quality)):
                 raise ValueError("Wrong original image source or path")
             size, check = item.get("bytes"), item.get("sha256")
             if (type(size) is not int or not 256 < size <= MAX_IMAGE
