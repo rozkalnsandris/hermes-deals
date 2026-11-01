@@ -137,3 +137,35 @@ def test_duplicate_manifest_fields_rejected(tmp_path):
     raw = b'{"schema":"x","schema":"y"}'
     (root / "capture.json").write_bytes(raw)
     assert read(root, sha256(raw).hexdigest())["state"] == "unavailable"
+
+
+def test_private_image_route_serves_only_sha_verified_local_bytes(tmp_path, monkeypatch):
+    """Actual HTTP route must not expose missing, expired or altered assets."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    root, meta = capture(tmp_path)
+    digest = register(root, meta)
+    monkeypatch.setattr(v, "_root", lambda given: root if given is None else given)
+    monkeypatch.setenv("HERMES_HOUSEHOLD_UI_ENABLED", "1")
+    monkeypatch.delenv("EDEKA_PATZER_CAPTURE_SHA256", raising=False)
+    url = "/ui/home/booklet-assets/edeka/large/34"
+
+    with TestClient(app) as client:
+        assert client.get(url).status_code == 404
+
+        monkeypatch.setenv("EDEKA_PATZER_CAPTURE_SHA256", digest)
+        image = client.get(url)
+        assert image.status_code == 200
+        assert image.content == (root / "pages/large/bk_34.jpg").read_bytes()
+        assert image.headers["content-type"] == "image/jpeg"
+        assert image.headers["cache-control"] == "private, no-store"
+        assert image.headers["x-content-type-options"] == "nosniff"
+        assert client.get("/ui/home/booklet-assets/edeka/normal/35").status_code == 404
+        assert client.get("/ui/home/booklet-assets/edeka/other/1").status_code == 404
+
+        (root / "pages/large/bk_34.jpg").write_bytes(b"\xff\xd8\xff" + b"corrupt" * 100 + b"\xff\xd9")
+        assert client.get(url).status_code == 404
+
+        monkeypatch.setenv("HERMES_HOUSEHOLD_UI_ENABLED", "0")
+        assert client.get(url).status_code == 404
