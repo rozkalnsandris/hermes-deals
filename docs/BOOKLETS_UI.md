@@ -354,3 +354,21 @@ Activation requires first-party full page-list evidence, separately
 authorized immutable manifest promotion / registration and actual 30-day
 file purge. Merge is not authorization to copy/delete PDF files,
 change environment/service configuration, deploy or write DB rows.
+
+### Owner-gated original-page manifest preparation
+
+`tools/aldi_verified_booklet_prepare.py` is an **unexecuted** source-only
+one-shot helper for the previously downloaded Nov 2–7 and Nov 9–14 PDFs.
+It verifies both original PDF SHA256/byte counts/`pdfinfo` pages and then
+probes **every** expected first-party page URL in Normal and Zoom via HTTP
+range GET. It requires JPEG magic, the exact CDN redirected page/quality,
+a single paper ID within each edition, and different paper IDs between editions.
+Only after all **180** checks succeed will it create a *new* output manifest,
+exclusively (never overwrites). Signed CDN redirects are never retained.
+
+This only prepares candidate evidence. Execution on the host and any retained
+file mutation, raw snapshot promotion, digest registration, 30-day purge,
+service configuration or deployment are each owner-LIVE gated. No routine
+collector or scheduled script is activated by merging this code. The metadata
+is not a store-binding claim; products remain unlinked until independently
+approved offer provenance is present.
