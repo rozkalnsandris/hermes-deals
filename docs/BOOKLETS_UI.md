@@ -492,3 +492,31 @@ invalid/expired registered content fails closed.
 **Capture script, retained evidence creation, promotion, deployment,
 configuration, real UI canary and actual 30-day file deletion** remain
 separate source and owner-LIVE gates. No production changes occur here.
+
+
+## Kaufland 1503 candidate-only original JPEG acquisition (#1069)
+
+\`tools/kaufland_aplerbeck_booklet_capture.py\` is an **owner-LIVE-gated**
+one-shot collector for the verified **01–07 November 2026** original
+Kaufland Dortmund-Aplerbeck (1503) leaflet. It never runs in routine
+collectors, CI, production APIs or schedulers. The official viewer displays
+70 pages, with page one and even-numbered spread route URLs.
+The source tool reads the exact market landing and those dated viewer
+routes, **extracts** signed \`imgproxy.leaflets.schwarz\` URLs, decodes
+their original filenames, and requires *all 70 pages* from the single
+pinned first-party flyer UUID before downloading any output. Never
+manufacture CDN signatures or original page numbers. If any page is
+missing/ambiguous/rotated, STOP before writing a candidate. Signed
+1200px image may be the only exposed resolution: in that case both
+normal and large entries use the **same actual verified bytes**; this
+does not claim a separate high-resolution original exists.
+
+The candidate is written exclusively to a **new directory** on a
+separate owner-LIVE gate. \`capture.json\` retains source/store/edition,
+every exact original signed URL, SHA256/byte count, observed time and
+30-day expiry. Its \`candidate_only_unregistered\` state forbids implicit
+activation. Separate owner-LIVE approval is required for runtime capture,
+promotion under \`RAW_SNAPSHOT_DIR/kaufland-booklets\`, registration of
+\`KAUFLAND_APLERBECK_CAPTURE_SHA256\`, API restart and canary. No PDF,
+DB/Review/publication, or recurring run is in this PR. Expiry in
+the reader is a **display block**, not automatic physical file deletion.
