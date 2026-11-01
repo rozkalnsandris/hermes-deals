@@ -2056,6 +2056,8 @@ def test_booklet_selector_preserves_netto_and_never_fabricates_other_pages(data,
             assert "nav saglabātu, publicētu un pārbaudītu Lidl" in response.text
         elif retailer == "aldi_nord":
             assert "nav reģistrētas pārbaudītas ALDI Nord" in response.text
+        elif retailer == "edeka":
+            assert "nav reģistrētas pārbaudītas EDEKA Patzer" in response.text
         else:
             assert "vēl nav pieslēgtas pārbaudītam avotam" in response.text
         assert '<option value="' + retailer + '" selected' in response.text
@@ -2141,3 +2143,34 @@ def test_aldi_registered_page_uses_shared_netto_zoom_and_navigation(data, monkey
     second = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=2026-11-02&page=2")
     assert second.status_code == 200
     assert 'data-booklet-swipe="2"' in second.text
+
+
+def test_edeka_official_market_catalogue_without_unverified_page_images(data, monkeypatch):
+    """The EDEKA entry has a verified *market*, not verified PDF/page assets."""
+    from app.edeka_booklets import build_edeka_booklet
+    import app.north_star_live_data as live_data
+
+    _, client, _ = data
+    monkeypatch.setattr(
+        live_data, "build_edeka_booklet",
+        lambda day: build_edeka_booklet(day, today=date(2026, 11, 1)),
+    )
+
+    response = client.get(
+        "/ui/home/?view=booklets&date=2026-11-02&retailer=edeka"
+    )
+    assert response.status_code == 200
+    assert 'data-booklet-state="external_link"' in response.text
+    assert 'href="https://www.edeka.de/maerkte/071897/prospekte/"' in response.text
+    assert "EDEKA Patzer" in response.text
+    assert "Atvērt EDEKA Patzer bukletu katalogu" in response.text
+    assert "Atlasītā datuma buklets un lapas nav neatkarīgi apstiprinātas" in response.text
+    assert 'class="booklet-page-image"' not in response.text
+    assert "Netto piedāvājumi" not in response.text
+    assert "view=booklets&amp;date=2026-11-09&amp;retailer=edeka" in response.text
+
+    old = client.get(
+        "/ui/home/?view=booklets&date=2026-10-19&retailer=edeka"
+    )
+    assert 'data-booklet-state="unavailable"' in old.text
+    assert 'href="https://www.edeka.de/maerkte/071897/prospekte/"' not in old.text
