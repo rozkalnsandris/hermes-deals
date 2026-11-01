@@ -516,41 +516,50 @@ authorization** with exact runtime preflight and a read-only UI canary.
 delete retained raw files or backups.
 
 
-## Lidl 6664 · Dortmund-Husener Straße original immutable image reader (#1069)
+## Lidl 6664 · Dortmund-Husener Straße, verified original booklet reader (#1069)
 
-The official Lidl public hub exposes the 02–07 November 2026 physical
-week flyer. The first-party generic API currently exposes 75 pages for
-flyer \`01a17709-8249-7615-b563-dc7ab8c43523\`, but returns region
-**0** even when queried with \`region_id=7\`; therefore this generic
-observation is **NOT proof of the selected family store**.
-The family store contract is \`DE06664\` (\`EntityID=6664\`), 44319
-Dortmund, Husener Straße 44, with independent control region \`7\`.
-Do not equate 0 with 7 or silently use a different store.
+Read-only first-party observation on 2026-11-01 (RPi5):
+- Lidl's public hub without selected-store cookies links a **generic** flyer
+  \`aktionsprospekt-02-11-2026-07-11-2026-d34d64/ar/0\`,
+  whose first-party API advertises region \`0\` and 75 pages. It must
+  **never** represent the DE06664 family store.
+- The **same first-party hub** with selected-store cookies \`st=6664\`,
+  \`ar\` encoding entity 6664, zip 44319, city Dortmund, street Husener
+  Straße 44, \`wh=7\`, and \`zn=DE1\` links *a different issue*:
+  \`aktionsprospekt-02-11-2026-07-11-2026-84eded/ar/21\`.
+- The associated official \`endpoints.leaflets.schwarz/v4/flyer\` API
+  with \`flyer_identifier=...84eded\` and \`region_id=21\` reports the
+  exact flyer ID \`01a1770f-71cb-7322-ba85-b04b8c4bc460\`,
+  **regions 21 and 7** (independently), validity 02–07 Nov 2026,
+  and **79 contiguous STANDARD pages**, each with real separately signed
+  1200px and 2400px Schwarz CDN image URLs.
+- Crucially, **7 is the selected-store control/warehouse parameter**
+  while **21 is this week's selected-store flyer route region**. They are
+  not interchangeable, and neither region proves the store in isolation.
+  The selected-store hub and publisher API must agree on the exact issue.
 
-The separately registered local reader
-\`backend/app/lidl_verified_booklets.py\` accepts only a SHA256-pinned
-\`RAW_SNAPSHOT_DIR/lidl-booklets\` containing \`capture.json\`,
-immutable \`hub.html\` and \`api.json\`, and all original normal
-and zoom JPEG images. Both raw source SHA256 values are checked.
-The captured selected-store hub must explicitly link the weekly
-\`/ar/7\` URL; first-party API must independently advertise region 7,
-the same dated edition and viewer URL, and original page identity.
-Every signed Schwarz CDN URL is decoded and bound to the *exact* flyer
-ID, page number and quality. All assets are SHA256-checked before
-reporting ready; missing, conflicting, altered or expired evidence
-fails closed.
+The source-only verified reader in
+\`backend/app/lidl_verified_booklets.py\` reads only an owner-registered
+\`LIDL_FAMILY_BOOKLET_CAPTURE_SHA256\` manifest under
+\`RAW_SNAPSHOT_DIR/lidl-booklets\`, the exact selected-store \`hub.html\`
+and \`api.json\`, and **every normal and zoom local JPEG**. It validates
+both region identities, source original flyer UUID, exact dated viewer
+URL, page number, original first-party signed CDN URL, source SHA256,
+each JPEG SHA256, and <=30-day display expiry. If the registered
+corpus is invalid, fail closed. If never registered, preserve the
+existing Lidl DB/source-bound reader.
 
-The display uses the existing immersive booklet navigation, zoom and
-swipe controls. It never invents offer/page hotspots, retail prices,
-or source-store identity. No registration preserves the existing
-published-source Lidl reader and its existing offer-provenance gates.
-\`LIDL_FAMILY_BOOKLET_CAPTURE_SHA256\` requires explicit owner LIVE
-registration after independently verified candidate capture.
-The 30-day expiry blocks viewing; physical cleanup of evidence files
-and backups is a distinct future owner-gated task.
+The one-shot candidate-only capture tool
+\`tools/lidl_family_booklet_capture.py\` makes the first-party selected
+store-cookie request itself; **does not** guess a route or substitute
+the generic \`/ar/0\` issue. It requires exactly this proven week-45 issue
+and the publisher's dual 21+7 region binding *before* it downloads images.
+An incomplete/changed source fails closed, with no DB/offer/Review writes.
+This is an original-*booklet display* feature, not a Lidl product-price
+or full in-scope-offer-coverage claim.
 
-This step is only the **read-side preparation**. A source acquisition
-tool and verified family-region source are still required before
-separately authorized LIVE capture, promotion, env registration and
-API restart. The first-party generic region-0 75-page observation
-must NOT be activated as the family edition.
+After this source change, separate MERGE and LIVE owner approvals remain
+mandatory. LIVE candidate capture, filesystem promotion, SHA registration,
+API restart and read-only UI canary are not included in source scope.
+Retention metadata limits display; automated physical file deletion is
+a separate future owner-gated feature.
