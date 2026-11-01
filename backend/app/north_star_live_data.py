@@ -19,6 +19,7 @@ from app.meal_pricing import INGREDIENTS, requirement_price
 from app.models import OfferCandidateRecord
 from app.netto_booklets import build_netto_booklet
 from app.aldi_booklets import build_aldi_nord_booklet
+from app.aldi_verified_booklets import read_verified_aldi_booklet
 from app.lidl_booklets import build_lidl_booklet
 from app.price_intelligence import (
     build_offer_price_intelligence, summarize_price_history, _series_predicate,
@@ -159,7 +160,10 @@ def _booklet_page_context(db, day, page, retailer, quote_for, favorite_latest):
     elif retailer == "lidl":
         booklet = build_lidl_booklet(db, day, page)
     elif retailer == "aldi_nord":
-        booklet = build_aldi_nord_booklet(day)
+        # A promoted SHA-registered publication takes precedence over the
+        # undated official catalogue; missing registration preserves fallback.
+        verified = read_verified_aldi_booklet(day, page=page)
+        booklet = verified if verified is not None else build_aldi_nord_booklet(day)
     else:
         # Never invent pages for a retailer without a verified page reader.
         booklet = {
