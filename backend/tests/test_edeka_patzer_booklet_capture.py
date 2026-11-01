@@ -5,7 +5,6 @@ from io import BytesIO
 from pathlib import Path
 import importlib.util
 import json
-from urllib.error import HTTPError
 
 import pytest
 
@@ -45,13 +44,13 @@ class Response:
         return self.body.read(amount)
 
 
-def faux(url, timeout, *, rotated=False, extra_page=False, wrong_market=False):
+def faux(url, timeout, *, rotated=False, wrong_market=False):
     url = url.full_url
     if url == tool.SOURCE:
         data = LANDING.replace(b"071897", b"071898") if wrong_market else LANDING
         return Response(url, data)
-    if url.endswith("bk_35.jpg") and not extra_page:
-        raise HTTPError(url, 404, "missing", {}, None)
+    if url.endswith("bk_35.jpg"):
+        raise AssertionError("Capture must not probe beyond its pinned page list")
     number = int(url.rsplit("bk_", 1)[-1].removesuffix(".jpg"))
     quality = "normal" if "/normal/" in url else "large"
     body = b"\xff\xd8\xff" + f"{quality}:{number}:".encode() * 90 + b"\xff\xd9"
@@ -60,7 +59,7 @@ def faux(url, timeout, *, rotated=False, extra_page=False, wrong_market=False):
     return Response(url, body)
 
 
-def test_complete_capture_has_two_quality_sets_with_provenance():
+def test_pinned_capture_has_two_quality_sets_with_provenance():
     m, files = tool.capture(open_url=lambda request, timeout: faux(request, timeout), now=CLOCK)
     assert len(files) == 68 and len(m["pages"]) == 34
     assert m["page_count"] == 34
@@ -100,10 +99,18 @@ def test_reject_missing_prospect_or_different_week():
         tool._verify_landing(LANDING.replace(b"07.11.2026", b"14.11.2026"))
 
 
-def test_extra_page_fails_closed_before_storage(tmp_path):
-    with pytest.raises(ValueError, match="more pages"):
-        tool.capture(open_url=lambda req, timeout: faux(req, timeout, extra_page=True), now=CLOCK)
-    assert list(tmp_path.iterdir()) == []
+def test_pinned_capture_does_not_probe_unverifiable_page_35():
+    requested = []
+    def record(req, timeout):
+        requested.append(req.full_url)
+        return faux(req, timeout)
+
+    manifest, files = tool.capture(open_url=record, now=CLOCK)
+    assert manifest["page_count"] == 34
+    assert len(files) == 68
+    assert not any(url.endswith("bk_35.jpg") for url in requested)
+    with pytest.raises(ValueError, match="Untrusted EDEKA page request"):
+        tool.image_url(35, "normal")
 
 
 def test_reject_expired_pinned_edition():

@@ -3,7 +3,8 @@
 This code does NOT run from the API, cron, workflows or a collector.
 EDEKA's normal/large image URLs are unversioned and can rotate weekly:
 NEVER publish those mutable URLs as a verified historical publication.
-Capture first, bind SHA256, verify complete coverage, retain <=30 days.
+Capture the 34 explicitly pinned original pages, bind SHA256 and retain <=30 days.
+The publisher's total page count is not independently proven by this capture.
 """
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -14,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import re
-from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 
@@ -33,7 +33,7 @@ HEADER = {"User-Agent": "Hermes-Deals-EDEKA-first-party-evidence/1", "Accept-Lan
 
 
 def image_url(page, quality):
-    if type(page) is not int or not 1 <= page <= PAGES + 1 or quality not in QUALITIES:
+    if type(page) is not int or not 1 <= page <= PAGES or quality not in QUALITIES:
         raise ValueError("Untrusted EDEKA page request")
     return f"{ASSET_BASE}{quality}/bk_{page}.jpg"
 
@@ -97,17 +97,6 @@ def _verify_landing(raw):
     return sha256(raw).hexdigest()
 
 
-def _assert_page_35_absent(*, open_url=urlopen):
-    for quality in QUALITIES:
-        try:
-            _read(image_url(PAGES + 1, quality), MAX_IMAGE, "image/jpeg", open_url=open_url)
-        except HTTPError as exc:
-            if exc.code != 404:
-                raise ValueError("Boundary unavailable without a proven 404") from exc
-        else:
-            raise ValueError("EDEKA booklet has more pages than the pinned 34")
-
-
 def capture(*, open_url=urlopen, now=None):
     """Entire source acquisition happens before any output file is created."""
     clock = now or datetime.now(timezone.utc)
@@ -136,7 +125,6 @@ def capture(*, open_url=urlopen, now=None):
                 "bytes": len(raw), "sha256": sha256(raw).hexdigest(),
             }
         pages.append(item)
-    _assert_page_35_absent(open_url=open_url)
     # The unversioned publisher path may change during the crawl.
     # Recheck both covers at the end; no mixed edition is released on drift.
     for number in (1, PAGES):

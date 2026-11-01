@@ -410,10 +410,12 @@ iframe resolves to
 The original first-party brochure exposes
 `/RHEINRUHR/1897/blaetterkatalog/normal/bk_N.jpg` (450×652)
 and `/large/bk_N.jpg` (1100×1594).
-Public browser verification: page 1 and page 34 exist in both resolutions,
-page **35** is absent in both. These are 34 first-party original pages for
-**EDEKA Patzer, Eichwaldstraße 5–7, Dortmund-Wickede**, distinct from the
-separate "SUUPER Angebote" catalogue and from other EDEKA markets.
+Public verification established that pages 1 and 34 are retrievable in both
+resolutions. On RPi5 on 2026-11-01 the page-35 request returned HTTP 403,
+not evidence of a missing page. The explicitly pinned 34 first-party image
+pages are for **EDEKA Patzer, Eichwaldstraße 5–7, Dortmund-Wickede**;
+the publisher's full page count is **not independently established**.
+They are distinct from the "SUUPER Angebote" catalogue and other markets.
 The official EDEKA market site identifies the 02–07 November validity.
 
 **Critical:** Unlike ALDI's issue-specific magazine slug, the EDEKA image
@@ -425,8 +427,9 @@ They can be replaced while retaining the same URL, so linking their live
 one-shot candidate capturer for this exact week. It:
 - checks the market-specific official HTML, weekly validity and exact weekly
   iframe (never the SUUPER iframe);
-- acquires 34 × 2 bounded first-party JPEGs, validates source URLs,
-  Content-Type/JPEG structure, and an absent 35th page;
+- acquires only the 34 × 2 explicitly pinned first-party JPEGs; validates
+  source URLs and Content-Type/JPEG structure, without requesting page 35
+  or treating HTTP 403 as proof that the booklet ends at 34;
 - re-reads the first and last image in both qualities, rejecting a detected
   upstream rotation during capture;
 - only after all read-only checks creates a **new**, exclusively written
@@ -454,7 +457,9 @@ the byte-identical capture.json and pages/normal|large/bk_NN.jpg
 under RAW_SNAPSHOT_DIR/edeka-booklets. Explicit owner-LIVE registration
 of the capture.json SHA256 as EDEKA_PATZER_CAPTURE_SHA256 is required.
 No registration keeps the official market catalogue fallback.
-Corrupt/partial/expired registered images fail closed. The reader verifies
+Corrupt/partial/expired registered images fail closed. The locally displayed
+34 pages do not independently prove the publisher's total issue length.
+The reader verifies
 all 68 local image hashes before reporting ready; the image endpoint checks
 registration, page identity and the exact requested JPEG hash and returns
 no-store and nosniff. The entry contains no fabricated offer links.
