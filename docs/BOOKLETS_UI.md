@@ -304,3 +304,19 @@ Full ALDI integration requires an independent immutable official magazine/
 iPaper issue/date/region/full-page manifest and complete provenance before
 reader activation. No guessed image URLs, OCR matching, PDF copies, collector,
 DB/Review/publication or LIVE mutations are introduced.
+
+## ALDI Nord offline first-party page candidate parser (#1069)
+
+`backend/app/aldi_page_candidates.py` can decode a captured official ALDI Nord
+Next.js `__NEXT_DATA__` payload (`page.link` and `apiData[*].res`) into
+ordered **unverified** iPaper page candidates. It refuses absent/duplicate/
+gapped numbers, cross-issue URLs, unsafe schemes/hosts, sensitive URL tokens,
+and unbounded input; it performs no HTTP or storage access. Tests use
+synthetic data only, **not a verified 2026 live ALDI issue**.
+
+No date/branch/region/publication identity can be inferred from page URL or
+Next.js source alone. This parser is intentionally **not wired to the reader**.
+To enable it, first obtain independently verifiable, immutable first-party
+publication evidence (exact official edition, Berlin dates, region/store,
+full page coverage, SHA/retention). Only then connect the existing shared
+reader without guessed offers or OCR identity.
