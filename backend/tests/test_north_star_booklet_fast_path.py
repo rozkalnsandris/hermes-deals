@@ -79,7 +79,8 @@ def test_booklet_navigation_does_not_invent_other_retailer_pages(monkeypatch):
     )
 
     assert context["booklet"]["state"] == "external_link"
-    assert context["booklet"]["source_url"] == "https://www.aldi-nord.de/prospekte/aldi-vorschau.html"
+    assert context["booklet"]["source_url"] == "https://www.aldi-nord.de/prospekte.html"
+    assert context["booklet"]["link_label"] == "Atvērt ALDI Nord bukletu katalogu"
     assert context["booklet"]["offers"] == []
     assert "pages" not in context["booklet"]
     assert "page_count" not in context["booklet"]

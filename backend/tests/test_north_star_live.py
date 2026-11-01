@@ -2090,18 +2090,16 @@ def test_aldi_official_links_are_not_fake_embedded_pages(data, monkeypatch):
         live_data, "build_aldi_nord_booklet",
         lambda day: build_aldi_nord_booklet(day, today=date(2026, 10, 31)),
     )
-    for day, path in (
-        ("2026-10-29", "aldi-aktuell.html"),
-        ("2026-11-02", "aldi-vorschau.html"),
-    ):
+    for day in ("2026-10-29", "2026-11-02"):
         response = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=" + day)
         assert response.status_code == 200
         assert 'data-booklet-state="external_link"' in response.text
-        assert "https://www.aldi-nord.de/prospekte/" + path in response.text
-        assert "Atlasītā datuma publikācija un lapas nav neatkarīgi apstiprinātas" in response.text
+        assert 'href="https://www.aldi-nord.de/prospekte.html"' in response.text
+        assert "Atvērt ALDI Nord bukletu katalogu" in response.text
+        assert "Atlasītā datuma buklets un lapas nav neatkarīgi apstiprinātas" in response.text
         assert 'class="booklet-page-image"' not in response.text
         assert "Netto piedāvājumi" not in response.text
 
     old = client.get("/ui/home/?view=booklets&retailer=aldi_nord&date=2026-10-10")
     assert 'data-booklet-state="unavailable"' in old.text
-    assert "https://www.aldi-nord.de/prospekte/" not in old.text
+    assert 'href="https://www.aldi-nord.de/prospekte.html"' not in old.text
