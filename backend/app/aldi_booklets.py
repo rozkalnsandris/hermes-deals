@@ -1,33 +1,32 @@
-"""ALDI Nord official brochure entry points, not unverified embedded pages."""
+"""ALDI Nord official catalogue, never an inferred publication.
+
+Current/preview aliases can rotate before the Berlin ISO-week boundary.
+Without a source-bound issue/date/page manifest, a catalogue is the only
+honest official entry point.
+"""
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-OFFICIAL_CURRENT = "https://www.aldi-nord.de/prospekte/aldi-aktuell.html"
-OFFICIAL_PREVIEW = "https://www.aldi-nord.de/prospekte/aldi-vorschau.html"
+OFFICIAL_CATALOGUE = "https://www.aldi-nord.de/prospekte.html"
 
 
 def build_aldi_nord_booklet(day: date, *, today: date | None = None) -> dict:
     current = today if today is not None else datetime.now(ZoneInfo("Europe/Berlin")).date()
     monday = current - timedelta(days=current.weekday())
-    current_end = monday + timedelta(days=6)
-    preview_end = monday + timedelta(days=13)
-    empty = {
-        "state": "unavailable",
-        "offers": [],
-        "message": "Šim datumam nav reģistrētas pārbaudītas ALDI Nord bukleta lapas.",
-    }
-    if monday <= day <= current_end:
-        source_url = OFFICIAL_CURRENT
-    elif current_end < day <= preview_end:
-        source_url = OFFICIAL_PREVIEW
-    else:
-        return empty
+    if not monday <= day <= monday + timedelta(days=13):
+        return {
+            "state": "unavailable",
+            "offers": [],
+            "message": "Šim datumam nav reģistrētas pārbaudītas ALDI Nord bukleta lapas.",
+        }
     return {
         "state": "external_link",
         "offers": [],
-        "source_url": source_url,
+        "source_url": OFFICIAL_CATALOGUE,
+        "link_label": "Atvērt ALDI Nord bukletu katalogu",
         "message": (
-            "Atvērt ALDI Nord oficiālo bukletu veikala vietnē. "
-            "Hermes Deals vēl nav verificējis šī izdevuma lapas un produktu sasaisti."
+            "ALDI Nord oficiālajā katalogā izvēlies izdevumu pēc tā datuma. "
+            "Hermes Deals vēl nav verificējis atlasītā datuma bukletu, "
+            "lapas vai produktu sasaisti."
         ),
     }

@@ -283,20 +283,24 @@ publication, the 30-day PDF retention mechanism, or production deployment.
 
 
 
-## ALDI Nord first-party brochure fallback (#1069)
+## ALDI Nord rotating publication correction (#1069)
 
-For the Berlin-local current and next week, the ALDI Nord selector now offers
-ALDI's stable official current/preview brochure landing pages at
-`https://www.aldi-nord.de/prospekte/aldi-aktuell.html` and
-`https://www.aldi-nord.de/prospekte/aldi-vorschau.html`.
-The chosen calendar week selects only the landing page, NOT a verified edition,
-validity period, page count or region. The UI explicitly says publication
-metadata has not been verified. Historical and later dates remain unavailable
-rather than pointing to a mismatched live edition.
+The public current/preview ALDI URLs are dynamic aliases, not immutable
+issue-specific URLs. On 2026-11-01 Berlin time the official catalogue at
+https://www.aldi-nord.de/prospekte.html labelled 2026-11-02 as Aktuell
+and 2026-11-09 as Vorschau, while the local ISO-week still began 2026-10-26.
+Therefore mapping the selected calendar week to those aliases can open
+the wrong issue.
 
-This is not an embedded original-page booklet. The ALDI structured offer feed
-and new-baseline weekly screenshot are not PDF/iPaper page evidence. The next
-necessary source step is an independently verified official magazine/iPaper
-page manifest (source identity, region, validity, all page URLs and retention)
-followed by the existing shared image reader. No price/product matching,
-PDF acquisition, DB/Review/publication, collector, or LIVE mutation is implied.
+The ALDI selector now only exposes the official brochure catalogue
+(https://www.aldi-nord.de/prospekte.html) for the Berlin-local current and
+following week. It does not claim any selected date is covered: the visitor
+must choose the edition/date on the official site. Historical/out-of-window
+dates remain unavailable. The existing Netto external_link date metadata
+and the Netto/Lidl image readers are unchanged.
+
+This remains an external link, not an embedded booklet or source publication.
+Full ALDI integration requires an independent immutable official magazine/
+iPaper issue/date/region/full-page manifest and complete provenance before
+reader activation. No guessed image URLs, OCR matching, PDF copies, collector,
+DB/Review/publication or LIVE mutations are introduced.
