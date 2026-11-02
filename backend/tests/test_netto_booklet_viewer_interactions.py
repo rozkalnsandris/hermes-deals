@@ -35,7 +35,7 @@ def test_user_gestures_keep_single_verified_image_and_zoom_at_focal_point():
     assert "zoomAt(2.5, event.clientX, event.clientY)" not in JS
     assert "scale = 1" in JS and "resetZoom()" in JS
     assert "image.src = options[number - 1].dataset.bookletImageUrl" in JS
-    assert "booklet-viewer-v8" in INDEX
+    assert "booklet-viewer-v9" in INDEX
 
 
 def test_separate_zoom_keeps_product_click_unbound():
@@ -62,7 +62,7 @@ def test_zoom_resolution_uses_only_verified_data_and_falls_back_on_asset_failure
     assert "image.src = option.dataset.bookletImageUrl" in JS
     assert "scale > 1.01" in JS
     assert 'data-booklet-zoom-image-url="{{ p.zoom_image_url }}"' in TEMPLATE
-    assert "booklet-viewer-v8" in INDEX
+    assert "booklet-viewer-v9" in INDEX
 
 
 def test_fullscreen_booklet_image_rerasterizes_when_scaled():
@@ -72,7 +72,7 @@ def test_fullscreen_booklet_image_rerasterizes_when_scaled():
     assert "will-change" not in image_rules
     assert "transform-origin:center center" in image_rules
     assert "object-fit:contain" in image_rules
-    assert "booklet-viewer-v8" in INDEX
+    assert "booklet-viewer-v9" in INDEX
 
 
 def test_inline_booklet_navigation_highlights_only_enabled_pages():
@@ -104,7 +104,7 @@ def test_shared_reader_uses_source_bound_retailer_in_template_and_browser():
     assert "const retailerName = reader?.dataset.bookletStoreName || 'Netto';" in JS
     assert "image.alt = retailerName + ' buklets, '" in JS
     assert "'Atvērt ' + retailerName + ' bukletu pilnekrānā'" in JS
-    assert "booklet-viewer-v8" in INDEX
+    assert "booklet-viewer-v9" in INDEX
 
 
 def test_shared_reader_renders_other_retailer_only_with_explicit_page_context():

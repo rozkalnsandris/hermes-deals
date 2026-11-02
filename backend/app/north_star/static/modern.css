@@ -412,3 +412,20 @@ body.booklet-viewer-active { overflow:hidden!important; }
 .booklet-reader.booklet-viewer-open .booklet-viewer-zoom button:focus-visible {
   outline:3px solid #c9e892; outline-offset:2px;
 }
+
+/* #1123 publisher-only, immutable receipt-bound hotspots. No Hermes offer links. */
+.booklet-swipe .booklet-canvas { position:relative; }
+.booklet-publisher-layer { position:absolute; pointer-events:none; transform-origin:center center; z-index:1; }
+.booklet-publisher-hit {
+  position:absolute; display:flex; align-items:flex-start; justify-content:flex-end;
+  padding:3px; min-width:0; min-height:0; border:2px solid rgba(21,105,71,.65);
+  background:rgba(61,164,113,.09); color:#174c35; border-radius:5px;
+  cursor:pointer; pointer-events:auto; font-size:13px; font-weight:700;
+}
+.booklet-publisher-hit:hover,.booklet-publisher-hit:focus-visible {
+  outline:3px solid #f1cd44; outline-offset:1px; background:rgba(241,205,68,.20);
+}
+.booklet-reader.booklet-viewer-open .booklet-publisher-hit { color:white; border-color:rgba(241,205,68,.8); }
+.booklet-publisher-dialog { z-index:1300; max-width:min(440px,calc(100vw - 32px)); max-height:80dvh; border:0; border-radius:15px; padding:25px; }
+.booklet-publisher-dialog::backdrop { background:rgba(0,0,0,.65); }
+.booklet-publisher-dialog [data-booklet-publisher-close] { float:right; border:0; background:transparent; font-size:27px; cursor:pointer; }
