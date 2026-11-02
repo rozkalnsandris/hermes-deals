@@ -14,7 +14,7 @@ LAST = date(2026, 11, 7)
 def capture(tmp_path, monkeypatch):
     root = tmp_path / "raw"
     evidence = root / "netto-html"
-    evidence.mkdir(parents=True)
+    evidence.mkdir(parents=True, exist_ok=True)
     pub = {"sizes": {"at1600": {"width": 600, "height": 900}},
            "spreads": [{"pages": ["/p/1"], "hotspots": [{
                "id": 11, "type": "product",
@@ -32,7 +32,7 @@ def capture(tmp_path, monkeypatch):
                           "products": [{"sha256": digest}]}).encode()
     receipt_digest = sha256(receipt).hexdigest()
     location = evidence / ("publitas-product-details-publication-" + ps)
-    location.mkdir()
+    location.mkdir(exist_ok=True)
     (location / "receipt.json").write_bytes(receipt)
     (location / ("product-21-" + digest[:12] + ".json")).write_bytes(detail)
     monkeypatch.setattr(publisher, "_TRUSTED_PUBLICATIONS", {"publication": {
