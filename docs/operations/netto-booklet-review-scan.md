@@ -1,0 +1,13 @@
+# Netto 5659 booklet hotspot Review projection (#1123)
+
+Source-only, network-free and database-free. `app.netto_booklet_review_scan.scan_netto_review_candidates` takes **already SHA-verified publication bytes**, an expected publication SHA256, exact selected store `5659`, selected date and the independently verified campaign validity window. Caller must establish the immutable selected-store snapshot, official viewer/JSON URL, and the SHA from the snapshot manifest **before** invoking this pure projection.
+
+Uses existing `netto_html_publications.validated_pages` for exact page paths. Publitas REST v1 positions are fractions of the entire **spread**, not page-local coordinates. Source-declared `sizes.at1600` dimensions establish an equal-width page basis. One-page spreads use the whole normalized X-axis; two-page spreads split at 0.5, clip overlapping areas, and translate to separate page rectangles. Invalid geometry, duplicate hotspot IDs, invalid product IDs, unsupported page counts and mismatched SHA/date/store fail closed. Missing source-declared page dimensions produce explicit **unprojected** Review candidates instead of fabricated rectangles.
+
+Only publisher product IDs, hotspot IDs, page-local rectangles, source SHA and dates are emitted. Raw titles, HTML, prices, URLs and external links are never copied. Multi-product areas remain Review-only; repeated product identifiers on different hotspots are not a unique offer match.
+
+**No automatic offer links or UI overlays.** Prior SHA-bound `hz45_hasb` evidence has 38 official product details but **zero** exact `webshopIdentifier` matches to 191 selected-store, date-eligible HTML SKUs. No retailer-authoritative identity bridge exists. This module is an offline reviewer input **only**; it is intentionally not wired to a live endpoint, persisted Review queue, or current 72-page viewer. Linking to an eligible persisted offer and opening product details requires later independent proof of exact 5659 offer ownership, snapshot/publication/date/page binding and explicit Review approval. #27/#289 gates remain unchanged.
+
+Focused regression: `pytest -q backend/tests/test_netto_booklet_review_scan.py` (run from `backend` with `tests/test_netto_booklet_review_scan.py`). No PDF/OCR acquisition, collector, DB writes, migration, deploy, or retained-evidence mutation.
+
+Publisher coordinates / sizes reference: https://developers.publitas.com/docs/rest-v1.html
