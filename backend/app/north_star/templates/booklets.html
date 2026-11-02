@@ -28,8 +28,32 @@
   <div class="booklet-canvas" tabindex="0" aria-label="{{ 'Atvērt ' ~ (booklet.retailer_name|default('Netto')) ~ ' bukletu pilnekrānā' if booklet.swipeable|default(false) else 'Bukleta attēls; palielinātu lapu var ritināt' }}" {% if booklet.swipeable|default(false) %}role="button" aria-expanded="false" data-booklet-swipe="{{ booklet.page }}"{% endif %}>
     {% if booklet.swipeable|default(false) %}
     <img class="booklet-page-image" data-booklet-image src="{{ booklet.image_url }}" alt="{{ booklet.retailer_name|default('Netto') }} buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async" draggable="false">
+    {% if booklet.retailer_id|default('netto') == 'netto' and booklet.pages|selectattr('publisher_hotspots')|list %}
+    <div class="booklet-publisher-layer" data-booklet-publisher-layer aria-label="Izdevēja produktu zonas"></div>
+    {% endif %}
     {% else %}<img class="booklet-page-image" src="{{ booklet.image_url }}" alt="{{ booklet.retailer_name|default('Netto') }} buklets, {{ booklet.page }}. lapa no {{ booklet.page_count }}" referrerpolicy="no-referrer" decoding="async">{% endif %}
   </div>
+  {% if booklet.retailer_id|default('netto') == 'netto' and booklet.swipeable|default(false) %}
+  <div data-booklet-publisher-source hidden>
+    {% for p in booklet.pages if p.publisher_hotspots|default([]) %}
+    <div data-booklet-publisher-page="{{ p.number }}">
+      {% for hotspot in p.publisher_hotspots %}
+      <button type="button" class="booklet-publisher-hit" data-booklet-publisher-hit
+        data-publisher-title="{{ hotspot.title }}" data-publisher-description="{{ hotspot.description }}"
+        aria-label="Izdevēja produkta informācija: {{ hotspot.title }}"
+        style="left:{{ (hotspot.rectangle.left * 100)|round(6) }}%;top:{{ (hotspot.rectangle.top * 100)|round(6) }}%;width:{{ (hotspot.rectangle.width * 100)|round(6) }}%;height:{{ (hotspot.rectangle.height * 100)|round(6) }}%;">ⓘ</button>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <dialog class="booklet-publisher-dialog" data-booklet-publisher-dialog aria-labelledby="booklet-publisher-title">
+    <button type="button" data-booklet-publisher-close aria-label="Aizvērt produkta informāciju">×</button>
+    <p class="eyebrow">PUBLITAS · IZDEVĒJA INFORMĀCIJA</p>
+    <h2 id="booklet-publisher-title" data-booklet-publisher-title></h2>
+    <p data-booklet-publisher-description></p>
+    <p class="muted">Nav piesaistīts Hermes Deals produktam vai cenu vēsturei.</p>
+  </dialog>
+  {% endif %}
   {% if booklet.swipeable|default(false) %}<div class="booklet-viewer-hud" data-booklet-viewer-hud hidden>
     <button type="button" class="booklet-viewer-close" data-booklet-viewer-close aria-label="Aizvērt pilnekrāna bukletu">×</button>
     <nav class="booklet-viewer-pages" aria-label="Pilnekrāna lapošana">

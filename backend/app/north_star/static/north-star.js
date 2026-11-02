@@ -62,6 +62,11 @@
     const zoomIn = hud?.querySelector('[data-booklet-zoom-in]');
     const zoomOut = hud?.querySelector('[data-booklet-zoom-out]');
     const zoomLevel = hud?.querySelector('[data-booklet-zoom-level]');
+    const publisherLayer = canvas?.querySelector('[data-booklet-publisher-layer]');
+    const publisherSource = reader?.querySelector('[data-booklet-publisher-source]');
+    const publisherDialog = reader?.querySelector('[data-booklet-publisher-dialog]');
+    const publisherTitle = publisherDialog?.querySelector('[data-booklet-publisher-title]');
+    const publisherDescription = publisherDialog?.querySelector('[data-booklet-publisher-description]');
     if (!reader || !canvas || !image || !form || !select || !prev || !next ||
         !counter || !hud || !closeButton || !hudPrev || !hudNext || !hudCount ||
         !zoomIn || !zoomOut || !zoomLevel) return;
@@ -95,6 +100,35 @@
       failedHiResPages.add(page);
       image.src = option.dataset.bookletImageUrl;
     });
+    function alignPublisherLayer() {
+      if (!publisherLayer) return;
+      publisherLayer.style.left = image.offsetLeft + 'px';
+      publisherLayer.style.top = image.offsetTop + 'px';
+      publisherLayer.style.width = image.offsetWidth + 'px';
+      publisherLayer.style.height = image.offsetHeight + 'px';
+      publisherLayer.style.transform = image.style.transform;
+    }
+    function renderPublisherPage(number) {
+      if (!publisherLayer || !publisherSource) return;
+      const source = [...publisherSource.querySelectorAll('[data-booklet-publisher-page]')]
+        .find(node => Number(node.dataset.bookletPublisherPage) === number);
+      publisherLayer.replaceChildren(...(source ? [...source.children].map(node => node.cloneNode(true)) : []));
+      alignPublisherLayer();
+    }
+    if (publisherLayer && publisherDialog && publisherTitle && publisherDescription) {
+      publisherLayer.addEventListener('click', event => {
+        const button = event.target.closest('[data-booklet-publisher-hit]');
+        if (!button) return;
+        event.preventDefault();
+        event.stopPropagation();
+        publisherTitle.textContent = button.dataset.publisherTitle || '';
+        publisherDescription.textContent = button.dataset.publisherDescription || '';
+        if (publisherDialog.showModal) publisherDialog.showModal();
+      });
+      publisherDialog.querySelector('[data-booklet-publisher-close]')
+        .addEventListener('click', () => publisherDialog.close());
+    }
+    image.addEventListener('load', alignPublisherLayer);
     function applyTransform() {
       const bounds = canvas.getBoundingClientRect();
       const maxX = Math.max(0, (image.offsetWidth * scale - bounds.width) / 2);
@@ -102,6 +136,7 @@
       x = clamp(x, -maxX, maxX);
       y = clamp(y, -maxY, maxY);
       image.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + scale + ')';
+      alignPublisherLayer();
       canvas.classList.toggle('is-zoomed', scale > 1.01);
       zoomIn.disabled = scale >= maxZoom - .001;
       zoomOut.disabled = scale <= 1.001;
@@ -138,6 +173,8 @@
       page = number;
       select.value = String(number);
       image.src = options[number - 1].dataset.bookletImageUrl;
+      if (publisherDialog?.open) publisherDialog.close();
+      renderPublisherPage(number);
       // A page change always begins with the verified standard image.
       image.alt = retailerName + ' buklets, ' + number + '. lapa no ' + options.length;
       counter.textContent = String(number);
@@ -163,6 +200,7 @@
     }
     function close() {
       if (!isOpen()) return;
+      if (publisherDialog?.open) publisherDialog.close();
       reader.classList.remove('booklet-viewer-open');
       document.body.classList.remove('booklet-viewer-active');
       canvas.setAttribute('aria-label', 'Atvērt ' + retailerName + ' bukletu pilnekrānā');
@@ -252,6 +290,7 @@
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     canvas.addEventListener('touchstart', event => {
       if (!isOpen()) return;
+      if (event.touches.length === 1 && event.target.closest('[data-booklet-publisher-hit]')) return;
       if (event.touches.length >= 2) {
         const a = point(event.touches[0]), b = point(event.touches[1]);
         const focus = middle(a, b);
@@ -300,6 +339,7 @@
     canvas.addEventListener('touchcancel', () => { gesture = null; }, { passive:true });
     reader.addEventListener('keydown', event => {
       if (!isOpen()) return;
+      if (publisherDialog?.open) return; // native dialog handles Escape and focus
       if (event.key === 'Escape') { event.stopPropagation(); close(); return; }
       // Arrow keys must also work when the viewer close/control buttons have focus.
       if (event.target.closest('select,input')) return;

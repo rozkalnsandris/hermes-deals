@@ -15,6 +15,7 @@ from app.retailer_targeted_shadow import publication_page_paths, publitas_page_i
 from app.settings import get_settings
 from app.netto_store_prospect import extract_prospect_validity
 from app.netto_html_publications import validated_pages
+from app.netto_booklet_publisher import publisher_only_hotspots
 from app.structured_source_shadow import extract_netto_group_slug
 
 STRATEGIES = (
@@ -220,6 +221,12 @@ def _html_teaser_link(db, day, cutoff, page):
             if page > len(paths):
                 return {"state": "missing_page", "offers": [],
                         "message": "Šāda lapa bukletā nav pieejama."}
+            # This optional, receipt-pinned publisher layer never claims a Hermes offer.
+            publisher_pages = publisher_only_hotspots(
+                root, store_id=STORE, snapshot_id=str(snapshot.id),
+                manifest_sha256=snapshot.sha256, record=record,
+                day=day, valid_from=start, valid_until=end,
+            )
             return {
                 "state": "ready", "offers": [], "page": page,
                 "page_count": len(paths),
@@ -232,7 +239,8 @@ def _html_teaser_link(db, day, cutoff, page):
                 "pages": [{"number": index, "href": booklet_href(day, index),
                            "image_url": publitas_page_image_url(asset, "at1600"),
                            "zoom_image_url": publitas_page_image_url(asset, high_size)
-                           if high_size else None}
+                           if high_size else None,
+                           "publisher_hotspots": publisher_pages.get(index, [])}
                           for index, asset in enumerate(paths, 1)],
                 "previous_href": booklet_href(day, page - 1) if page > 1 else None,
                 "next_href": booklet_href(day, page + 1) if page < len(paths) else None,
