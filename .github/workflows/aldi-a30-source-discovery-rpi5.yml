@@ -20,7 +20,7 @@ concurrency:
 jobs:
   authorize:
     name: Authorize owner and merged PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       pr_number: ${{ steps.auth.outputs.pr_number }}
@@ -140,7 +140,7 @@ jobs:
       - authorize
       - rpi5-audit
     if: always() && needs.authorize.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
