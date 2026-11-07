@@ -184,7 +184,7 @@ def test_workflow_is_hosted_read_only_and_has_no_rpi5_or_shell_escape() -> None:
     assert set(triggers) == {"issue_comment"}
     assert triggers["issue_comment"]["types"] == ["created"]
     assert "startsWith(github.event.comment.body, '/hermes-lidl-source-inspect ')" in text
-    assert "runs-on: ubuntu-latest" in text
+    assert "runs-on: ubuntu-24.04" in text
     assert "self-hosted" not in text
     assert "sudo " not in text
     assert "ssh " not in text

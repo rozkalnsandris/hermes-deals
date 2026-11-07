@@ -20,7 +20,7 @@ concurrency:
 jobs:
   authorize:
     name: Authorize exact successful EDEKA shadow artifact
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       artifact_id: ${{ steps.auth.outputs.artifact_id }}
@@ -141,7 +141,7 @@ jobs:
   derive:
     name: Derive accounted Gate C evidence
     needs: authorize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       source_card_count: ${{ steps.result.outputs.source_card_count }}
@@ -305,7 +305,7 @@ jobs:
     needs:
       - authorize
       - derive
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Comment sanitized result on EDEKA trackers

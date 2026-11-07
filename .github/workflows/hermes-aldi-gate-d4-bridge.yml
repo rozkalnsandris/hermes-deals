@@ -21,7 +21,7 @@ jobs:
       github.actor == 'rozkalnsandris' &&
       github.event.comment.author_association == 'OWNER' &&
       github.event.comment.body == '/hermes-aldi gate-d4 pr=646'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

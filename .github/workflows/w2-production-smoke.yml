@@ -16,7 +16,7 @@ jobs:
   authorize:
     name: Authorize exact owner W2 smoke command
     if: github.event.issue.pull_request == null
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       issue_number: ${{ steps.authorize.outputs.issue_number }}
@@ -315,7 +315,7 @@ jobs:
     needs:
       - authorize
       - smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

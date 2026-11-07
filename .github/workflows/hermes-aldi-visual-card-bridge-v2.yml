@@ -18,7 +18,7 @@ jobs:
       github.event.comment.user.id == 277435981 &&
       github.event.comment.author_association == 'OWNER' &&
       github.event.comment.body == '/hermes-aldi-visual-card-bridge-v2 diagnose'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -149,7 +149,7 @@ jobs:
   report:
     needs: [authorize, diagnose-rpi5]
     if: always() && needs.authorize.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write

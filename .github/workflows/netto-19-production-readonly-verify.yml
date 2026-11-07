@@ -22,7 +22,7 @@ jobs:
       github.event.sender.id == 277435981 &&
       github.event.comment.author_association == 'OWNER' &&
       startsWith(github.event.comment.body, '/hermes-netto-19 verify ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
@@ -173,7 +173,7 @@ jobs:
     name: Report sanitized #19 verification result
     needs: [authorize, verify]
     if: always() && github.event.issue.number == 19
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
