@@ -33,7 +33,7 @@ concurrency:
 jobs:
   authorize:
     name: Authorize exact disabled package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.auth.outputs.sha }}
