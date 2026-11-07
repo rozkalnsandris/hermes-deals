@@ -30,7 +30,7 @@ jobs:
   ensure-label:
     name: Ensure Lidl semantic audit label
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -93,7 +93,7 @@ jobs:
   authorize:
     name: Resolve owner-authorized merged PR
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.authorize.outputs.should_run }}
@@ -282,7 +282,7 @@ jobs:
       - authorize
       - rpi5-audit
     if: always() && needs.authorize.result == 'success' && needs.authorize.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
