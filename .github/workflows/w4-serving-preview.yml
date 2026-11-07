@@ -36,7 +36,7 @@ concurrency:
 jobs:
   same-image-preview:
     name: W4 hashed preview and W3 rollback
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:

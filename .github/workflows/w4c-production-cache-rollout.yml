@@ -16,7 +16,7 @@ jobs:
   authorize:
     name: Authorize exact owner W4C command
     if: github.event.issue.pull_request == null
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       mode: ${{ steps.authorize.outputs.mode }}
@@ -185,7 +185,7 @@ jobs:
     needs:
       - authorize
       - operate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
