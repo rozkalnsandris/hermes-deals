@@ -16,7 +16,7 @@ jobs:
   authorize:
     name: Authorize exact owner command
     if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/hermes-307 ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -341,7 +341,7 @@ jobs:
     needs:
       - authorize
       - phase-c
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -419,7 +419,7 @@ jobs:
     needs:
       - authorize
       - phase-d
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
