@@ -36,7 +36,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action == 'labeled' &&
       github.event.label.name == 'audit:netto-hz37-adjudication-v1'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.auth.outputs.sha }}
@@ -92,7 +92,7 @@ jobs:
     name: Adjudicate exact frozen hz37 v2 candidate
     needs: authorize
     if: needs.authorize.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       actions: read
@@ -251,7 +251,7 @@ jobs:
     name: Report held-out hz37 adjudication
     needs: [authorize, adjudicate]
     if: always() && needs.authorize.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
