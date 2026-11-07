@@ -18,7 +18,7 @@ jobs:
       github.event.issue.number == 345 &&
       !github.event.issue.pull_request &&
       startsWith(github.event.comment.body, '/hermes-lidl-source-refresh-audit ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       registered_sha: ${{ steps.auth.outputs.registered_sha }}
@@ -242,7 +242,7 @@ jobs:
   report:
     if: always() && needs.authorize.result == 'success'
     needs: [authorize, rpi5-audit]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
