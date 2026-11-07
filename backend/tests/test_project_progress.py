@@ -314,7 +314,7 @@ def test_workflow_uses_ruleset_safe_app_pr_publisher() -> None:
     assert "--match-head-commit" in text
     assert "git push origin HEAD:main" not in text
     assert "--admin" not in text
-    assert "runs-on: ubuntu-latest" in text
+    assert "runs-on: ubuntu-24.04" in text
     assert "self-hosted" not in text
     assert "docs/project-progress-latest.json" in text
     assert "README.md" in text

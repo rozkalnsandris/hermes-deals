@@ -200,7 +200,7 @@ class GitHubDirectMainDeployTest(unittest.TestCase):
         self.assertIn("actions: write", workflow)
         self.assertIn("contents: read", workflow)
         self.assertIn("issues: write", workflow)
-        self.assertIn("runs-on: ubuntu-latest", workflow)
+        self.assertIn("runs-on: ubuntu-24.04", workflow)
         self.assertNotIn("self-hosted", workflow)
         self.assertNotIn("sudo ", workflow)
         self.assertNotIn("docker ", workflow)
