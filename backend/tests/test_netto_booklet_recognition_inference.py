@@ -1,0 +1,133 @@
+"""Tests for the local-only Netto booklet recognition inference runner."""
+from hashlib import sha256
+import json
+from pathlib import Path
+import sys
+
+import fitz
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from netto_booklet_recognition_inference import (
+    InferenceRunnerError,
+    _json_value,
+    _read_pdf,
+    parse_pages,
+    run_inference,
+)
+
+
+class FakePaddle:
+    def predict_file(self, path: Path):
+        assert path.is_file()
+        return {
+            "res": {
+                "rec_texts": ["Milka", "0,99 €"],
+                "rec_scores": [0.99, 0.98],
+                "rec_boxes": [[10, 10, 90, 30], [100, 100, 150, 130]],
+            }
+        }
+
+
+class FakeFlorence:
+    def predict_png(self, png: bytes):
+        assert png.startswith(b"\x89PNG")
+        return {
+            "<DENSE_REGION_CAPTION>": {
+                "bboxes": [[5, 5, 180, 180]],
+                "labels": ["a product offer"],
+            }
+        }
+
+
+def _pdf_bytes(page_count=3):
+    with fitz.open() as doc:
+        for index in range(page_count):
+            page = doc.new_page(width=300, height=420)
+            page.insert_text((30, 70), f"Page {index + 1}", fontsize=18)
+        return doc.tobytes()
+
+
+def test_parse_pages_is_bounded_sorted_and_unique():
+    assert parse_pages("4,2,2,6-8", 10) == [2, 4, 6, 7, 8]
+    with pytest.raises(InferenceRunnerError, match="descending"):
+        parse_pages("8-6", 10)
+    with pytest.raises(InferenceRunnerError, match="outside PDF"):
+        parse_pages("11", 10)
+    with pytest.raises(InferenceRunnerError, match="sample page count"):
+        parse_pages("1-13", 20)
+    with pytest.raises(InferenceRunnerError, match="malformed"):
+        parse_pages("1,a", 10)
+
+
+def test_read_pdf_requires_exact_sha_and_rejects_bad_size(tmp_path):
+    pdf = tmp_path / "booklet.pdf"
+    raw = _pdf_bytes()
+    pdf.write_bytes(raw)
+    digest = sha256(raw).hexdigest()
+    assert _read_pdf(pdf, digest) == raw
+    with pytest.raises(InferenceRunnerError, match="SHA256 mismatch"):
+        _read_pdf(pdf, "0" * 64)
+    empty = tmp_path / "empty.pdf"
+    empty.write_bytes(b"")
+    with pytest.raises(InferenceRunnerError, match="size outside"):
+        _read_pdf(empty, sha256(b"").hexdigest())
+
+
+def test_json_value_accepts_only_object_json():
+    assert _json_value('{"res":{"rec_texts":[]}}') == {"res": {"rec_texts": []}}
+    assert _json_value({"x": 1}) == {"x": 1}
+    with pytest.raises(InferenceRunnerError, match="not a JSON object"):
+        _json_value("[1,2]")
+    with pytest.raises(InferenceRunnerError, match="malformed"):
+        _json_value("{")
+
+
+def test_run_inference_combines_backends_without_identity(tmp_path):
+    raw = _pdf_bytes()
+    result = run_inference(
+        raw,
+        [1, 3],
+        paddle=FakePaddle(),
+        florence=FakeFlorence(),
+        render_dpi=144,
+    )
+    assert [row["page_number"] for row in result["pages"]] == [1, 3]
+    assert all(row["image_width"] == 600 for row in result["pages"])
+    assert all(row["image_height"] == 840 for row in result["pages"])
+    assert result["pages"][0]["paddle"]["res"]["rec_texts"] == ["Milka", "0,99 €"]
+    assert result["pages"][0]["florence"]["<DENSE_REGION_CAPTION>"]["labels"] == [
+        "a product offer"
+    ]
+    assert all(row["runtime_seconds"] >= 0 for row in result["pages"])
+
+
+def test_run_inference_requires_backend_and_bounded_dpi():
+    raw = _pdf_bytes()
+    with pytest.raises(InferenceRunnerError, match="backend"):
+        run_inference(raw, [1], paddle=None, florence=None)
+    for dpi in (95, 241):
+        with pytest.raises(InferenceRunnerError, match="DPI"):
+            run_inference(raw, [1], paddle=FakePaddle(), render_dpi=dpi)
+
+
+def test_run_inference_rejects_noncanonical_or_out_of_range_pages():
+    raw = _pdf_bytes()
+    with pytest.raises(InferenceRunnerError, match="canonical"):
+        run_inference(raw, [2, 1], paddle=FakePaddle())
+    with pytest.raises(InferenceRunnerError, match="outside PDF"):
+        run_inference(raw, [4], paddle=FakePaddle())
+
+
+def test_model_json_shape_is_compatible_with_normalizer_contract():
+    raw = _pdf_bytes(1)
+    result = run_inference(
+        raw,
+        [1],
+        paddle=FakePaddle(),
+        florence=FakeFlorence(),
+    )
+    row = result["pages"][0]
+    serialized = json.loads(json.dumps(result))
+    assert serialized["pages"][0]["paddle"]["res"]["rec_boxes"][0] == [10, 10, 90, 30]
+    assert row["florence"]["<DENSE_REGION_CAPTION>"]["bboxes"][0] == [5, 5, 180, 180]

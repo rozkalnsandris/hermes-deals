@@ -78,6 +78,40 @@ space used for later viewer/hotspot evaluation.
 The normalizer itself performs no network access and downloads no models. Model execution is
 kept separate so the repository CI never downloads large weights.
 
+### Local inference runner
+
+`tools/netto_booklet_recognition_inference.py` renders only an explicit sample of at most
+12 SHA-pinned PDF pages and produces the model-result JSON consumed by the normalizer.
+
+The runner is **offline by default**:
+- PaddleOCR requires explicit local detection and recognition model directories.
+- Florence-2 uses `local_files_only=True` unless `--allow-model-download` is explicitly set.
+- `--allow-model-download` changes only the tool's local behavior; using it on an RPi5 or
+  other retained/runtime environment still requires the applicable owner authorization.
+- no model package is added to Hermes production dependencies.
+
+The current source contract follows PaddleOCR 3.7 / PP-OCRv6's documented `predict()`
+result fields and Hugging Face Transformers Florence-2
+`<DENSE_REGION_CAPTION>` + `post_process_generation()` API.
+
+Example offline invocation after weights already exist locally:
+
+```bash
+python3 tools/netto_booklet_recognition_inference.py \
+  --pdf /path/to/source.pdf \
+  --pdf-sha256 <exact_sha256> \
+  --pages 2,17,31,44 \
+  --backend both \
+  --paddle-det-model-dir /path/to/PP-OCRv6-det \
+  --paddle-rec-model-dir /path/to/PP-OCRv6-rec \
+  --florence-model /path/to/Florence-2-base \
+  --device cpu \
+  --output /path/to/model-results.json
+```
+
+The output also records wall time, per-page time and peak process RSS for the PoC resource
+assessment.
+
 Example input:
 
 ```json
