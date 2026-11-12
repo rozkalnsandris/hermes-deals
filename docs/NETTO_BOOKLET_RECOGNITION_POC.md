@@ -44,6 +44,25 @@ python3 tools/netto_booklet_recognition_inference.py \
 
 For a direct comparison on the same pages, use `--backend florence --include-native`.
 
+### RPi5 Florence guardrails
+
+The first real Florence run is intentionally staged for the 4 GB RPi5:
+
+1. run the model-free native baseline first;
+2. run Florence on **one page only** with `--render-dpi 96`,
+   `--florence-max-new-tokens 384` and `--florence-num-beams 1`;
+3. review peak RSS, swap use, temperature/throttling and result completeness;
+4. only if the one-page run is healthy, process pages 1, 4, 20, 40 and 60 sequentially
+   with the same limits.
+
+The runner accepts `--florence-max-new-tokens` only in 64..2048 and
+`--florence-num-beams` only in 1..5. Defaults remain 1024/3 for non-constrained
+hosts; the reduced RPi5 values must be explicitly selected.
+
+No service stop/restart, Docker mutation, scheduler change or production write is required
+for this PoC. The isolated process should be run at low priority and must fail closed on
+OOM, thermal/runtime error or unexpected host drift.
+
 ### PaddleOCR
 
 Fallback OCR/layout candidate for image-only or unusable-text PDFs:
