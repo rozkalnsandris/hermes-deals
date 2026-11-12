@@ -36,7 +36,7 @@ env:
 
 jobs:
   authorize:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       base_sha: ${{ steps.auth.outputs.base_sha }}
       head_sha: ${{ steps.auth.outputs.head_sha }}
@@ -88,7 +88,7 @@ jobs:
 
   freeze:
     needs: authorize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: write

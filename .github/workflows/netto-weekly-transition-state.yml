@@ -314,7 +314,7 @@ jobs:
   report:
     needs: transition
     if: ${{ always() && (github.event_name != 'schedule' || vars.NETTO_PINNED_EXECUTOR_V1_ENABLED != 'true' || github.ref != 'refs/heads/main') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

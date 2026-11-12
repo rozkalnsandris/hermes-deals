@@ -16,7 +16,7 @@ jobs:
   authorize:
     name: Authorize exact owner Gate D3 command
     if: github.event.issue.pull_request == null && github.event.issue.number == 290 && startsWith(github.event.comment.body, '/hermes-aldi ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -305,7 +305,7 @@ jobs:
     needs:
       - authorize
       - audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
