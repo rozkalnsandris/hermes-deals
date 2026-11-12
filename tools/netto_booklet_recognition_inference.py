@@ -233,10 +233,11 @@ def run_inference(
     paddle=None,
     florence=None,
     render_dpi: int = 160,
+    include_native: bool = False,
 ) -> dict:
     import fitz
 
-    if paddle is None and florence is None:
+    if paddle is None and florence is None and not include_native:
         raise InferenceRunnerError("at least one inference backend is required")
     if type(render_dpi) is not int or not 96 <= render_dpi <= 240:
         raise InferenceRunnerError("render DPI outside PoC limit")
@@ -264,6 +265,8 @@ def run_inference(
                 "image_width": pix.width,
                 "image_height": pix.height,
             }
+            if include_native:
+                row["native"] = native_page_structure(page)
             if paddle is not None:
                 image_path = Path(temp_dir) / f"page-{page_number:03d}.png"
                 image_path.write_bytes(png)
@@ -286,6 +289,11 @@ def main() -> int:
         default="both",
     )
     parser.add_argument("--render-dpi", type=int, default=160)
+    parser.add_argument(
+        "--include-native",
+        action="store_true",
+        help="Include PyMuPDF source-native text, image and price-token geometry.",
+    )
     parser.add_argument("--paddle-det-model-dir", type=Path)
     parser.add_argument("--paddle-rec-model-dir", type=Path)
     parser.add_argument(
@@ -337,10 +345,12 @@ def main() -> int:
         paddle=paddle,
         florence=florence,
         render_dpi=args.render_dpi,
+        include_native=args.include_native,
     )
     result["runner"] = {
         "backend": args.backend,
         "render_dpi": args.render_dpi,
+        "include_native": bool(args.include_native),
         "model_download_allowed": bool(args.allow_model_download),
         "florence_model": args.florence_model if args.backend in {"florence", "both"} else None,
         "wall_seconds": round(time.perf_counter() - started, 3),
@@ -356,6 +366,7 @@ def main() -> int:
             {
                 "backend": args.backend,
                 "pages": pages,
+                "include_native": bool(args.include_native),
                 "model_download_allowed": bool(args.allow_model_download),
                 "peak_rss_kib": result["runner"]["peak_rss_kib"],
                 "wall_seconds": result["runner"]["wall_seconds"],
