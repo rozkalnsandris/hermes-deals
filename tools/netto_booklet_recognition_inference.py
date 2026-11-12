@@ -12,6 +12,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 import resource
+import re
 import tempfile
 import time
 
@@ -22,6 +23,105 @@ MAX_SAMPLE_PAGES = 12
 
 class InferenceRunnerError(ValueError):
     pass
+
+
+_NATIVE_PRICE = re.compile(r"^(?:\d{1,3}[.,]\d{2}|\d+[.,]-)\*?$")
+
+
+def _normalized_bbox(raw, width: float, height: float) -> list[float]:
+    if (
+        not isinstance(raw, (list, tuple))
+        or len(raw) != 4
+        or width <= 0
+        or height <= 0
+    ):
+        raise InferenceRunnerError("invalid native PDF rectangle")
+    x0, y0, x1, y1 = (float(value) for value in raw)
+    if not (0 <= x0 < x1 <= width + 0.001 and 0 <= y0 < y1 <= height + 0.001):
+        raise InferenceRunnerError("native PDF rectangle outside page")
+    return [
+        round(x0 / width, 6),
+        round(y0 / height, 6),
+        round((x1 - x0) / width, 6),
+        round((y1 - y0) / height, 6),
+    ]
+
+
+def native_page_structure(page) -> dict:
+    """Extract source-native PDF text/image geometry without OCR or model inference."""
+    width = float(page.rect.width)
+    height = float(page.rect.height)
+    if not (1 <= width <= 20000 and 1 <= height <= 20000):
+        raise InferenceRunnerError("invalid native PDF page size")
+
+    words = []
+    for index, raw in enumerate(page.get_text("words", sort=False), 1):
+        if len(raw) < 8:
+            raise InferenceRunnerError("invalid native PDF word result")
+        x0, y0, x1, y1, text, block_no, line_no, word_no = raw[:8]
+        text = str(text).strip()
+        if not text:
+            continue
+        words.append(
+            {
+                "region_id": f"native-word-{index}",
+                "text": text,
+                "bbox": _normalized_bbox([x0, y0, x1, y1], width, height),
+                "block_no": int(block_no),
+                "line_no": int(line_no),
+                "word_no": int(word_no),
+                "state": "REVIEW_ONLY",
+            }
+        )
+
+    images = []
+    for index, info in enumerate(page.get_image_info(hashes=True, xrefs=True), 1):
+        if not isinstance(info, dict) or "bbox" not in info:
+            raise InferenceRunnerError("invalid native PDF image result")
+        digest = info.get("digest")
+        if isinstance(digest, bytes):
+            digest = digest.hex()
+        elif digest is not None:
+            digest = str(digest)
+        images.append(
+            {
+                "region_id": f"native-image-{index}",
+                "bbox": _normalized_bbox(info["bbox"], width, height),
+                "pixel_width": int(info.get("width") or 0),
+                "pixel_height": int(info.get("height") or 0),
+                "xref": int(info.get("xref") or 0),
+                "digest": digest,
+                "state": "REVIEW_ONLY",
+            }
+        )
+
+    price_candidates = [
+        {
+            "region_id": row["region_id"],
+            "text": row["text"],
+            "bbox": row["bbox"],
+            "basis": "native_pdf_price_like_token",
+            "product_boundary_proven": False,
+            "verified_product_identity": None,
+            "hermes_offer_link": None,
+            "state": "REVIEW_ONLY",
+        }
+        for row in words
+        if _NATIVE_PRICE.fullmatch(row["text"].replace("€", "").strip())
+    ]
+
+    return {
+        "page_size_points": [round(width, 3), round(height, 3)],
+        "text_regions": words,
+        "image_regions": images,
+        "price_candidates": price_candidates,
+        "text_region_count": len(words),
+        "image_region_count": len(images),
+        "price_candidate_count": len(price_candidates),
+        "product_boundaries_proven": 0,
+        "verified_product_identities": 0,
+        "automatic_offer_links": 0,
+    }
 
 
 def _read_pdf(path: Path, expected_sha256: str) -> bytes:
@@ -233,10 +333,11 @@ def run_inference(
     paddle=None,
     florence=None,
     render_dpi: int = 160,
+    include_native: bool = False,
 ) -> dict:
     import fitz
 
-    if paddle is None and florence is None:
+    if paddle is None and florence is None and not include_native:
         raise InferenceRunnerError("at least one inference backend is required")
     if type(render_dpi) is not int or not 96 <= render_dpi <= 240:
         raise InferenceRunnerError("render DPI outside PoC limit")
@@ -264,6 +365,8 @@ def run_inference(
                 "image_width": pix.width,
                 "image_height": pix.height,
             }
+            if include_native:
+                row["native"] = native_page_structure(page)
             if paddle is not None:
                 image_path = Path(temp_dir) / f"page-{page_number:03d}.png"
                 image_path.write_bytes(png)
@@ -282,10 +385,15 @@ def main() -> int:
     parser.add_argument("--pages", required=True, help="e.g. 2,17,31,44 or 2-5")
     parser.add_argument(
         "--backend",
-        choices=("paddle", "florence", "both"),
+        choices=("native", "paddle", "florence", "both"),
         default="both",
     )
     parser.add_argument("--render-dpi", type=int, default=160)
+    parser.add_argument(
+        "--include-native",
+        action="store_true",
+        help="Include PyMuPDF source-native text, image and price-token geometry.",
+    )
     parser.add_argument("--paddle-det-model-dir", type=Path)
     parser.add_argument("--paddle-rec-model-dir", type=Path)
     parser.add_argument(
@@ -337,10 +445,12 @@ def main() -> int:
         paddle=paddle,
         florence=florence,
         render_dpi=args.render_dpi,
+        include_native=args.include_native or args.backend == "native",
     )
     result["runner"] = {
         "backend": args.backend,
         "render_dpi": args.render_dpi,
+        "include_native": bool(args.include_native or args.backend == "native"),
         "model_download_allowed": bool(args.allow_model_download),
         "florence_model": args.florence_model if args.backend in {"florence", "both"} else None,
         "wall_seconds": round(time.perf_counter() - started, 3),
@@ -356,6 +466,7 @@ def main() -> int:
             {
                 "backend": args.backend,
                 "pages": pages,
+                "include_native": bool(args.include_native or args.backend == "native"),
                 "model_download_allowed": bool(args.allow_model_download),
                 "peak_rss_kib": result["runner"]["peak_rss_kib"],
                 "wall_seconds": result["runner"]["wall_seconds"],

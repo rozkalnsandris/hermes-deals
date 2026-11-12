@@ -18,9 +18,35 @@ an independent first-party identifier bridge proves exactly one eligible Hermes 
 
 ## Components
 
+### Source-native PyMuPDF baseline
+
+For PDFs with a usable native text layer, use PyMuPDF before OCR. The baseline records:
+- word-level text boxes;
+- visible image boxes without extracting image bytes;
+- price-like text tokens as Review-only anchors;
+- normalized 0..1 geometry, with zero product identity or automatic offer links.
+
+The current Netto `hz46_hasb_4` evidence demonstrates that this path is useful: representative
+physical-store pages already expose machine-readable product text, prices and image geometry.
+Naive proximity still does not prove a product boundary, so Florence-2 remains a candidate for
+ambiguous visual grouping.
+
+Run a model-free baseline with:
+
+```bash
+python3 tools/netto_booklet_recognition_inference.py \
+  --pdf /path/to/source.pdf \
+  --pdf-sha256 <exact_sha256> \
+  --pages 1,4,20,40,60 \
+  --backend native \
+  --output /path/to/native-results.json
+```
+
+For a direct comparison on the same pages, use `--backend florence --include-native`.
+
 ### PaddleOCR
 
-Primary OCR/layout candidate:
+Fallback OCR/layout candidate for image-only or unusable-text PDFs:
 
 - project: https://github.com/PaddlePaddle/PaddleOCR
 - current researched release: **3.7.0** (2026-06-11)
