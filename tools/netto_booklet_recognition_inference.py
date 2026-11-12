@@ -285,7 +285,7 @@ def main() -> int:
     parser.add_argument("--pages", required=True, help="e.g. 2,17,31,44 or 2-5")
     parser.add_argument(
         "--backend",
-        choices=("paddle", "florence", "both"),
+        choices=("native", "paddle", "florence", "both"),
         default="both",
     )
     parser.add_argument("--render-dpi", type=int, default=160)
@@ -345,12 +345,12 @@ def main() -> int:
         paddle=paddle,
         florence=florence,
         render_dpi=args.render_dpi,
-        include_native=args.include_native,
+        include_native=args.include_native or args.backend == "native",
     )
     result["runner"] = {
         "backend": args.backend,
         "render_dpi": args.render_dpi,
-        "include_native": bool(args.include_native),
+        "include_native": bool(args.include_native or args.backend == "native"),
         "model_download_allowed": bool(args.allow_model_download),
         "florence_model": args.florence_model if args.backend in {"florence", "both"} else None,
         "wall_seconds": round(time.perf_counter() - started, 3),
@@ -366,7 +366,7 @@ def main() -> int:
             {
                 "backend": args.backend,
                 "pages": pages,
-                "include_native": bool(args.include_native),
+                "include_native": bool(args.include_native or args.backend == "native"),
                 "model_download_allowed": bool(args.allow_model_download),
                 "peak_rss_kib": result["runner"]["peak_rss_kib"],
                 "wall_seconds": result["runner"]["wall_seconds"],
