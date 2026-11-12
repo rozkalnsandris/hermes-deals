@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import resource
 import re
+import math
 import tempfile
 import time
 
@@ -37,6 +38,8 @@ def _normalized_bbox(raw, width: float, height: float) -> list[float]:
     ):
         raise InferenceRunnerError("invalid native PDF rectangle")
     x0, y0, x1, y1 = (float(value) for value in raw)
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        raise InferenceRunnerError("invalid native PDF rectangle")
     if not (0 <= x0 < x1 <= width + 0.001 and 0 <= y0 < y1 <= height + 0.001):
         raise InferenceRunnerError("native PDF rectangle outside page")
     return [
@@ -44,6 +47,35 @@ def _normalized_bbox(raw, width: float, height: float) -> list[float]:
         round(y0 / height, 6),
         round((x1 - x0) / width, 6),
         round((y1 - y0) / height, 6),
+    ]
+
+
+def _normalized_visible_image_bbox(raw, width: float, height: float) -> list[float]:
+    if (
+        not isinstance(raw, (list, tuple))
+        or len(raw) != 4
+        or width <= 0
+        or height <= 0
+    ):
+        raise InferenceRunnerError("invalid native PDF image rectangle")
+    x0, y0, x1, y1 = (float(value) for value in raw)
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        raise InferenceRunnerError("invalid native PDF image rectangle")
+    if not (x0 < x1 and y0 < y1):
+        raise InferenceRunnerError("degenerate native PDF image rectangle")
+
+    visible_x0 = max(0.0, x0)
+    visible_y0 = max(0.0, y0)
+    visible_x1 = min(width, x1)
+    visible_y1 = min(height, y1)
+    if not (visible_x0 < visible_x1 and visible_y0 < visible_y1):
+        raise InferenceRunnerError("native PDF image rectangle does not intersect page")
+
+    return [
+        round(visible_x0 / width, 6),
+        round(visible_y0 / height, 6),
+        round((visible_x1 - visible_x0) / width, 6),
+        round((visible_y1 - visible_y0) / height, 6),
     ]
 
 
@@ -86,7 +118,7 @@ def native_page_structure(page) -> dict:
         images.append(
             {
                 "region_id": f"native-image-{index}",
-                "bbox": _normalized_bbox(info["bbox"], width, height),
+                "bbox": _normalized_visible_image_bbox(info["bbox"], width, height),
                 "pixel_width": int(info.get("width") or 0),
                 "pixel_height": int(info.get("height") or 0),
                 "xref": int(info.get("xref") or 0),
