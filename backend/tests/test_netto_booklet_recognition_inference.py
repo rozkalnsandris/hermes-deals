@@ -12,6 +12,7 @@ from netto_booklet_recognition_inference import (
     InferenceRunnerError,
     _json_value,
     _read_pdf,
+    native_page_structure,
     parse_pages,
     run_inference,
 )
@@ -45,6 +46,17 @@ def _pdf_bytes(page_count=3):
         for index in range(page_count):
             page = doc.new_page(width=300, height=420)
             page.insert_text((30, 70), f"Page {index + 1}", fontsize=18)
+        return doc.tobytes()
+
+
+def _native_pdf_bytes():
+    image = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII="
+    )
+    with fitz.open() as doc:
+        page = doc.new_page(width=300, height=420)
+        page.insert_text((30, 70), "Milka 0,99", fontsize=18)
+        page.insert_image(fitz.Rect(30, 100, 130, 200), stream=image)
         return doc.tobytes()
 
 
@@ -131,3 +143,36 @@ def test_model_json_shape_is_compatible_with_normalizer_contract():
     serialized = json.loads(json.dumps(result))
     assert serialized["pages"][0]["paddle"]["res"]["rec_boxes"][0] == [10, 10, 90, 30]
     assert row["florence"]["<DENSE_REGION_CAPTION>"]["bboxes"][0] == [5, 5, 180, 180]
+
+
+def test_native_page_structure_extracts_review_only_source_geometry():
+    raw = _native_pdf_bytes()
+    with fitz.open(stream=raw, filetype="pdf") as doc:
+        native = native_page_structure(doc[0])
+    assert native["text_region_count"] >= 2
+    assert native["image_region_count"] == 1
+    assert native["price_candidate_count"] == 1
+    assert native["price_candidates"][0]["text"] == "0,99"
+    assert native["price_candidates"][0]["product_boundary_proven"] is False
+    assert native["price_candidates"][0]["verified_product_identity"] is None
+    assert native["automatic_offer_links"] == 0
+    assert all(
+        0 <= value <= 1
+        for row in native["text_regions"] + native["image_regions"]
+        for value in row["bbox"]
+    )
+
+
+def test_run_inference_allows_model_free_native_baseline():
+    result = run_inference(
+        _native_pdf_bytes(),
+        [1],
+        include_native=True,
+        render_dpi=144,
+    )
+    row = result["pages"][0]
+    assert "paddle" not in row
+    assert "florence" not in row
+    assert row["native"]["text_region_count"] >= 2
+    assert row["native"]["image_region_count"] == 1
+    assert row["native"]["verified_product_identities"] == 0
