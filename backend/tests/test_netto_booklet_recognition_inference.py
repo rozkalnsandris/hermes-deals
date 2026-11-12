@@ -1,4 +1,5 @@
 """Tests for the local-only Netto booklet recognition inference runner."""
+import base64
 from hashlib import sha256
 import json
 from pathlib import Path
