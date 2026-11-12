@@ -27,8 +27,10 @@ class InferenceRunnerError(ValueError):
 def _read_pdf(path: Path, expected_sha256: str) -> bytes:
     if not isinstance(expected_sha256, str) or len(expected_sha256) != 64:
         raise InferenceRunnerError("malformed PDF SHA256")
+    if path.is_symlink():
+        raise InferenceRunnerError("invalid PDF path")
     path = path.resolve(strict=True)
-    if path.is_symlink() or not path.is_file():
+    if not path.is_file():
         raise InferenceRunnerError("invalid PDF path")
     size = path.stat().st_size
     if not 0 < size <= MAX_PDF_BYTES:
@@ -120,6 +122,8 @@ class PaddleBackend:
             "engine": "paddle",
         }
         if det_model_dir is not None:
+            if det_model_dir.is_symlink() or rec_model_dir.is_symlink():
+                raise InferenceRunnerError("PaddleOCR model directory is invalid")
             det = det_model_dir.resolve(strict=True)
             rec = rec_model_dir.resolve(strict=True)
             if not det.is_dir() or not rec.is_dir():
