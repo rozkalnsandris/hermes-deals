@@ -14,6 +14,7 @@ from netto_booklet_recognition_inference import (
     InferenceRunnerError,
     _json_value,
     _read_pdf,
+    _validate_florence_generation,
     native_page_structure,
     parse_pages,
     run_inference,
@@ -193,3 +194,13 @@ def test_run_inference_allows_model_free_native_baseline():
     assert row["native"]["text_region_count"] >= 2
     assert row["native"]["image_region_count"] == 1
     assert row["native"]["verified_product_identities"] == 0
+
+
+def test_florence_generation_limits_are_bounded_for_rpi5():
+    assert _validate_florence_generation(384, 1) == (384, 1)
+    for tokens in (63, 2049):
+        with pytest.raises(InferenceRunnerError, match="max_new_tokens"):
+            _validate_florence_generation(tokens, 1)
+    for beams in (0, 6):
+        with pytest.raises(InferenceRunnerError, match="num_beams"):
+            _validate_florence_generation(384, beams)
