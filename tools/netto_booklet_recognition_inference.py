@@ -239,6 +239,14 @@ class PaddleBackend:
         return _paddle_result_to_json(results[0])
 
 
+def _validate_florence_generation(max_new_tokens: int, num_beams: int) -> tuple[int, int]:
+    if type(max_new_tokens) is not int or not 64 <= max_new_tokens <= 2048:
+        raise InferenceRunnerError("Florence max_new_tokens outside PoC limit")
+    if type(num_beams) is not int or not 1 <= num_beams <= 5:
+        raise InferenceRunnerError("Florence num_beams outside PoC limit")
+    return max_new_tokens, num_beams
+
+
 class FlorenceBackend:
     TASK = "<DENSE_REGION_CAPTION>"
 
@@ -248,11 +256,17 @@ class FlorenceBackend:
         model_ref: str,
         device: str,
         allow_model_download: bool,
+        max_new_tokens: int = 1024,
+        num_beams: int = 3,
     ) -> None:
         if not isinstance(model_ref, str) or not model_ref or len(model_ref) > 300:
             raise InferenceRunnerError("invalid Florence model reference")
         if device not in {"auto", "cpu", "cuda"}:
             raise InferenceRunnerError("invalid Florence device")
+        max_new_tokens, num_beams = _validate_florence_generation(
+            max_new_tokens,
+            num_beams,
+        )
 
         try:
             import torch
@@ -287,6 +301,8 @@ class FlorenceBackend:
         self._device = resolved_device
         self._dtype = torch.bfloat16 if resolved_device == "cuda" else torch.float32
         self._model = model.to(resolved_device)
+        self._max_new_tokens = max_new_tokens
+        self._num_beams = num_beams
 
     def predict_png(self, png: bytes) -> dict:
         try:
@@ -309,8 +325,8 @@ class FlorenceBackend:
         with self._torch.inference_mode():
             generated_ids = self._model.generate(
                 **inputs,
-                max_new_tokens=1024,
-                num_beams=3,
+                max_new_tokens=self._max_new_tokens,
+                num_beams=self._num_beams,
             )
         generated = self._processor.batch_decode(
             generated_ids,
@@ -410,6 +426,18 @@ def main() -> int:
         action="store_true",
         help="Explicitly allow model libraries to fetch missing weights. Default is offline.",
     )
+    parser.add_argument(
+        "--florence-max-new-tokens",
+        type=int,
+        default=1024,
+        help="Bound Florence generation length; RPi5 PoC should start at 384.",
+    )
+    parser.add_argument(
+        "--florence-num-beams",
+        type=int,
+        default=3,
+        help="Florence beam count; RPi5 PoC should use 1.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -437,6 +465,8 @@ def main() -> int:
             model_ref=args.florence_model,
             device=args.device,
             allow_model_download=args.allow_model_download,
+            max_new_tokens=args.florence_max_new_tokens,
+            num_beams=args.florence_num_beams,
         )
 
     result = run_inference(
@@ -453,6 +483,12 @@ def main() -> int:
         "include_native": bool(args.include_native or args.backend == "native"),
         "model_download_allowed": bool(args.allow_model_download),
         "florence_model": args.florence_model if args.backend in {"florence", "both"} else None,
+        "florence_max_new_tokens": (
+            args.florence_max_new_tokens if args.backend in {"florence", "both"} else None
+        ),
+        "florence_num_beams": (
+            args.florence_num_beams if args.backend in {"florence", "both"} else None
+        ),
         "wall_seconds": round(time.perf_counter() - started, 3),
         "peak_rss_kib": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
     }
