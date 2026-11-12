@@ -20,6 +20,10 @@ import time
 MAX_PDF_BYTES = 150 * 1024 * 1024
 MAX_PAGES = 300
 MAX_SAMPLE_PAGES = 12
+MAX_FLORENCE_PRICE_CROPS = 12
+NATIVE_PRICE_CROP_HALF_WIDTH = 0.21
+NATIVE_PRICE_CROP_ABOVE = 0.22
+NATIVE_PRICE_CROP_BELOW = 0.20
 
 
 class InferenceRunnerError(ValueError):
@@ -77,6 +81,71 @@ def _normalized_visible_image_bbox(raw, width: float, height: float) -> list[flo
         round((visible_x1 - visible_x0) / width, 6),
         round((visible_y1 - visible_y0) / height, 6),
     ]
+
+
+def _center_inside(bbox: list[float], container: list[float]) -> bool:
+    x, y, width, height = bbox
+    cx = x + width / 2
+    cy = y + height / 2
+    ox, oy, owidth, oheight = container
+    return ox <= cx <= ox + owidth and oy <= cy <= oy + oheight
+
+
+def _native_price_anchor_candidates(
+    words: list[dict],
+    images: list[dict],
+    price_candidates: list[dict],
+) -> list[dict]:
+    """Build deterministic Review-only inspection windows around native price tokens.
+
+    The window is a spatial heuristic for a later crop-level model pass. It is
+    deliberately not a product boundary and never proves product identity.
+    """
+    word_by_id = {row["region_id"]: row for row in words}
+    candidates = []
+    for index, anchor in enumerate(price_candidates, 1):
+        x, y, width, height = anchor["bbox"]
+        center_x = x + width / 2
+        x0 = max(0.0, center_x - NATIVE_PRICE_CROP_HALF_WIDTH)
+        x1 = min(1.0, center_x + NATIVE_PRICE_CROP_HALF_WIDTH)
+        y0 = max(0.0, y - NATIVE_PRICE_CROP_ABOVE)
+        y1 = min(1.0, y + height + NATIVE_PRICE_CROP_BELOW)
+        crop = [
+            round(x0, 6),
+            round(y0, 6),
+            round(x1 - x0, 6),
+            round(y1 - y0, 6),
+        ]
+        nearby_words = [row for row in words if _center_inside(row["bbox"], crop)]
+        nearby_images = [row for row in images if _center_inside(row["bbox"], crop)]
+        nearby_words.sort(
+            key=lambda row: (row["bbox"][1], row["bbox"][0], row["region_id"])
+        )
+        nearby_images.sort(
+            key=lambda row: (row["bbox"][1], row["bbox"][0], row["region_id"])
+        )
+        anchor_word = word_by_id.get(anchor["region_id"])
+        if anchor_word is None:
+            raise InferenceRunnerError("native price anchor word is missing")
+        candidates.append(
+            {
+                "candidate_id": f"native-price-{index}",
+                "price_region_id": anchor["region_id"],
+                "price_text": anchor["text"],
+                "price_bbox": anchor["bbox"],
+                "crop_bbox": crop,
+                "native_text_region_ids": [row["region_id"] for row in nearby_words],
+                "native_text": [row["text"] for row in nearby_words],
+                "native_image_region_ids": [row["region_id"] for row in nearby_images],
+                "price_block_no": anchor_word["block_no"],
+                "basis": "native_pdf_price_anchor_window_v1",
+                "product_boundary_proven": False,
+                "verified_product_identity": None,
+                "hermes_offer_link": None,
+                "state": "REVIEW_ONLY",
+            }
+        )
+    return candidates
 
 
 def native_page_structure(page) -> dict:
@@ -141,15 +210,22 @@ def native_page_structure(page) -> dict:
         for row in words
         if _NATIVE_PRICE.fullmatch(row["text"].replace("€", "").strip())
     ]
+    price_anchor_candidates = _native_price_anchor_candidates(
+        words,
+        images,
+        price_candidates,
+    )
 
     return {
         "page_size_points": [round(width, 3), round(height, 3)],
         "text_regions": words,
         "image_regions": images,
         "price_candidates": price_candidates,
+        "price_anchor_candidates": price_anchor_candidates,
         "text_region_count": len(words),
         "image_region_count": len(images),
         "price_candidate_count": len(price_candidates),
+        "price_anchor_candidate_count": len(price_anchor_candidates),
         "product_boundaries_proven": 0,
         "verified_product_identities": 0,
         "automatic_offer_links": 0,
@@ -203,6 +279,26 @@ def parse_pages(spec: str, page_count: int) -> list[int]:
     if ordered[0] < 1 or ordered[-1] > page_count:
         raise InferenceRunnerError("sample page outside PDF")
     return ordered
+
+
+def parse_florence_price_regions(values: list[str] | None) -> dict[int, set[str]] | None:
+    if values is None:
+        return None
+    if not 1 <= len(values) <= MAX_FLORENCE_PRICE_CROPS:
+        raise InferenceRunnerError("Florence price crop count outside PoC limit")
+
+    parsed: dict[int, set[str]] = {}
+    for value in values:
+        match = re.fullmatch(r"([1-9]\d*):(native-word-[1-9]\d*)", value or "")
+        if match is None:
+            raise InferenceRunnerError("malformed Florence price crop selection")
+        page_number = int(match.group(1))
+        region_id = match.group(2)
+        bucket = parsed.setdefault(page_number, set())
+        if region_id in bucket:
+            raise InferenceRunnerError("duplicate Florence price crop selection")
+        bucket.add(region_id)
+    return parsed
 
 
 def _json_value(value):
@@ -382,13 +478,21 @@ def run_inference(
     florence=None,
     render_dpi: int = 160,
     include_native: bool = False,
+    florence_price_regions: dict[int, set[str]] | None = None,
 ) -> dict:
     import fitz
 
     if paddle is None and florence is None and not include_native:
         raise InferenceRunnerError("at least one inference backend is required")
+    if florence_price_regions is not None and florence is None:
+        raise InferenceRunnerError("Florence price crops require Florence backend")
     if type(render_dpi) is not int or not 96 <= render_dpi <= 240:
         raise InferenceRunnerError("render DPI outside PoC limit")
+    if florence_price_regions is not None:
+        if set(florence_price_regions) - set(pages):
+            raise InferenceRunnerError("Florence price crop page outside selection")
+        if sum(len(value) for value in florence_price_regions.values()) > MAX_FLORENCE_PRICE_CROPS:
+            raise InferenceRunnerError("Florence price crop count outside PoC limit")
 
     output = []
     with fitz.open(stream=pdf_raw, filetype="pdf") as document, tempfile.TemporaryDirectory(
@@ -413,14 +517,64 @@ def run_inference(
                 "image_width": pix.width,
                 "image_height": pix.height,
             }
-            if include_native:
-                row["native"] = native_page_structure(page)
+            native = None
+            if include_native or florence_price_regions is not None:
+                native = native_page_structure(page)
+                row["native"] = native
             if paddle is not None:
                 image_path = Path(temp_dir) / f"page-{page_number:03d}.png"
                 image_path.write_bytes(png)
                 row["paddle"] = paddle.predict_file(image_path)
             if florence is not None:
-                row["florence"] = florence.predict_png(png)
+                if florence_price_regions is None:
+                    row["florence"] = florence.predict_png(png)
+                else:
+                    requested = florence_price_regions.get(page_number, set())
+                    candidates = {
+                        candidate["price_region_id"]: candidate
+                        for candidate in native["price_anchor_candidates"]
+                    }
+                    missing = requested - set(candidates)
+                    if missing:
+                        raise InferenceRunnerError(
+                            "Florence price crop selection is not a native price anchor"
+                        )
+                    crop_rows = []
+                    for candidate in native["price_anchor_candidates"]:
+                        price_region_id = candidate["price_region_id"]
+                        if price_region_id not in requested:
+                            continue
+                        x, y, width, height = candidate["crop_bbox"]
+                        clip = fitz.Rect(
+                            x * page.rect.width,
+                            y * page.rect.height,
+                            (x + width) * page.rect.width,
+                            (y + height) * page.rect.height,
+                        )
+                        crop_pix = page.get_pixmap(
+                            matrix=matrix,
+                            clip=clip,
+                            alpha=False,
+                            annots=False,
+                        )
+                        if not 64 <= crop_pix.width <= 10000 or not 64 <= crop_pix.height <= 15000:
+                            raise InferenceRunnerError("rendered Florence crop outside limit")
+                        crop_rows.append(
+                            {
+                                "candidate_id": candidate["candidate_id"],
+                                "price_region_id": price_region_id,
+                                "price_text": candidate["price_text"],
+                                "crop_bbox": candidate["crop_bbox"],
+                                "image_width": crop_pix.width,
+                                "image_height": crop_pix.height,
+                                "florence": florence.predict_png(crop_pix.tobytes("png")),
+                                "product_boundary_proven": False,
+                                "verified_product_identity": None,
+                                "hermes_offer_link": None,
+                                "state": "REVIEW_ONLY",
+                            }
+                        )
+                    row["florence_price_crops"] = crop_rows
             row["runtime_seconds"] = round(time.perf_counter() - started, 3)
             output.append(row)
     return {"pages": output}
@@ -470,6 +624,15 @@ def main() -> int:
         default=3,
         help="Florence beam count; RPi5 PoC should use 1.",
     )
+    parser.add_argument(
+        "--florence-price-region",
+        action="append",
+        metavar="PAGE:NATIVE-WORD-ID",
+        help=(
+            "Run Florence only on an explicit native price-anchor crop, e.g. "
+            "20:native-word-57. Repeat up to 12 times. Full-page Florence is skipped."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -482,6 +645,12 @@ def main() -> int:
 
     with fitz.open(stream=pdf_raw, filetype="pdf") as document:
         pages = parse_pages(args.pages, document.page_count)
+    florence_price_regions = parse_florence_price_regions(args.florence_price_region)
+    if florence_price_regions is not None:
+        if args.backend not in {"florence", "both"}:
+            raise InferenceRunnerError("Florence price crops require Florence backend")
+        if set(florence_price_regions) - set(pages):
+            raise InferenceRunnerError("Florence price crop page outside selection")
 
     paddle = None
     florence = None
@@ -501,19 +670,26 @@ def main() -> int:
             num_beams=args.florence_num_beams,
         )
 
+    include_native = (
+        args.include_native
+        or args.backend == "native"
+        or florence_price_regions is not None
+    )
     result = run_inference(
         pdf_raw,
         pages,
         paddle=paddle,
         florence=florence,
         render_dpi=args.render_dpi,
-        include_native=args.include_native or args.backend == "native",
+        include_native=include_native,
+        florence_price_regions=florence_price_regions,
     )
     result["runner"] = {
         "backend": args.backend,
         "render_dpi": args.render_dpi,
-        "include_native": bool(args.include_native or args.backend == "native"),
+        "include_native": bool(include_native),
         "model_download_allowed": bool(args.allow_model_download),
+        "florence_price_regions": args.florence_price_region or [],
         "florence_model": args.florence_model if args.backend in {"florence", "both"} else None,
         "florence_max_new_tokens": (
             args.florence_max_new_tokens if args.backend in {"florence", "both"} else None
@@ -534,8 +710,11 @@ def main() -> int:
             {
                 "backend": args.backend,
                 "pages": pages,
-                "include_native": bool(args.include_native or args.backend == "native"),
+                "include_native": bool(include_native),
                 "model_download_allowed": bool(args.allow_model_download),
+                "florence_price_crop_count": sum(
+                    len(value) for value in (florence_price_regions or {}).values()
+                ),
                 "peak_rss_kib": result["runner"]["peak_rss_kib"],
                 "wall_seconds": result["runner"]["wall_seconds"],
             },
