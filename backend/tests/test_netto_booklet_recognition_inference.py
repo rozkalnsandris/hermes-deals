@@ -1,7 +1,8 @@
 """Tests for the local-only Netto booklet recognition inference runner."""
-import base64
 from hashlib import sha256
 import json
+import struct
+import zlib
 from pathlib import Path
 import sys
 
@@ -50,10 +51,25 @@ def _pdf_bytes(page_count=3):
         return doc.tobytes()
 
 
-def _native_pdf_bytes():
-    image = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII="
+def _png_1x1():
+    def chunk(kind, payload):
+        body = kind + payload
+        return (
+            struct.pack(">I", len(payload))
+            + body
+            + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\\x89PNG\\r\\n\\x1a\\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\\x00\\xff\\x00\\x00"))
+        + chunk(b"IEND", b"")
     )
+
+
+def _native_pdf_bytes():
+    image = _png_1x1()
     with fitz.open() as doc:
         page = doc.new_page(width=300, height=420)
         page.insert_text((30, 70), "Milka 0,99", fontsize=18)
