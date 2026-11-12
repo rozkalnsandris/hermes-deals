@@ -25,7 +25,7 @@ class InferenceRunnerError(ValueError):
     pass
 
 
-_NATIVE_PRICE = re.compile(r"^(?:\\d{1,3}[.,]\\d{2}|\\d+[.,]-)\\*?$")
+_NATIVE_PRICE = re.compile(r"^(?:\d{1,3}[.,]\d{2}|\d+[.,]-)\*?$")
 
 
 def _normalized_bbox(raw, width: float, height: float) -> list[float]:
