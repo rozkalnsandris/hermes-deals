@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact merged implementation
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ needs.authorize.outputs.implementation_sha }}
           fetch-depth: 0
@@ -182,7 +182,7 @@ jobs:
           PY
 
       - name: Upload deterministic diagnostic artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: netto-hz33-disagreement-taxonomy-v2-run-${{ github.run_id }}
           path: .hz33-diagnostic/
