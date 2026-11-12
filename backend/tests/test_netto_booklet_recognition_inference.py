@@ -18,6 +18,7 @@ from netto_booklet_recognition_inference import (
     _read_pdf,
     _validate_florence_generation,
     native_page_structure,
+    parse_florence_price_regions,
     parse_pages,
     run_inference,
 )
@@ -172,7 +173,18 @@ def test_native_page_structure_extracts_review_only_source_geometry():
     assert native["text_region_count"] >= 2
     assert native["image_region_count"] == 1
     assert native["price_candidate_count"] == 1
+    assert native["price_anchor_candidate_count"] == 1
     assert native["price_candidates"][0]["text"] == "0,99"
+    candidate = native["price_anchor_candidates"][0]
+    assert candidate["price_region_id"] == native["price_candidates"][0]["region_id"]
+    assert candidate["price_text"] == "0,99"
+    assert candidate["product_boundary_proven"] is False
+    assert candidate["verified_product_identity"] is None
+    assert candidate["hermes_offer_link"] is None
+    assert candidate["state"] == "REVIEW_ONLY"
+    assert "Milka" in candidate["native_text"]
+    assert candidate["price_region_id"] in candidate["native_text_region_ids"]
+    assert all(0 <= value <= 1 for value in candidate["crop_bbox"])
     assert native["price_candidates"][0]["product_boundary_proven"] is False
     assert native["price_candidates"][0]["verified_product_identity"] is None
     assert native["automatic_offer_links"] == 0
@@ -207,6 +219,59 @@ def test_florence_generation_limits_are_bounded_for_rpi5():
         with pytest.raises(InferenceRunnerError, match="num_beams"):
             _validate_florence_generation(384, beams)
 
+
+def test_parse_florence_price_regions_is_explicit_bounded_and_unique():
+    assert parse_florence_price_regions(None) is None
+    assert parse_florence_price_regions(
+        ["20:native-word-57", "60:native-word-18"]
+    ) == {
+        20: {"native-word-57"},
+        60: {"native-word-18"},
+    }
+    with pytest.raises(InferenceRunnerError, match="malformed"):
+        parse_florence_price_regions(["20:vision-1"])
+    with pytest.raises(InferenceRunnerError, match="duplicate"):
+        parse_florence_price_regions(["20:native-word-57", "20:native-word-57"])
+    with pytest.raises(InferenceRunnerError, match="count outside"):
+        parse_florence_price_regions(
+            [f"1:native-word-{index}" for index in range(1, 14)]
+        )
+
+
+def test_run_inference_can_target_florence_to_native_price_crop():
+    raw = _native_pdf_bytes()
+    with fitz.open(stream=raw, filetype="pdf") as doc:
+        price_region_id = native_page_structure(doc[0])["price_candidates"][0]["region_id"]
+
+    result = run_inference(
+        raw,
+        [1],
+        florence=FakeFlorence(),
+        render_dpi=144,
+        florence_price_regions={1: {price_region_id}},
+    )
+    row = result["pages"][0]
+    assert "florence" not in row
+    assert row["native"]["price_anchor_candidate_count"] == 1
+    assert len(row["florence_price_crops"]) == 1
+    crop = row["florence_price_crops"][0]
+    assert crop["price_region_id"] == price_region_id
+    assert crop["product_boundary_proven"] is False
+    assert crop["verified_product_identity"] is None
+    assert crop["hermes_offer_link"] is None
+    assert crop["florence"]["<DENSE_REGION_CAPTION>"]["labels"] == [
+        "a product offer"
+    ]
+
+
+def test_run_inference_rejects_unknown_florence_price_anchor():
+    with pytest.raises(InferenceRunnerError, match="not a native price anchor"):
+        run_inference(
+            _native_pdf_bytes(),
+            [1],
+            florence=FakeFlorence(),
+            florence_price_regions={1: {"native-word-999"}},
+        )
 
 
 def test_native_image_bbox_clips_visible_intersection_to_page():
