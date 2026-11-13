@@ -181,7 +181,10 @@ def _html_teaser_link(db, day, cutoff, page):
                 raise ValueError("Netto viewer URL mismatch")
             viewer = _verified_html(record["prospect_path"], record["prospect_sha256"], root)
             start, end, text = extract_prospect_validity(viewer)
-            if (start != starts[slug] or end < start or (end - start).days > 14
+            teaser_start = starts[slug]
+            offset = (start - teaser_start).days
+            if (not 0 <= offset <= 6 or end < start
+                    or end > teaser_start + timedelta(days=14)
                     or record["valid_from"] != start.isoformat()
                     or record["valid_until"] != end.isoformat()
                     or record["validity_text"] != text):

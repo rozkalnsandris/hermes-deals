@@ -1816,7 +1816,11 @@ def html_booklet_source(db, tmp_path, monkeypatch, *,
 
 def attach_html_publication(snapshot, manifest, tmp_path, *,
                             start="01.10.26", end="03.10.26",
-                            group="netto", paths=None, sizes=None):
+                            group="netto", paths=None, sizes=None,
+                            slug="hz40_hasb",
+                            valid_from="2026-10-01",
+                            valid_until="2026-10-03",
+                            validity_text="01.10.26 - Samstag, 03.10.26"):
     from hashlib import sha256
     import json
     root = tmp_path / "netto-html"
@@ -1836,14 +1840,14 @@ def attach_html_publication(snapshot, manifest, tmp_path, *,
     publication_path = root / f"{sha256(publication).hexdigest()}.json"
     publication_path.write_bytes(publication)
     manifest["booklet_publications"] = [{
-        "slug": "hz40_hasb", "valid_from": "2026-10-01",
-        "valid_until": "2026-10-03",
-        "validity_text": "01.10.26 - Samstag, 03.10.26",
-        "prospect_url": "https://wochenprospekt.netto-online.de/hz40_hasb/?storeid=5659",
+        "slug": slug, "valid_from": valid_from,
+        "valid_until": valid_until,
+        "validity_text": validity_text,
+        "prospect_url": f"https://wochenprospekt.netto-online.de/{slug}/?storeid=5659",
         "prospect_path": str(viewer_path),
         "prospect_sha256": sha256(viewer).hexdigest(),
         "publication_api_url":
-            "https://api.publitas.com/v1/groups/netto/publications/hz40_hasb.json",
+            f"https://api.publitas.com/v1/groups/{group}/publications/{slug}.json",
         "publication_path": str(publication_path),
         "publication_sha256": sha256(publication).hexdigest(),
     }]
@@ -1851,6 +1855,51 @@ def attach_html_publication(snapshot, manifest, tmp_path, *,
     manifest_path.write_text(json.dumps(manifest))
     snapshot.sha256 = sha256(manifest_path.read_bytes()).hexdigest()
     return viewer_path, publication_path
+
+
+def test_netto_html_subperiod_publication_keeps_publisher_only_hotspots(
+        data, tmp_path, monkeypatch):
+    import app.netto_booklets as booklets
+    from app.netto_booklets import build_netto_booklet
+
+    db, _, _ = data
+    snap, manifest, _ = html_booklet_source(
+        db, tmp_path, monkeypatch,
+        start="ab Montag, 09.11.26",
+        slug="hz46_hasb_4",
+        collected=datetime(2026, 11, 13, 6, tzinfo=timezone.utc),
+    )
+    attach_html_publication(
+        snap, manifest, tmp_path,
+        start="12.11.26", end="14.11.26",
+        group="regionale-hz",
+        slug="hz46_hasb_4",
+        valid_from="2026-11-12",
+        valid_until="2026-11-14",
+        validity_text="12.11.26 - Samstag, 14.11.26",
+        paths=["/hz46/page-1"],
+    )
+    db.commit()
+
+    publisher_hotspot = {
+        "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4,
+        "title": "Publisher-only test product",
+        "description": None,
+        "publisher_only": True,
+    }
+    monkeypatch.setattr(
+        booklets, "publisher_only_hotspots",
+        lambda *args, **kwargs: {1: [publisher_hotspot]},
+    )
+
+    selected = build_netto_booklet(db, date(2026, 11, 13), 1)
+
+    assert selected["state"] == "ready"
+    assert selected["snapshot_id"] == str(snap.id)
+    assert selected["valid_label"] == "12.11.2026–14.11.2026"
+    assert selected["page_count"] == 1
+    assert selected["offers"] == []
+    assert selected["pages"][0]["publisher_hotspots"] == [publisher_hotspot]
 
 
 def test_netto_html_verified_publication_pages_without_pdf(data, tmp_path, monkeypatch):
