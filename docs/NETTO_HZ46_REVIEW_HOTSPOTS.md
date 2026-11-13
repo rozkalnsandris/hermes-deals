@@ -188,15 +188,58 @@ simple automated suspicious-text regex did not flag:
 - 11 overlapping-card pairs still require page-level ownership review before
   projection.
 
-These findings do not invalidate the off-page / zero-dimension PDF image fix;
-they block only the next v2 product-selection / UI activation gate. V1 remains
-active.
+These findings did not invalidate the off-page / zero-dimension PDF image fix.
+They defined the next source-only quality gate while v1 stayed active.
+
+### Product-selection quality follow-up
+
+The follow-up source lane keeps the same Review-only trust boundary and adds
+three fail-closed ownership rules:
+
+- promo, loyalty, legal, attribute and discount-copy blocks are not eligible
+  product titles; the selector may fall through to a nearby real product title;
+- a card is rejected when its local source geometry explicitly says
+  `nur online`; mixed pages are not rejected wholesale;
+- one native PDF title block cannot belong to multiple price anchors. Material
+  fallback-card overlap (IoU >= 0.15) is also rejected unless a single-price
+  filled PDF region provides the stronger boundary.
+
+The exact retained HZ46 PDF was re-audited read-only on source head
+`751c8a3e70a07bf288315bffdd3f20c28ce58b92`. The deterministic in-memory
+v2 manifest SHA256 is
+`edf912c49dca1f087d8559811665a35149f416ff9ef679028777bf63a0078d98`
+(166932 canonical JSON bytes).
+
+Quality-gate totals:
+
+- 411 primary price anchors and 264 Review-only product-card candidates;
+- 64/80 pages contain at least one v2 card;
+- 19 cards use single-price filled PDF regions; the remainder stay
+  conservative fallback geometry;
+- zero shared-title ownership after filtering;
+- zero remaining card pairs with IoU >= 0.15;
+- zero matches for the audited promo/legal/attribute-copy patterns;
+- pages 74, 76 and 77 contain zero cards because their candidate context is
+  explicitly online-only;
+- page 42 intentionally remains fail-closed: both observed price anchors select
+  the same Gräf's Adventskalender title block, so the source does not prove
+  which price owns that title;
+- page 61 now resolves to three product-like physical-store titles
+  (Lippenpflegestift, Duschgel and Nivea Dusche) after discount-copy is removed;
+- representative page 1 still contains the four expected Review cards
+  (Hähnchen, Rheinfels, Rotkäppchen and Meggle).
+
+This gate is **PASS for Review-card product-selection quality**, not product
+identity. Automatic Hermes offer links, verified product identities and proven
+product boundaries remain zero. Candidate absence is preferred over guessing
+when source geometry remains ambiguous.
 
 ## Next gate
 
-After this source fix is merged, continue #1069 with a separate source lane for
-v2 product-selection quality: exclude non-product discount copy and online-only
-cards, inspect the 11 overlapping-card pairs, then repeat the full 80-page
-read-only audit. Only a clean follow-up evidence gate may proceed to projection
-or UI activation. No DB, collector, offer mapping, product identity,
-Review/publication write or LIVE activation is authorized by this source lane.
+After source review/merge, the next #1069 lane may build the exact
+publication-bound v2 Review projection and UI integration from this clean
+source evidence. V1 remains active until that separate projection/UI lane is
+reviewed and, later, explicitly activated. Any product -> Hermes offer bridge
+still requires independent identity evidence. No DB, collector,
+Review/publication write, deploy or LIVE activation is authorized by this
+source lane.
