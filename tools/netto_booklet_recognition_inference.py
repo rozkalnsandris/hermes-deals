@@ -648,11 +648,17 @@ def native_page_structure(page) -> dict:
         if (
             isinstance(raw_bbox, (list, tuple))
             and len(raw_bbox) == 4
-            and all(float(value) == 0.0 for value in raw_bbox)
-            and pixel_width == 0
-            and pixel_height == 0
+            and all(
+                type(value) in (int, float) and math.isfinite(value)
+                for value in raw_bbox
+            )
         ):
-            continue
+            raw_x0, raw_y0, raw_x1, raw_y1 = map(float, raw_bbox)
+            if (
+                (raw_x0 == raw_x1 and pixel_width == 0)
+                or (raw_y0 == raw_y1 and pixel_height == 0)
+            ):
+                continue
         try:
             normalized_bbox = _normalized_visible_image_bbox(
                 raw_bbox,
