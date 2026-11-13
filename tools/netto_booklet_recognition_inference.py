@@ -66,7 +66,7 @@ _NATIVE_NONPRODUCT_NOTE = re.compile(
     re.I,
 )
 _NATIVE_NONPRODUCT_CARD_COPY = re.compile(
-    r"(?:\bextra\s*°?\s*punkte\b|\bpro\s+liter\s+gespart\b|"
+    r"(?:\bextra\s*°?\s*punkte\b|\bpro\s+(?:liter|stück)\s+gespart\b|"
     r"\bonline\s*-\s*kracher\b|\bauch\s+online\b|"
     r"^\s*\+?\s*app\s*$|^\s*neu\s*$|"
     r"^\s*entdecke\s+weitere\s+angebote\s*$|"
@@ -84,7 +84,10 @@ _NATIVE_NONPRODUCT_CARD_COPY = re.compile(
     r"^\s*beim\s+kauf\s+von\s+\d+\s+.+\s+sparen\s*$|"
     r"^\s*\d*\s*ab\s+\d+\s+(?:kisten|flaschen)\s+bleibt\s+der\s+einzelpreis\s+gleich\.?\s*$|"
     r"^\s*app\s+preis\s*$|^\s*mit\s+.+$|^\s*inklusive\s+.+$|"
+    r"\b\d+\s*fach\s*°?\s*p\b|\bauf\s+die\s+marke\b|"
+    r"\b(?:marke\s+)?netto\s*-\s*marke\b|"
     r"^\s*fenster\s*[–-]\s*putzen\s+wie\s*$|"
+    r"^\s*[a-zäöüß][a-zäöüß-]*\s*$|"
     r"^\s*-\s*[a-zäöüß].*$)",
     re.I,
 )
