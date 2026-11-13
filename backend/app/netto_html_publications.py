@@ -6,7 +6,7 @@ the existing HTML collector has proven the selected 5659 cookie and store URL.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 import json
 import re
 
@@ -82,8 +82,13 @@ def fetch_one(client: httpx.Client, slug: str, expected_start: date) -> Publicat
     viewer_url = f"https://wochenprospekt.netto-online.de/{slug}/?storeid=5659"
     viewer_html = _response(client, viewer_url, "text/html", _MAX_HTML)
     start, end, validity_text = extract_prospect_validity(viewer_html)
-    if start != expected_start or not start <= end or (end - start).days > 14:
-        raise ValueError("Netto viewer validity disagrees with store teaser")
+    # The store teaser date is a discovery/week anchor, not the linked
+    # publication's validity start. A linked viewer may begin later within the
+    # same seven-day teaser window, but never drift into a later campaign.
+    offset = (start - expected_start).days
+    if (not 0 <= offset <= 6 or not start <= end
+            or end > expected_start + timedelta(days=14)):
+        raise ValueError("Netto viewer validity disagrees with teaser discovery window")
     group = extract_netto_group_slug(viewer_html.decode("utf-8", errors="replace"))
     if not isinstance(group, str) or not _SLUG.fullmatch(group):
         raise ValueError("Invalid Netto Publitas group identity")
