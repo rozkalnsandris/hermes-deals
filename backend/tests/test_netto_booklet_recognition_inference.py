@@ -334,6 +334,107 @@ def test_native_image_bbox_rejects_nonintersecting_or_degenerate_rectangles():
         _normalized_visible_image_bbox([0, 0, float("nan"), 50], 300, 420)
 
 
+def test_native_page_structure_skips_zero_size_image_occurrence_but_keeps_other_degenerate_failures():
+    class Rect:
+        width = 300.0
+        height = 420.0
+
+    class ZeroSizePage:
+        rect = Rect()
+
+        def get_text(self, mode, sort=False):
+            assert mode == "words"
+            return []
+
+        def get_image_info(self, hashes=True, xrefs=True):
+            return [
+                {
+                    "bbox": [0.0, 0.0, 0.0, 0.0],
+                    "width": 0,
+                    "height": 0,
+                    "xref": 0,
+                    "digest": b"empty",
+                },
+                {
+                    "bbox": [30.0, 100.0, 130.0, 200.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 7,
+                    "digest": b"visible",
+                },
+            ]
+
+        def get_drawings(self):
+            return []
+
+    native = native_page_structure(ZeroSizePage())
+    assert native["image_region_count"] == 1
+    assert native["image_regions"][0]["region_id"] == "native-image-2"
+
+    class NonZeroDegeneratePage(ZeroSizePage):
+        def get_image_info(self, hashes=True, xrefs=True):
+            return [
+                {
+                    "bbox": [10.0, 10.0, 10.0, 50.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 9,
+                    "digest": b"bad",
+                }
+            ]
+
+    with pytest.raises(InferenceRunnerError, match="degenerate"):
+        native_page_structure(NonZeroDegeneratePage())
+
+
+def test_native_page_structure_skips_fully_offpage_image_occurrence():
+    class Rect:
+        width = 300.0
+        height = 420.0
+
+    class FakePage:
+        rect = Rect()
+
+        def get_text(self, mode, sort=False):
+            assert mode == "words"
+            return []
+
+        def get_image_info(self, hashes=True, xrefs=True):
+            assert hashes is True
+            assert xrefs is True
+            return [
+                {
+                    "bbox": [-80.0, 100.0, -5.0, 180.0],
+                    "width": 308,
+                    "height": 300,
+                    "xref": 0,
+                    "digest": b"offpage",
+                },
+                {
+                    "bbox": [30.0, 100.0, 130.0, 200.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 7,
+                    "digest": b"visible",
+                },
+            ]
+
+        def get_drawings(self):
+            return []
+
+    native = native_page_structure(FakePage())
+    assert native["image_region_count"] == 1
+    assert native["image_regions"][0]["region_id"] == "native-image-2"
+    assert native["image_regions"][0]["bbox"] == [
+        0.1,
+        0.238095,
+        0.333333,
+        0.238095,
+    ]
+    assert native["image_regions"][0]["xref"] == 7
+    assert native["automatic_offer_links"] == 0
+
+
 def test_native_text_bbox_remains_strict_outside_page():
     with pytest.raises(InferenceRunnerError, match="outside page"):
         _normalized_bbox([-1, 10, 40, 50], 300, 420)
@@ -513,3 +614,67 @@ def test_native_layout_regions_keep_substantial_filled_card_rectangles_only():
 
     regions = _native_layout_regions(FakePage(), 300.0, 420.0)
     assert regions == [[0.033333, 0.190476, 0.466667, 0.428571]]
+
+
+
+def test_native_page_structure_skips_zero_dimension_image_occurrences_when_pixel_dimension_matches():
+    class Rect:
+        width = 300.0
+        height = 420.0
+
+    class FakePage:
+        rect = Rect()
+
+        def get_text(self, mode, sort=False):
+            assert mode == "words"
+            return []
+
+        def get_image_info(self, hashes=True, xrefs=True):
+            assert hashes is True
+            assert xrefs is True
+            return [
+                {
+                    "bbox": [0.0, 100.0, 0.0, 116.0],
+                    "width": 0,
+                    "height": 16,
+                    "xref": 0,
+                    "digest": b"zero-width",
+                },
+                {
+                    "bbox": [40.0, 200.0, 60.0, 200.0],
+                    "width": 20,
+                    "height": 0,
+                    "xref": 0,
+                    "digest": b"zero-height",
+                },
+                {
+                    "bbox": [30.0, 100.0, 130.0, 200.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 7,
+                    "digest": b"visible",
+                },
+            ]
+
+        def get_drawings(self):
+            return []
+
+    native = native_page_structure(FakePage())
+    assert native["image_region_count"] == 1
+    assert native["image_regions"][0]["region_id"] == "native-image-3"
+    assert native["image_regions"][0]["xref"] == 7
+
+    class MismatchedDegeneratePage(FakePage):
+        def get_image_info(self, hashes=True, xrefs=True):
+            return [
+                {
+                    "bbox": [10.0, 10.0, 10.0, 50.0],
+                    "width": 100,
+                    "height": 40,
+                    "xref": 9,
+                    "digest": b"bad",
+                }
+            ]
+
+    with pytest.raises(InferenceRunnerError, match="degenerate"):
+        native_page_structure(MismatchedDegeneratePage())
