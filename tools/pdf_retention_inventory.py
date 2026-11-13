@@ -209,6 +209,113 @@ def retention_report(report: dict, db, *, as_of: datetime) -> dict:
     return result
 
 
+def expired_pdf_dry_run(report: dict) -> dict:
+    """List observed expired PDF copies without deleting or authorizing anything.
+
+    This consumes only a registry-enriched inventory report. It is deliberately
+    stricter than a filesystem age scan: unknown acquisition age, incomplete
+    storage coverage, uninspected archives and unbound image derivatives remain
+    explicit blockers. A future apply step must be separately implemented and
+    explicitly authorized; this function never mutates files or the registry.
+    """
+    if not isinstance(report, dict) or report.get("schema_version") != 2:
+        raise ValueError("expiry dry-run requires registry-enriched schema_version 2")
+    if not isinstance(report.get("registry_checked_at"), str) or not report["registry_checked_at"]:
+        raise ValueError("expiry dry-run requires registry evaluation time")
+    roots = report.get("roots")
+    assets = report.get("assets")
+    if not isinstance(roots, list) or not all(isinstance(root, str) and root for root in roots):
+        raise ValueError("expiry dry-run requires inventory roots")
+    if not isinstance(assets, list):
+        raise ValueError("expiry dry-run requires inventory assets")
+
+    blockers = []
+    if report.get("status") != "inventory_complete":
+        blockers.append({"type": "inventory_incomplete"})
+    if report.get("all_storage_locations_verified") is not True:
+        blockers.append({"type": "storage_locations_unverified"})
+    if report.get("archive_contents_inspected") is not True:
+        blockers.append({"type": "archive_contents_uninspected"})
+    if report.get("image_parent_bindings_verified") is not True:
+        blockers.append({"type": "image_parent_bindings_unverified"})
+
+    candidates = []
+    candidate_shas: set[str] = set()
+    seen_copies: set[tuple[int, str]] = set()
+    allowed_states = {
+        "within_retention", "raw_expired", "unregistered",
+        "acquisition_unknown", "not_yet_acquired",
+    }
+    for asset in assets:
+        if not isinstance(asset, dict) or asset.get("kind") != "pdf":
+            continue
+        digest = asset.get("sha256")
+        state = asset.get("acquisition_status")
+        copies = asset.get("copies")
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or state not in allowed_states
+            or not isinstance(copies, list)
+        ):
+            raise ValueError("expiry dry-run received malformed PDF inventory data")
+        if state in {"unregistered", "acquisition_unknown", "not_yet_acquired"}:
+            blockers.append({
+                "type": "pdf_acquisition_state",
+                "pdf_sha256": digest,
+                "state": state,
+            })
+        if state != "raw_expired":
+            continue
+        expires_at = asset.get("expires_at")
+        if not isinstance(expires_at, str) or not expires_at:
+            raise ValueError("expired PDF is missing registry expiry")
+        for copy in copies:
+            if not isinstance(copy, dict):
+                raise ValueError("expiry dry-run received malformed PDF copy")
+            root = copy.get("root")
+            path = copy.get("path")
+            if (
+                type(root) is not int
+                or not 0 <= root < len(roots)
+                or not isinstance(path, str)
+                or not path
+                or path.startswith("/")
+                or ".." in Path(path).parts
+            ):
+                raise ValueError("expiry dry-run received unsafe PDF copy path")
+            key = (root, path)
+            if key in seen_copies:
+                raise ValueError("expiry dry-run received duplicate PDF copy")
+            seen_copies.add(key)
+            candidate_shas.add(digest)
+            candidates.append({
+                "root": root,
+                "path": path,
+                "pdf_sha256": digest,
+                "expires_at": expires_at,
+            })
+
+    candidates.sort(key=lambda row: (row["root"], row["path"], row["pdf_sha256"]))
+    blockers.sort(key=lambda row: (
+        row["type"], row.get("pdf_sha256", ""), row.get("state", "")
+    ))
+    result = deepcopy(report)
+    result["expiry_dry_run"] = {
+        "mode": "observed_expired_pdf_copies_only",
+        "candidate_pdf_sha_count": len(candidate_shas),
+        "candidate_copy_count": len(candidates),
+        "candidates": candidates,
+        "blockers": blockers,
+        "ready_for_explicit_apply_gate": bool(candidates) and not blockers,
+        "apply_supported": False,
+    }
+    # A report or dry-run is evidence, never deletion authority.
+    result["deletion_authorized"] = False
+    return result
+
+
 def registry_report(report: dict, database_url: str) -> dict:
     """Use the existing backend registry in one owned, read-only PostgreSQL snapshot."""
     # Keep the default inventory standard-library-only and independent of app.db.
@@ -244,6 +351,10 @@ def main() -> int:
     parser.add_argument("--max-total-bytes", type=int, default=4 * 1024 * 1024 * 1024)
     parser.add_argument("--with-registry", action="store_true",
                         help="annotate PDFs using a read-only PostgreSQL DATABASE_URL from the environment")
+    parser.add_argument("--plan-expired", action="store_true",
+                        help="append a dry-run plan for observed expired PDF copies; never deletes")
+    if args.plan_expired and not args.with_registry:
+        parser.error("--plan-expired requires --with-registry")
     args = parser.parse_args()
     try:
         report = inventory(args.roots, max_files=args.max_files,
@@ -257,6 +368,11 @@ def main() -> int:
             # Driver/SQL errors may include credentials, server addresses or SQL.
             # Fail without JSON rather than publishing a partially enriched report.
             parser.exit(2, "registry lookup failed; verify PostgreSQL DATABASE_URL, schema and read access\n")
+    if args.plan_expired:
+        try:
+            report = expired_pdf_dry_run(report)
+        except ValueError as error:
+            parser.exit(2, f"expiry dry-run failed: {error}\n")
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
     return 0 if report["status"] == "inventory_complete" else 2
 
