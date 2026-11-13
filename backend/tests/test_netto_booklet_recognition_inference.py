@@ -334,6 +334,54 @@ def test_native_image_bbox_rejects_nonintersecting_or_degenerate_rectangles():
         _normalized_visible_image_bbox([0, 0, float("nan"), 50], 300, 420)
 
 
+def test_native_page_structure_skips_fully_offpage_image_occurrence():
+    class Rect:
+        width = 300.0
+        height = 420.0
+
+    class FakePage:
+        rect = Rect()
+
+        def get_text(self, mode):
+            assert mode == "words"
+            return []
+
+        def get_image_info(self, hashes=True, xrefs=True):
+            assert hashes is True
+            assert xrefs is True
+            return [
+                {
+                    "bbox": [-80.0, 100.0, -5.0, 180.0],
+                    "width": 308,
+                    "height": 300,
+                    "xref": 0,
+                    "digest": b"offpage",
+                },
+                {
+                    "bbox": [30.0, 100.0, 130.0, 200.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 7,
+                    "digest": b"visible",
+                },
+            ]
+
+        def get_drawings(self):
+            return []
+
+    native = native_page_structure(FakePage())
+    assert native["image_region_count"] == 1
+    assert native["image_regions"][0]["region_id"] == "native-image-2"
+    assert native["image_regions"][0]["bbox"] == [
+        0.1,
+        0.238095,
+        0.333333,
+        0.238095,
+    ]
+    assert native["image_regions"][0]["xref"] == 7
+    assert native["automatic_offer_links"] == 0
+
+
 def test_native_text_bbox_remains_strict_outside_page():
     with pytest.raises(InferenceRunnerError, match="outside page"):
         _normalized_bbox([-1, 10, 40, 50], 300, 420)
