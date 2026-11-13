@@ -9,9 +9,11 @@ Related hotspot integrity work: #1123, #289, #27.
 The existing Hermes booklet viewer is retained. This PoC evaluates only whether open-source
 vision/OCR can create useful **Review-only product-region candidates** for a real Netto booklet.
 
-The first target is the next Netto 5659 validity window expected for **2026-11-16 through
-2026-11-21**. The exact publication slug, URL, validity, PDF SHA256 and page count must come
-from the actually published first-party source. Do not infer them from the week number.
+The accepted target is the current Netto 5659 validity window **2026-11-09 through
+2026-11-14**, following the owner's 2026-11-13 decision to use the current week rather than wait
+for the 2026-11-16 publication. The exact source is Publitas `regionale-hz/hz46_hasb_4`,
+PDF SHA256 `9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf`,
+80 pages, unencrypted.
 
 No OCR or vision result is a product identity proof. A candidate must remain Review-only until
 an independent first-party identifier bridge proves exactly one eligible Hermes offer.
@@ -96,7 +98,7 @@ plausible brand must not become an automatic SKU or Hermes offer link.
 ## PoC data flow
 
 ```text
-exact next-week Netto PDF + SHA256
+exact current-week Netto HZ46 PDF + SHA256
         |
         +--> PaddleOCR result JSON
         |
@@ -192,8 +194,8 @@ python3 tools/netto_booklet_recognition_poc.py \
   --pdf-sha256 <exact_sha256> \
   --model-results /path/to/model-results.json \
   --store 5659 \
-  --valid-from 2026-11-16 \
-  --valid-to 2026-11-21 \
+  --valid-from 2026-11-09 \
+  --valid-to 2026-11-14 \
   --publication-url <exact_first_party_url> \
   --output /path/to/review-only.json
 ```
@@ -228,9 +230,9 @@ must not be treated as Hermes offer identity merely because the rectangles overl
 
 ## HZ46 execution evidence (2026-11-12/13)
 
-The owner authorized an isolated Lenovo PoC against the exact current-week Netto 5659 PDF while
-the intended 2026-11-16 publication was not yet available. This execution is evidence for the
-recognition architecture; it does not substitute an unverified next-week source identity.
+The owner authorized an isolated Lenovo PoC against the exact current-week Netto 5659 HZ46 PDF.
+On 2026-11-13 the owner selected this current-week booklet as the accepted issue target, so this
+execution is the final source-bound evidence for the PoC decision.
 
 Bound source evidence:
 
@@ -292,13 +294,12 @@ For this Netto source class:
 5. never promote OCR/VLM output directly to a product identity or Hermes offer link.
 
 This decision is based on actual HZ46 evidence and resource timing, not on model capability
-assumptions. The executed HZ46 evidence now includes runtime, exact process peak RSS and retained
-model size. It remains explicitly current-week evidence and does not assert an unverified
-2026-11-16 publication identity.
+assumptions. The executed HZ46 evidence includes runtime, exact process peak RSS and retained
+model size and is the accepted current-week target for issue #1140.
 
 ## Outcome
 
-The real next-week result should end in exactly one practical decision:
+The accepted HZ46 result ends in exactly one practical decision:
 
 - **GO** — useful primary candidate generator;
 - **HYBRID** — useful only as OCR/layout or second-stage assistance;
