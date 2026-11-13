@@ -87,10 +87,10 @@ _NATIVE_NONPRODUCT_CARD_COPY = re.compile(
     r"\b\d+\s*fach\s*°?\s*p\b|\bauf\s+die\s+marke\b|"
     r"\b(?:marke\s+)?netto\s*-\s*marke\b|"
     r"^\s*fenster\s*[–-]\s*putzen\s+wie\s*$|"
-    r"^\s*[a-zäöüß][a-zäöüß-]*\s*$|"
     r"^\s*-\s*[a-zäöüß].*$)",
     re.I,
 )
+_NATIVE_LOWERCASE_FRAGMENT = re.compile(r"^\s*[a-zäöüß][a-zäöüß-]*\s*$")
 _NATIVE_ONLINE_ONLY_CONTEXT = re.compile(r"\bnur\s+online\b", re.I)
 _NATIVE_ALPHA = re.compile(r"[A-Za-zÄÖÜäöüß]{3,}")
 _NATIVE_PRODUCT_NOISE = {
@@ -414,6 +414,7 @@ def _product_text_block(
             or _NATIVE_DISCLAIMER.search(text)
             or _NATIVE_NONPRODUCT_NOTE.search(text)
             or _NATIVE_NONPRODUCT_CARD_COPY.search(text)
+            or _NATIVE_LOWERCASE_FRAGMENT.search(text)
             or not any(_product_text_token(row.get("text")) for row in local_rows)
         ):
             continue
