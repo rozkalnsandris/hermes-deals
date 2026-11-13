@@ -581,6 +581,13 @@ def _native_product_card_candidates(
                 continue
             text_rows, product_text = selected_text
             text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
+            semantic_bbox = _bbox_union_normalized([anchor["bbox"], text_bbox])
+            if _bbox_contains_box(image["bbox"], semantic_bbox):
+                # A single raster object that fully envelops both the selected
+                # source-native product text and price is not local enough to
+                # prove isolated product-image ownership. Treat it as a
+                # composite/background image and fail closed.
+                continue
             card_bbox = _expanded_normalized_bbox(
                 _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
                 NATIVE_PRICE_GROUP_PADDING,
