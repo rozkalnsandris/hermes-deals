@@ -17,6 +17,7 @@ from netto_booklet_recognition_inference import (
     _normalized_visible_image_bbox,
     _date_price_region_ids,
     _native_product_card_candidates,
+    _separated_normalized,
     _read_pdf,
     _validate_florence_generation,
     native_page_structure,
@@ -428,3 +429,57 @@ def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
         "state": "REVIEW_ONLY",
     }]
     assert _native_product_card_candidates(words, images, prices) == []
+
+
+
+def test_product_card_v2_respects_pdf_card_separators_for_neighbouring_products():
+    words = [
+        _native_row("butter-title", "Meggle Butter", [0.05, 0.50, 0.22, 0.04], 1),
+        _native_row("butter-price", "0.99", [0.38, 0.52, 0.09, 0.05], 2),
+        _native_row("wine-title", "Rotkäppchen Sekt", [0.05, 0.88, 0.12, 0.04], 3),
+        _native_row("wine-price", "2.99*", [0.38, 0.87, 0.09, 0.05], 4),
+        _native_row("water-title", "Rheinfels Mineralwasser", [0.53, 0.88, 0.18, 0.04], 5),
+        _native_row("water-price", "4.49", [0.85, 0.90, 0.09, 0.05], 6),
+    ]
+    prices = [
+        _native_price("butter-price", "0.99", [0.38, 0.52, 0.09, 0.05]),
+        _native_price("wine-price", "2.99*", [0.38, 0.87, 0.09, 0.05]),
+        _native_price("water-price", "4.49", [0.85, 0.90, 0.09, 0.05]),
+    ]
+    images = [
+        {
+            "region_id": "butter-image",
+            "bbox": [0.08, 0.34, 0.29, 0.17],
+            "pixel_width": 350, "pixel_height": 240, "xref": 1,
+            "digest": "aa", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "wine-image",
+            "bbox": [0.27, 0.60, 0.14, 0.33],
+            "pixel_width": 170, "pixel_height": 550, "xref": 2,
+            "digest": "bb", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "water-image",
+            "bbox": [0.65, 0.62, 0.26, 0.25],
+            "pixel_width": 300, "pixel_height": 420, "xref": 3,
+            "digest": "cc", "state": "REVIEW_ONLY",
+        },
+    ]
+    separators = [
+        {"orientation": "horizontal", "position": 0.59, "start": 0.03, "end": 0.97},
+        {"orientation": "vertical", "position": 0.50, "start": 0.58, "end": 0.98},
+    ]
+
+    assert _separated_normalized(
+        words[0]["bbox"], prices[1]["bbox"], separators
+    )
+    assert _separated_normalized(
+        words[4]["bbox"], prices[1]["bbox"], separators
+    )
+    cards = _native_product_card_candidates(words, images, prices, separators)
+    by_price = {row["price_text"]: row for row in cards}
+    assert by_price["2.99*"]["product_text"] == "Rotkäppchen Sekt"
+    assert by_price["2.99*"]["product_image_region_id"] == "wine-image"
+    assert "Meggle" not in by_price["2.99*"]["product_text"]
+    assert "Rheinfels" not in by_price["2.99*"]["product_text"]
