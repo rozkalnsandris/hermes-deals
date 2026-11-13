@@ -11,6 +11,23 @@ DAY = date(2026, 11, 2)
 LAST = date(2026, 11, 7)
 
 
+def test_hz46_trust_binding_is_exact_and_publisher_only():
+    trust = publisher._TRUSTED_PUBLICATIONS["hz46_hasb_4"]
+    assert trust == {
+        "store": "5659",
+        "group": "regionale-hz",
+        "publication_sha256": "68184db39b6cb9878d6eab2e804ab767310390135e5f12772762329c661ac087",
+        "receipt_sha256": "20960935b4ff65a1754e24a642699bd84e03194b72975a2871a6adfaa647cd0c",
+        "snapshot_id": "962b80c9-a0bc-4553-8aa8-adf15857573b",
+        "manifest_sha256": "c17eb05f4378f77c469175d94448b319895370ee2b51e13871fa4800e636e687",
+        "product_count": 13,
+    }
+    assert set(trust) == {
+        "store", "group", "publication_sha256", "receipt_sha256",
+        "snapshot_id", "manifest_sha256", "product_count",
+    }
+
+
 def capture(tmp_path, monkeypatch):
     root = tmp_path / "raw"
     evidence = root / "netto-html"

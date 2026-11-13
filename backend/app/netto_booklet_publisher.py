@@ -13,7 +13,7 @@ import re
 
 from app.netto_booklet_review_scan import scan_netto_review_candidates
 
-# Original 2026-11-02 #1123 one-shot owner-authorized retention receipt.
+# Owner-authorized, independently SHA-verified #1123 retention receipts.
 # New campaigns require their own independently verified capture/receipt gate.
 _TRUSTED_PUBLICATIONS = {
     "hz45_hasb": {
@@ -24,6 +24,15 @@ _TRUSTED_PUBLICATIONS = {
         "snapshot_id": "bc9ba9b3-bd76-4cd2-88a4-d5423850f383",
         "manifest_sha256": "b2b08e7d3baf049d02a86822f25e41f4b22e140dc2833c219bb00d74d89737f1",
         "product_count": 38,
+    },
+    "hz46_hasb_4": {
+        "store": "5659",
+        "group": "regionale-hz",
+        "publication_sha256": "68184db39b6cb9878d6eab2e804ab767310390135e5f12772762329c661ac087",
+        "receipt_sha256": "20960935b4ff65a1754e24a642699bd84e03194b72975a2871a6adfaa647cd0c",
+        "snapshot_id": "962b80c9-a0bc-4553-8aa8-adf15857573b",
+        "manifest_sha256": "c17eb05f4378f77c469175d94448b319895370ee2b51e13871fa4800e636e687",
+        "product_count": 13,
     },
 }
 _SHA = re.compile(r"[0-9a-f]{64}")
