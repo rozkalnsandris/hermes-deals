@@ -47,9 +47,9 @@ _NATIVE_WEEKDAY = re.compile(
 _NATIVE_KW_LABEL = re.compile(r"\bkw\s*\d{1,2}\b", re.I)
 _NATIVE_ALPHA = re.compile(r"[A-Za-zÄÖÜäöüß]{3,}")
 _NATIVE_PRODUCT_NOISE = {
-    "aktion", "xxl", "sparen", "uvp", "statt", "bisher", "ab", "bis", "zu",
-    "für", "fuer", "je", "pro", "kg", "g", "ml", "l", "st", "stück",
-    "stueck", "versch", "sorten", "sorte",
+    "aktion", "xxl", "sparen", "uvp", "statt", "bisher", "dauertiefpreis",
+    "ab", "bis", "zu", "für", "fuer", "je", "pro", "kg", "g", "ml", "l",
+    "st", "stück", "stueck", "versch", "sorten", "sorte", "netto",
 }
 
 
@@ -294,7 +294,12 @@ def _native_product_card_candidates(
     images: list[dict],
     primary_price_candidates: list[dict],
 ) -> list[dict]:
-    """Build strict Review-only product-card geometry from price + text + image."""
+    """Build strict Review-only product-card geometry from price + image + text.
+
+    Product imagery is associated first because booklet titles can be much
+    closer to a neighbouring price than to their own price. Product text is
+    then selected relative to the observed image+price visual region.
+    """
     if not primary_price_candidates:
         return []
 
@@ -305,43 +310,13 @@ def _native_product_card_candidates(
     if not eligible:
         return []
 
-    base_candidates = _native_price_anchor_candidates(words, images, eligible)
-    word_by_id = {row["region_id"]: row for row in words}
-    image_by_id = {row["region_id"]: row for row in images}
-    by_price_id = {row["price_region_id"]: row for row in base_candidates}
-
     accepted: list[dict] = []
     for anchor in eligible:
-        base = by_price_id.get(anchor["region_id"])
-        if base is None:
-            raise InferenceRunnerError("native price group candidate is missing")
-
-        grouped_words = [
-            word_by_id[value]
-            for value in base["native_text_region_ids"]
-            if value in word_by_id
-        ]
-        selected_text = _product_text_block(
-            grouped_words,
-            anchor["bbox"],
-            anchor["region_id"],
-        )
-        if selected_text is None:
-            continue
-        text_rows, product_text = selected_text
-        text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
-        evidence_bbox = _bbox_union_normalized([anchor["bbox"], text_bbox])
-
-        image_rows = [
-            image_by_id[value]
-            for value in base["native_image_region_ids"]
-            if value in image_by_id and _product_image_candidate(image_by_id[value])
-        ]
         ranked_images = sorted(
-            image_rows,
+            [row for row in images if _product_image_candidate(row)],
             key=lambda row: (
-                _bbox_gap_distance(row["bbox"], evidence_bbox),
-                _bbox_distance(row["bbox"], evidence_bbox),
+                _bbox_gap_distance(row["bbox"], anchor["bbox"]),
+                _bbox_distance(row["bbox"], anchor["bbox"]),
                 -(float(row["bbox"][2]) * float(row["bbox"][3])),
                 row["region_id"],
             ),
@@ -349,8 +324,19 @@ def _native_product_card_candidates(
         if not ranked_images:
             continue
         image = ranked_images[0]
-        if _bbox_gap_distance(image["bbox"], evidence_bbox) > NATIVE_PRODUCT_IMAGE_MAX_GAP:
+        if _bbox_gap_distance(image["bbox"], anchor["bbox"]) > NATIVE_PRODUCT_IMAGE_MAX_GAP:
             continue
+
+        visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
+        selected_text = _product_text_block(
+            words,
+            visual_bbox,
+            anchor["region_id"],
+        )
+        if selected_text is None:
+            continue
+        text_rows, product_text = selected_text
+        text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
 
         card_bbox = _expanded_normalized_bbox(
             _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
@@ -397,7 +383,6 @@ def _native_product_card_candidates(
             }
         )
     return accepted
-
 
 def _native_price_anchor_candidates(
     words: list[dict],
