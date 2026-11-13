@@ -16,6 +16,7 @@ from app.settings import get_settings
 from app.netto_store_prospect import extract_prospect_validity
 from app.netto_html_publications import validated_pages
 from app.netto_booklet_publisher import publisher_only_hotspots
+from app.netto_booklet_review_layer import review_only_hotspots
 from app.structured_source_shadow import extract_netto_group_slug
 
 STRATEGIES = (
@@ -230,6 +231,12 @@ def _html_teaser_link(db, day, cutoff, page):
                 manifest_sha256=snapshot.sha256, record=record,
                 day=day, valid_from=start, valid_until=end,
             )
+            # Separately pinned PDF Review markers: clickable for inspection only.
+            review_pages = review_only_hotspots(
+                root, store_id=STORE, snapshot_id=str(snapshot.id),
+                manifest_sha256=snapshot.sha256, record=record,
+                day=day, valid_from=start, valid_until=end,
+            )
             return {
                 "state": "ready", "offers": [], "page": page,
                 "page_count": len(paths),
@@ -243,7 +250,8 @@ def _html_teaser_link(db, day, cutoff, page):
                            "image_url": publitas_page_image_url(asset, "at1600"),
                            "zoom_image_url": publitas_page_image_url(asset, high_size)
                            if high_size else None,
-                           "publisher_hotspots": publisher_pages.get(index, [])}
+                           "publisher_hotspots": publisher_pages.get(index, []),
+                           "review_hotspots": review_pages.get(index, [])}
                           for index, asset in enumerate(paths, 1)],
                 "previous_href": booklet_href(day, page - 1) if page > 1 else None,
                 "next_href": booklet_href(day, page + 1) if page < len(paths) else None,
