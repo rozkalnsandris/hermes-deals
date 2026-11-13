@@ -327,8 +327,6 @@ def build_page(
         if native_payload is not None
         else []
     )
-    if not text and not native_candidates and florence_payload is None:
-        raise RecognitionEvidenceError("page has no recognition evidence")
     page = {
         "page_number": page_number,
         "model_image_size": [int(image_width), int(image_height)],
