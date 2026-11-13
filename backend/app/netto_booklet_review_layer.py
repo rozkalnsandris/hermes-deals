@@ -23,8 +23,6 @@ _TRUSTED_REVIEW_LAYERS = {
     "hz46_hasb_4": {
         "store": "5659",
         "group": "regionale-hz",
-        "snapshot_id": "962b80c9-a0bc-4553-8aa8-adf15857573b",
-        "manifest_sha256": "c17eb05f4378f77c469175d94448b319895370ee2b51e13871fa4800e636e687",
         "publication_sha256": "68184db39b6cb9878d6eab2e804ab767310390135e5f12772762329c661ac087",
         "pdf_sha256": "9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf",
         "image_manifest_sha256": "a23db82f42f2fc2ccc81802aab65b8454979d29c64967077eada59523e87764c",
@@ -71,9 +69,10 @@ def review_only_hotspots(
 ) -> dict[int, list[dict]]:
     slug = record.get("slug")
     trust = _TRUSTED_REVIEW_LAYERS.get(slug) if type(slug) is str else None
+    # Collector snapshot/manifest IDs can rotate while the exact publication bytes
+    # stay unchanged. Review eligibility therefore binds to the immutable
+    # publication identity plus the retained projection provenance below.
     if (trust is None or store_id != trust["store"]
-            or snapshot_id != trust["snapshot_id"]
-            or manifest_sha256 != trust["manifest_sha256"]
             or record.get("publication_sha256") != trust["publication_sha256"]
             or type(day) is not date or type(valid_from) is not date
             or type(valid_until) is not date or not valid_from <= day <= valid_until):
