@@ -16,8 +16,9 @@ from app.netto_html_publications import validated_pages
 
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 
-# HZ46 inputs are pinned now; final projection SHA stays disabled until a
-# separately authorized retained Review projection is created and verified.
+# HZ46 Review evidence is pinned to the separately authorized, retained,
+# SHA-verified marker manifest and page-scoped projection. Runtime placement
+# under netto-html/review-layers remains a separate LIVE gate.
 _TRUSTED_REVIEW_LAYERS = {
     "hz46_hasb_4": {
         "store": "5659",
@@ -28,8 +29,8 @@ _TRUSTED_REVIEW_LAYERS = {
         "pdf_sha256": "9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf",
         "image_manifest_sha256": "a23db82f42f2fc2ccc81802aab65b8454979d29c64967077eada59523e87764c",
         "alignment_review_sha256": "0b7fe988e655597480235d927b20e9b14fa920525655e27400a5f4a333c28b93",
-        "review_markers_sha256": None,
-        "projection_sha256": None,
+        "review_markers_sha256": "344ee5f838d922cb0db42c85cb2a497459c81e2233fcea6c0db3c4a5c567b709",
+        "projection_sha256": "24d1b980c06bbdbb0c58cfe8f00cb4153022f0053684ce5a8e565034e0ea570c",
         "page_count": 80,
         "candidate_count": 686,
     },
