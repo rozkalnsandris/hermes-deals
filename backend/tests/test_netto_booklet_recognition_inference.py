@@ -499,7 +499,7 @@ def test_product_card_v2_excludes_validity_dates_and_uses_text_image_price_union
     assert card["price_region_id"] == "price"
     assert card["product_text"] == "Hähnchen-Brustfilet mager"
     assert card["product_image_region_id"] == "product-image"
-    assert card["basis"] == "native_pdf_product_text_image_price_card_v2"
+    assert card["basis"] == "native_pdf_product_text_image_price_card_v3"
     assert card["card_bbox"][0] <= 0.522
     assert card["card_bbox"][1] <= 0.298
     assert card["card_bbox"][0] + card["card_bbox"][2] >= 0.940
@@ -727,12 +727,42 @@ def test_product_card_v2_uses_single_price_filled_region_for_neighbouring_produc
     by_price = {row["price_text"]: row for row in cards}
     assert by_price["2.99*"]["product_text"] == "Rotkäppchen Sekt"
     assert by_price["2.99*"]["product_image_region_id"] == "wine-image"
-    assert by_price["2.99*"]["card_bbox"] == regions[2]
+    assert by_price["2.99*"]["card_bbox"] == [0.038, 0.588, 0.444, 0.354]
+    assert by_price["2.99*"]["card_bbox"] != regions[2]
     assert by_price["2.99*"]["layout_region_bound"] is True
     assert "Meggle" not in by_price["2.99*"]["product_text"]
     assert "Rheinfels" not in by_price["2.99*"]["product_text"]
 
 
+
+
+def test_product_card_v3_prefers_compact_evidence_over_nearer_lifestyle_image():
+    words = [
+        _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.55, 0.12, 0.03], 1),
+        _native_row("price", "3.99", [0.70, 0.60, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "3.99", [0.70, 0.60, 0.08, 0.05])]
+    images = [
+        {
+            "region_id": "compact-product-image",
+            "bbox": [0.50, 0.40, 0.18, 0.15],
+            "pixel_width": 320, "pixel_height": 260, "xref": 1,
+            "digest": "aa", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "nearer-lifestyle-image",
+            "bbox": [0.74, 0.30, 0.22, 0.28],
+            "pixel_width": 420, "pixel_height": 520, "xref": 2,
+            "digest": "bb", "state": "REVIEW_ONLY",
+        },
+    ]
+
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["product_image_region_id"] == "compact-product-image"
+    assert card["basis"] == "native_pdf_product_text_image_price_card_v3"
+    assert card["card_bbox"] == [0.488, 0.388, 0.304, 0.274]
 
 
 def test_native_layout_regions_keep_substantial_filled_card_rectangles_only():
