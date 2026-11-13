@@ -137,14 +137,66 @@ those date tokens as primary anchors, so the contextual date exclusion is
 covered by a focused regression test rather than reported as an actual v2 page
 count.
 
-This is representative geometry evidence, not full 80-page v2 coverage and not
-runtime activation.
+This representative evidence is now supplemented by a full 80-page read-only
+audit. It remains source evidence, not runtime activation.
+
+### Full 80-page HZ46 v2 audit
+
+The exact retained PDF SHA256
+`9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf`
+was streamed read-only through PyMuPDF 1.28.0 against source head
+`c1dc0398fa17f7d1b0c918d527daf68c3ca97bbe`. The in-memory v2 manifest
+SHA256 is
+`c3052232bc11794363f95e747d8b3b6629c5863bcbd46a32d533bc2d0f64a6f8`
+(195481 canonical JSON bytes).
+
+Source-native image enumeration exposed two legitimate non-product image
+occurrence classes that must not terminate booklet analysis:
+
+- a fully off-page occurrence on PDF page 62; and
+- zero-dimension occurrences whose corresponding PDF image pixel dimension is
+  also zero (for example page 72 `0x0` and page 73 zero-width).
+
+Those occurrences are skipped before Review geometry is built. Other malformed
+or degenerate image rectangles continue to fail closed.
+
+Full audit totals:
+
+- 411 primary price anchors;
+- 316 Review-only product-card candidates across 69/80 pages;
+- zero automatic Hermes offer links and zero verified product identities;
+- zero proven product boundaries;
+- 19 candidates bound to substantial filled PDF regions and 297 conservative
+  fallback unions;
+- zero duplicate candidate/image ownership IDs;
+- zero out-of-page card geometries;
+- 11 card pairs with IoU >= 0.15;
+- 31 pages accepted every available primary anchor, while 42 pages intentionally
+  remained partial/fail-closed.
+
+Pages with zero v2 cards are
+`9,17,18,69,70,71,72,73,75,79,80`.
+
+The full audit is **not** a UI-activation acceptance yet. Manual review of the
+representative output found remaining product-selection quality issues that the
+simple automated suspicious-text regex did not flag:
+
+- page 62 includes discount-copy candidates such as
+  `pro Liter gespart -80 -80%` rather than a product title;
+- pages 74/76/77 include `Online-Kracher` / online-only material, which must
+  not be promoted into the physical-store product-card layer;
+- 11 overlapping-card pairs still require page-level ownership review before
+  projection.
+
+These findings do not invalidate the off-page / zero-dimension PDF image fix;
+they block only the next v2 product-selection / UI activation gate. V1 remains
+active.
 
 ## Next gate
 
-After source review/merge, generate a fresh v2 marker manifest from the exact
-retained HZ46 PDF in an approved read-only PyMuPDF execution environment and
-audit the full 80 pages before any projection or UI activation. V1 stays active
-until that separate evidence gate passes. No DB, collector, offer mapping,
-product identity, Review/publication write or LIVE activation is authorized by
-this source lane.
+After this source fix is merged, continue #1069 with a separate source lane for
+v2 product-selection quality: exclude non-product discount copy and online-only
+cards, inspect the 11 overlapping-card pairs, then repeat the full 80-page
+read-only audit. Only a clean follow-up evidence gate may proceed to projection
+or UI activation. No DB, collector, offer mapping, product identity,
+Review/publication write or LIVE activation is authorized by this source lane.
