@@ -353,9 +353,9 @@ def main() -> int:
                         help="annotate PDFs using a read-only PostgreSQL DATABASE_URL from the environment")
     parser.add_argument("--plan-expired", action="store_true",
                         help="append a dry-run plan for observed expired PDF copies; never deletes")
+    args = parser.parse_args()
     if args.plan_expired and not args.with_registry:
         parser.error("--plan-expired requires --with-registry")
-    args = parser.parse_args()
     try:
         report = inventory(args.roots, max_files=args.max_files,
                            max_file_bytes=args.max_file_bytes, max_total_bytes=args.max_total_bytes)
