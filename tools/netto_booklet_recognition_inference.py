@@ -170,6 +170,17 @@ def _bbox_gap_distance(a: list[float], b: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
+def _bbox_axis_overlap_ratio(a: list[float], b: list[float]) -> float:
+    """Return the stronger normalized overlap on either page axis."""
+    ax0, ay0, aw, ah = a
+    bx0, by0, bw, bh = b
+    x_overlap = max(0.0, min(ax0 + aw, bx0 + bw) - max(ax0, bx0))
+    y_overlap = max(0.0, min(ay0 + ah, by0 + bh) - max(ay0, by0))
+    x_ratio = x_overlap / min(aw, bw) if min(aw, bw) > 0 else 0.0
+    y_ratio = y_overlap / min(ah, bh) if min(ah, bh) > 0 else 0.0
+    return max(x_ratio, y_ratio)
+
+
 def _bbox_contains_center(container: list[float], bbox: list[float]) -> bool:
     cx, cy = _bbox_center(bbox)
     x, y, width, height = container
@@ -393,7 +404,7 @@ def _product_text_block(
     local_x1 = min(1.0, vx + vw + NATIVE_PRODUCT_TEXT_MARGIN_X)
     local_y1 = min(1.0, vy + vh + NATIVE_PRODUCT_TEXT_MARGIN_Y)
 
-    choices: list[tuple[float, int, list[dict], str]] = []
+    choices: list[tuple[float, float, int, list[dict], str]] = []
     for block_no, block_rows in by_block.items():
         ordered = sorted(
             block_rows,
@@ -439,12 +450,13 @@ def _product_text_block(
             + _bbox_distance(block_bbox, visual_bbox) * 0.20
             + _bbox_distance(block_bbox, anchor_bbox) * 0.65
         )
-        choices.append((score, block_no, local_rows, text))
+        alignment = _bbox_axis_overlap_ratio(block_bbox, anchor_bbox)
+        choices.append((-alignment, score, block_no, local_rows, text))
 
     if not choices:
         return None
-    choices.sort(key=lambda row: (row[0], row[1]))
-    _, _, ordered, text = choices[0]
+    choices.sort(key=lambda row: (row[0], row[1], row[2]))
+    _, _, _, ordered, text = choices[0]
     return ordered, text
 
 def _product_image_candidate(row: dict) -> bool:
@@ -508,13 +520,12 @@ def _native_product_card_candidates(
     primary_price_candidates: list[dict],
     layout_regions: list[list[float]] | None = None,
 ) -> list[dict]:
-    """Build compact Review-only product-card geometry from price + image + text.
+    """Build compact Review-only product-card geometry from price + text + image.
 
     Filled PDF rectangles are ownership hints only. They are vector drawing
-    primitives, not semantic product-card boundaries. Image ownership is
-    resolved from the complete price + selected product-text + image triad,
-    because a PDF image occurrence is render geometry rather than product
-    identity.
+    primitives, not semantic product-card boundaries. Product text is selected
+    from the price anchor before any image participates; image ownership is then
+    resolved against those fixed price + text semantic clusters.
     """
     if not primary_price_candidates:
         return []
@@ -527,6 +538,27 @@ def _native_product_card_candidates(
     if not eligible:
         return []
 
+    text_by_price: dict[str, tuple[list[float] | None, list[dict], str, list[float]]] = {}
+    for anchor in eligible:
+        region = _single_price_layout_region(anchor, eligible, layout_regions)
+        selected_text = _product_text_block(
+            words,
+            anchor["bbox"],
+            anchor["bbox"],
+            anchor["region_id"],
+            container_bbox=region,
+        )
+        if selected_text is None:
+            continue
+        text_rows, product_text = selected_text
+        text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
+        text_by_price[anchor["region_id"]] = (
+            region,
+            text_rows,
+            product_text,
+            text_bbox,
+        )
+
     variants_by_price: dict[str, list[tuple]] = {
         row["region_id"]: [] for row in eligible
     }
@@ -536,7 +568,10 @@ def _native_product_card_candidates(
 
         ownership_variants = []
         for anchor in eligible:
-            region = _single_price_layout_region(anchor, eligible, layout_regions)
+            text_evidence = text_by_price.get(anchor["region_id"])
+            if text_evidence is None:
+                continue
+            region, text_rows, product_text, text_bbox = text_evidence
             if region is not None and not _bbox_contains_box(region, image["bbox"]):
                 continue
             if (
@@ -560,17 +595,6 @@ def _native_product_card_candidates(
             if _NATIVE_ONLINE_ONLY_CONTEXT.search(context_text):
                 continue
 
-            selected_text = _product_text_block(
-                words,
-                visual_bbox,
-                anchor["bbox"],
-                anchor["region_id"],
-                container_bbox=region,
-            )
-            if selected_text is None:
-                continue
-            text_rows, product_text = selected_text
-            text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
             card_bbox = _expanded_normalized_bbox(
                 _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
                 NATIVE_PRICE_GROUP_PADDING,
