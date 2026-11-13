@@ -144,14 +144,20 @@ def build_projection(
         if not isinstance(rows, list):
             raise ReviewProjectionError("marker candidates missing")
         candidates = []
+        page_source_ids: set[str] = set()
         for row in rows:
             if not isinstance(row, dict):
                 raise ReviewProjectionError("malformed marker candidate")
-            candidate_id = row.get("candidate_id")
+            source_candidate_id = row.get("candidate_id")
+            if (type(source_candidate_id) is not str or not source_candidate_id
+                    or len(source_candidate_id) > 150
+                    or source_candidate_id in page_source_ids):
+                raise ReviewProjectionError("duplicate or invalid page-local candidate identity")
+            candidate_id = f"p{index:03d}-{source_candidate_id}"
             title = row.get("candidate_text_unverified")
             prices = row.get("printed_normal_price_candidates_unverified")
             reasons = row.get("review_reasons")
-            if (type(candidate_id) is not str or not candidate_id or len(candidate_id) > 160
+            if (len(candidate_id) > 160
                     or candidate_id in seen_candidates
                     or row.get("marker_basis") != "observed_pdf_price_group_only"
                     or row.get("state") != "REVIEW_ONLY"
@@ -165,9 +171,11 @@ def build_projection(
                     or not isinstance(reasons, list) or not reasons
                     or any(type(value) is not str or len(value) > 140 for value in reasons)):
                 raise ReviewProjectionError("invalid Review candidate metadata")
+            page_source_ids.add(source_candidate_id)
             seen_candidates.add(candidate_id)
             candidates.append({
                 "candidate_id": candidate_id,
+                "source_candidate_id": source_candidate_id,
                 "rectangle": _box(row.get("marker_bbox")),
                 "candidate_text_unverified": title,
                 "printed_normal_price_candidates_unverified": prices,
