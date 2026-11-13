@@ -172,7 +172,7 @@ def test_swapped_page_identity_fails_closed():
 
 def product_card_fixture():
     markers, alignment, images = fixture()
-    markers["format"] = "hermes.netto.pdf_product_card_review_markers.v2"
+    markers["format"] = "hermes.netto.pdf_product_card_review_markers.v3"
     markers["verified_product_identities"] = 0
     markers["product_boundaries_proven"] = 0
     row = markers["pages"][0]["candidates"][0]
@@ -189,7 +189,25 @@ def product_card_fixture():
     return markers, alignment, images
 
 
-def test_product_card_v2_projects_whole_card_geometry_and_provenance_only():
+def test_product_card_projection_keeps_v2_marker_compatibility():
+    markers, alignment, images = product_card_fixture()
+    markers["format"] = "hermes.netto.pdf_product_card_review_markers.v2"
+    result = build_projection(
+        markers,
+        alignment,
+        images,
+        store_id="5659",
+        group="regionale-hz",
+        slug="hz46_hasb_4",
+        review_markers_sha256=MARKERS,
+        alignment_review_sha256=ALIGN,
+        image_manifest_sha256=IMG,
+    )
+    assert result["format"] == "hermes.netto.pdf_product_card_review_projection.v2"
+    assert result["product_boundaries_proven"] == 0
+
+
+def test_product_card_v3_projects_whole_card_geometry_and_provenance_only():
     result = build_projection(
         *product_card_fixture(),
         store_id="5659",
@@ -200,7 +218,7 @@ def test_product_card_v2_projects_whole_card_geometry_and_provenance_only():
         image_manifest_sha256=IMG,
     )
 
-    assert result["format"] == "hermes.netto.pdf_product_card_review_projection.v2"
+    assert result["format"] == "hermes.netto.pdf_product_card_review_projection.v3"
     assert result["product_boundaries_proven"] == 0
     assert result["automatic_offer_links"] == 0
     assert result["verified_product_identities"] == 0

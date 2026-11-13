@@ -24,7 +24,7 @@ def native_fixture():
             "product_image_region_id": "native-image-1",
             "product_image_bbox": [0.522, 0.298, 0.444, 0.231],
             "card_bbox": [0.510, 0.286, 0.468, 0.294],
-            "basis": "native_pdf_product_text_image_price_card_v2",
+            "basis": "native_pdf_product_text_image_price_card_v3",
             "review_reasons": [
                 "product_boundary_review_only",
                 "product_identity_unverified",

@@ -14,9 +14,11 @@ from pathlib import Path
 import re
 
 FORMAT = "hermes.netto.pdf_review_projection.v1"
-PRODUCT_CARD_FORMAT = "hermes.netto.pdf_product_card_review_projection.v2"
+PRODUCT_CARD_FORMAT_V2 = "hermes.netto.pdf_product_card_review_projection.v2"
+PRODUCT_CARD_FORMAT = "hermes.netto.pdf_product_card_review_projection.v3"
 MARKER_FORMAT = "hermes.netto.pdf_review_markers.v1"
-PRODUCT_CARD_MARKER_FORMAT = "hermes.netto.pdf_product_card_review_markers.v2"
+PRODUCT_CARD_MARKER_FORMAT_V2 = "hermes.netto.pdf_product_card_review_markers.v2"
+PRODUCT_CARD_MARKER_FORMAT = "hermes.netto.pdf_product_card_review_markers.v3"
 ALIGNMENT_SCHEMA = "netto-hz46-pdf-publitas-alignment-review-v1"
 IMAGE_MANIFEST_SCHEMA = "netto-hz46-publitas-image-retention-review-v1"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -74,8 +76,20 @@ def build_projection(
         raise ReviewProjectionError("invalid source digest")
 
     marker_format = markers.get("format")
-    product_card_markers = marker_format == PRODUCT_CARD_MARKER_FORMAT
-    if (marker_format not in {MARKER_FORMAT, PRODUCT_CARD_MARKER_FORMAT}
+    product_card_markers = marker_format in {
+        PRODUCT_CARD_MARKER_FORMAT_V2,
+        PRODUCT_CARD_MARKER_FORMAT,
+    }
+    product_card_projection_format = (
+        PRODUCT_CARD_FORMAT
+        if marker_format == PRODUCT_CARD_MARKER_FORMAT
+        else PRODUCT_CARD_FORMAT_V2
+    )
+    if (marker_format not in {
+            MARKER_FORMAT,
+            PRODUCT_CARD_MARKER_FORMAT_V2,
+            PRODUCT_CARD_MARKER_FORMAT,
+        }
             or markers.get("publication_page_alignment") != "NOT_VERIFIED"
             or markers.get("retailer_store_identity") != "NOT_VERIFIED"
             or markers.get("offer_identity") != "NOT_VERIFIED"
@@ -228,7 +242,7 @@ def build_projection(
         raise ReviewProjectionError("candidate count mismatch")
 
     result_payload = {
-        "format": PRODUCT_CARD_FORMAT if product_card_markers else FORMAT,
+        "format": product_card_projection_format if product_card_markers else FORMAT,
         "state": "REVIEW_ONLY",
         "store_id": store_id,
         "group": group,

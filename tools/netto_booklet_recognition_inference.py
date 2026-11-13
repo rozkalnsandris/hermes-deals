@@ -495,7 +495,12 @@ def _native_product_card_candidates(
     primary_price_candidates: list[dict],
     layout_regions: list[list[float]] | None = None,
 ) -> list[dict]:
-    """Build strict Review-only product-card geometry from price + image + text."""
+    """Build compact Review-only product-card geometry from price + image + text.
+
+    Filled PDF rectangles are ownership hints only. They are vector drawing
+    primitives, not semantic product-card boundaries, so emitted geometry is
+    always derived from the selected price, product text and product image.
+    """
     if not primary_price_candidates:
         return []
     layout_regions = list(layout_regions or [])
@@ -537,67 +542,80 @@ def _native_product_card_candidates(
     accepted: list[dict] = []
     for anchor in eligible:
         region = _single_price_layout_region(anchor, eligible, layout_regions)
-        ranked_images = sorted(
-            images_by_price[anchor["region_id"]],
-            key=lambda row: (
-                _bbox_gap_distance(row["bbox"], anchor["bbox"]),
-                _bbox_distance(row["bbox"], anchor["bbox"]),
-                -(float(row["bbox"][2]) * float(row["bbox"][3])),
-                row["region_id"],
-            ),
-        )
-        if not ranked_images:
-            continue
-        image = ranked_images[0]
+        variants = []
+        for image in images_by_price[anchor["region_id"]]:
+            visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
+            context_bbox = _expanded_normalized_bbox(
+                visual_bbox,
+                NATIVE_PRODUCT_CONTEXT_PADDING,
+            )
+            context_text = " ".join(
+                str(row.get("text") or "")
+                for row in words
+                if _bbox_contains_center(context_bbox, row["bbox"])
+            )
+            if _NATIVE_ONLINE_ONLY_CONTEXT.search(context_text):
+                continue
 
-        visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
-        context_bbox = _expanded_normalized_bbox(
-            visual_bbox,
-            NATIVE_PRODUCT_CONTEXT_PADDING,
-        )
-        context_text = " ".join(
-            str(row.get("text") or "")
-            for row in words
-            if _bbox_contains_center(context_bbox, row["bbox"])
-        )
-        if _NATIVE_ONLINE_ONLY_CONTEXT.search(context_text):
-            continue
-
-        selected_text = _product_text_block(
-            words,
-            visual_bbox,
-            anchor["bbox"],
-            anchor["region_id"],
-            container_bbox=region,
-        )
-        if selected_text is None:
-            continue
-        text_rows, product_text = selected_text
-        text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
-
-        if region is not None:
-            card_bbox = [round(value, 6) for value in region]
-        else:
+            selected_text = _product_text_block(
+                words,
+                visual_bbox,
+                anchor["bbox"],
+                anchor["region_id"],
+                container_bbox=region,
+            )
+            if selected_text is None:
+                continue
+            text_rows, product_text = selected_text
+            text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
             card_bbox = _expanded_normalized_bbox(
                 _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
                 NATIVE_PRICE_GROUP_PADDING,
             )
-        card_area = float(card_bbox[2]) * float(card_bbox[3])
-        if (
-            card_area > NATIVE_PRODUCT_CARD_MAX_PAGE_AREA
-            or float(card_bbox[2]) > NATIVE_PRODUCT_CARD_MAX_WIDTH
-            or float(card_bbox[3]) > NATIVE_PRODUCT_CARD_MAX_HEIGHT
-        ):
-            continue
+            card_area = float(card_bbox[2]) * float(card_bbox[3])
+            if (
+                card_area > NATIVE_PRODUCT_CARD_MAX_PAGE_AREA
+                or float(card_bbox[2]) > NATIVE_PRODUCT_CARD_MAX_WIDTH
+                or float(card_bbox[3]) > NATIVE_PRODUCT_CARD_MAX_HEIGHT
+            ):
+                continue
 
-        other_price_centers = [
-            row["region_id"]
-            for row in eligible
-            if row["region_id"] != anchor["region_id"]
-            and _bbox_contains_center(card_bbox, row["bbox"])
-        ]
-        if other_price_centers:
+            other_price_centers = [
+                row["region_id"]
+                for row in eligible
+                if row["region_id"] != anchor["region_id"]
+                and _bbox_contains_center(card_bbox, row["bbox"])
+            ]
+            if other_price_centers:
+                continue
+
+            variants.append(
+                (
+                    card_area,
+                    _bbox_gap_distance(image["bbox"], anchor["bbox"]),
+                    _bbox_distance(image["bbox"], anchor["bbox"]),
+                    -(float(image["bbox"][2]) * float(image["bbox"][3])),
+                    image["region_id"],
+                    image,
+                    text_rows,
+                    product_text,
+                    card_bbox,
+                )
+            )
+
+        if not variants:
             continue
+        (
+            _,
+            _,
+            _,
+            _,
+            _,
+            image,
+            text_rows,
+            product_text,
+            card_bbox,
+        ) = min(variants, key=lambda row: row[:5])
 
         accepted.append(
             {
@@ -611,7 +629,7 @@ def _native_product_card_candidates(
                 "product_image_bbox": image["bbox"],
                 "card_bbox": card_bbox,
                 "layout_region_bound": region is not None,
-                "basis": "native_pdf_product_text_image_price_card_v2",
+                "basis": "native_pdf_product_text_image_price_card_v3",
                 "review_reasons": [
                     "product_boundary_review_only",
                     "product_identity_unverified",
