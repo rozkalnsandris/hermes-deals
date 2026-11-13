@@ -29,6 +29,9 @@ NATIVE_IMAGE_MAX_ASPECT = 8.0
 NATIVE_PRODUCT_IMAGE_MIN_PAGE_AREA = 0.002
 NATIVE_PRODUCT_IMAGE_MAX_PAGE_AREA = 0.32
 NATIVE_PRODUCT_IMAGE_MAX_GAP = 0.22
+NATIVE_PRODUCT_IMAGE_OWNER_RADIUS = 0.34
+NATIVE_PRODUCT_TEXT_MARGIN_X = 0.10
+NATIVE_PRODUCT_TEXT_MARGIN_Y = 0.12
 NATIVE_PRODUCT_CARD_MAX_PAGE_AREA = 0.40
 NATIVE_PRODUCT_CARD_MAX_WIDTH = 0.68
 NATIVE_PRODUCT_CARD_MAX_HEIGHT = 0.72
@@ -45,6 +48,11 @@ _NATIVE_WEEKDAY = re.compile(
     re.I,
 )
 _NATIVE_KW_LABEL = re.compile(r"\bkw\s*\d{1,2}\b", re.I)
+_NATIVE_DISCLAIMER = re.compile(
+    r"(?:erhältlich\s+bei\s+netto\s+city|abgebildeten\s+artikel|"
+    r"begrenzten\s+angebots|ausverkauft\s+sein|netto-online\.de)",
+    re.I,
+)
 _NATIVE_ALPHA = re.compile(r"[A-Za-zÄÖÜäöüß]{3,}")
 _NATIVE_PRODUCT_NOISE = {
     "aktion", "xxl", "sparen", "uvp", "statt", "bisher", "dauertiefpreis",
@@ -233,7 +241,7 @@ def _product_text_token(text: object) -> bool:
 
 def _product_text_block(
     rows: list[dict],
-    anchor_bbox: list[float],
+    visual_bbox: list[float],
     anchor_region_id: str,
 ) -> tuple[list[dict], str] | None:
     by_block: dict[int, list[dict]] = {}
@@ -241,6 +249,12 @@ def _product_text_block(
         if row["region_id"] == anchor_region_id:
             continue
         by_block.setdefault(int(row["block_no"]), []).append(row)
+
+    vx, vy, vw, vh = visual_bbox
+    local_x0 = max(0.0, vx - NATIVE_PRODUCT_TEXT_MARGIN_X)
+    local_y0 = max(0.0, vy - NATIVE_PRODUCT_TEXT_MARGIN_Y)
+    local_x1 = min(1.0, vx + vw + NATIVE_PRODUCT_TEXT_MARGIN_X)
+    local_y1 = min(1.0, vy + vh + NATIVE_PRODUCT_TEXT_MARGIN_Y)
 
     choices: list[tuple[float, int, list[dict], str]] = []
     for block_no, block_rows in by_block.items():
@@ -253,27 +267,39 @@ def _product_text_block(
                 row["bbox"][0],
             ),
         )
-        text = " ".join(str(row.get("text") or "") for row in ordered).strip()
+        full_text = " ".join(str(row.get("text") or "") for row in ordered).strip()
         if (
-            not text
-            or _NATIVE_WEEKDAY.search(text)
-            or _NATIVE_KW_LABEL.search(text)
-            or not any(_product_text_token(row.get("text")) for row in ordered)
+            not full_text
+            or _NATIVE_WEEKDAY.search(full_text)
+            or _NATIVE_KW_LABEL.search(full_text)
+            or _NATIVE_DISCLAIMER.search(full_text)
         ):
             continue
-        block_bbox = _bbox_union_normalized([row["bbox"] for row in ordered])
-        gap = _bbox_gap_distance(block_bbox, anchor_bbox)
-        if gap > NATIVE_PRICE_GROUP_RADIUS:
+
+        local_rows = []
+        for row in ordered:
+            cx, cy = _bbox_center(row["bbox"])
+            if not (local_x0 <= cx <= local_x1 and local_y0 <= cy <= local_y1):
+                continue
+            if _bbox_gap_distance(row["bbox"], visual_bbox) > NATIVE_PRICE_GROUP_RADIUS:
+                continue
+            local_rows.append(row)
+        if not local_rows or not any(
+            _product_text_token(row.get("text")) for row in local_rows
+        ):
             continue
-        score = gap * 2.0 + _bbox_distance(block_bbox, anchor_bbox) * 0.35
-        choices.append((score, block_no, ordered, text))
+
+        text = " ".join(str(row.get("text") or "") for row in local_rows).strip()
+        block_bbox = _bbox_union_normalized([row["bbox"] for row in local_rows])
+        gap = _bbox_gap_distance(block_bbox, visual_bbox)
+        score = gap * 2.0 + _bbox_distance(block_bbox, visual_bbox) * 0.35
+        choices.append((score, block_no, local_rows, text))
 
     if not choices:
         return None
     choices.sort(key=lambda row: (row[0], row[1]))
     _, _, ordered, text = choices[0]
     return ordered, text
-
 
 def _product_image_candidate(row: dict) -> bool:
     if not _substantive_native_image(row):
@@ -294,12 +320,7 @@ def _native_product_card_candidates(
     images: list[dict],
     primary_price_candidates: list[dict],
 ) -> list[dict]:
-    """Build strict Review-only product-card geometry from price + image + text.
-
-    Product imagery is associated first because booklet titles can be much
-    closer to a neighbouring price than to their own price. Product text is
-    then selected relative to the observed image+price visual region.
-    """
+    """Build strict Review-only product-card geometry from price + image + text."""
     if not primary_price_candidates:
         return []
 
@@ -310,10 +331,29 @@ def _native_product_card_candidates(
     if not eligible:
         return []
 
+    images_by_price: dict[str, list[dict]] = {row["region_id"]: [] for row in eligible}
+    for image in images:
+        if not _product_image_candidate(image):
+            continue
+        owner = min(
+            eligible,
+            key=lambda row: (
+                _bbox_distance(image["bbox"], row["bbox"]),
+                row["region_id"],
+            ),
+        )
+        if (
+            _bbox_distance(image["bbox"], owner["bbox"])
+            <= NATIVE_PRODUCT_IMAGE_OWNER_RADIUS
+            and _bbox_gap_distance(image["bbox"], owner["bbox"])
+            <= NATIVE_PRODUCT_IMAGE_MAX_GAP
+        ):
+            images_by_price[owner["region_id"]].append(image)
+
     accepted: list[dict] = []
     for anchor in eligible:
         ranked_images = sorted(
-            [row for row in images if _product_image_candidate(row)],
+            images_by_price[anchor["region_id"]],
             key=lambda row: (
                 _bbox_gap_distance(row["bbox"], anchor["bbox"]),
                 _bbox_distance(row["bbox"], anchor["bbox"]),
@@ -324,8 +364,6 @@ def _native_product_card_candidates(
         if not ranked_images:
             continue
         image = ranked_images[0]
-        if _bbox_gap_distance(image["bbox"], anchor["bbox"]) > NATIVE_PRODUCT_IMAGE_MAX_GAP:
-            continue
 
         visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
         selected_text = _product_text_block(
