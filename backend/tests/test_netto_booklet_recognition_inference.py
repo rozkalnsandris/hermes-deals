@@ -15,6 +15,9 @@ from netto_booklet_recognition_inference import (
     _json_value,
     _normalized_bbox,
     _normalized_visible_image_bbox,
+    _date_price_region_ids,
+    _native_layout_regions,
+    _native_product_card_candidates,
     _read_pdf,
     _validate_florence_generation,
     native_page_structure,
@@ -334,3 +337,179 @@ def test_native_image_bbox_rejects_nonintersecting_or_degenerate_rectangles():
 def test_native_text_bbox_remains_strict_outside_page():
     with pytest.raises(InferenceRunnerError, match="outside page"):
         _normalized_bbox([-1, 10, 40, 50], 300, 420)
+
+
+
+def _native_row(region_id, text, bbox, block_no, line_no=0, word_no=0):
+    return {
+        "region_id": region_id,
+        "text": text,
+        "bbox": bbox,
+        "block_no": block_no,
+        "line_no": line_no,
+        "word_no": word_no,
+        "state": "REVIEW_ONLY",
+    }
+
+
+def _native_price(region_id, text, bbox):
+    return {
+        "region_id": region_id,
+        "text": text,
+        "bbox": bbox,
+        "basis": "native_pdf_price_like_token",
+        "product_boundary_proven": False,
+        "verified_product_identity": None,
+        "hermes_offer_link": None,
+        "state": "REVIEW_ONLY",
+    }
+
+
+def test_product_card_v2_excludes_validity_dates_and_uses_text_image_price_union():
+    words = [
+        _native_row("date-a", "Donnerstag", [0.28, 0.01, 0.11, 0.02], 1, 0, 0),
+        _native_row("date-b", "12.11", [0.40, 0.01, 0.06, 0.02], 1, 0, 1),
+        _native_row("date-c", "Samstag", [0.48, 0.01, 0.08, 0.02], 1, 0, 2),
+        _native_row("date-d", "14.11", [0.58, 0.01, 0.06, 0.02], 1, 0, 3),
+        _native_row("title", "Hähnchen-Brustfilet", [0.522, 0.543, 0.136, 0.013], 2),
+        _native_row("meta", "mager", [0.522, 0.557, 0.04, 0.011], 2, 1, 0),
+        _native_row("price", "7.99*", [0.858, 0.500, 0.082, 0.051], 4),
+    ]
+    prices = [
+        _native_price("date-b", "12.11", [0.40, 0.01, 0.06, 0.02]),
+        _native_price("date-d", "14.11", [0.58, 0.01, 0.06, 0.02]),
+        _native_price("price", "7.99*", [0.858, 0.500, 0.082, 0.051]),
+    ]
+    images = [{
+        "region_id": "product-image",
+        "bbox": [0.522, 0.298, 0.444, 0.231],
+        "pixel_width": 525,
+        "pixel_height": 383,
+        "xref": 7820,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
+
+    assert _date_price_region_ids(words, prices) == {"date-b", "date-d"}
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["price_region_id"] == "price"
+    assert card["product_text"] == "Hähnchen-Brustfilet mager"
+    assert card["product_image_region_id"] == "product-image"
+    assert card["basis"] == "native_pdf_product_text_image_price_card_v2"
+    assert card["card_bbox"][0] <= 0.522
+    assert card["card_bbox"][1] <= 0.298
+    assert card["card_bbox"][0] + card["card_bbox"][2] >= 0.940
+    assert card["card_bbox"][1] + card["card_bbox"][3] >= 0.568
+    assert card["product_boundary_proven"] is False
+    assert card["verified_product_identity"] is None
+    assert card["hermes_offer_link"] is None
+
+
+def test_product_card_v2_rejects_isolated_price_without_product_text_or_image():
+    words = [_native_row("price", "1.99", [0.80, 0.70, 0.08, 0.05], 1)]
+    prices = [_native_price("price", "1.99", [0.80, 0.70, 0.08, 0.05])]
+    assert _native_product_card_candidates(words, [], prices) == []
+
+
+def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
+    words = [
+        _native_row("title", "KW 46 / KiErhHaBo", [0.50, 0.80, 0.20, 0.02], 2),
+        _native_row("price", "5.99", [0.86, 0.88, 0.08, 0.05], 3),
+    ]
+    prices = [_native_price("price", "5.99", [0.86, 0.88, 0.08, 0.05])]
+    images = [{
+        "region_id": "product-image",
+        "bbox": [0.66, 0.73, 0.22, 0.20],
+        "pixel_width": 262,
+        "pixel_height": 331,
+        "xref": 1,
+        "digest": "bb",
+        "state": "REVIEW_ONLY",
+    }]
+    assert _native_product_card_candidates(words, images, prices) == []
+
+
+
+def test_product_card_v2_uses_single_price_filled_region_for_neighbouring_products():
+    words = [
+        _native_row("butter-title", "Meggle Butter", [0.05, 0.50, 0.22, 0.04], 1),
+        _native_row("butter-price", "0.99", [0.38, 0.52, 0.09, 0.05], 2),
+        _native_row("wine-title", "Rotkäppchen Sekt", [0.05, 0.88, 0.12, 0.04], 3),
+        _native_row("wine-price", "2.99*", [0.38, 0.87, 0.09, 0.05], 4),
+        _native_row("water-title", "Rheinfels Mineralwasser", [0.53, 0.88, 0.18, 0.04], 5),
+        _native_row("water-price", "4.49", [0.85, 0.90, 0.09, 0.05], 6),
+    ]
+    prices = [
+        _native_price("butter-price", "0.99", [0.38, 0.52, 0.09, 0.05]),
+        _native_price("wine-price", "2.99*", [0.38, 0.87, 0.09, 0.05]),
+        _native_price("water-price", "4.49", [0.85, 0.90, 0.09, 0.05]),
+    ]
+    images = [
+        {
+            "region_id": "butter-image",
+            "bbox": [0.08, 0.34, 0.29, 0.17],
+            "pixel_width": 350, "pixel_height": 240, "xref": 1,
+            "digest": "aa", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "wine-image",
+            "bbox": [0.27, 0.60, 0.14, 0.33],
+            "pixel_width": 170, "pixel_height": 550, "xref": 2,
+            "digest": "bb", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "water-image",
+            "bbox": [0.65, 0.62, 0.26, 0.25],
+            "pixel_width": 300, "pixel_height": 420, "xref": 3,
+            "digest": "cc", "state": "REVIEW_ONLY",
+        },
+    ]
+    regions = [
+        [0.035, 0.2179, 0.4625, 0.3679],
+        [0.5125, 0.2179, 0.4525, 0.3679],
+        [0.035, 0.5964, 0.4625, 0.3643],
+        [0.5125, 0.5964, 0.4525, 0.3643],
+    ]
+
+    cards = _native_product_card_candidates(words, images, prices, regions)
+    by_price = {row["price_text"]: row for row in cards}
+    assert by_price["2.99*"]["product_text"] == "Rotkäppchen Sekt"
+    assert by_price["2.99*"]["product_image_region_id"] == "wine-image"
+    assert by_price["2.99*"]["card_bbox"] == regions[2]
+    assert by_price["2.99*"]["layout_region_bound"] is True
+    assert "Meggle" not in by_price["2.99*"]["product_text"]
+    assert "Rheinfels" not in by_price["2.99*"]["product_text"]
+
+
+
+
+def test_native_layout_regions_keep_substantial_filled_card_rectangles_only():
+    class PointRect:
+        def __init__(self, x0, y0, x1, y1):
+            self.x0, self.y0, self.x1, self.y1 = x0, y0, x1, y1
+
+    class FakePage:
+        def get_drawings(self):
+            return [
+                {
+                    "fill": (1.0, 0.9, 0.0),
+                    "items": [("re", PointRect(10, 80, 150, 260), 1)],
+                },
+                {
+                    "fill": (1.0, 0.0, 0.0),
+                    "items": [("re", PointRect(250, 20, 285, 55), 1)],
+                },
+                {
+                    "fill": (1.0, 1.0, 1.0),
+                    "items": [("re", PointRect(0, 0, 300, 420), 1)],
+                },
+                {
+                    "fill": None,
+                    "items": [("re", PointRect(160, 80, 290, 260), 1)],
+                },
+            ]
+
+    regions = _native_layout_regions(FakePage(), 300.0, 420.0)
+    assert regions == [[0.033333, 0.190476, 0.466667, 0.428571]]
