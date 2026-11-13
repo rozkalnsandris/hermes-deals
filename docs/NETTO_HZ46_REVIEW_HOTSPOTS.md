@@ -71,9 +71,80 @@ Review buttons are visually distinct and the dialog explicitly says the
 product, price, and Hermes relationship are unverified. Jinja escaping and
 JavaScript `textContent` remain the text boundary.
 
+## Accepted v1 UI proof
+
+The v1 price-group layer is intentionally not the final product-card UX. Its
+purpose was to prove the retained PDF → publication-page projection → browser
+click chain without inventing product identity. On 2026-11-13 the live canary
+confirmed all 686 Review-only v1 markers render, and candidate `p001-g002`
+opened the expected unverified Hähnchen-Brustfilet dialog. That acceptance is
+recorded on #1069.
+
+## Product-card Review v2 source lane
+
+V2 keeps price geometry only as an anchor and derives a larger Review-only card
+from source-native PDF structure. PyMuPDF documents positional word extraction
+through `Page.get_text("words")`, drawing geometry through
+`Page.get_drawings()`, and image geometry through page image information.
+Those spatial APIs are used instead of assuming PDF text extraction order is the
+visual product order.
+
+References:
+- https://pymupdf.readthedocs.io/en/latest/textpage.html
+- https://pymupdf.readthedocs.io/en/latest/page.html
+- https://pymupdf.readthedocs.io/en/latest/app1.html
+
+The v2 rules are deliberately conservative:
+
+- a prominent price-like token is only an anchor; calendar-looking values are
+  excluded when their source text block contains weekday/year/multiple-date
+  context;
+- a candidate also requires substantive product text and a substantive embedded
+  image; isolated prices, `KW` labels, legal disclaimers and note-only text do
+  not become cards;
+- substantial filled PDF rectangles are treated as hard card containers only
+  when the rectangle contains exactly one primary price anchor. In that case the
+  clickable Review rectangle is the PDF card rectangle itself;
+- otherwise v2 falls back to a bounded price + image + local-text union and may
+  reject the candidate when ownership remains ambiguous;
+- every output remains `REVIEW_ONLY`, with
+  `product_boundary_proven=false`, no verified product identity and no Hermes
+  offer link.
+
+The exporter is
+`tools/netto_pdf_product_card_review_export.py` and writes the separate
+`hermes.netto.pdf_product_card_review_markers.v2` evidence format. It does not
+overwrite the accepted v1 marker manifest.
+
+### Representative HZ46 evidence
+
+Read-only evidence used the exact retained HZ46 PDF plus the retained native
+word/image/price geometry for pages 1, 4, 20, 40 and 60. PDF filled rectangles
+were independently cross-checked with `mutool trace`; this was evidence only,
+not a second production parser.
+
+| PDF page | Primary price anchors | V2 Review cards | Notes |
+| --- | ---: | ---: | --- |
+| 1 | 4 | 4 | Four separate filled product cards. Hähnchen 7.99, Rheinfels 4.49, Rotkäppchen/Sekt 2.99 and Meggle Butter 0.99 remain in the correct card. |
+| 4 | 7 | 7 | The one large filled region contains multiple prices, so it is not trusted as a hard card; bounded fallback produced seven product-like Review cards. |
+| 20 | 7 | 5 | Two ambiguous anchors fail closed; five plant product cards remain. |
+| 40 | 4 | 3 | Legal/disclaimer text is not accepted as a product title; three product cards remain. |
+| 60 | 6 | 3 | Dense Energy Drink layout remains conservative: three candidates are accepted and three stay unclickable rather than being guessed. |
+
+The older v1 analyzer had examples where validity dates such as `12.11` and
+`14.11` were price-like groups. The retained v2 native sample does not expose
+those date tokens as primary anchors, so the contextual date exclusion is
+covered by a focused regression test rather than reported as an actual v2 page
+count.
+
+This is representative geometry evidence, not full 80-page v2 coverage and not
+runtime activation.
+
 ## Next gate
 
-After source review/merge, deploy the merged source under a separate LIVE
-authorization, re-verify the exact runtime projection SHA, and repeat the
-read-only HZ46 UI canary. No DB, collector, offer mapping, product identity, or
-Review/publication write is implied by this source fix.
+After source review/merge, generate a fresh v2 marker manifest from the exact
+retained HZ46 PDF in an approved read-only PyMuPDF execution environment and
+audit the full 80 pages before any projection or UI activation. V1 stays active
+until that separate evidence gate passes. No DB, collector, offer mapping,
+product identity, Review/publication write or LIVE activation is authorized by
+this source lane.
