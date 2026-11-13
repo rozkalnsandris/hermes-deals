@@ -167,3 +167,95 @@ def test_swapped_page_identity_fails_closed():
             slug="hz46_hasb_4", review_markers_sha256=MARKERS,
             alignment_review_sha256=ALIGN, image_manifest_sha256=IMG,
         )
+
+
+
+def product_card_fixture():
+    markers, alignment, images = fixture()
+    markers["format"] = "hermes.netto.pdf_product_card_review_markers.v2"
+    markers["verified_product_identities"] = 0
+    markers["product_boundaries_proven"] = 0
+    row = markers["pages"][0]["candidates"][0]
+    row.update({
+        "candidate_id": "c001",
+        "source_candidate_id": "native-card-1",
+        "source_price_region_id": "native-word-7",
+        "source_product_image_region_id": "native-image-3",
+        "marker_basis": "observed_pdf_product_card_candidate",
+        "product_boundary_proven": False,
+    })
+    row["marker_bbox"] = [0.08, 0.12, 0.42, 0.31]
+    row["candidate_text_unverified"] = "Hähnchen-Brustfilet mager 1 kg"
+    return markers, alignment, images
+
+
+def test_product_card_v2_projects_whole_card_geometry_and_provenance_only():
+    result = build_projection(
+        *product_card_fixture(),
+        store_id="5659",
+        group="regionale-hz",
+        slug="hz46_hasb_4",
+        review_markers_sha256=MARKERS,
+        alignment_review_sha256=ALIGN,
+        image_manifest_sha256=IMG,
+    )
+
+    assert result["format"] == "hermes.netto.pdf_product_card_review_projection.v2"
+    assert result["product_boundaries_proven"] == 0
+    assert result["automatic_offer_links"] == 0
+    assert result["verified_product_identities"] == 0
+    row = result["pages"][0]["candidates"][0]
+    assert row["candidate_id"] == "p001-c001"
+    assert row["source_candidate_id"] == "c001"
+    assert row["native_source_candidate_id"] == "native-card-1"
+    assert row["source_price_region_id"] == "native-word-7"
+    assert row["source_product_image_region_id"] == "native-image-3"
+    assert row["rectangle"] == {
+        "left": .08,
+        "top": .12,
+        "width": .42,
+        "height": .31,
+    }
+    assert row["source"] == "pdf_product_card_review_only"
+    assert row["product_boundary_proven"] is False
+    assert row["hermes_offer_link"] is None
+    assert row["verified_product_identity"] is None
+
+
+@pytest.mark.parametrize("field,value", [
+    ("product_boundary_proven", True),
+    ("hermes_offer_link", "/fake"),
+    ("verified_product_identity", "fake"),
+])
+def test_product_card_v2_cannot_promote_identity_or_boundary(field, value):
+    markers, alignment, images = product_card_fixture()
+    markers["pages"][0]["candidates"][0][field] = value
+    with pytest.raises(ReviewProjectionError):
+        build_projection(
+            markers,
+            alignment,
+            images,
+            store_id="5659",
+            group="regionale-hz",
+            slug="hz46_hasb_4",
+            review_markers_sha256=MARKERS,
+            alignment_review_sha256=ALIGN,
+            image_manifest_sha256=IMG,
+        )
+
+
+def test_product_card_v2_requires_native_source_provenance():
+    markers, alignment, images = product_card_fixture()
+    markers["pages"][0]["candidates"][0]["source_product_image_region_id"] = ""
+    with pytest.raises(ReviewProjectionError, match="source provenance"):
+        build_projection(
+            markers,
+            alignment,
+            images,
+            store_id="5659",
+            group="regionale-hz",
+            slug="hz46_hasb_4",
+            review_markers_sha256=MARKERS,
+            alignment_review_sha256=ALIGN,
+            image_manifest_sha256=IMG,
+        )
