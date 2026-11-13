@@ -736,6 +736,23 @@ def test_product_card_v2_uses_single_price_filled_region_for_neighbouring_produc
 
 
 
+def test_product_card_v3_rejects_image_spilling_outside_single_price_region():
+    words = [
+        _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.08, 0.12, 0.03], 1),
+        _native_row("price", "3.99", [0.60, 0.22, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "3.99", [0.60, 0.22, 0.08, 0.05])]
+    images = [{
+        "region_id": "spillover-image",
+        "bbox": [0.50, 0.08, 0.18, 0.34],
+        "pixel_width": 320, "pixel_height": 560, "xref": 1,
+        "digest": "aa", "state": "REVIEW_ONLY",
+    }]
+    regions = [[0.45, 0.05, 0.30, 0.30]]
+
+    assert _native_product_card_candidates(words, images, prices, regions) == []
+
+
 def test_product_card_v3_prefers_compact_evidence_over_nearer_lifestyle_image():
     words = [
         _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.55, 0.12, 0.03], 1),
