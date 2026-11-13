@@ -18,6 +18,7 @@ from netto_booklet_recognition_inference import (
     _date_price_region_ids,
     _native_layout_regions,
     _native_product_card_candidates,
+    _filter_ambiguous_product_cards,
     _read_pdf,
     _validate_florence_generation,
     native_page_structure,
@@ -512,6 +513,76 @@ def test_product_card_v2_rejects_isolated_price_without_product_text_or_image():
     words = [_native_row("price", "1.99", [0.80, 0.70, 0.08, 0.05], 1)]
     prices = [_native_price("price", "1.99", [0.80, 0.70, 0.08, 0.05])]
     assert _native_product_card_candidates(words, [], prices) == []
+
+
+def test_product_card_v2_rejects_nonproduct_discount_copy_and_local_online_only_context():
+    price = _native_price("price", "0.99*", [0.82, 0.72, 0.08, 0.05])
+    image = [{
+        "region_id": "product-image",
+        "bbox": [0.60, 0.58, 0.22, 0.20],
+        "pixel_width": 260,
+        "pixel_height": 300,
+        "xref": 1,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
+
+    discount_words = [
+        _native_row("copy", "pro Liter gespart -80 -80%", [0.60, 0.70, 0.18, 0.04], 1),
+        _native_row("price", "0.99*", [0.82, 0.72, 0.08, 0.05], 2),
+    ]
+    assert _native_product_card_candidates(discount_words, image, [price]) == []
+
+    online_words = [
+        _native_row("online", "nur online", [0.58, 0.52, 0.10, 0.03], 1),
+        _native_row("title", "Carport 5 x 3 m", [0.60, 0.68, 0.18, 0.04], 2),
+        _native_row("price", "0.99*", [0.82, 0.72, 0.08, 0.05], 3),
+    ]
+    assert _native_product_card_candidates(online_words, image, [price]) == []
+
+
+def test_product_card_v2_filters_shared_text_ownership_and_overlap_conflicts():
+    shared_a = {
+        "candidate_id": "native-card-1",
+        "product_text_region_ids": ["title-1", "title-2"],
+        "card_bbox": [0.05, 0.05, 0.30, 0.20],
+        "layout_region_bound": False,
+    }
+    shared_b = {
+        "candidate_id": "native-card-2",
+        "product_text_region_ids": ["title-1", "title-2"],
+        "card_bbox": [0.40, 0.05, 0.30, 0.20],
+        "layout_region_bound": False,
+    }
+    assert _filter_ambiguous_product_cards([shared_a, shared_b]) == []
+
+    hard = {
+        "candidate_id": "native-card-1",
+        "product_text_region_ids": ["hard-title"],
+        "card_bbox": [0.05, 0.05, 0.30, 0.30],
+        "layout_region_bound": True,
+    }
+    fallback = {
+        "candidate_id": "native-card-2",
+        "product_text_region_ids": ["fallback-title"],
+        "card_bbox": [0.20, 0.05, 0.30, 0.30],
+        "layout_region_bound": False,
+    }
+    assert _filter_ambiguous_product_cards([hard, fallback]) == [hard]
+
+    fallback_a = {
+        "candidate_id": "native-card-1",
+        "product_text_region_ids": ["a-title"],
+        "card_bbox": [0.05, 0.05, 0.30, 0.30],
+        "layout_region_bound": False,
+    }
+    fallback_b = {
+        "candidate_id": "native-card-2",
+        "product_text_region_ids": ["b-title"],
+        "card_bbox": [0.20, 0.05, 0.30, 0.30],
+        "layout_region_bound": False,
+    }
+    assert _filter_ambiguous_product_cards([fallback_a, fallback_b]) == []
 
 
 def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
