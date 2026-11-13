@@ -607,6 +607,39 @@ def test_product_card_v2_skips_promo_copy_and_selects_real_product_title():
     assert cards[0]["product_text"] == "Bio Mozzarella"
 
 
+def test_product_card_v2_skips_legal_and_attribute_copy_for_real_title():
+    words = [
+        _native_row(
+            "legal",
+            "Abgabe nur in haushaltsüblichen Mengen",
+            [0.66, 0.63, 0.20, 0.03],
+            1,
+        ),
+        _native_row("attribute", "mit LED-Licht", [0.68, 0.60, 0.10, 0.03], 2),
+        _native_row(
+            "title",
+            "Akku-Handstaubsauger",
+            [0.58, 0.56, 0.16, 0.03],
+            3,
+        ),
+        _native_row("price", "39.99", [0.82, 0.70, 0.08, 0.05], 4),
+    ]
+    prices = [_native_price("price", "39.99", [0.82, 0.70, 0.08, 0.05])]
+    images = [{
+        "region_id": "product-image",
+        "bbox": [0.60, 0.48, 0.20, 0.18],
+        "pixel_width": 240,
+        "pixel_height": 260,
+        "xref": 1,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
+
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    assert cards[0]["product_text"] == "Akku-Handstaubsauger"
+
+
 def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
     words = [
         _native_row("title", "KW 46 / KiErhHaBo", [0.50, 0.80, 0.20, 0.02], 2),
