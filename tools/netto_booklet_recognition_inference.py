@@ -393,103 +393,202 @@ def _product_text_rejection_reasons(text: str, rows: list[dict]) -> list[str]:
     return reasons
 
 
+def _printed_price_value(text: object) -> float | None:
+    value = str(text or "").replace("€", "").strip().rstrip("*")
+    match = re.fullmatch(r"(\d{1,3})[.,](\d{2})", value)
+    if match is None:
+        return None
+    return int(match.group(1)) + int(match.group(2)) / 100
+
+
+def _price_text_unit_price_evidence(
+    product_text: str,
+    price_text: object,
+) -> dict:
+    """Verify printed price from pack mass and explicit per-kilogram price."""
+    printed_price = _printed_price_value(price_text)
+    unit_match = re.search(
+        r"\((\d{1,3}[.,]\d{2})\s*/\s*kg\)",
+        product_text,
+        re.I,
+    )
+    if printed_price is None or unit_match is None:
+        return {
+            "state": "UNAVAILABLE",
+            "expected_total": None,
+            "delta": None,
+            "quantity_kg": None,
+            "unit_price_per_kg": None,
+        }
+
+    prefix = product_text[:unit_match.start()]
+    mass_matches = list(
+        re.finditer(
+            r"(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(kg|g)\b",
+            prefix,
+            re.I,
+        )
+    )
+    if not mass_matches:
+        return {
+            "state": "UNAVAILABLE",
+            "expected_total": None,
+            "delta": None,
+            "quantity_kg": None,
+            "unit_price_per_kg": None,
+        }
+
+    mass = mass_matches[-1]
+    quantity = float(mass.group(1).replace(",", "."))
+    unit = mass.group(2).casefold()
+    quantity_kg = quantity if unit == "kg" else quantity / 1000
+    if not 0 < quantity_kg <= 50:
+        return {
+            "state": "UNAVAILABLE",
+            "expected_total": None,
+            "delta": None,
+            "quantity_kg": None,
+            "unit_price_per_kg": None,
+        }
+
+    unit_price = float(unit_match.group(1).replace(",", "."))
+    expected_total = quantity_kg * unit_price
+    delta = abs(expected_total - printed_price)
+    return {
+        "state": "MATCH" if delta <= 0.02 + 1e-9 else "MISMATCH",
+        "expected_total": round(expected_total, 4),
+        "delta": round(delta, 4),
+        "quantity_kg": round(quantity_kg, 6),
+        "unit_price_per_kg": round(unit_price, 4),
+    }
+
+
 def _minimum_cost_price_text_assignment(
     price_ids: list[str],
     alternatives_by_price: dict[str, list[dict]],
 ) -> dict[str, tuple[str, ...]]:
-    """Return maximum-cardinality, minimum-cost one-to-one price/text matching."""
-    text_keys = sorted({
-        tuple(alt["product_text_region_ids"])
-        for price_id in price_ids
-        for alt in alternatives_by_price.get(price_id, [])
-        if alt["eligible"]
-    })
-    if not price_ids or not text_keys:
-        return {}
+    """Prefer arithmetic price proof, then resolve remaining geometry globally."""
 
-    source = 0
-    price_offset = 1
-    text_offset = price_offset + len(price_ids)
-    sink = text_offset + len(text_keys)
-    graph: list[list[list[int]]] = [[] for _ in range(sink + 1)]
-
-    def add_edge(left: int, right: int, capacity: int, cost: int) -> int:
-        forward = [right, len(graph[right]), capacity, cost]
-        reverse = [left, len(graph[left]), 0, -cost]
-        graph[left].append(forward)
-        graph[right].append(reverse)
-        return len(graph[left]) - 1
-
-    price_index = {value: index for index, value in enumerate(price_ids)}
-    text_index = {value: index for index, value in enumerate(text_keys)}
-    for price_id, index in price_index.items():
-        add_edge(source, price_offset + index, 1, 0)
-    for text_key, index in text_index.items():
-        add_edge(text_offset + index, sink, 1, 0)
-
-    edge_refs: dict[tuple[str, tuple[str, ...]], tuple[int, int]] = {}
-    for price_id in price_ids:
-        eligible = [
-            alt for alt in alternatives_by_price.get(price_id, [])
+    def solve(
+        solve_price_ids: list[str],
+        solve_alternatives: dict[str, list[dict]],
+    ) -> dict[str, tuple[str, ...]]:
+        text_keys = sorted({
+            tuple(alt["product_text_region_ids"])
+            for price_id in solve_price_ids
+            for alt in solve_alternatives.get(price_id, [])
             if alt["eligible"]
-        ]
-        eligible.sort(
-            key=lambda alt: (
-                float(alt["selection_score"]),
-                tuple(alt["product_text_region_ids"]),
+        })
+        if not solve_price_ids or not text_keys:
+            return {}
+
+        source = 0
+        price_offset = 1
+        text_offset = price_offset + len(solve_price_ids)
+        sink = text_offset + len(text_keys)
+        graph: list[list[list[int]]] = [[] for _ in range(sink + 1)]
+
+        def add_edge(left: int, right: int, capacity: int, cost: int) -> int:
+            forward = [right, len(graph[right]), capacity, cost]
+            reverse = [left, len(graph[left]), 0, -cost]
+            graph[left].append(forward)
+            graph[right].append(reverse)
+            return len(graph[left]) - 1
+
+        price_index = {value: index for index, value in enumerate(solve_price_ids)}
+        text_index = {value: index for index, value in enumerate(text_keys)}
+        for price_id, index in price_index.items():
+            add_edge(source, price_offset + index, 1, 0)
+        for text_key, index in text_index.items():
+            add_edge(text_offset + index, sink, 1, 0)
+
+        edge_refs: dict[tuple[str, tuple[str, ...]], tuple[int, int]] = {}
+        for price_id in solve_price_ids:
+            eligible = [
+                alt for alt in solve_alternatives.get(price_id, [])
+                if alt["eligible"]
+            ]
+            eligible.sort(
+                key=lambda alt: (
+                    float(alt["selection_score"]),
+                    tuple(alt["product_text_region_ids"]),
+                )
             )
-        )
-        for rank, alt in enumerate(eligible):
-            text_key = tuple(alt["product_text_region_ids"])
-            left = price_offset + price_index[price_id]
-            right = text_offset + text_index[text_key]
-            scaled = int(round(float(alt["selection_score"]) * 1_000_000))
-            cost = scaled * 10_000 + rank
-            edge_index = add_edge(left, right, 1, cost)
-            edge_refs[(price_id, text_key)] = (left, edge_index)
+            for rank, alt in enumerate(eligible):
+                text_key = tuple(alt["product_text_region_ids"])
+                left = price_offset + price_index[price_id]
+                right = text_offset + text_index[text_key]
+                scaled = int(round(float(alt["selection_score"]) * 1_000_000))
+                cost = scaled * 10_000 + rank
+                edge_index = add_edge(left, right, 1, cost)
+                edge_refs[(price_id, text_key)] = (left, edge_index)
 
-    node_count = sink + 1
-    while True:
-        infinity = 10**30
-        distance = [infinity] * node_count
-        previous: list[tuple[int, int] | None] = [None] * node_count
-        queued = [False] * node_count
-        distance[source] = 0
-        queue = deque([source])
-        queued[source] = True
+        node_count = sink + 1
+        while True:
+            infinity = 10**30
+            distance = [infinity] * node_count
+            previous: list[tuple[int, int] | None] = [None] * node_count
+            queued = [False] * node_count
+            distance[source] = 0
+            queue = deque([source])
+            queued[source] = True
 
-        while queue:
-            left = queue.popleft()
-            queued[left] = False
-            for edge_index, edge in enumerate(graph[left]):
-                right, _, capacity, cost = edge
-                if capacity <= 0:
-                    continue
-                candidate = distance[left] + cost
-                if candidate >= distance[right]:
-                    continue
-                distance[right] = candidate
-                previous[right] = (left, edge_index)
-                if not queued[right]:
-                    queue.append(right)
-                    queued[right] = True
+            while queue:
+                left = queue.popleft()
+                queued[left] = False
+                for edge_index, edge in enumerate(graph[left]):
+                    right, _, capacity, cost = edge
+                    if capacity <= 0:
+                        continue
+                    candidate = distance[left] + cost
+                    if candidate >= distance[right]:
+                        continue
+                    distance[right] = candidate
+                    previous[right] = (left, edge_index)
+                    if not queued[right]:
+                        queue.append(right)
+                        queued[right] = True
 
-        if previous[sink] is None:
-            break
+            if previous[sink] is None:
+                break
 
-        node = sink
-        while node != source:
-            left, edge_index = previous[node]
-            edge = graph[left][edge_index]
-            edge[2] -= 1
-            reverse_index = edge[1]
-            graph[node][reverse_index][2] += 1
-            node = left
+            node = sink
+            while node != source:
+                left, edge_index = previous[node]
+                edge = graph[left][edge_index]
+                edge[2] -= 1
+                reverse_index = edge[1]
+                graph[node][reverse_index][2] += 1
+                node = left
 
-    selected = {}
-    for (price_id, text_key), (left, edge_index) in edge_refs.items():
-        if graph[left][edge_index][2] == 0:
-            selected[price_id] = text_key
+        selected = {}
+        for (price_id, text_key), (left, edge_index) in edge_refs.items():
+            if graph[left][edge_index][2] == 0:
+                selected[price_id] = text_key
+        return selected
+
+    proven_alternatives = {
+        price_id: [
+            alt for alt in alternatives_by_price.get(price_id, [])
+            if alt["eligible"] and alt.get("price_basis_state") == "MATCH"
+        ]
+        for price_id in price_ids
+    }
+    selected = solve(price_ids, proven_alternatives)
+    locked_texts = set(selected.values())
+
+    remaining_prices = [price_id for price_id in price_ids if price_id not in selected]
+    fallback_alternatives = {
+        price_id: [
+            alt for alt in alternatives_by_price.get(price_id, [])
+            if (
+                alt["eligible"]
+                and tuple(alt["product_text_region_ids"]) not in locked_texts
+            )
+        ]
+        for price_id in remaining_prices
+    }
+    selected.update(solve(remaining_prices, fallback_alternatives))
     return selected
 
 
@@ -544,11 +643,19 @@ def _native_price_text_candidates(
             block_bbox = _bbox_union_normalized([row["bbox"] for row in ordered])
             gap = _bbox_gap_distance(block_bbox, anchor["bbox"])
             distance = _bbox_distance(block_bbox, anchor["bbox"])
-            if gap > NATIVE_PRICE_GROUP_RADIUS and distance > NATIVE_PRICE_GROUP_RADIUS:
-                continue
 
             text = " ".join(str(row.get("text") or "") for row in ordered).strip()
             rejection_reasons = _product_text_rejection_reasons(text, ordered)
+            price_basis = _price_text_unit_price_evidence(text, anchor["text"])
+            if (
+                gap > NATIVE_PRICE_GROUP_RADIUS
+                and distance > NATIVE_PRICE_GROUP_RADIUS
+                and price_basis["state"] != "MATCH"
+            ):
+                continue
+            if price_basis["state"] == "MISMATCH":
+                rejection_reasons.append("printed_price_unit_price_mismatch")
+
             score = gap * 2.0 + distance * 0.65
             alternatives.append({
                 "block_no": block_no,
@@ -558,6 +665,11 @@ def _native_price_text_candidates(
                 "gap_to_price": round(gap, 6),
                 "center_distance_to_price": round(distance, 6),
                 "selection_score": round(score, 9),
+                "price_basis_state": price_basis["state"],
+                "price_basis_expected_total": price_basis["expected_total"],
+                "price_basis_delta": price_basis["delta"],
+                "price_basis_quantity_kg": price_basis["quantity_kg"],
+                "price_basis_unit_price_per_kg": price_basis["unit_price_per_kg"],
                 "eligible": not rejection_reasons,
                 "rejection_reasons": rejection_reasons,
             })
