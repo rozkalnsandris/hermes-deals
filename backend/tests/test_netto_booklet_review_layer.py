@@ -110,3 +110,37 @@ def test_corrupt_or_promotable_projection_fails_closed(tmp_path, monkeypatch):
     path.write_bytes(raw)
     trust["projection_sha256"] = sha256(raw).hexdigest()
     assert call() == {}
+
+
+def test_template_escapes_review_text_and_exposes_no_offer_link():
+    from pathlib import Path
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    root = Path(__file__).resolve().parents[2] / "backend/app/north_star/templates"
+    env = Environment(loader=FileSystemLoader(root), autoescape=select_autoescape(["html"]))
+    rendered = env.get_template("booklets.html").render(
+        booklet={
+            "state": "ready", "swipeable": True, "retailer_id": "netto",
+            "retailer_name": "Netto", "store_name": "5659", "valid_label": "12–14",
+            "source_url": "https://wochenprospekt.netto-online.de/hz46_hasb_4/?storeid=5659",
+            "image_url": "https://view.publitas.com/p/1-at1600.jpg",
+            "page": 1, "page_count": 1, "previous_href": None, "next_href": None,
+            "offers": [], "pages": [{
+                "number": 1, "href": "/ui/home/?view=booklets",
+                "image_url": "https://view.publitas.com/p/1-at1600.jpg",
+                "publisher_hotspots": [],
+                "review_hotspots": [{
+                    "title": "<b>Unsafe</b>", "printed_prices": ["1.99"],
+                    "rectangle": {"left": .1, "top": .2, "width": .3, "height": .1},
+                }],
+            }],
+        },
+        booklet_retailers=[("netto", "Netto")], selected_date="2026-11-12",
+        base_path="/ui/home", view="booklets", csrf_token="synthetic",
+    )
+    assert "data-booklet-review-hit" in rendered
+    assert "&lt;b&gt;Unsafe&lt;/b&gt;" in rendered
+    assert 'data-publisher-title="<b>' not in rendered
+    assert "PDF · REVIEW KANDIDĀTS" in rendered
+    assert "Iespējamā drukātā cena: 1.99" in rendered
+    assert "href=\"/fake\"" not in rendered
