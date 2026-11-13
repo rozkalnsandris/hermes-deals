@@ -14,6 +14,7 @@ from pathlib import Path
 import resource
 import re
 import math
+from collections import deque
 import tempfile
 import time
 
@@ -371,6 +372,284 @@ def _product_text_token(text: object) -> bool:
         and _NATIVE_ALPHA.search(token) is not None
         for token in tokens
     )
+
+
+def _product_text_rejection_reasons(text: str, rows: list[dict]) -> list[str]:
+    reasons = []
+    if not text:
+        reasons.append("empty_text")
+    if _NATIVE_WEEKDAY.search(text) or _NATIVE_KW_LABEL.search(text):
+        reasons.append("calendar_or_week_copy")
+    if _NATIVE_DISCLAIMER.search(text):
+        reasons.append("disclaimer_copy")
+    if _NATIVE_NONPRODUCT_NOTE.search(text):
+        reasons.append("nonproduct_note")
+    if _NATIVE_NONPRODUCT_CARD_COPY.search(text):
+        reasons.append("nonproduct_card_copy")
+    if _NATIVE_LOWERCASE_FRAGMENT.search(text):
+        reasons.append("lowercase_fragment")
+    if not any(_product_text_token(row.get("text")) for row in rows):
+        reasons.append("no_product_text_signal")
+    return reasons
+
+
+def _minimum_cost_price_text_assignment(
+    price_ids: list[str],
+    alternatives_by_price: dict[str, list[dict]],
+) -> dict[str, tuple[str, ...]]:
+    """Return maximum-cardinality, minimum-cost one-to-one price/text matching."""
+    text_keys = sorted({
+        tuple(alt["product_text_region_ids"])
+        for price_id in price_ids
+        for alt in alternatives_by_price.get(price_id, [])
+        if alt["eligible"]
+    })
+    if not price_ids or not text_keys:
+        return {}
+
+    source = 0
+    price_offset = 1
+    text_offset = price_offset + len(price_ids)
+    sink = text_offset + len(text_keys)
+    graph: list[list[list[int]]] = [[] for _ in range(sink + 1)]
+
+    def add_edge(left: int, right: int, capacity: int, cost: int) -> int:
+        forward = [right, len(graph[right]), capacity, cost]
+        reverse = [left, len(graph[left]), 0, -cost]
+        graph[left].append(forward)
+        graph[right].append(reverse)
+        return len(graph[left]) - 1
+
+    price_index = {value: index for index, value in enumerate(price_ids)}
+    text_index = {value: index for index, value in enumerate(text_keys)}
+    for price_id, index in price_index.items():
+        add_edge(source, price_offset + index, 1, 0)
+    for text_key, index in text_index.items():
+        add_edge(text_offset + index, sink, 1, 0)
+
+    edge_refs: dict[tuple[str, tuple[str, ...]], tuple[int, int]] = {}
+    for price_id in price_ids:
+        eligible = [
+            alt for alt in alternatives_by_price.get(price_id, [])
+            if alt["eligible"]
+        ]
+        eligible.sort(
+            key=lambda alt: (
+                float(alt["selection_score"]),
+                tuple(alt["product_text_region_ids"]),
+            )
+        )
+        for rank, alt in enumerate(eligible):
+            text_key = tuple(alt["product_text_region_ids"])
+            left = price_offset + price_index[price_id]
+            right = text_offset + text_index[text_key]
+            scaled = int(round(float(alt["selection_score"]) * 1_000_000))
+            cost = scaled * 10_000 + rank
+            edge_index = add_edge(left, right, 1, cost)
+            edge_refs[(price_id, text_key)] = (left, edge_index)
+
+    node_count = sink + 1
+    while True:
+        infinity = 10**30
+        distance = [infinity] * node_count
+        previous: list[tuple[int, int] | None] = [None] * node_count
+        queued = [False] * node_count
+        distance[source] = 0
+        queue = deque([source])
+        queued[source] = True
+
+        while queue:
+            left = queue.popleft()
+            queued[left] = False
+            for edge_index, edge in enumerate(graph[left]):
+                right, _, capacity, cost = edge
+                if capacity <= 0:
+                    continue
+                candidate = distance[left] + cost
+                if candidate >= distance[right]:
+                    continue
+                distance[right] = candidate
+                previous[right] = (left, edge_index)
+                if not queued[right]:
+                    queue.append(right)
+                    queued[right] = True
+
+        if previous[sink] is None:
+            break
+
+        node = sink
+        while node != source:
+            left, edge_index = previous[node]
+            edge = graph[left][edge_index]
+            edge[2] -= 1
+            reverse_index = edge[1]
+            graph[node][reverse_index][2] += 1
+            node = left
+
+    selected = {}
+    for (price_id, text_key), (left, edge_index) in edge_refs.items():
+        if graph[left][edge_index][2] == 0:
+            selected[price_id] = text_key
+    return selected
+
+
+def _native_price_text_candidates(
+    words: list[dict],
+    primary_price_candidates: list[dict],
+    layout_regions: list[list[float]] | None = None,
+) -> list[dict]:
+    """Preserve global Review-only price/text competition before image ownership."""
+    if not primary_price_candidates:
+        return []
+    layout_regions = list(layout_regions or [])
+    date_ids = _date_price_region_ids(words, primary_price_candidates)
+    eligible_prices = [
+        row for row in primary_price_candidates if row["region_id"] not in date_ids
+    ]
+    if not eligible_prices:
+        return []
+
+    by_block: dict[int, list[dict]] = {}
+    for row in words:
+        if _NATIVE_PRICE.fullmatch(str(row.get("text") or "").replace("€", "").strip()):
+            continue
+        by_block.setdefault(int(row["block_no"]), []).append(row)
+
+    alternatives_by_price: dict[str, list[dict]] = {}
+    for anchor in eligible_prices:
+        region = _single_price_layout_region(
+            anchor,
+            eligible_prices,
+            layout_regions,
+        )
+        alternatives = []
+        for block_no, block_rows in by_block.items():
+            ordered = sorted(
+                block_rows,
+                key=lambda row: (
+                    int(row.get("line_no") or 0),
+                    int(row.get("word_no") or 0),
+                    row["bbox"][1],
+                    row["bbox"][0],
+                ),
+            )
+            if region is not None:
+                ordered = [
+                    row for row in ordered
+                    if _bbox_contains_center(region, row["bbox"])
+                ]
+            if not ordered:
+                continue
+
+            block_bbox = _bbox_union_normalized([row["bbox"] for row in ordered])
+            gap = _bbox_gap_distance(block_bbox, anchor["bbox"])
+            distance = _bbox_distance(block_bbox, anchor["bbox"])
+            if gap > NATIVE_PRICE_GROUP_RADIUS and distance > NATIVE_PRICE_GROUP_RADIUS:
+                continue
+
+            text = " ".join(str(row.get("text") or "") for row in ordered).strip()
+            rejection_reasons = _product_text_rejection_reasons(text, ordered)
+            score = gap * 2.0 + distance * 0.65
+            alternatives.append({
+                "block_no": block_no,
+                "product_text": text,
+                "product_text_region_ids": [row["region_id"] for row in ordered],
+                "product_text_bbox": block_bbox,
+                "gap_to_price": round(gap, 6),
+                "center_distance_to_price": round(distance, 6),
+                "selection_score": round(score, 9),
+                "eligible": not rejection_reasons,
+                "rejection_reasons": rejection_reasons,
+            })
+        alternatives.sort(
+            key=lambda alt: (
+                not alt["eligible"],
+                float(alt["selection_score"]),
+                tuple(alt["product_text_region_ids"]),
+            )
+        )
+        alternatives_by_price[anchor["region_id"]] = alternatives
+
+    price_ids = [row["region_id"] for row in eligible_prices]
+    selected = _minimum_cost_price_text_assignment(
+        price_ids,
+        alternatives_by_price,
+    )
+
+    results = []
+    for index, anchor in enumerate(eligible_prices, 1):
+        selected_key = selected.get(anchor["region_id"])
+        selected_alt = None
+        rendered_alternatives = []
+        for alternative in alternatives_by_price[anchor["region_id"]]:
+            row = dict(alternative)
+            key = tuple(row["product_text_region_ids"])
+            if not row["eligible"]:
+                row["selection_state"] = "REJECTED"
+            elif key == selected_key:
+                row["selection_state"] = "SELECTED"
+                selected_alt = row
+            else:
+                row["selection_state"] = "NOT_SELECTED"
+                row["rejection_reasons"] = [
+                    *row["rejection_reasons"],
+                    "lost_global_price_text_competition",
+                ]
+            rendered_alternatives.append(row)
+
+        if selected_alt is None:
+            assignment_state = "UNRESOLVED"
+            product_text = None
+            text_ids = []
+            text_bbox = None
+            semantic_bbox = anchor["bbox"]
+            assignment_score = None
+            rejection_reasons = (
+                ["no_eligible_product_text_alternative"]
+                if not any(row["eligible"] for row in rendered_alternatives)
+                else ["global_price_text_competition_unresolved"]
+            )
+        else:
+            assignment_state = "SELECTED"
+            product_text = selected_alt["product_text"]
+            text_ids = selected_alt["product_text_region_ids"]
+            text_bbox = selected_alt["product_text_bbox"]
+            semantic_bbox = _expanded_normalized_bbox(
+                _bbox_union_normalized([anchor["bbox"], text_bbox]),
+                NATIVE_PRICE_GROUP_PADDING,
+            )
+            assignment_score = selected_alt["selection_score"]
+            rejection_reasons = []
+
+        results.append({
+            "candidate_id": f"native-price-text-{index}",
+            "price_region_id": anchor["region_id"],
+            "price_text": anchor["text"],
+            "price_bbox": anchor["bbox"],
+            "product_text": product_text,
+            "product_text_region_ids": text_ids,
+            "product_text_bbox": text_bbox,
+            "semantic_bbox": semantic_bbox,
+            "assignment_state": assignment_state,
+            "assignment_score": assignment_score,
+            "alternative_count": len(rendered_alternatives),
+            "alternatives": rendered_alternatives,
+            "image_state": "UNRESOLVED",
+            "product_image_region_id": None,
+            "product_image_bbox": None,
+            "basis": "native_pdf_price_text_candidate_v1",
+            "review_reasons": [
+                "product_boundary_review_only",
+                "product_identity_unverified",
+                "image_ownership_unresolved",
+            ],
+            "rejection_reasons": rejection_reasons,
+            "product_boundary_proven": False,
+            "verified_product_identity": None,
+            "hermes_offer_link": None,
+            "state": "REVIEW_ONLY",
+        })
+    return results
 
 
 def _product_text_block(
@@ -842,6 +1121,11 @@ def native_page_structure(page) -> dict:
         images,
         primary_price_candidates,
     )
+    price_text_candidates = _native_price_text_candidates(
+        words,
+        primary_price_candidates,
+        layout_regions,
+    )
     product_card_candidates = _native_product_card_candidates(
         words,
         images,
@@ -857,6 +1141,7 @@ def native_page_structure(page) -> dict:
         "price_candidates": price_candidates,
         "primary_price_candidates": primary_price_candidates,
         "price_anchor_candidates": price_anchor_candidates,
+        "price_text_candidates": price_text_candidates,
         "product_card_candidates": product_card_candidates,
         "date_price_region_ids_excluded": sorted(date_price_region_ids),
         "text_region_count": len(words),
@@ -865,6 +1150,15 @@ def native_page_structure(page) -> dict:
         "price_candidate_count": len(price_candidates),
         "primary_price_candidate_count": len(primary_price_candidates),
         "price_anchor_candidate_count": len(price_anchor_candidates),
+        "price_text_candidate_count": len(price_text_candidates),
+        "price_text_selected_count": sum(
+            1 for row in price_text_candidates
+            if row["assignment_state"] == "SELECTED"
+        ),
+        "price_text_unresolved_count": sum(
+            1 for row in price_text_candidates
+            if row["assignment_state"] == "UNRESOLVED"
+        ),
         "product_card_candidate_count": len(product_card_candidates),
         "date_price_candidate_count_excluded": len(date_price_region_ids),
         "product_boundaries_proven": 0,
