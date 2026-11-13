@@ -67,6 +67,8 @@
     const publisherDialog = reader?.querySelector('[data-booklet-publisher-dialog]');
     const publisherTitle = publisherDialog?.querySelector('[data-booklet-publisher-title]');
     const publisherDescription = publisherDialog?.querySelector('[data-booklet-publisher-description]');
+    const publisherEyebrow = publisherDialog?.querySelector('[data-booklet-publisher-eyebrow]');
+    const publisherNote = publisherDialog?.querySelector('[data-booklet-publisher-note]');
     if (!reader || !canvas || !image || !form || !select || !prev || !next ||
         !counter || !hud || !closeButton || !hudPrev || !hudNext || !hudCount ||
         !zoomIn || !zoomOut || !zoomLevel) return;
@@ -115,7 +117,8 @@
       publisherLayer.replaceChildren(...(source ? [...source.children].map(node => node.cloneNode(true)) : []));
       alignPublisherLayer();
     }
-    if (publisherLayer && publisherDialog && publisherTitle && publisherDescription) {
+    if (publisherLayer && publisherDialog && publisherTitle && publisherDescription &&
+        publisherEyebrow && publisherNote) {
       publisherLayer.addEventListener('click', event => {
         const button = event.target.closest('[data-booklet-publisher-hit]');
         if (!button) return;
@@ -123,6 +126,8 @@
         event.stopPropagation();
         publisherTitle.textContent = button.dataset.publisherTitle || '';
         publisherDescription.textContent = button.dataset.publisherDescription || '';
+        publisherEyebrow.textContent = button.dataset.publisherEyebrow || 'PUBLITAS · IZDEVĒJA INFORMĀCIJA';
+        publisherNote.textContent = button.dataset.publisherNote || 'Nav piesaistīts Hermes Deals produktam vai cenu vēsturei.';
         if (publisherDialog.showModal) publisherDialog.showModal();
       });
       publisherDialog.querySelector('[data-booklet-publisher-close]')

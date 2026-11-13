@@ -426,6 +426,14 @@ body.booklet-viewer-active { overflow:hidden!important; }
   outline:3px solid #f1cd44; outline-offset:1px; background:rgba(241,205,68,.20);
 }
 .booklet-reader.booklet-viewer-open .booklet-publisher-hit { color:white; border-color:rgba(241,205,68,.8); }
+.booklet-review-hit {
+  border-style:dashed; border-color:rgba(165,116,0,.9);
+  background:rgba(241,205,68,.12); color:#5b4300;
+}
+.booklet-review-hit:hover,.booklet-review-hit:focus-visible { background:rgba(241,205,68,.28); }
+.booklet-reader.booklet-viewer-open .booklet-review-hit {
+  color:white; border-color:rgba(255,219,88,.95); background:rgba(241,205,68,.16);
+}
 .booklet-publisher-dialog { z-index:1300; max-width:min(440px,calc(100vw - 32px)); max-height:80dvh; border:0; border-radius:15px; padding:25px; }
 .booklet-publisher-dialog::backdrop { background:rgba(0,0,0,.65); }
 .booklet-publisher-dialog [data-booklet-publisher-close] { float:right; border:0; background:transparent; font-size:27px; cursor:pointer; }
