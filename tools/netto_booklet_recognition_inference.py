@@ -642,9 +642,20 @@ def native_page_structure(page) -> dict:
             digest = digest.hex()
         elif digest is not None:
             digest = str(digest)
+        raw_bbox = info["bbox"]
+        pixel_width = int(info.get("width") or 0)
+        pixel_height = int(info.get("height") or 0)
+        if (
+            isinstance(raw_bbox, (list, tuple))
+            and len(raw_bbox) == 4
+            and all(float(value) == 0.0 for value in raw_bbox)
+            and pixel_width == 0
+            and pixel_height == 0
+        ):
+            continue
         try:
             normalized_bbox = _normalized_visible_image_bbox(
-                info["bbox"],
+                raw_bbox,
                 width,
                 height,
             )
@@ -656,8 +667,8 @@ def native_page_structure(page) -> dict:
             {
                 "region_id": f"native-image-{index}",
                 "bbox": normalized_bbox,
-                "pixel_width": int(info.get("width") or 0),
-                "pixel_height": int(info.get("height") or 0),
+                "pixel_width": pixel_width,
+                "pixel_height": pixel_height,
                 "xref": int(info.get("xref") or 0),
                 "digest": digest,
                 "state": "REVIEW_ONLY",
