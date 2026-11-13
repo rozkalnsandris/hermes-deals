@@ -48,21 +48,32 @@ as stable `pNNN-gNNN` candidate IDs while retaining the original value as
 closed.
 
 `app.netto_booklet_review_layer` reads only an exact SHA-pinned projection
-from `netto-html/review-layers/`. The HZ46 trust entry now pins the exact
-retained marker/projection SHA256 values above. This source pinning does not
-copy or activate host evidence: runtime placement of the exact projection under
-that directory remains a separate LIVE gate.
+from `netto-html/review-layers/`. Runtime eligibility is bound to the selected
+store, slug, exact publication SHA256, validity window, and retained projection
+provenance. Collector snapshot IDs and manifest SHA256 values are observations
+that can rotate while the exact publication bytes remain unchanged, so they are
+not overlay eligibility keys.
 
-When enabled later, the UI uses the same image transform as the existing 13
-publisher-only HZ46 hotspots, but Review buttons are visually distinct and the
-dialog explicitly says the product, price, and Hermes relationship are
-unverified. Jinja escaping and JavaScript `textContent` remain the text
-boundary.
+The publisher-only layer follows the same runtime publication boundary. Its
+retained product receipt still verifies the original snapshot/manifest strings
+as capture provenance; those historical values are evidence about the retained
+capture, not a requirement that every later collector observation reuse the same
+snapshot ID.
+
+The 13 November 2026 UI canary proved this distinction: snapshot
+`962b80c9-a0bc-4553-8aa8-adf15857573b` produced all 686 Review candidates and
+13 publisher hotspots, while later snapshot
+`31bf2cc9-6d47-45b0-8d3d-63d4fc1cb0e6` referenced the same HZ46 publication
+SHA256 but both overlays were hidden by the old snapshot-bound gate.
+
+The UI uses the same image transform for publisher and Review overlays, but
+Review buttons are visually distinct and the dialog explicitly says the
+product, price, and Hermes relationship are unverified. Jinja escaping and
+JavaScript `textContent` remain the text boundary.
 
 ## Next gate
 
-After source review/merge, place only the exact SHA-pinned retained projection
-into the approved runtime `netto-html/review-layers/` location under a separate
-LIVE authorization, then perform read-only UI acceptance. No DB, collector,
-offer mapping, product identity, or Review/publication write is implied by the
-source pinning.
+After source review/merge, deploy the merged source under a separate LIVE
+authorization, re-verify the exact runtime projection SHA, and repeat the
+read-only HZ46 UI canary. No DB, collector, offer mapping, product identity, or
+Review/publication write is implied by this source fix.
