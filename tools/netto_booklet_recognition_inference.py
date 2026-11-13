@@ -176,6 +176,19 @@ def _bbox_contains_center(container: list[float], bbox: list[float]) -> bool:
     return x <= cx <= x + width and y <= cy <= y + height
 
 
+def _bbox_contains_box(container: list[float], bbox: list[float]) -> bool:
+    """Require the complete evidence box to stay inside its ownership region."""
+    x, y, width, height = container
+    bx, by, bwidth, bheight = bbox
+    epsilon = 1e-6
+    return (
+        bx + epsilon >= x
+        and by + epsilon >= y
+        and bx + bwidth <= x + width + epsilon
+        and by + bheight <= y + height + epsilon
+    )
+
+
 def _bbox_iou(a: list[float], b: list[float]) -> float:
     ax0, ay0, aw, ah = a
     bx0, by0, bw, bh = b
@@ -519,7 +532,7 @@ def _native_product_card_candidates(
         possible_owners = []
         for row in eligible:
             region = _single_price_layout_region(row, eligible, layout_regions)
-            if region is not None and not _bbox_contains_center(region, image["bbox"]):
+            if region is not None and not _bbox_contains_box(region, image["bbox"]):
                 continue
             possible_owners.append(row)
         if not possible_owners:
