@@ -17,8 +17,8 @@ FORMAT = "hermes.netto.pdf_review_projection.v1"
 MARKER_FORMAT = "hermes.netto.pdf_review_markers.v1"
 ALIGNMENT_SCHEMA = "netto-hz46-pdf-publitas-alignment-review-v1"
 IMAGE_MANIFEST_SCHEMA = "netto-hz46-publitas-image-retention-review-v1"
-HEX = re.compile(r"[0-9a-f]{64}\\Z")
-SLUG = re.compile(r"[A-Za-z0-9_-]{1,128}\\Z")
+HEX = re.compile(r"[0-9a-f]{64}\Z")
+SLUG = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 
 
 class ReviewProjectionError(ValueError):
