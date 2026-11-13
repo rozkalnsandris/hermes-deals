@@ -16,6 +16,7 @@ from netto_booklet_recognition_inference import (
     _normalized_bbox,
     _normalized_visible_image_bbox,
     _date_price_region_ids,
+    _native_layout_regions,
     _native_product_card_candidates,
     _read_pdf,
     _validate_florence_generation,
@@ -481,3 +482,34 @@ def test_product_card_v2_uses_single_price_filled_region_for_neighbouring_produc
     assert "Meggle" not in by_price["2.99*"]["product_text"]
     assert "Rheinfels" not in by_price["2.99*"]["product_text"]
 
+
+
+
+def test_native_layout_regions_keep_substantial_filled_card_rectangles_only():
+    class PointRect:
+        def __init__(self, x0, y0, x1, y1):
+            self.x0, self.y0, self.x1, self.y1 = x0, y0, x1, y1
+
+    class FakePage:
+        def get_drawings(self):
+            return [
+                {
+                    "fill": (1.0, 0.9, 0.0),
+                    "items": [("re", PointRect(10, 80, 150, 260), 1)],
+                },
+                {
+                    "fill": (1.0, 0.0, 0.0),
+                    "items": [("re", PointRect(250, 20, 285, 55), 1)],
+                },
+                {
+                    "fill": (1.0, 1.0, 1.0),
+                    "items": [("re", PointRect(0, 0, 300, 420), 1)],
+                },
+                {
+                    "fill": None,
+                    "items": [("re", PointRect(160, 80, 290, 260), 1)],
+                },
+            ]
+
+    regions = _native_layout_regions(FakePage(), 300.0, 420.0)
+    assert regions == [[0.033333, 0.190476, 0.466667, 0.428571]]
