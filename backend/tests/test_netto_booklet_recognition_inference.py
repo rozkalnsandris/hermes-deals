@@ -334,6 +334,59 @@ def test_native_image_bbox_rejects_nonintersecting_or_degenerate_rectangles():
         _normalized_visible_image_bbox([0, 0, float("nan"), 50], 300, 420)
 
 
+def test_native_page_structure_skips_zero_size_image_occurrence_but_keeps_other_degenerate_failures():
+    class Rect:
+        width = 300.0
+        height = 420.0
+
+    class ZeroSizePage:
+        rect = Rect()
+
+        def get_text(self, mode):
+            assert mode == "words"
+            return []
+
+        def get_image_info(self, hashes=True, xrefs=True):
+            return [
+                {
+                    "bbox": [0.0, 0.0, 0.0, 0.0],
+                    "width": 0,
+                    "height": 0,
+                    "xref": 0,
+                    "digest": b"empty",
+                },
+                {
+                    "bbox": [30.0, 100.0, 130.0, 200.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 7,
+                    "digest": b"visible",
+                },
+            ]
+
+        def get_drawings(self):
+            return []
+
+    native = native_page_structure(ZeroSizePage())
+    assert native["image_region_count"] == 1
+    assert native["image_regions"][0]["region_id"] == "native-image-2"
+
+    class NonZeroDegeneratePage(ZeroSizePage):
+        def get_image_info(self, hashes=True, xrefs=True):
+            return [
+                {
+                    "bbox": [10.0, 10.0, 10.0, 50.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 9,
+                    "digest": b"bad",
+                }
+            ]
+
+    with pytest.raises(InferenceRunnerError, match="degenerate"):
+        native_page_structure(NonZeroDegeneratePage())
+
+
 def test_native_page_structure_skips_fully_offpage_image_occurrence():
     class Rect:
         width = 300.0
