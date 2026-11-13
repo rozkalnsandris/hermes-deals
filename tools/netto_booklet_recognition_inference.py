@@ -135,6 +135,111 @@ def _bbox_gap_distance(a: list[float], b: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
+def _separator_crosses(
+    a: list[float],
+    b: list[float],
+    separator: dict,
+    *,
+    tolerance: float = 0.003,
+) -> bool:
+    ax, ay = _bbox_center(a)
+    bx, by = _bbox_center(b)
+    orientation = separator.get("orientation")
+    position = float(separator.get("position"))
+    start = float(separator.get("start"))
+    end = float(separator.get("end"))
+    if orientation == "vertical":
+        if abs(bx - ax) <= 1e-9:
+            return False
+        low, high = sorted((ax, bx))
+        if not low + tolerance < position < high - tolerance:
+            return False
+        ratio = (position - ax) / (bx - ax)
+        cross = ay + ratio * (by - ay)
+    elif orientation == "horizontal":
+        if abs(by - ay) <= 1e-9:
+            return False
+        low, high = sorted((ay, by))
+        if not low + tolerance < position < high - tolerance:
+            return False
+        ratio = (position - ay) / (by - ay)
+        cross = ax + ratio * (bx - ax)
+    else:
+        raise InferenceRunnerError("invalid native PDF separator orientation")
+    return start - 0.01 <= cross <= end + 0.01
+
+
+def _separated_normalized(
+    a: list[float],
+    b: list[float],
+    separators: list[dict],
+) -> bool:
+    return any(_separator_crosses(a, b, row) for row in separators)
+
+
+def _native_layout_separators(page, width: float, height: float) -> list[dict]:
+    """Extract long source-native drawing boundaries in normalized page space."""
+    result: list[dict] = []
+    seen: set[tuple[str, float, float, float]] = set()
+
+    def add(orientation: str, position: float, start: float, end: float) -> None:
+        if orientation == "horizontal":
+            position /= height
+            start /= width
+            end /= width
+        else:
+            position /= width
+            start /= height
+            end /= height
+        position = round(position, 6)
+        start, end = sorted((round(start, 6), round(end, 6)))
+        if not (0 <= position <= 1 and 0 <= start < end <= 1.000001):
+            return
+        minimum = 0.10 if orientation == "horizontal" else 0.08
+        if end - start < minimum:
+            return
+        key = (orientation, position, start, end)
+        if key in seen:
+            return
+        seen.add(key)
+        result.append({
+            "orientation": orientation,
+            "position": position,
+            "start": start,
+            "end": end,
+        })
+
+    for drawing in page.get_drawings():
+        for item in drawing.get("items", []):
+            kind = item[0]
+            if kind == "l" and len(item) >= 3:
+                first, second = item[1], item[2]
+                x0, y0 = float(first.x), float(first.y)
+                x1, y1 = float(second.x), float(second.y)
+                if abs(y1 - y0) <= 1.5:
+                    add("horizontal", (y0 + y1) / 2.0, min(x0, x1), max(x0, x1))
+                elif abs(x1 - x0) <= 1.5:
+                    add("vertical", (x0 + x1) / 2.0, min(y0, y1), max(y0, y1))
+            elif kind == "re" and len(item) >= 2:
+                rect = item[1]
+                x0, y0, x1, y1 = map(float, (rect.x0, rect.y0, rect.x1, rect.y1))
+                if x1 - x0 >= width * 0.10 and y1 - y0 >= height * 0.06:
+                    add("horizontal", y0, x0, x1)
+                    add("horizontal", y1, x0, x1)
+                    add("vertical", x0, y0, y1)
+                    add("vertical", x1, y0, y1)
+
+    return sorted(
+        result,
+        key=lambda row: (
+            row["orientation"],
+            row["position"],
+            row["start"],
+            row["end"],
+        ),
+    )
+
+
 def _bbox_union_normalized(boxes: list[list[float]]) -> list[float]:
     if not boxes:
         raise InferenceRunnerError("cannot union empty native PDF rectangles")
@@ -246,8 +351,10 @@ def _product_text_token(text: object) -> bool:
 def _product_text_block(
     rows: list[dict],
     visual_bbox: list[float],
+    image_bbox: list[float],
     anchor_bbox: list[float],
     anchor_region_id: str,
+    separators: list[dict],
 ) -> tuple[list[dict], str] | None:
     by_block: dict[int, list[dict]] = {}
     for row in rows:
@@ -297,6 +404,11 @@ def _product_text_block(
 
         text = " ".join(str(row.get("text") or "") for row in local_rows).strip()
         block_bbox = _bbox_union_normalized([row["bbox"] for row in local_rows])
+        if (
+            _separated_normalized(block_bbox, anchor_bbox, separators)
+            or _separated_normalized(block_bbox, image_bbox, separators)
+        ):
+            continue
         gap = _bbox_gap_distance(block_bbox, visual_bbox)
         score = (
             gap * 2.0
@@ -329,10 +441,12 @@ def _native_product_card_candidates(
     words: list[dict],
     images: list[dict],
     primary_price_candidates: list[dict],
+    separators: list[dict] | None = None,
 ) -> list[dict]:
     """Build strict Review-only product-card geometry from price + image + text."""
     if not primary_price_candidates:
         return []
+    separators = list(separators or [])
 
     date_ids = _date_price_region_ids(words, primary_price_candidates)
     eligible = [
@@ -345,8 +459,15 @@ def _native_product_card_candidates(
     for image in images:
         if not _product_image_candidate(image):
             continue
+        possible_owners = [
+            row
+            for row in eligible
+            if not _separated_normalized(image["bbox"], row["bbox"], separators)
+        ]
+        if not possible_owners:
+            continue
         owner = min(
-            eligible,
+            possible_owners,
             key=lambda row: (
                 _bbox_distance(image["bbox"], row["bbox"]),
                 row["region_id"],
@@ -379,8 +500,10 @@ def _native_product_card_candidates(
         selected_text = _product_text_block(
             words,
             visual_bbox,
+            image["bbox"],
             anchor["bbox"],
             anchor["region_id"],
+            separators,
         )
         if selected_text is None:
             continue
@@ -563,6 +686,8 @@ def native_page_structure(page) -> dict:
             }
         )
 
+    layout_separators = _native_layout_separators(page, width, height)
+
     price_candidates = [
         {
             "region_id": row["region_id"],
@@ -588,12 +713,14 @@ def native_page_structure(page) -> dict:
         words,
         images,
         primary_price_candidates,
+        layout_separators,
     )
 
     return {
         "page_size_points": [round(width, 3), round(height, 3)],
         "text_regions": words,
         "image_regions": images,
+        "layout_separators": layout_separators,
         "price_candidates": price_candidates,
         "primary_price_candidates": primary_price_candidates,
         "price_anchor_candidates": price_anchor_candidates,
@@ -601,6 +728,7 @@ def native_page_structure(page) -> dict:
         "date_price_region_ids_excluded": sorted(date_price_region_ids),
         "text_region_count": len(words),
         "image_region_count": len(images),
+        "layout_separator_count": len(layout_separators),
         "price_candidate_count": len(price_candidates),
         "primary_price_candidate_count": len(primary_price_candidates),
         "price_anchor_candidate_count": len(price_anchor_candidates),
