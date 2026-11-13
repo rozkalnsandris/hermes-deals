@@ -145,8 +145,11 @@ def test_shared_reader_renders_other_retailer_only_with_explicit_page_context():
 
 def test_review_hotspots_share_transform_but_keep_distinct_review_semantics():
     assert "data-booklet-review-hit" in TEMPLATE
-    assert 'data-publisher-eyebrow="PDF · REVIEW KANDIDĀTS"' in TEMPLATE
-    assert "Nav pārbaudīts produkts, cena vai Hermes Deals saite." in TEMPLATE
+    assert 'data-publisher-eyebrow="PDF · PRODUKTA KARTĪTES REVIEW"' in TEMPLATE
+    assert (
+        "Produkta kartītes robeža, produkta identitāte, cena un Hermes Deals saite "
+        "nav verificēta."
+    ) in TEMPLATE
     assert ".booklet-review-hit" in CSS
     assert "button.dataset.publisherEyebrow" in JS
     assert "button.dataset.publisherNote" in JS
