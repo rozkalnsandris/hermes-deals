@@ -26,11 +26,11 @@ NATIVE_PRICE_GROUP_RADIUS = 0.24
 NATIVE_PRICE_GROUP_PADDING = 0.012
 NATIVE_IMAGE_MIN_PIXELS = 2500
 NATIVE_IMAGE_MAX_ASPECT = 8.0
-NATIVE_PRODUCT_IMAGE_MIN_PAGE_AREA = 0.002
+NATIVE_PRODUCT_IMAGE_MIN_PAGE_AREA = 0.01
 NATIVE_PRODUCT_IMAGE_MAX_PAGE_AREA = 0.32
 NATIVE_PRODUCT_IMAGE_MAX_GAP = 0.22
 NATIVE_PRODUCT_IMAGE_OWNER_RADIUS = 0.34
-NATIVE_PRODUCT_TEXT_MARGIN_X = 0.10
+NATIVE_PRODUCT_TEXT_MARGIN_X = 0.22
 NATIVE_PRODUCT_TEXT_MARGIN_Y = 0.12
 NATIVE_PRODUCT_CARD_MAX_PAGE_AREA = 0.40
 NATIVE_PRODUCT_CARD_MAX_WIDTH = 0.68
@@ -51,6 +51,10 @@ _NATIVE_KW_LABEL = re.compile(r"\bkw\s*\d{1,2}\b", re.I)
 _NATIVE_DISCLAIMER = re.compile(
     r"(?:erhältlich\s+bei\s+netto\s+city|abgebildeten\s+artikel|"
     r"begrenzten\s+angebots|ausverkauft\s+sein|netto-online\.de)",
+    re.I,
+)
+_NATIVE_NONPRODUCT_NOTE = re.compile(
+    r"^\s*[-–—]*\s*(?:ohne|nur|ausgenommen)\b",
     re.I,
 )
 _NATIVE_ALPHA = re.compile(r"[A-Za-zÄÖÜäöüß]{3,}")
@@ -242,6 +246,7 @@ def _product_text_token(text: object) -> bool:
 def _product_text_block(
     rows: list[dict],
     visual_bbox: list[float],
+    anchor_bbox: list[float],
     anchor_region_id: str,
 ) -> tuple[list[dict], str] | None:
     by_block: dict[int, list[dict]] = {}
@@ -273,6 +278,7 @@ def _product_text_block(
             or _NATIVE_WEEKDAY.search(full_text)
             or _NATIVE_KW_LABEL.search(full_text)
             or _NATIVE_DISCLAIMER.search(full_text)
+            or _NATIVE_NONPRODUCT_NOTE.search(full_text)
         ):
             continue
 
@@ -292,7 +298,11 @@ def _product_text_block(
         text = " ".join(str(row.get("text") or "") for row in local_rows).strip()
         block_bbox = _bbox_union_normalized([row["bbox"] for row in local_rows])
         gap = _bbox_gap_distance(block_bbox, visual_bbox)
-        score = gap * 2.0 + _bbox_distance(block_bbox, visual_bbox) * 0.35
+        score = (
+            gap * 2.0
+            + _bbox_distance(block_bbox, visual_bbox) * 0.20
+            + _bbox_distance(block_bbox, anchor_bbox) * 0.65
+        )
         choices.append((score, block_no, local_rows, text))
 
     if not choices:
@@ -369,6 +379,7 @@ def _native_product_card_candidates(
         selected_text = _product_text_block(
             words,
             visual_bbox,
+            anchor["bbox"],
             anchor["region_id"],
         )
         if selected_text is None:
