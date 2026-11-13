@@ -228,7 +228,7 @@ def build_projection(
         raise ReviewProjectionError("candidate count mismatch")
 
     result_payload = {
-        "format": PRODUCT_CARD_FORMAT if product_card_markers else FORMAT,
+        "format": product_card_projection_format if product_card_markers else FORMAT,
         "state": "REVIEW_ONLY",
         "store_id": store_id,
         "group": group,
