@@ -51,8 +51,7 @@ def capture(tmp_path, monkeypatch):
     digest = sha256(raw).hexdigest()
     (review_root / f"publication-{digest[:12]}.json").write_bytes(raw)
     trust = {
-        "store": "5659", "group": "regionale-hz", "snapshot_id": "snapshot",
-        "manifest_sha256": "manifest", "publication_sha256": pub_sha,
+        "store": "5659", "group": "regionale-hz", "publication_sha256": pub_sha,
         "pdf_sha256": "1" * 64, "image_manifest_sha256": "2" * 64,
         "alignment_review_sha256": "3" * 64, "review_markers_sha256": "4" * 64,
         "projection_sha256": digest, "page_count": 1, "candidate_count": 1,
@@ -77,6 +76,8 @@ def test_hz46_trust_pins_exact_retained_review_evidence():
     assert trust["candidate_count"] == 686
     assert trust["review_markers_sha256"] == "344ee5f838d922cb0db42c85cb2a497459c81e2233fcea6c0db3c4a5c567b709"
     assert trust["projection_sha256"] == "24d1b980c06bbdbb0c58cfe8f00cb4153022f0053684ce5a8e565034e0ea570c"
+    assert "snapshot_id" not in trust
+    assert "manifest_sha256" not in trust
 
 
 def test_verified_review_projection_exposes_only_review_marker(tmp_path, monkeypatch):
@@ -91,12 +92,25 @@ def test_verified_review_projection_exposes_only_review_marker(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("change", [
-    {"store_id": "9999"}, {"snapshot_id": "other"},
-    {"manifest_sha256": "other"}, {"day": date(2026, 11, 15)},
+    {"store_id": "9999"}, {"day": date(2026, 11, 15)},
 ])
-def test_wrong_identity_or_date_disables_layer(tmp_path, monkeypatch, change):
+def test_wrong_store_or_date_disables_layer(tmp_path, monkeypatch, change):
     call, _, _ = capture(tmp_path, monkeypatch)
     assert call(**change) == {}
+
+
+def test_same_publication_survives_collector_snapshot_rollover(tmp_path, monkeypatch):
+    call, _, _ = capture(tmp_path, monkeypatch)
+    result = call(snapshot_id="new-snapshot", manifest_sha256="new-manifest")
+    assert sum(len(rows) for rows in result.values()) == 1
+
+
+def test_changed_publication_identity_disables_layer(tmp_path, monkeypatch):
+    call, _, _ = capture(tmp_path, monkeypatch)
+    record = {"slug": "publication", "publication_path": str(
+        tmp_path / "raw" / "netto-html" / "publication.json"
+    ), "publication_sha256": "0" * 64}
+    assert call(record=record) == {}
 
 
 def test_corrupt_or_promotable_projection_fails_closed(tmp_path, monkeypatch):
