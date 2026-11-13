@@ -35,6 +35,8 @@ NATIVE_PRODUCT_TEXT_MARGIN_Y = 0.12
 NATIVE_PRODUCT_CARD_MAX_PAGE_AREA = 0.40
 NATIVE_PRODUCT_CARD_MAX_WIDTH = 0.68
 NATIVE_PRODUCT_CARD_MAX_HEIGHT = 0.72
+NATIVE_PRODUCT_CARD_MAX_IOU = 0.15
+NATIVE_PRODUCT_CONTEXT_PADDING = 0.08
 NATIVE_LAYOUT_REGION_MIN_AREA = 0.08
 NATIVE_LAYOUT_REGION_MAX_AREA = 0.40
 NATIVE_LAYOUT_REGION_MIN_WIDTH = 0.20
@@ -63,6 +65,12 @@ _NATIVE_NONPRODUCT_NOTE = re.compile(
     r"^\s*[-–—]*\s*(?:ohne|nur|ausgenommen)\b",
     re.I,
 )
+_NATIVE_NONPRODUCT_CARD_COPY = re.compile(
+    r"(?:\bextra\s*°?\s*punkte\b|\bpro\s+liter\s+gespart\b|"
+    r"\bonline\s*-\s*kracher\b|\bauch\s+online\b)",
+    re.I,
+)
+_NATIVE_ONLINE_ONLY_CONTEXT = re.compile(r"\bnur\s+online\b", re.I)
 _NATIVE_ALPHA = re.compile(r"[A-Za-zÄÖÜäöüß]{3,}")
 _NATIVE_PRODUCT_NOISE = {
     "aktion", "xxl", "sparen", "uvp", "statt", "bisher", "dauertiefpreis",
@@ -145,6 +153,22 @@ def _bbox_contains_center(container: list[float], bbox: list[float]) -> bool:
     cx, cy = _bbox_center(bbox)
     x, y, width, height = container
     return x <= cx <= x + width and y <= cy <= y + height
+
+
+def _bbox_iou(a: list[float], b: list[float]) -> float:
+    ax0, ay0, aw, ah = a
+    bx0, by0, bw, bh = b
+    ax1, ay1 = ax0 + aw, ay0 + ah
+    bx1, by1 = bx0 + bw, by0 + bh
+    overlap_width = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+    overlap_height = max(0.0, min(ay1, by1) - max(ay0, by0))
+    overlap_area = overlap_width * overlap_height
+    if overlap_area <= 0:
+        return 0.0
+    union_area = aw * ah + bw * bh - overlap_area
+    if union_area <= 0:
+        raise InferenceRunnerError("invalid native product-card overlap area")
+    return overlap_area / union_area
 
 
 def _native_layout_regions(page, width: float, height: float) -> list[list[float]]:
@@ -368,6 +392,7 @@ def _product_text_block(
             or _NATIVE_KW_LABEL.search(text)
             or _NATIVE_DISCLAIMER.search(text)
             or _NATIVE_NONPRODUCT_NOTE.search(text)
+            or _NATIVE_NONPRODUCT_CARD_COPY.search(text)
             or not any(_product_text_token(row.get("text")) for row in local_rows)
         ):
             continue
@@ -399,6 +424,47 @@ def _product_image_candidate(row: dict) -> bool:
         and float(bbox[2]) <= NATIVE_PRODUCT_CARD_MAX_WIDTH
         and float(bbox[3]) <= NATIVE_PRODUCT_CARD_MAX_HEIGHT
     )
+
+
+def _filter_ambiguous_product_cards(candidates: list[dict]) -> list[dict]:
+    """Fail closed on shared title ownership and materially overlapping cards."""
+    text_owners: dict[tuple[str, ...], int] = {}
+    for candidate in candidates:
+        key = tuple(candidate.get("product_text_region_ids") or [])
+        if not key:
+            raise InferenceRunnerError("native product card text ownership is missing")
+        text_owners[key] = text_owners.get(key, 0) + 1
+
+    filtered = [
+        candidate
+        for candidate in candidates
+        if text_owners[tuple(candidate["product_text_region_ids"])] == 1
+    ]
+
+    rejected: set[int] = set()
+    for index, candidate in enumerate(filtered):
+        for previous_index in range(index):
+            previous = filtered[previous_index]
+            if _bbox_iou(previous["card_bbox"], candidate["card_bbox"]) < NATIVE_PRODUCT_CARD_MAX_IOU:
+                continue
+            previous_hard = bool(previous.get("layout_region_bound"))
+            candidate_hard = bool(candidate.get("layout_region_bound"))
+            if previous_hard and not candidate_hard:
+                rejected.add(index)
+            elif candidate_hard and not previous_hard:
+                rejected.add(previous_index)
+            else:
+                rejected.add(previous_index)
+                rejected.add(index)
+
+    result = [
+        candidate
+        for index, candidate in enumerate(filtered)
+        if index not in rejected
+    ]
+    for index, candidate in enumerate(result, 1):
+        candidate["candidate_id"] = f"native-card-{index}"
+    return result
 
 
 def _native_product_card_candidates(
@@ -463,6 +529,18 @@ def _native_product_card_candidates(
         image = ranked_images[0]
 
         visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
+        context_bbox = _expanded_normalized_bbox(
+            visual_bbox,
+            NATIVE_PRODUCT_CONTEXT_PADDING,
+        )
+        context_text = " ".join(
+            str(row.get("text") or "")
+            for row in words
+            if _bbox_contains_center(context_bbox, row["bbox"])
+        )
+        if _NATIVE_ONLINE_ONLY_CONTEXT.search(context_text):
+            continue
+
         selected_text = _product_text_block(
             words,
             visual_bbox,
@@ -522,7 +600,7 @@ def _native_product_card_candidates(
                 "state": "REVIEW_ONLY",
             }
         )
-    return accepted
+    return _filter_ambiguous_product_cards(accepted)
 
 def _native_price_anchor_candidates(
     words: list[dict],
