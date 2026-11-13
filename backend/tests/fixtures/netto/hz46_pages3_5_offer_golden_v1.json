@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "strategy": "netto_hz46_pages_3_5_offer_golden_v1",
+  "publication": {
+    "slug": "hz46_hasb_4",
+    "store_id": "5659",
+    "pdf_sha256": "9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf",
+    "page_count": 80
+  },
+  "safety": {
+    "review_only": true,
+    "automatic_offer_links": 0,
+    "verified_product_identities": 0,
+    "product_boundaries_proven": 0,
+    "automatic_publish_enabled": false
+  },
+  "truth_policy": {
+    "expected_offer_slots": 23,
+    "resolved_title_slots": 22,
+    "unresolved_title_slots": 1,
+    "unresolved_fields_are_not_scored": true,
+    "unresolved_fields_must_not_be_inferred": true
+  },
+  "pages": [
+    {
+      "page_number": 3,
+      "expected_offer_count": 8,
+      "offers": [
+        {
+          "golden_id": "p03-01",
+          "expected_title": "Kiwi grün",
+          "required_title_tokens": [
+            "kiwi"
+          ],
+          "expected_primary_price": null,
+          "price_basis": null,
+          "truth_status": "title_resolved_price_unresolved"
+        },
+        {
+          "golden_id": "p03-02",
+          "expected_title": "Chiquita Bananen",
+          "required_title_tokens": [
+            "chiquita",
+            "bananen"
+          ],
+          "expected_primary_price": "1.99",
+          "price_basis": "1 kg",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p03-03",
+          "expected_title": "Guacamole-Mix",
+          "required_title_tokens": [
+            "guacamole",
+            "mix"
+          ],
+          "expected_primary_price": "2.99",
+          "price_basis": "390 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p03-04",
+          "expected_title": "Zwetschgen",
+          "required_title_tokens": [
+            "zwetschgen"
+          ],
+          "expected_primary_price": "2.22",
+          "price_basis": null,
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p03-05",
+          "expected_title": "Champignon braun",
+          "required_title_tokens": [
+            "champignon",
+            "braun"
+          ],
+          "expected_primary_price": "1.79",
+          "price_basis": "400 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p03-06",
+          "expected_title": "Weihnachtsstern Busch",
+          "required_title_tokens": [
+            "weihnachtsstern"
+          ],
+          "expected_primary_price": "5.99",
+          "price_basis": "je Topf",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p03-07",
+          "expected_title": "Spitzpaprika rot",
+          "required_title_tokens": [
+            "spitzpaprika"
+          ],
+          "expected_primary_price": "1.89",
+          "price_basis": "500 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p03-08",
+          "expected_title": "Mini-Rispentomaten",
+          "required_title_tokens": [
+            "mini",
+            "rispentomaten"
+          ],
+          "expected_primary_price": "2.99",
+          "price_basis": null,
+          "truth_status": "resolved"
+        }
+      ]
+    },
+    {
+      "page_number": 4,
+      "expected_offer_count": 7,
+      "offers": [
+        {
+          "golden_id": "p04-01",
+          "expected_title": "Leerdammer Scheiben XXL",
+          "required_title_tokens": [
+            "leerdammer",
+            "scheiben",
+            "xxl"
+          ],
+          "expected_primary_price": "3.99",
+          "price_basis": "360 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p04-02",
+          "expected_title": null,
+          "required_title_tokens": [],
+          "expected_primary_price": null,
+          "price_basis": null,
+          "truth_status": "unresolved_regional_dairy_slot"
+        },
+        {
+          "golden_id": "p04-03",
+          "expected_title": "Mövenpick Feinjoghurt oder Sahnepudding",
+          "required_title_tokens": [
+            "mövenpick",
+            "feinjoghurt"
+          ],
+          "expected_primary_price": "0.69",
+          "price_basis": null,
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p04-04",
+          "expected_title": "Popp Fleischsalat",
+          "required_title_tokens": [
+            "popp",
+            "fleischsalat"
+          ],
+          "expected_primary_price": "1.29",
+          "price_basis": "200 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p04-05",
+          "expected_title": "Nestlé Gold Mousse",
+          "required_title_tokens": [
+            "nestlé",
+            "gold",
+            "mousse"
+          ],
+          "expected_primary_price": "1.99",
+          "price_basis": null,
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p04-06",
+          "expected_title": "Wagner Piccolinis",
+          "required_title_tokens": [
+            "wagner",
+            "piccolinis"
+          ],
+          "expected_primary_price": "1.99",
+          "price_basis": null,
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p04-07",
+          "expected_title": "Botato Kartoffeltaschen",
+          "required_title_tokens": [
+            "botato",
+            "kartoffeltaschen"
+          ],
+          "expected_primary_price": "1.89",
+          "price_basis": "600 g",
+          "truth_status": "resolved"
+        }
+      ]
+    },
+    {
+      "page_number": 5,
+      "expected_offer_count": 8,
+      "offers": [
+        {
+          "golden_id": "p05-01",
+          "expected_title": "Tafelspitz vom Irischen Weiderind",
+          "required_title_tokens": [
+            "tafelspitz",
+            "weiderind"
+          ],
+          "expected_primary_price": "1.49",
+          "price_basis": "100 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-02",
+          "expected_title": "Kasselerbraten",
+          "required_title_tokens": [
+            "kasselerbraten"
+          ],
+          "expected_primary_price": "5.99",
+          "price_basis": "1 kg",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-03",
+          "expected_title": "Schweine-Rücken",
+          "required_title_tokens": [
+            "schweine",
+            "rücken"
+          ],
+          "expected_primary_price": "3.99",
+          "price_basis": "1 kg",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-04",
+          "expected_title": "Spanferkel-Cevapcici",
+          "required_title_tokens": [
+            "spanferkel",
+            "cevapcici"
+          ],
+          "expected_primary_price": "2.99",
+          "price_basis": "300 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-05",
+          "expected_title": "Geschnetzeltes „Gyros Art“",
+          "required_title_tokens": [
+            "geschnetzeltes",
+            "gyros"
+          ],
+          "expected_primary_price": "4.49",
+          "price_basis": "800 g",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-06",
+          "expected_title": "Puten-Hälse",
+          "required_title_tokens": [
+            "puten",
+            "hälse"
+          ],
+          "expected_primary_price": "2.99",
+          "price_basis": "1 kg",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-07",
+          "expected_title": "Bio Miesmuscheln",
+          "required_title_tokens": [
+            "bio",
+            "miesmuscheln"
+          ],
+          "expected_primary_price": "3.99",
+          "price_basis": "1 kg",
+          "truth_status": "resolved"
+        },
+        {
+          "golden_id": "p05-08",
+          "expected_title": "Hähnchen-Schenkel",
+          "required_title_tokens": [
+            "hähnchen",
+            "schenkel"
+          ],
+          "expected_primary_price": "3.99",
+          "price_basis": null,
+          "truth_status": "resolved"
+        }
+      ]
+    }
+  ]
+}
