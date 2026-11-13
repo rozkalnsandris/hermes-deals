@@ -17,7 +17,6 @@ from netto_booklet_recognition_inference import (
     _normalized_visible_image_bbox,
     _date_price_region_ids,
     _native_product_card_candidates,
-    _separated_normalized,
     _read_pdf,
     _validate_florence_generation,
     native_page_structure,
@@ -432,7 +431,7 @@ def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
 
 
 
-def test_product_card_v2_respects_pdf_card_separators_for_neighbouring_products():
+def test_product_card_v2_uses_single_price_filled_region_for_neighbouring_products():
     words = [
         _native_row("butter-title", "Meggle Butter", [0.05, 0.50, 0.22, 0.04], 1),
         _native_row("butter-price", "0.99", [0.38, 0.52, 0.09, 0.05], 2),
@@ -466,20 +465,19 @@ def test_product_card_v2_respects_pdf_card_separators_for_neighbouring_products(
             "digest": "cc", "state": "REVIEW_ONLY",
         },
     ]
-    separators = [
-        {"orientation": "horizontal", "position": 0.59, "start": 0.03, "end": 0.97},
-        {"orientation": "vertical", "position": 0.50, "start": 0.58, "end": 0.98},
+    regions = [
+        [0.035, 0.2179, 0.4625, 0.3679],
+        [0.5125, 0.2179, 0.4525, 0.3679],
+        [0.035, 0.5964, 0.4625, 0.3643],
+        [0.5125, 0.5964, 0.4525, 0.3643],
     ]
 
-    assert _separated_normalized(
-        words[0]["bbox"], prices[1]["bbox"], separators
-    )
-    assert _separated_normalized(
-        words[4]["bbox"], prices[1]["bbox"], separators
-    )
-    cards = _native_product_card_candidates(words, images, prices, separators)
+    cards = _native_product_card_candidates(words, images, prices, regions)
     by_price = {row["price_text"]: row for row in cards}
     assert by_price["2.99*"]["product_text"] == "Rotkäppchen Sekt"
     assert by_price["2.99*"]["product_image_region_id"] == "wine-image"
+    assert by_price["2.99*"]["card_bbox"] == regions[2]
+    assert by_price["2.99*"]["layout_region_bound"] is True
     assert "Meggle" not in by_price["2.99*"]["product_text"]
     assert "Rheinfels" not in by_price["2.99*"]["product_text"]
+
