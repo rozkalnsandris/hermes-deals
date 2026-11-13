@@ -81,6 +81,17 @@ def _native_pdf_bytes():
         return doc.tobytes()
 
 
+def _native_price_scale_pdf_bytes():
+    with fitz.open() as doc:
+        page = doc.new_page(width=300, height=420)
+        page.insert_text((30, 70), "Milka", fontsize=12)
+        page.insert_text((30, 120), "0,99", fontsize=28)
+        page.insert_text((100, 120), "2,79", fontsize=8)
+        page.insert_text((180, 70), "Butter", fontsize=12)
+        page.insert_text((180, 120), "1,99", fontsize=28)
+        return doc.tobytes()
+
+
 def test_parse_pages_is_bounded_sorted_and_unique():
     assert parse_pages("4,2,2,6-8", 10) == [2, 4, 6, 7, 8]
     with pytest.raises(InferenceRunnerError, match="descending"):
@@ -173,8 +184,10 @@ def test_native_page_structure_extracts_review_only_source_geometry():
     assert native["text_region_count"] >= 2
     assert native["image_region_count"] == 1
     assert native["price_candidate_count"] == 1
+    assert native["primary_price_candidate_count"] == 1
     assert native["price_anchor_candidate_count"] == 1
     assert native["price_candidates"][0]["text"] == "0,99"
+    assert native["primary_price_candidates"][0]["text"] == "0,99"
     candidate = native["price_anchor_candidates"][0]
     assert candidate["price_region_id"] == native["price_candidates"][0]["region_id"]
     assert candidate["price_text"] == "0,99"
@@ -193,6 +206,28 @@ def test_native_page_structure_extracts_review_only_source_geometry():
         for row in native["text_regions"] + native["image_regions"]
         for value in row["bbox"]
     )
+
+
+def test_native_primary_prices_filter_small_reference_price_and_group_nearest_text():
+    raw = _native_price_scale_pdf_bytes()
+    with fitz.open(stream=raw, filetype="pdf") as doc:
+        native = native_page_structure(doc[0])
+
+    assert native["price_candidate_count"] == 3
+    assert native["primary_price_candidate_count"] == 2
+    assert [row["text"] for row in native["primary_price_candidates"]] == ["0,99", "1,99"]
+    assert native["price_anchor_candidate_count"] == 2
+
+    by_price = {row["price_text"]: row for row in native["price_anchor_candidates"]}
+    assert "Milka" in by_price["0,99"]["native_text"]
+    assert "Butter" not in by_price["0,99"]["native_text"]
+    assert "Butter" in by_price["1,99"]["native_text"]
+    assert "Milka" not in by_price["1,99"]["native_text"]
+    assert by_price["0,99"]["basis"] == "native_pdf_nearest_primary_price_group_v2"
+    assert by_price["0,99"]["product_boundary_proven"] is False
+    assert by_price["0,99"]["verified_product_identity"] is None
+    assert by_price["0,99"]["hermes_offer_link"] is None
+    assert all(0 <= value <= 1 for value in by_price["0,99"]["crop_bbox"])
 
 
 def test_run_inference_allows_model_free_native_baseline():
