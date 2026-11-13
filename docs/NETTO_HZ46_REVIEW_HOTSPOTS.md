@@ -28,8 +28,12 @@ References:
   `0b7fe988e655597480235d927b20e9b14fa920525655e27400a5f4a333c28b93`
 - best match and reverse-best match are same ordinal for all 80 pages, with
   zero mismatches.
-- prior in-memory native scan: 686 Review candidates on 77/80 pages; pages
-  69–71 had zero candidates. That scan deliberately produced no output file.
+- retained native marker manifest: 686 Review candidates on 77/80 pages; pages
+  69–71 have zero candidates; SHA256
+  `344ee5f838d922cb0db42c85cb2a497459c81e2233fcea6c0db3c4a5c567b709`.
+- retained page-scoped projection SHA256
+  `24d1b980c06bbdbb0c58cfe8f00cb4153022f0053684ce5a8e565034e0ea570c`;
+  it contains zero automatic offer links and zero verified product identities.
 
 ## Source implementation
 
@@ -44,10 +48,10 @@ as stable `pNNN-gNNN` candidate IDs while retaining the original value as
 closed.
 
 `app.netto_booklet_review_layer` reads only an exact SHA-pinned projection
-from `netto-html/review-layers/`. The HZ46 trust entry intentionally has
-`review_markers_sha256=None` and `projection_sha256=None` until a separate
-owner-authorized retained projection is created. Therefore this source change
-cannot activate Review hotspots by itself.
+from `netto-html/review-layers/`. The HZ46 trust entry now pins the exact
+retained marker/projection SHA256 values above. This source pinning does not
+copy or activate host evidence: runtime placement of the exact projection under
+that directory remains a separate LIVE gate.
 
 When enabled later, the UI uses the same image transform as the existing 13
 publisher-only HZ46 hotspots, but Review buttons are visually distinct and the
@@ -57,8 +61,8 @@ boundary.
 
 ## Next gate
 
-Create the exact 80-page native marker manifest and deterministic projection
-under a separately authorized LIVE retained-evidence write. Verify their SHA256
-values, then pin those two hashes in the source branch and rerun CI. No DB,
-collector, deploy, offer mapping, or Review/publication mutation is part of that
-gate.
+After source review/merge, place only the exact SHA-pinned retained projection
+into the approved runtime `netto-html/review-layers/` location under a separate
+LIVE authorization, then perform read-only UI acceptance. No DB, collector,
+offer mapping, product identity, or Review/publication write is implied by the
+source pinning.
