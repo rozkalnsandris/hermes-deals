@@ -173,7 +173,21 @@ def test_golden_evaluation_separates_title_match_price_mismatch_and_unresolved_t
                 "product_text": "Leerdammer Scheiben XXL",
                 "price_text": "3,99*",
             },
-        ]
+        ],
+        "price_text_candidates": [
+            {
+                "candidate_id": "native-price-text-1",
+                "assignment_state": "SELECTED",
+                "product_text": "Mövenpick Feinjoghurt oder Sahnepudding",
+                "price_text": "0.69",
+            },
+            {
+                "candidate_id": "native-price-text-2",
+                "assignment_state": "SELECTED",
+                "product_text": "Leerdammer Scheiben XXL",
+                "price_text": "3,99*",
+            },
+        ],
     }
     golden_page = {
         "page_number": 4,
@@ -206,10 +220,54 @@ def test_golden_evaluation_separates_title_match_price_mismatch_and_unresolved_t
     assert result["resolved_truth_slots"] == 2
     assert result["matched_title_slots"] == 2
     assert result["matched_title_price_slots"] == 1
+    assert result["price_text_candidate_count"] == 2
+    assert result["price_text_matched_title_slots"] == 2
+    assert result["price_text_matched_title_price_slots"] == 2
+    assert result["price_text_ambiguous_slots"] == 0
     assert outcomes["movenpick"]["status"] == "price_mismatch"
     assert outcomes["leerdammer"]["status"] == "matched"
     assert outcomes["unresolved"]["status"] == "truth_unresolved"
 
+    price_text_outcomes = {
+        row["golden_id"]: row for row in result["price_text_outcomes"]
+    }
+    assert price_text_outcomes["movenpick"]["status"] == "matched"
+    assert price_text_outcomes["leerdammer"]["status"] == "matched"
+    assert price_text_outcomes["unresolved"]["status"] == "truth_unresolved"
+
+
+
+def test_golden_evaluation_ignores_unresolved_price_text_assignments():
+    native = {
+        "product_card_candidates": [],
+        "price_text_candidates": [
+            {
+                "candidate_id": "native-price-text-1",
+                "assignment_state": "UNRESOLVED",
+                "product_text": "Chiquita Bananen",
+                "price_text": "1.99",
+            },
+        ],
+    }
+    golden_page = {
+        "page_number": 3,
+        "expected_offer_count": 1,
+        "offers": [
+            {
+                "golden_id": "bananen",
+                "expected_title": "Chiquita Bananen",
+                "required_title_tokens": ["chiquita", "bananen"],
+                "expected_primary_price": "1.99",
+            },
+        ],
+    }
+
+    result = MODULE.evaluate_page(native, golden_page)
+
+    assert result["price_text_candidate_count"] == 1
+    assert result["price_text_matched_title_slots"] == 0
+    assert result["price_text_matched_title_price_slots"] == 0
+    assert result["price_text_outcomes"][0]["status"] == "missing"
 
 def test_golden_fixture_fails_closed_if_identity_boundary_is_relaxed():
     golden = json.loads(FIXTURE.read_text(encoding="utf-8"))
