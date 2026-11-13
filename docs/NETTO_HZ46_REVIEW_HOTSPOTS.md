@@ -205,14 +205,14 @@ three fail-closed ownership rules:
   filled PDF region provides the stronger boundary.
 
 The exact retained HZ46 PDF was re-audited read-only on source head
-`751c8a3e70a07bf288315bffdd3f20c28ce58b92`. The deterministic in-memory
+`70414cff39fd77680efe411b74ede0b567ffa81a`. The deterministic in-memory
 v2 manifest SHA256 is
-`edf912c49dca1f087d8559811665a35149f416ff9ef679028777bf63a0078d98`
-(166932 canonical JSON bytes).
+`1e4f0e9b9137b625f7e7b6c4046ba43cc34fae0c5b76c821a12ce48f49b511f3`
+(167402 canonical JSON bytes).
 
 Quality-gate totals:
 
-- 411 primary price anchors and 264 Review-only product-card candidates;
+- 411 primary price anchors and 265 Review-only product-card candidates;
 - 64/80 pages contain at least one v2 card;
 - 19 cards use single-price filled PDF regions; the remainder stay
   conservative fallback geometry;
