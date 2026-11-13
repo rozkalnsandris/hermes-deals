@@ -585,6 +585,28 @@ def test_product_card_v2_filters_shared_text_ownership_and_overlap_conflicts():
     assert _filter_ambiguous_product_cards([fallback_a, fallback_b]) == []
 
 
+def test_product_card_v2_skips_promo_copy_and_selects_real_product_title():
+    words = [
+        _native_row("promo", "+APP", [0.72, 0.64, 0.05, 0.03], 1),
+        _native_row("title", "Bio Mozzarella", [0.58, 0.60, 0.13, 0.03], 2),
+        _native_row("price", "1.29*", [0.82, 0.70, 0.08, 0.05], 3),
+    ]
+    prices = [_native_price("price", "1.29*", [0.82, 0.70, 0.08, 0.05])]
+    images = [{
+        "region_id": "product-image",
+        "bbox": [0.60, 0.50, 0.20, 0.18],
+        "pixel_width": 240,
+        "pixel_height": 260,
+        "xref": 1,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
+
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    assert cards[0]["product_text"] == "Bio Mozzarella"
+
+
 def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
     words = [
         _native_row("title", "KW 46 / KiErhHaBo", [0.50, 0.80, 0.20, 0.02], 2),
