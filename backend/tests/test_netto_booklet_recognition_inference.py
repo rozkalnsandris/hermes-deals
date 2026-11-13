@@ -614,3 +614,67 @@ def test_native_layout_regions_keep_substantial_filled_card_rectangles_only():
 
     regions = _native_layout_regions(FakePage(), 300.0, 420.0)
     assert regions == [[0.033333, 0.190476, 0.466667, 0.428571]]
+
+
+
+def test_native_page_structure_skips_zero_dimension_image_occurrences_when_pixel_dimension_matches():
+    class Rect:
+        width = 300.0
+        height = 420.0
+
+    class FakePage:
+        rect = Rect()
+
+        def get_text(self, mode):
+            assert mode == "words"
+            return []
+
+        def get_image_info(self, hashes=True, xrefs=True):
+            assert hashes is True
+            assert xrefs is True
+            return [
+                {
+                    "bbox": [0.0, 100.0, 0.0, 116.0],
+                    "width": 0,
+                    "height": 16,
+                    "xref": 0,
+                    "digest": b"zero-width",
+                },
+                {
+                    "bbox": [40.0, 200.0, 60.0, 200.0],
+                    "width": 20,
+                    "height": 0,
+                    "xref": 0,
+                    "digest": b"zero-height",
+                },
+                {
+                    "bbox": [30.0, 100.0, 130.0, 200.0],
+                    "width": 100,
+                    "height": 100,
+                    "xref": 7,
+                    "digest": b"visible",
+                },
+            ]
+
+        def get_drawings(self):
+            return []
+
+    native = native_page_structure(FakePage())
+    assert native["image_region_count"] == 1
+    assert native["image_regions"][0]["region_id"] == "native-image-3"
+    assert native["image_regions"][0]["xref"] == 7
+
+    class MismatchedDegeneratePage(FakePage):
+        def get_image_info(self, hashes=True, xrefs=True):
+            return [
+                {
+                    "bbox": [10.0, 10.0, 10.0, 50.0],
+                    "width": 100,
+                    "height": 40,
+                    "xref": 9,
+                    "digest": b"bad",
+                }
+            ]
+
+    with pytest.raises(InferenceRunnerError, match="degenerate"):
+        native_page_structure(MismatchedDegeneratePage())
