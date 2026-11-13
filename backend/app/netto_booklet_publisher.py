@@ -1,7 +1,8 @@
-"""Read-only publisher-only details bound to an immutable Netto Publitas capture.
+"""Read-only publisher-only details bound to an immutable Netto Publitas publication.
 
 This does not create retailer SKU links, offer ownership, pricing, or Review writes.
-Only the separately captured, receipt-pinned 5659 publication can supply clicks.
+Only separately captured, receipt-pinned evidence for the exact 5659 publication
+can supply clicks.
 """
 from __future__ import annotations
 
@@ -72,9 +73,11 @@ def publisher_only_hotspots(
     """
     slug = record.get("slug")
     trust = _TRUSTED_PUBLICATIONS.get(slug) if type(slug) is str else None
+    # Collector snapshots are ephemeral observations. A later verified snapshot can
+    # legitimately reference the same immutable publication bytes, so runtime
+    # eligibility is publication-bound rather than snapshot-bound. The retained
+    # product receipt below still proves the original capture provenance.
     if (trust is None or type(store_id) is not str or store_id != trust["store"]
-            or snapshot_id != trust["snapshot_id"]
-            or manifest_sha256 != trust["manifest_sha256"]
             or record.get("publication_sha256") != trust["publication_sha256"]
             or type(day) is not date or type(valid_from) is not date
             or type(valid_until) is not date or not valid_from <= day <= valid_until):
