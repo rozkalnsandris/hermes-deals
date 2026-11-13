@@ -256,7 +256,10 @@ sources.
 ### Full-page Florence-2
 
 The five-page full-page Florence run completed in about **292.5 s**
-(~58.5 s/page), with observed Lenovo temperature up to **69 °C**.
+(~58.5 s/page), with observed Lenovo temperature up to **69 °C**. The retained per-page
+runner JSON records process peak RSS values of 996,960, 1,087,440, 1,076,188, 1,095,296
+and 1,050,852 KiB respectively, so the maximum observed full-page peak RSS was
+**1,095,296 KiB** (~1.04 GiB).
 
 The parsed result contained about 52 Florence regions. Only 5 of 60 native price candidates
 (~8%) could be associated with those regions, and there were **0 exact product/SKU identities**.
@@ -267,14 +270,14 @@ justify Florence as the primary product-region generator.
 
 A second bounded run targeted 10 native price-anchor crops across pages 1, 4, 20, 40 and 60.
 The run completed in about **611.5 s**, with observed Lenovo temperature up to **71 °C**.
+Its retained runner JSON records process peak RSS of **1,115,640 KiB** (~1.06 GiB).
 
 The crop pass still misidentified several products and did not outperform the deterministic
 native PDF evidence enough to justify model-first grouping. It remains potentially useful only
 for ambiguous regions selected by deterministic source geometry.
 
-Exact peak RSS for these retained Lenovo executions was not preserved in the reviewed evidence.
-The runner records peak RSS for future executions, but this missing historical value must not be
-invented.
+The exact peak RSS values above were recovered read-only from the retained Lenovo result JSON
+files on 2026-11-13. No inference was rerun and no retained artifact was modified.
 
 ### Practical decision
 
@@ -289,9 +292,9 @@ For this Netto source class:
 5. never promote OCR/VLM output directly to a product identity or Hermes offer link.
 
 This decision is based on actual HZ46 evidence and resource timing, not on model capability
-assumptions. Issue #1140 should remain open until the missing exact peak-RSS evidence is either
-recovered read-only from retained results or reproduced under a separately authorized bounded
-runtime run.
+assumptions. The executed HZ46 evidence now includes runtime, exact process peak RSS and retained
+model size. It remains explicitly current-week evidence and does not assert an unverified
+2026-11-16 publication identity.
 
 ## Outcome
 
