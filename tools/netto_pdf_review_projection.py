@@ -14,7 +14,9 @@ from pathlib import Path
 import re
 
 FORMAT = "hermes.netto.pdf_review_projection.v1"
+PRODUCT_CARD_FORMAT = "hermes.netto.pdf_product_card_review_projection.v2"
 MARKER_FORMAT = "hermes.netto.pdf_review_markers.v1"
+PRODUCT_CARD_MARKER_FORMAT = "hermes.netto.pdf_product_card_review_markers.v2"
 ALIGNMENT_SCHEMA = "netto-hz46-pdf-publitas-alignment-review-v1"
 IMAGE_MANIFEST_SCHEMA = "netto-hz46-publitas-image-retention-review-v1"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -71,11 +73,15 @@ def build_projection(
     )):
         raise ReviewProjectionError("invalid source digest")
 
-    if (markers.get("format") != MARKER_FORMAT
+    marker_format = markers.get("format")
+    product_card_markers = marker_format == PRODUCT_CARD_MARKER_FORMAT
+    if (marker_format not in {MARKER_FORMAT, PRODUCT_CARD_MARKER_FORMAT}
             or markers.get("publication_page_alignment") != "NOT_VERIFIED"
             or markers.get("retailer_store_identity") != "NOT_VERIFIED"
             or markers.get("offer_identity") != "NOT_VERIFIED"
-            or markers.get("automatic_offer_links") != 0):
+            or markers.get("automatic_offer_links") != 0
+            or markers.get("verified_product_identities", 0) != 0
+            or (product_card_markers and markers.get("product_boundaries_proven") != 0)):
         raise ReviewProjectionError("markers are not fail-closed Review evidence")
     pdf_sha = markers.get("pdf_sha256")
     page_count = markers.get("page_count")
@@ -157,14 +163,21 @@ def build_projection(
             title = row.get("candidate_text_unverified")
             prices = row.get("printed_normal_price_candidates_unverified")
             reasons = row.get("review_reasons")
+            expected_basis = (
+                "observed_pdf_product_card_candidate"
+                if product_card_markers else "observed_pdf_price_group_only"
+            )
             if (len(candidate_id) > 160
                     or candidate_id in seen_candidates
-                    or row.get("marker_basis") != "observed_pdf_price_group_only"
+                    or row.get("marker_basis") != expected_basis
                     or row.get("state") != "REVIEW_ONLY"
                     or row.get("hermes_offer_link") is not None
-                    or row.get("verified_product_identity") is not None):
+                    or row.get("verified_product_identity") is not None
+                    or (product_card_markers and row.get("product_boundary_proven") is not False)):
                 raise ReviewProjectionError("candidate is not fail-closed Review evidence")
-            if title is not None and (type(title) is not str or len(title) > 1200):
+            if (title is not None and (type(title) is not str or len(title) > 1200)
+                    or product_card_markers
+                    and (type(title) is not str or not title.strip())):
                 raise ReviewProjectionError("invalid unverified candidate text")
             if (not isinstance(prices, list)
                     or any(type(value) is not str or len(value) > 30 for value in prices)
@@ -173,7 +186,7 @@ def build_projection(
                 raise ReviewProjectionError("invalid Review candidate metadata")
             page_source_ids.add(source_candidate_id)
             seen_candidates.add(candidate_id)
-            candidates.append({
+            projected = {
                 "candidate_id": candidate_id,
                 "source_candidate_id": source_candidate_id,
                 "rectangle": _box(row.get("marker_bbox")),
@@ -181,10 +194,29 @@ def build_projection(
                 "printed_normal_price_candidates_unverified": prices,
                 "review_reasons": reasons,
                 "state": "REVIEW_ONLY",
-                "source": "pdf_review_only",
+                "source": (
+                    "pdf_product_card_review_only"
+                    if product_card_markers else "pdf_review_only"
+                ),
                 "hermes_offer_link": None,
                 "verified_product_identity": None,
-            })
+            }
+            if product_card_markers:
+                native_source_id = row.get("source_candidate_id")
+                price_region_id = row.get("source_price_region_id")
+                image_region_id = row.get("source_product_image_region_id")
+                if any(
+                    type(value) is not str or not value or len(value) > 180
+                    for value in (native_source_id, price_region_id, image_region_id)
+                ):
+                    raise ReviewProjectionError("missing product-card source provenance")
+                projected.update({
+                    "native_source_candidate_id": native_source_id,
+                    "source_price_region_id": price_region_id,
+                    "source_product_image_region_id": image_region_id,
+                    "product_boundary_proven": False,
+                })
+            candidates.append(projected)
         total += len(candidates)
         projected_pages.append({
             "publication_page_number": index,
@@ -195,8 +227,8 @@ def build_projection(
     if total != candidate_count or total != len(seen_candidates):
         raise ReviewProjectionError("candidate count mismatch")
 
-    return {
-        "format": FORMAT,
+    result_payload = {
+        "format": PRODUCT_CARD_FORMAT if product_card_markers else FORMAT,
         "state": "REVIEW_ONLY",
         "store_id": store_id,
         "group": group,
@@ -212,6 +244,9 @@ def build_projection(
         "verified_product_identities": 0,
         "pages": projected_pages,
     }
+    if product_card_markers:
+        result_payload["product_boundaries_proven"] = 0
+    return result_payload
 
 
 def main() -> int:

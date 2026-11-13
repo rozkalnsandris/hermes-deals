@@ -50,9 +50,9 @@
         data-booklet-publisher-hit data-booklet-review-hit
         data-publisher-title="{{ hotspot.title }}"
         data-publisher-description="{{ ('Iespējamā drukātā cena: ' ~ (hotspot.printed_prices|join(', '))) if hotspot.printed_prices else 'Neapstiprināts PDF cenu/teksta marķieris.' }}"
-        data-publisher-eyebrow="PDF · REVIEW KANDIDĀTS"
-        data-publisher-note="Nav pārbaudīts produkts, cena vai Hermes Deals saite."
-        aria-label="Review kandidāts: {{ hotspot.title }}"
+        data-publisher-eyebrow="PDF · PRODUKTA KARTĪTES REVIEW"
+        data-publisher-note="Produkta kartītes robeža, produkta identitāte, cena un Hermes Deals saite nav verificēta."
+        aria-label="Produkta kartītes Review kandidāts: {{ hotspot.title }}"
         style="left:{{ (hotspot.rectangle.left * 100)|round(6) }}%;top:{{ (hotspot.rectangle.top * 100)|round(6) }}%;width:{{ (hotspot.rectangle.width * 100)|round(6) }}%;height:{{ (hotspot.rectangle.height * 100)|round(6) }}%;">?</button>
       {% endfor %}
     </div>

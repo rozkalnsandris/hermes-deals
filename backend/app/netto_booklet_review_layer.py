@@ -27,10 +27,12 @@ _TRUSTED_REVIEW_LAYERS = {
         "pdf_sha256": "9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf",
         "image_manifest_sha256": "a23db82f42f2fc2ccc81802aab65b8454979d29c64967077eada59523e87764c",
         "alignment_review_sha256": "0b7fe988e655597480235d927b20e9b14fa920525655e27400a5f4a333c28b93",
-        "review_markers_sha256": "344ee5f838d922cb0db42c85cb2a497459c81e2233fcea6c0db3c4a5c567b709",
-        "projection_sha256": "24d1b980c06bbdbb0c58cfe8f00cb4153022f0053684ce5a8e565034e0ea570c",
+        "review_markers_sha256": "4a3a1e21e506d87f6b57f59d9d11f3fc925f82d864d94265044877be4a80e008",
+        "projection_sha256": "2dcfc6c1e2e3bd8f32f37ff6cc014d9f9f1308a73c430c9df35f369cd005be83",
+        "projection_format": "hermes.netto.pdf_product_card_review_projection.v2",
+        "candidate_source": "pdf_product_card_review_only",
         "page_count": 80,
-        "candidate_count": 686,
+        "candidate_count": 265,
     },
 }
 
@@ -101,7 +103,7 @@ def review_only_hotspots(
         raw = _read_verified(location, review_root, 8 * 1024 * 1024, projection_sha)
         payload = json.loads(raw)
         exact = {
-            "format": "hermes.netto.pdf_review_projection.v1",
+            "format": trust["projection_format"],
             "state": "REVIEW_ONLY",
             "store_id": trust["store"],
             "group": trust["group"],
@@ -115,6 +117,7 @@ def review_only_hotspots(
             "candidate_count": trust["candidate_count"],
             "automatic_offer_links": 0,
             "verified_product_identities": 0,
+            "product_boundaries_proven": 0,
         }
         if not isinstance(payload, dict) or any(payload.get(key) != value for key, value in exact.items()):
             raise ValueError("Review projection provenance mismatch")
@@ -141,11 +144,17 @@ def review_only_hotspots(
                 title = candidate.get("candidate_text_unverified")
                 prices = candidate.get("printed_normal_price_candidates_unverified")
                 reasons = candidate.get("review_reasons")
+                native_id = candidate.get("native_source_candidate_id")
+                price_region_id = candidate.get("source_price_region_id")
+                image_region_id = candidate.get("source_product_image_region_id")
                 if (type(cid) is not str or not cid or len(cid) > 160 or cid in seen
                         or candidate.get("state") != "REVIEW_ONLY"
-                        or candidate.get("source") != "pdf_review_only"
+                        or candidate.get("source") != trust["candidate_source"]
+                        or candidate.get("product_boundary_proven") is not False
                         or candidate.get("hermes_offer_link") is not None
-                        or candidate.get("verified_product_identity") is not None):
+                        or candidate.get("verified_product_identity") is not None
+                        or any(type(value) is not str or not value or len(value) > 180
+                               for value in (native_id, price_region_id, image_region_id))):
                     raise ValueError("Review candidate is not fail-closed")
                 if title is not None and (type(title) is not str or len(title) > 1200):
                     raise ValueError("Unbounded Review title")
@@ -161,7 +170,7 @@ def review_only_hotspots(
                     "title": (title or "Review kandidāts").strip()[:1200],
                     "printed_prices": prices,
                     "candidate_id": cid,
-                    "source": "pdf_review_only",
+                    "source": trust["candidate_source"],
                 })
         if total != trust["candidate_count"] or total != len(seen):
             raise ValueError("Review projection candidate count mismatch")
