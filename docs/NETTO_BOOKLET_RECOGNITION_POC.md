@@ -225,6 +225,74 @@ Where the exact first-party publication includes publisher hotspots, they may be
 **geometry evaluation evidence** after exact publication/SHA/page alignment is verified. They
 must not be treated as Hermes offer identity merely because the rectangles overlap.
 
+
+## HZ46 execution evidence (2026-11-12/13)
+
+The owner authorized an isolated Lenovo PoC against the exact current-week Netto 5659 PDF while
+the intended 2026-11-16 publication was not yet available. This execution is evidence for the
+recognition architecture; it does not substitute an unverified next-week source identity.
+
+Bound source evidence:
+
+- Publitas publication: `regionale-hz/hz46_hasb_4`;
+- PDF SHA256:
+  `9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf`;
+- PDF shape: 80 pages, unencrypted;
+- all 80/80 pages expose usable native text;
+- Florence model artifact SHA256:
+  `62f3e696da74f8869a68ddb529a9b3e14eb25b21c592cb3dea6179bf944df6a0`;
+- Florence model artifact size: 463,178,864 bytes;
+- execution host: Lenovo x86_64, CPU-only, 8 GiB RAM.
+
+Representative pages were 1, 4, 20, 40 and 60.
+
+### Native baseline
+
+The source-native PyMuPDF pass completed in about **1.26 s** for the five representative pages.
+It exposed machine-readable text, prices and image geometry directly, so PaddleOCR was not run
+as the primary extractor for this PDF. PaddleOCR remains a fallback for image-only or broken-text
+sources.
+
+### Full-page Florence-2
+
+The five-page full-page Florence run completed in about **292.5 s**
+(~58.5 s/page), with observed Lenovo temperature up to **69 °C**.
+
+The parsed result contained about 52 Florence regions. Only 5 of 60 native price candidates
+(~8%) could be associated with those regions, and there were **0 exact product/SKU identities**.
+Pages 1, 4 and 40 were weak; pages 20 and 60 were partly useful. This was not strong enough to
+justify Florence as the primary product-region generator.
+
+### Native price-crop Florence-2
+
+A second bounded run targeted 10 native price-anchor crops across pages 1, 4, 20, 40 and 60.
+The run completed in about **611.5 s**, with observed Lenovo temperature up to **71 °C**.
+
+The crop pass still misidentified several products and did not outperform the deterministic
+native PDF evidence enough to justify model-first grouping. It remains potentially useful only
+for ambiguous regions selected by deterministic source geometry.
+
+Exact peak RSS for these retained Lenovo executions was not preserved in the reviewed evidence.
+The runner records peak RSS for future executions, but this missing historical value must not be
+invented.
+
+### Practical decision
+
+**HYBRID**.
+
+For this Netto source class:
+
+1. use PyMuPDF native text/image geometry as the primary hotspot-candidate generator;
+2. use deterministic primary-price-anchor grouping for Review-only regions;
+3. use Florence-2 only as a bounded second-stage check on ambiguous crops;
+4. use PaddleOCR only when native text is absent or unusable;
+5. never promote OCR/VLM output directly to a product identity or Hermes offer link.
+
+This decision is based on actual HZ46 evidence and resource timing, not on model capability
+assumptions. Issue #1140 should remain open until the missing exact peak-RSS evidence is either
+recovered read-only from retained results or reproduced under a separately authorized bounded
+runtime run.
+
 ## Outcome
 
 The real next-week result should end in exactly one practical decision:
