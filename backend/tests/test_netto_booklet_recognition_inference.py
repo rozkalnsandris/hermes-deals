@@ -15,6 +15,8 @@ from netto_booklet_recognition_inference import (
     _json_value,
     _normalized_bbox,
     _normalized_visible_image_bbox,
+    _date_price_region_ids,
+    _native_product_card_candidates,
     _read_pdf,
     _validate_florence_generation,
     native_page_structure,
@@ -334,3 +336,95 @@ def test_native_image_bbox_rejects_nonintersecting_or_degenerate_rectangles():
 def test_native_text_bbox_remains_strict_outside_page():
     with pytest.raises(InferenceRunnerError, match="outside page"):
         _normalized_bbox([-1, 10, 40, 50], 300, 420)
+
+
+
+def _native_row(region_id, text, bbox, block_no, line_no=0, word_no=0):
+    return {
+        "region_id": region_id,
+        "text": text,
+        "bbox": bbox,
+        "block_no": block_no,
+        "line_no": line_no,
+        "word_no": word_no,
+        "state": "REVIEW_ONLY",
+    }
+
+
+def _native_price(region_id, text, bbox):
+    return {
+        "region_id": region_id,
+        "text": text,
+        "bbox": bbox,
+        "basis": "native_pdf_price_like_token",
+        "product_boundary_proven": False,
+        "verified_product_identity": None,
+        "hermes_offer_link": None,
+        "state": "REVIEW_ONLY",
+    }
+
+
+def test_product_card_v2_excludes_validity_dates_and_uses_text_image_price_union():
+    words = [
+        _native_row("date-a", "Donnerstag", [0.28, 0.01, 0.11, 0.02], 1, 0, 0),
+        _native_row("date-b", "12.11", [0.40, 0.01, 0.06, 0.02], 1, 0, 1),
+        _native_row("date-c", "Samstag", [0.48, 0.01, 0.08, 0.02], 1, 0, 2),
+        _native_row("date-d", "14.11", [0.58, 0.01, 0.06, 0.02], 1, 0, 3),
+        _native_row("title", "Hähnchen-Brustfilet", [0.522, 0.543, 0.136, 0.013], 2),
+        _native_row("meta", "mager", [0.522, 0.557, 0.04, 0.011], 2, 1, 0),
+        _native_row("price", "7.99*", [0.858, 0.500, 0.082, 0.051], 4),
+    ]
+    prices = [
+        _native_price("date-b", "12.11", [0.40, 0.01, 0.06, 0.02]),
+        _native_price("date-d", "14.11", [0.58, 0.01, 0.06, 0.02]),
+        _native_price("price", "7.99*", [0.858, 0.500, 0.082, 0.051]),
+    ]
+    images = [{
+        "region_id": "product-image",
+        "bbox": [0.522, 0.298, 0.444, 0.231],
+        "pixel_width": 525,
+        "pixel_height": 383,
+        "xref": 7820,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
+
+    assert _date_price_region_ids(words, prices) == {"date-b", "date-d"}
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["price_region_id"] == "price"
+    assert card["product_text"] == "Hähnchen-Brustfilet mager"
+    assert card["product_image_region_id"] == "product-image"
+    assert card["basis"] == "native_pdf_product_text_image_price_card_v2"
+    assert card["card_bbox"][0] <= 0.522
+    assert card["card_bbox"][1] <= 0.298
+    assert card["card_bbox"][0] + card["card_bbox"][2] >= 0.940
+    assert card["card_bbox"][1] + card["card_bbox"][3] >= 0.568
+    assert card["product_boundary_proven"] is False
+    assert card["verified_product_identity"] is None
+    assert card["hermes_offer_link"] is None
+
+
+def test_product_card_v2_rejects_isolated_price_without_product_text_or_image():
+    words = [_native_row("price", "1.99", [0.80, 0.70, 0.08, 0.05], 1)]
+    prices = [_native_price("price", "1.99", [0.80, 0.70, 0.08, 0.05])]
+    assert _native_product_card_candidates(words, [], prices) == []
+
+
+def test_product_card_v2_rejects_kw_or_date_like_text_as_product_title():
+    words = [
+        _native_row("title", "KW 46 / KiErhHaBo", [0.50, 0.80, 0.20, 0.02], 2),
+        _native_row("price", "5.99", [0.86, 0.88, 0.08, 0.05], 3),
+    ]
+    prices = [_native_price("price", "5.99", [0.86, 0.88, 0.08, 0.05])]
+    images = [{
+        "region_id": "product-image",
+        "bbox": [0.66, 0.73, 0.22, 0.20],
+        "pixel_width": 262,
+        "pixel_height": 331,
+        "xref": 1,
+        "digest": "bb",
+        "state": "REVIEW_ONLY",
+    }]
+    assert _native_product_card_candidates(words, images, prices) == []
