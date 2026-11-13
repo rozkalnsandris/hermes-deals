@@ -18,6 +18,7 @@ from netto_booklet_recognition_inference import (
     _date_price_region_ids,
     _native_layout_regions,
     _native_product_card_candidates,
+    _native_price_text_candidates,
     _filter_ambiguous_product_cards,
     _read_pdf,
     _validate_florence_generation,
@@ -465,6 +466,69 @@ def _native_price(region_id, text, bbox):
         "hermes_offer_link": None,
         "state": "REVIEW_ONLY",
     }
+
+
+def test_price_text_candidates_use_global_one_to_one_competition():
+    words = [
+        _native_row("title-a", "Popp Fleischsalat", [0.44, 0.40, 0.08, 0.03], 1),
+        _native_row("title-b", "Nestle Gold Mousse", [0.55, 0.40, 0.08, 0.03], 2),
+        _native_row("price-a", "1.29", [0.40, 0.50, 0.06, 0.05], 3),
+        _native_row("price-b", "1.99", [0.70, 0.50, 0.06, 0.05], 4),
+    ]
+    prices = [
+        _native_price("price-a", "1.29", [0.40, 0.50, 0.06, 0.05]),
+        _native_price("price-b", "1.99", [0.70, 0.50, 0.06, 0.05]),
+    ]
+
+    candidates = _native_price_text_candidates(words, prices)
+    by_price = {row["price_region_id"]: row for row in candidates}
+
+    assert by_price["price-a"]["assignment_state"] == "SELECTED"
+    assert by_price["price-a"]["product_text"] == "Popp Fleischsalat"
+    assert by_price["price-b"]["assignment_state"] == "SELECTED"
+    assert by_price["price-b"]["product_text"] == "Nestle Gold Mousse"
+    assert (
+        by_price["price-a"]["product_text_region_ids"]
+        != by_price["price-b"]["product_text_region_ids"]
+    )
+
+
+def test_price_text_candidate_survives_without_product_image():
+    words = [
+        _native_row("title", "Chiquita Bananen", [0.20, 0.20, 0.16, 0.03], 1),
+        _native_row("price", "1.99", [0.30, 0.34, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "1.99", [0.30, 0.34, 0.08, 0.05])]
+
+    candidates = _native_price_text_candidates(words, prices)
+
+    assert len(candidates) == 1
+    row = candidates[0]
+    assert row["assignment_state"] == "SELECTED"
+    assert row["product_text"] == "Chiquita Bananen"
+    assert row["image_state"] == "UNRESOLVED"
+    assert row["product_image_region_id"] is None
+    assert row["product_image_bbox"] is None
+    assert row["product_boundary_proven"] is False
+    assert row["verified_product_identity"] is None
+    assert row["hermes_offer_link"] is None
+
+
+def test_price_text_candidates_preserve_rejected_and_losing_alternatives():
+    words = [
+        _native_row("promo", "+APP", [0.42, 0.42, 0.06, 0.03], 1),
+        _native_row("title", "Bio Mozzarella", [0.50, 0.42, 0.12, 0.03], 2),
+        _native_row("price", "1.29", [0.62, 0.50, 0.08, 0.05], 3),
+    ]
+    prices = [_native_price("price", "1.29", [0.62, 0.50, 0.08, 0.05])]
+
+    row = _native_price_text_candidates(words, prices)[0]
+    alternatives = {alt["product_text"]: alt for alt in row["alternatives"]}
+
+    assert row["product_text"] == "Bio Mozzarella"
+    assert alternatives["Bio Mozzarella"]["selection_state"] == "SELECTED"
+    assert alternatives["+APP"]["selection_state"] == "REJECTED"
+    assert "nonproduct_card_copy" in alternatives["+APP"]["rejection_reasons"]
 
 
 def test_product_card_v2_excludes_validity_dates_and_uses_text_image_price_union():
