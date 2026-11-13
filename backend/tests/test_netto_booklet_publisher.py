@@ -79,13 +79,24 @@ def test_verified_publisher_detail_exposes_coordinates_without_offer_identity(tm
 
 
 @pytest.mark.parametrize("change", [
-    {"store_id": "5658"}, {"snapshot_id": "other"},
-    {"manifest_sha256": "bad"}, {"day": date(2026, 11, 8)},
+    {"store_id": "5658"}, {"day": date(2026, 11, 8)},
     {"valid_from": date(2026, 11, 3)},
 ])
-def test_untrusted_store_snapshot_manifest_or_date_disables_overlay(tmp_path, monkeypatch, change):
+def test_untrusted_store_or_date_disables_overlay(tmp_path, monkeypatch, change):
     call, _, _ = capture(tmp_path, monkeypatch)
     assert call(**change) == {}
+
+
+def test_same_publication_survives_collector_snapshot_rollover(tmp_path, monkeypatch):
+    call, _, _ = capture(tmp_path, monkeypatch)
+    result = call(snapshot_id="new-snapshot", manifest_sha256="new-manifest")
+    assert sum(len(rows) for rows in result.values()) == 1
+
+
+def test_changed_publication_identity_disables_overlay(tmp_path, monkeypatch):
+    call, _, record = capture(tmp_path, monkeypatch)
+    record["publication_sha256"] = "0" * 64
+    assert call() == {}
 
 
 def test_corrupt_receipt_or_product_fails_closed(tmp_path, monkeypatch):
