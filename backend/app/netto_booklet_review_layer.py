@@ -14,7 +14,7 @@ import re
 
 from app.netto_html_publications import validated_pages
 
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 # HZ46 inputs are pinned now; final projection SHA stays disabled until a
 # separately authorized retained Review projection is created and verified.
