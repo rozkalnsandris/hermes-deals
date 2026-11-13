@@ -26,6 +26,12 @@ NATIVE_PRICE_GROUP_RADIUS = 0.24
 NATIVE_PRICE_GROUP_PADDING = 0.012
 NATIVE_IMAGE_MIN_PIXELS = 2500
 NATIVE_IMAGE_MAX_ASPECT = 8.0
+NATIVE_PRODUCT_IMAGE_MIN_PAGE_AREA = 0.002
+NATIVE_PRODUCT_IMAGE_MAX_PAGE_AREA = 0.32
+NATIVE_PRODUCT_IMAGE_MAX_GAP = 0.22
+NATIVE_PRODUCT_CARD_MAX_PAGE_AREA = 0.40
+NATIVE_PRODUCT_CARD_MAX_WIDTH = 0.68
+NATIVE_PRODUCT_CARD_MAX_HEIGHT = 0.72
 
 
 class InferenceRunnerError(ValueError):
@@ -33,6 +39,18 @@ class InferenceRunnerError(ValueError):
 
 
 _NATIVE_PRICE = re.compile(r"^(?:\d{1,3}[.,]\d{2}|\d+[.,]-)\*?$")
+
+_NATIVE_WEEKDAY = re.compile(
+    r"\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b",
+    re.I,
+)
+_NATIVE_KW_LABEL = re.compile(r"\bkw\s*\d{1,2}\b", re.I)
+_NATIVE_ALPHA = re.compile(r"[A-Za-zÄÖÜäöüß]{3,}")
+_NATIVE_PRODUCT_NOISE = {
+    "aktion", "xxl", "sparen", "uvp", "statt", "bisher", "ab", "bis", "zu",
+    "für", "fuer", "je", "pro", "kg", "g", "ml", "l", "st", "stück",
+    "stueck", "versch", "sorten", "sorte",
+}
 
 
 def _normalized_bbox(raw, width: float, height: float) -> list[float]:
@@ -95,6 +113,16 @@ def _bbox_distance(a: list[float], b: list[float]) -> float:
     return math.hypot(ax - bx, ay - by)
 
 
+def _bbox_gap_distance(a: list[float], b: list[float]) -> float:
+    ax0, ay0, aw, ah = a
+    bx0, by0, bw, bh = b
+    ax1, ay1 = ax0 + aw, ay0 + ah
+    bx1, by1 = bx0 + bw, by0 + bh
+    dx = max(bx0 - ax1, ax0 - bx1, 0.0)
+    dy = max(by0 - ay1, ay0 - by1, 0.0)
+    return math.hypot(dx, dy)
+
+
 def _bbox_union_normalized(boxes: list[list[float]]) -> list[float]:
     if not boxes:
         raise InferenceRunnerError("cannot union empty native PDF rectangles")
@@ -144,6 +172,231 @@ def _substantive_native_image(row: dict) -> bool:
         return False
     aspect = max(width / height, height / width)
     return aspect <= NATIVE_IMAGE_MAX_ASPECT
+
+
+def _calendar_token(text: object) -> tuple[int, int] | None:
+    value = str(text or "").replace("€", "").strip().rstrip("*").rstrip(".")
+    match = re.fullmatch(r"([0-3]?\d)[.,]([01]?\d)", value)
+    if match is None:
+        return None
+    day, month = int(match.group(1)), int(match.group(2))
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return None
+    return day, month
+
+
+def _date_price_region_ids(
+    words: list[dict],
+    price_candidates: list[dict],
+) -> set[str]:
+    word_by_id = {row["region_id"]: row for row in words}
+    by_block: dict[int, list[dict]] = {}
+    for row in words:
+        by_block.setdefault(int(row["block_no"]), []).append(row)
+
+    excluded: set[str] = set()
+    for candidate in price_candidates:
+        if _calendar_token(candidate.get("text")) is None:
+            continue
+        word = word_by_id.get(candidate["region_id"])
+        if word is None:
+            raise InferenceRunnerError("native price candidate word is missing")
+        block = by_block.get(int(word["block_no"]), [])
+        block_text = " ".join(str(row.get("text") or "") for row in block)
+        calendar_count = sum(
+            1 for row in block if _calendar_token(row.get("text")) is not None
+        )
+        if (
+            _NATIVE_WEEKDAY.search(block_text)
+            or calendar_count >= 2
+            or re.search(r"\b20\d{2}\b", block_text)
+        ):
+            excluded.add(candidate["region_id"])
+    return excluded
+
+
+def _product_text_token(text: object) -> bool:
+    value = str(text or "").strip()
+    if not value or _calendar_token(value) is not None:
+        return False
+    if _NATIVE_PRICE.fullmatch(value.replace("€", "").strip()):
+        return False
+    normalized = re.sub(r"[^A-Za-zÄÖÜäöüß]+", " ", value).casefold().strip()
+    tokens = [token for token in normalized.split() if token]
+    return any(
+        len(token) >= 3
+        and token not in _NATIVE_PRODUCT_NOISE
+        and _NATIVE_ALPHA.search(token) is not None
+        for token in tokens
+    )
+
+
+def _product_text_block(
+    rows: list[dict],
+    anchor_bbox: list[float],
+    anchor_region_id: str,
+) -> tuple[list[dict], str] | None:
+    by_block: dict[int, list[dict]] = {}
+    for row in rows:
+        if row["region_id"] == anchor_region_id:
+            continue
+        by_block.setdefault(int(row["block_no"]), []).append(row)
+
+    choices: list[tuple[float, int, list[dict], str]] = []
+    for block_no, block_rows in by_block.items():
+        ordered = sorted(
+            block_rows,
+            key=lambda row: (
+                int(row.get("line_no") or 0),
+                int(row.get("word_no") or 0),
+                row["bbox"][1],
+                row["bbox"][0],
+            ),
+        )
+        text = " ".join(str(row.get("text") or "") for row in ordered).strip()
+        if (
+            not text
+            or _NATIVE_WEEKDAY.search(text)
+            or _NATIVE_KW_LABEL.search(text)
+            or not any(_product_text_token(row.get("text")) for row in ordered)
+        ):
+            continue
+        block_bbox = _bbox_union_normalized([row["bbox"] for row in ordered])
+        gap = _bbox_gap_distance(block_bbox, anchor_bbox)
+        if gap > NATIVE_PRICE_GROUP_RADIUS:
+            continue
+        score = gap * 2.0 + _bbox_distance(block_bbox, anchor_bbox) * 0.35
+        choices.append((score, block_no, ordered, text))
+
+    if not choices:
+        return None
+    choices.sort(key=lambda row: (row[0], row[1]))
+    _, _, ordered, text = choices[0]
+    return ordered, text
+
+
+def _product_image_candidate(row: dict) -> bool:
+    if not _substantive_native_image(row):
+        return False
+    bbox = row.get("bbox")
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        raise InferenceRunnerError("native product image bbox is malformed")
+    area = float(bbox[2]) * float(bbox[3])
+    return (
+        NATIVE_PRODUCT_IMAGE_MIN_PAGE_AREA <= area <= NATIVE_PRODUCT_IMAGE_MAX_PAGE_AREA
+        and float(bbox[2]) <= NATIVE_PRODUCT_CARD_MAX_WIDTH
+        and float(bbox[3]) <= NATIVE_PRODUCT_CARD_MAX_HEIGHT
+    )
+
+
+def _native_product_card_candidates(
+    words: list[dict],
+    images: list[dict],
+    primary_price_candidates: list[dict],
+) -> list[dict]:
+    """Build strict Review-only product-card geometry from price + text + image."""
+    if not primary_price_candidates:
+        return []
+
+    date_ids = _date_price_region_ids(words, primary_price_candidates)
+    eligible = [
+        row for row in primary_price_candidates if row["region_id"] not in date_ids
+    ]
+    if not eligible:
+        return []
+
+    base_candidates = _native_price_anchor_candidates(words, images, eligible)
+    word_by_id = {row["region_id"]: row for row in words}
+    image_by_id = {row["region_id"]: row for row in images}
+    by_price_id = {row["price_region_id"]: row for row in base_candidates}
+
+    accepted: list[dict] = []
+    for anchor in eligible:
+        base = by_price_id.get(anchor["region_id"])
+        if base is None:
+            raise InferenceRunnerError("native price group candidate is missing")
+
+        grouped_words = [
+            word_by_id[value]
+            for value in base["native_text_region_ids"]
+            if value in word_by_id
+        ]
+        selected_text = _product_text_block(
+            grouped_words,
+            anchor["bbox"],
+            anchor["region_id"],
+        )
+        if selected_text is None:
+            continue
+        text_rows, product_text = selected_text
+        text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
+        evidence_bbox = _bbox_union_normalized([anchor["bbox"], text_bbox])
+
+        image_rows = [
+            image_by_id[value]
+            for value in base["native_image_region_ids"]
+            if value in image_by_id and _product_image_candidate(image_by_id[value])
+        ]
+        ranked_images = sorted(
+            image_rows,
+            key=lambda row: (
+                _bbox_gap_distance(row["bbox"], evidence_bbox),
+                _bbox_distance(row["bbox"], evidence_bbox),
+                -(float(row["bbox"][2]) * float(row["bbox"][3])),
+                row["region_id"],
+            ),
+        )
+        if not ranked_images:
+            continue
+        image = ranked_images[0]
+        if _bbox_gap_distance(image["bbox"], evidence_bbox) > NATIVE_PRODUCT_IMAGE_MAX_GAP:
+            continue
+
+        card_bbox = _expanded_normalized_bbox(
+            _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
+            NATIVE_PRICE_GROUP_PADDING,
+        )
+        card_area = float(card_bbox[2]) * float(card_bbox[3])
+        if (
+            card_area > NATIVE_PRODUCT_CARD_MAX_PAGE_AREA
+            or float(card_bbox[2]) > NATIVE_PRODUCT_CARD_MAX_WIDTH
+            or float(card_bbox[3]) > NATIVE_PRODUCT_CARD_MAX_HEIGHT
+        ):
+            continue
+
+        other_price_centers = [
+            row["region_id"]
+            for row in eligible
+            if row["region_id"] != anchor["region_id"]
+            and card_bbox[0] <= _bbox_center(row["bbox"])[0] <= card_bbox[0] + card_bbox[2]
+            and card_bbox[1] <= _bbox_center(row["bbox"])[1] <= card_bbox[1] + card_bbox[3]
+        ]
+        if other_price_centers:
+            continue
+
+        accepted.append(
+            {
+                "candidate_id": f"native-card-{len(accepted) + 1}",
+                "price_region_id": anchor["region_id"],
+                "price_text": anchor["text"],
+                "price_bbox": anchor["bbox"],
+                "product_text": product_text,
+                "product_text_region_ids": [row["region_id"] for row in text_rows],
+                "product_image_region_id": image["region_id"],
+                "product_image_bbox": image["bbox"],
+                "card_bbox": card_bbox,
+                "basis": "native_pdf_product_text_image_price_card_v2",
+                "review_reasons": [
+                    "product_boundary_review_only",
+                    "product_identity_unverified",
+                ],
+                "product_boundary_proven": False,
+                "verified_product_identity": None,
+                "hermes_offer_link": None,
+                "state": "REVIEW_ONLY",
+            }
+        )
+    return accepted
 
 
 def _native_price_anchor_candidates(
@@ -291,7 +544,13 @@ def native_page_structure(page) -> dict:
         if _NATIVE_PRICE.fullmatch(row["text"].replace("€", "").strip())
     ]
     primary_price_candidates = _primary_price_candidates(price_candidates)
+    date_price_region_ids = _date_price_region_ids(words, primary_price_candidates)
     price_anchor_candidates = _native_price_anchor_candidates(
+        words,
+        images,
+        primary_price_candidates,
+    )
+    product_card_candidates = _native_product_card_candidates(
         words,
         images,
         primary_price_candidates,
@@ -304,11 +563,15 @@ def native_page_structure(page) -> dict:
         "price_candidates": price_candidates,
         "primary_price_candidates": primary_price_candidates,
         "price_anchor_candidates": price_anchor_candidates,
+        "product_card_candidates": product_card_candidates,
+        "date_price_region_ids_excluded": sorted(date_price_region_ids),
         "text_region_count": len(words),
         "image_region_count": len(images),
         "price_candidate_count": len(price_candidates),
         "primary_price_candidate_count": len(primary_price_candidates),
         "price_anchor_candidate_count": len(price_anchor_candidates),
+        "product_card_candidate_count": len(product_card_candidates),
+        "date_price_candidate_count_excluded": len(date_price_region_ids),
         "product_boundaries_proven": 0,
         "verified_product_identities": 0,
         "automatic_offer_links": 0,
