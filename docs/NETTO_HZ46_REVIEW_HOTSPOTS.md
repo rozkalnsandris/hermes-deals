@@ -234,12 +234,52 @@ identity. Automatic Hermes offer links, verified product identities and proven
 product boundaries remain zero. Candidate absence is preferred over guessing
 when source geometry remains ambiguous.
 
+## Publication-bound v2 projection / UI source lane
+
+The clean product-card evidence is projected onto the already proven 80/80
+Publitas page order without weakening the trust boundary. The existing
+`tools/netto_pdf_review_projection.py` remains backward-compatible with the
+accepted v1 price-group format and additionally accepts
+`hermes.netto.pdf_product_card_review_markers.v2`.
+
+For v2 it requires:
+
+- the same exact PDF, publication, image-manifest and alignment identities;
+- `marker_basis=observed_pdf_product_card_candidate`;
+- `product_boundary_proven=false` for every candidate and zero proven
+  boundaries at manifest level;
+- non-empty native card, price-region and image-region provenance;
+- zero Hermes offer links and zero verified product identities.
+
+The exact retained PDF plus the existing alignment/image receipts were
+reprocessed entirely in memory. No retained Review file was written by this
+source lane. Deterministic pretty-JSON receipts are:
+
+- v2 marker SHA256
+  `4a3a1e21e506d87f6b57f59d9d11f3fc925f82d864d94265044877be4a80e008`
+  (252137 bytes, 265 candidates);
+- v2 publication projection SHA256
+  `2dcfc6c1e2e3bd8f32f37ff6cc014d9f9f1308a73c430c9df35f369cd005be83`
+  (273650 bytes, 80 pages / 265 candidates).
+
+The runtime Review layer is source-pinned to those v2 receipts and rejects the
+old v1 projection once this source is deployed. Each projected candidate keeps
+the full Review-only product-card rectangle, so the existing overlay button
+covers the card region rather than the old price-group rectangle. The Jinja
+dialog now labels these as `PDF · PRODUKTA KARTĪTES REVIEW` and still states
+that card boundary, product identity, printed price and Hermes Deals
+relationship are unverified.
+
+This source change does **not** materialize those retained JSON receipts and
+does not activate them in production. Until a separate LIVE rollout places the
+exact SHA-pinned files and deploys the reviewed source, the currently deployed
+v1 layer remains unchanged.
+
 ## Next gate
 
-After source review/merge, the next #1069 lane may build the exact
-publication-bound v2 Review projection and UI integration from this clean
-source evidence. V1 remains active until that separate projection/UI lane is
-reviewed and, later, explicitly activated. Any product -> Hermes offer bridge
-still requires independent identity evidence. No DB, collector,
-Review/publication write, deploy or LIVE activation is authorized by this
-source lane.
+After source review/merge, the next #1069 gate is a bounded LIVE rollout:
+materialize the exact v2 marker/projection receipts from the already verified
+inputs, verify their SHA256 values, place only the projection at the approved
+`netto-html/review-layers` runtime location, deploy the exact merged source,
+then perform read-only page-count/hotspot-count and representative desktop/mobile
+visual click canaries. No product -> Hermes offer bridge is part of that gate.
