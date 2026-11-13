@@ -134,6 +134,10 @@
         .addEventListener('click', () => publisherDialog.close());
     }
     image.addEventListener('load', alignPublisherLayer);
+    const publisherResizeObserver = publisherLayer && typeof ResizeObserver === 'function'
+      ? new ResizeObserver(alignPublisherLayer) : null;
+    publisherResizeObserver?.observe(image);
+    publisherResizeObserver?.observe(canvas);
     function applyTransform() {
       const bounds = canvas.getBoundingClientRect();
       const maxX = Math.max(0, (image.offsetWidth * scale - bounds.width) / 2);
@@ -363,7 +367,10 @@
       event.preventDefault();
       if (scale <= 1.01) navigate(page + (event.key === 'ArrowRight' ? 1 : -1));
     });
-    window.addEventListener('resize', () => { if (isOpen()) applyTransform(); });
+    window.addEventListener('resize', () => {
+      if (isOpen()) applyTransform();
+      else alignPublisherLayer();
+    });
     reader.dataset.bookletReady = 'true';
     navigate(page, false);
   }
