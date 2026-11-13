@@ -106,6 +106,96 @@ def paddle_text_regions(
     return rows
 
 
+def _normalize_unit_rect(raw: object) -> list[float]:
+    if (
+        not isinstance(raw, (list, tuple))
+        or len(raw) != 4
+        or not all(_number(value) for value in raw)
+    ):
+        raise RecognitionEvidenceError("missing or nonnumeric normalized rectangle")
+    x, y, width, height = (float(value) for value in raw)
+    if (
+        not (0 <= x < 1 and 0 <= y < 1)
+        or not (0 < width <= 1 and 0 < height <= 1)
+        or x + width > 1.000001
+        or y + height > 1.000001
+    ):
+        raise RecognitionEvidenceError("out-of-page normalized rectangle")
+    return [round(x, 6), round(y, 6), round(width, 6), round(height, 6)]
+
+
+def native_price_candidates(payload: object) -> list[dict]:
+    """Normalize source-native primary-price groups into Review-only hotspots."""
+    if not isinstance(payload, dict):
+        raise RecognitionEvidenceError("native result must be an object")
+    candidates = payload.get("price_anchor_candidates")
+    if not isinstance(candidates, list) or len(candidates) > 500:
+        raise RecognitionEvidenceError("missing or excessive native price candidates")
+
+    rows = []
+    seen: set[str] = set()
+    for row in candidates:
+        if not isinstance(row, dict):
+            raise RecognitionEvidenceError("native price candidate must be an object")
+        candidate_id = row.get("candidate_id")
+        price_region_id = row.get("price_region_id")
+        price_text = row.get("price_text")
+        texts = row.get("native_text")
+        image_ids = row.get("native_image_region_ids")
+        basis = row.get("basis")
+        if (
+            not isinstance(candidate_id, str)
+            or not candidate_id
+            or len(candidate_id) > 100
+            or candidate_id in seen
+        ):
+            raise RecognitionEvidenceError("invalid or duplicate native candidate id")
+        seen.add(candidate_id)
+        if not isinstance(price_region_id, str) or not price_region_id or len(price_region_id) > 100:
+            raise RecognitionEvidenceError("invalid native price region id")
+        if not isinstance(price_text, str) or not PRICE.search(price_text) or len(price_text) > 100:
+            raise RecognitionEvidenceError("invalid native price text")
+        if (
+            not isinstance(texts, list)
+            or len(texts) > 1000
+            or any(not isinstance(value, str) or len(value) > 1000 for value in texts)
+        ):
+            raise RecognitionEvidenceError("invalid native text evidence")
+        if (
+            not isinstance(image_ids, list)
+            or len(image_ids) > 500
+            or any(not isinstance(value, str) or not value or len(value) > 100 for value in image_ids)
+        ):
+            raise RecognitionEvidenceError("invalid native image evidence")
+        if not isinstance(basis, str) or not basis or len(basis) > 200:
+            raise RecognitionEvidenceError("invalid native candidate basis")
+        if (
+            row.get("state") != "REVIEW_ONLY"
+            or row.get("product_boundary_proven") is not False
+            or row.get("verified_product_identity") is not None
+            or row.get("hermes_offer_link") is not None
+        ):
+            raise RecognitionEvidenceError("native candidate violates Review-only policy")
+
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "bbox": _normalize_unit_rect(row.get("crop_bbox")),
+                "texts": list(texts),
+                "price_anchor_text": price_text,
+                "price_region_id": price_region_id,
+                "native_image_region_ids": list(image_ids),
+                "basis": "native_pdf_primary_price_group",
+                "source_basis": basis,
+                "product_boundary_proven": False,
+                "state": "REVIEW_ONLY",
+                "verified_product_identity": None,
+                "hermes_offer_link": None,
+            }
+        )
+    return rows
+
+
 def _bbox_union(boxes: list[list[float]]) -> list[float]:
     if not boxes:
         raise RecognitionEvidenceError("cannot union empty boxes")
@@ -220,17 +310,33 @@ def build_page(
     page_number: int,
     image_width: float,
     image_height: float,
-    paddle_payload: object,
+    paddle_payload: object | None = None,
     florence_payload: object | None = None,
+    native_payload: object | None = None,
 ) -> dict:
     if type(page_number) is not int or page_number < 1:
         raise RecognitionEvidenceError("invalid page number")
-    text = paddle_text_regions(paddle_payload, image_width, image_height)
+    text = (
+        paddle_text_regions(paddle_payload, image_width, image_height)
+        if paddle_payload is not None
+        else []
+    )
+    ocr_candidates = ocr_price_clusters(text)
+    native_candidates = (
+        native_price_candidates(native_payload)
+        if native_payload is not None
+        else []
+    )
+    if not text and not native_candidates and florence_payload is None:
+        raise RecognitionEvidenceError("page has no recognition evidence")
     page = {
         "page_number": page_number,
         "model_image_size": [int(image_width), int(image_height)],
         "ocr_text_regions": text,
-        "ocr_price_candidates": ocr_price_clusters(text),
+        "ocr_price_candidates": ocr_candidates,
+        "native_price_candidates": native_candidates,
+        "hotspot_candidates": native_candidates if native_candidates else ocr_candidates,
+        "hotspot_candidate_source": "native" if native_candidates else ("paddle" if ocr_candidates else None),
         "vision_regions": [],
         "automatic_offer_links": 0,
         "verified_product_identities": 0,
@@ -314,6 +420,7 @@ def build_manifest(
                 float(height),
                 row.get("paddle"),
                 row.get("florence"),
+                row.get("native"),
             )
         )
     normalized.sort(key=lambda row: row["page_number"])
