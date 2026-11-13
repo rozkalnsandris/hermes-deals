@@ -753,6 +753,34 @@ def test_product_card_v3_rejects_image_spilling_outside_single_price_region():
     assert _native_product_card_candidates(words, images, prices, regions) == []
 
 
+def test_product_card_v3_rejects_composite_image_that_envelops_text_and_price():
+    words = [
+        _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.08, 0.12, 0.03], 1),
+        _native_row("price", "3.99", [0.60, 0.22, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "3.99", [0.60, 0.22, 0.08, 0.05])]
+    images = [
+        {
+            "region_id": "isolated-product-image",
+            "bbox": [0.40, 0.08, 0.12, 0.12],
+            "pixel_width": 260, "pixel_height": 260, "xref": 1,
+            "digest": "aa", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "composite-background-image",
+            "bbox": [0.53, 0.06, 0.16, 0.22],
+            "pixel_width": 480, "pixel_height": 660, "xref": 2,
+            "digest": "bb", "state": "REVIEW_ONLY",
+        },
+    ]
+
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["product_image_region_id"] == "isolated-product-image"
+    assert card["card_bbox"] == [0.388, 0.068, 0.304, 0.214]
+
+
 def test_product_card_v3_prefers_compact_evidence_over_nearer_lifestyle_image():
     words = [
         _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.55, 0.12, 0.03], 1),
