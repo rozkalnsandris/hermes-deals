@@ -67,7 +67,20 @@ _NATIVE_NONPRODUCT_NOTE = re.compile(
 )
 _NATIVE_NONPRODUCT_CARD_COPY = re.compile(
     r"(?:\bextra\s*°?\s*punkte\b|\bpro\s+liter\s+gespart\b|"
-    r"\bonline\s*-\s*kracher\b|\bauch\s+online\b)",
+    r"\bonline\s*-\s*kracher\b|\bauch\s+online\b|"
+    r"^\s*\+?\s*app\s*$|^\s*neu\s*$|"
+    r"^\s*entdecke\s+weitere\s+angebote\s*$|"
+    r"^\s*ab\s+\d+\s+(?:kisten|flaschen)\s+je\s*$|"
+    r"^\s*(?:proteinquelle\b.*|\d+\s*g\s+protein\b.*|"
+    r"bis\s+zu\s+\d+\s*g\s+protein\b.*)$|"
+    r"^\s*(?:[-–—]?\s*\d+\s*%\s+)?gratis\b.*$|"
+    r"^\s*mit\s+[A-Za-zÄÖÜäöüß]+(?:\s+[A-Za-zÄÖÜäöüß]+)*\s*$|"
+    r"^\s*zu\s+.+$|^\s*weitere\s+designs\s*$|"
+    r"^\s*länge\s+ca\..*$|^\s*artikel\s+preis\s*$|"
+    r"^\s*\d+[.,]\d+\s+liter\s*$|^\s*größen\s+[^:]+:\s*$|"
+    r"^\s*netto\s*-\s*marke\s*$|^\s*die\s+profis\s*$|"
+    r"^\s*\d+er\s+set\s*$|^\s*\d+\s*-\s*teilig\s*$|"
+    r"^\s*-\s*[a-zäöüß].*$)",
     re.I,
 )
 _NATIVE_ONLINE_ONLY_CONTEXT = re.compile(r"\bnur\s+online\b", re.I)
