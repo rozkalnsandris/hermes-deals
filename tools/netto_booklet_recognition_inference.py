@@ -80,6 +80,11 @@ _NATIVE_NONPRODUCT_CARD_COPY = re.compile(
     r"^\s*\d+[.,]\d+\s+liter\s*$|^\s*größen\s+[^:]+:\s*$|"
     r"^\s*netto\s*-\s*marke\s*$|^\s*die\s+profis\s*$|"
     r"^\s*\d+er\s+set\s*$|^\s*\d+\s*-\s*teilig\s*$|"
+    r"^\s*abgabe\s+nur\s+in\s+haushaltsüblichen\s+mengen\s*$|"
+    r"^\s*beim\s+kauf\s+von\s+\d+\s+.+\s+sparen\s*$|"
+    r"^\s*\d*\s*ab\s+\d+\s+(?:kisten|flaschen)\s+bleibt\s+der\s+einzelpreis\s+gleich\.?\s*$|"
+    r"^\s*app\s+preis\s*$|^\s*mit\s+.+$|^\s*inklusive\s+.+$|"
+    r"^\s*fenster\s*[–-]\s*putzen\s+wie\s*$|"
     r"^\s*-\s*[a-zäöüß].*$)",
     re.I,
 )
