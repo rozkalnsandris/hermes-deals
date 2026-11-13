@@ -21,9 +21,11 @@ MAX_PDF_BYTES = 150 * 1024 * 1024
 MAX_PAGES = 300
 MAX_SAMPLE_PAGES = 12
 MAX_FLORENCE_PRICE_CROPS = 12
-NATIVE_PRICE_CROP_HALF_WIDTH = 0.21
-NATIVE_PRICE_CROP_ABOVE = 0.22
-NATIVE_PRICE_CROP_BELOW = 0.20
+PRIMARY_PRICE_HEIGHT_RATIO = 0.60
+NATIVE_PRICE_GROUP_RADIUS = 0.24
+NATIVE_PRICE_GROUP_PADDING = 0.012
+NATIVE_IMAGE_MIN_PIXELS = 2500
+NATIVE_IMAGE_MAX_ASPECT = 8.0
 
 
 class InferenceRunnerError(ValueError):
@@ -83,50 +85,127 @@ def _normalized_visible_image_bbox(raw, width: float, height: float) -> list[flo
     ]
 
 
-def _center_inside(bbox: list[float], container: list[float]) -> bool:
+def _bbox_center(bbox: list[float]) -> tuple[float, float]:
+    return bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2
+
+
+def _bbox_distance(a: list[float], b: list[float]) -> float:
+    ax, ay = _bbox_center(a)
+    bx, by = _bbox_center(b)
+    return math.hypot(ax - bx, ay - by)
+
+
+def _bbox_union_normalized(boxes: list[list[float]]) -> list[float]:
+    if not boxes:
+        raise InferenceRunnerError("cannot union empty native PDF rectangles")
+    x0 = min(box[0] for box in boxes)
+    y0 = min(box[1] for box in boxes)
+    x1 = max(box[0] + box[2] for box in boxes)
+    y1 = max(box[1] + box[3] for box in boxes)
+    return [x0, y0, x1 - x0, y1 - y0]
+
+
+def _expanded_normalized_bbox(bbox: list[float], padding: float) -> list[float]:
     x, y, width, height = bbox
-    cx = x + width / 2
-    cy = y + height / 2
-    ox, oy, owidth, oheight = container
-    return ox <= cx <= ox + owidth and oy <= cy <= oy + oheight
+    x0 = max(0.0, x - padding)
+    y0 = max(0.0, y - padding)
+    x1 = min(1.0, x + width + padding)
+    y1 = min(1.0, y + height + padding)
+    return [
+        round(x0, 6),
+        round(y0, 6),
+        round(x1 - x0, 6),
+        round(y1 - y0, 6),
+    ]
+
+
+def _primary_price_candidates(price_candidates: list[dict]) -> list[dict]:
+    """Keep visually prominent price-like tokens as primary offer anchors.
+
+    The threshold is page-relative: reference prices, deposits and quantities
+    remain in price_candidates evidence but do not become primary anchors when
+    their word boxes are materially smaller than the largest price on the page.
+    """
+    if not price_candidates:
+        return []
+    max_height = max(float(row["bbox"][3]) for row in price_candidates)
+    threshold = max_height * PRIMARY_PRICE_HEIGHT_RATIO
+    return [
+        row
+        for row in price_candidates
+        if float(row["bbox"][3]) + 1e-9 >= threshold
+    ]
+
+
+def _substantive_native_image(row: dict) -> bool:
+    width = int(row.get("pixel_width") or 0)
+    height = int(row.get("pixel_height") or 0)
+    if width <= 0 or height <= 0 or width * height < NATIVE_IMAGE_MIN_PIXELS:
+        return False
+    aspect = max(width / height, height / width)
+    return aspect <= NATIVE_IMAGE_MAX_ASPECT
 
 
 def _native_price_anchor_candidates(
     words: list[dict],
     images: list[dict],
-    price_candidates: list[dict],
+    primary_price_candidates: list[dict],
 ) -> list[dict]:
-    """Build deterministic Review-only inspection windows around native price tokens.
+    """Group nearby native evidence around visually prominent price anchors.
 
-    The window is a spatial heuristic for a later crop-level model pass. It is
-    deliberately not a product boundary and never proves product identity.
+    Words and substantive images are assigned to their nearest primary price
+    within a bounded normalized-page radius. The resulting crop is Review-only:
+    it is an inspection region, not a proven product boundary or identity.
     """
+    if not primary_price_candidates:
+        return []
+
     word_by_id = {row["region_id"]: row for row in words}
+    anchor_ids = {row["region_id"] for row in primary_price_candidates}
+    grouped_words = {row["region_id"]: [] for row in primary_price_candidates}
+    grouped_images = {row["region_id"]: [] for row in primary_price_candidates}
+
+    for row in words:
+        if row["region_id"] in anchor_ids:
+            continue
+        anchor = min(
+            primary_price_candidates,
+            key=lambda candidate: _bbox_distance(row["bbox"], candidate["bbox"]),
+        )
+        if _bbox_distance(row["bbox"], anchor["bbox"]) <= NATIVE_PRICE_GROUP_RADIUS:
+            grouped_words[anchor["region_id"]].append(row)
+
+    for row in images:
+        if not _substantive_native_image(row):
+            continue
+        anchor = min(
+            primary_price_candidates,
+            key=lambda candidate: _bbox_distance(row["bbox"], candidate["bbox"]),
+        )
+        if _bbox_distance(row["bbox"], anchor["bbox"]) <= NATIVE_PRICE_GROUP_RADIUS:
+            grouped_images[anchor["region_id"]].append(row)
+
     candidates = []
-    for index, anchor in enumerate(price_candidates, 1):
-        x, y, width, height = anchor["bbox"]
-        center_x = x + width / 2
-        x0 = max(0.0, center_x - NATIVE_PRICE_CROP_HALF_WIDTH)
-        x1 = min(1.0, center_x + NATIVE_PRICE_CROP_HALF_WIDTH)
-        y0 = max(0.0, y - NATIVE_PRICE_CROP_ABOVE)
-        y1 = min(1.0, y + height + NATIVE_PRICE_CROP_BELOW)
-        crop = [
-            round(x0, 6),
-            round(y0, 6),
-            round(x1 - x0, 6),
-            round(y1 - y0, 6),
-        ]
-        nearby_words = [row for row in words if _center_inside(row["bbox"], crop)]
-        nearby_images = [row for row in images if _center_inside(row["bbox"], crop)]
+    for index, anchor in enumerate(primary_price_candidates, 1):
+        anchor_word = word_by_id.get(anchor["region_id"])
+        if anchor_word is None:
+            raise InferenceRunnerError("native price anchor word is missing")
+
+        nearby_words = [anchor_word, *grouped_words[anchor["region_id"]]]
+        nearby_images = grouped_images[anchor["region_id"]]
         nearby_words.sort(
             key=lambda row: (row["bbox"][1], row["bbox"][0], row["region_id"])
         )
         nearby_images.sort(
             key=lambda row: (row["bbox"][1], row["bbox"][0], row["region_id"])
         )
-        anchor_word = word_by_id.get(anchor["region_id"])
-        if anchor_word is None:
-            raise InferenceRunnerError("native price anchor word is missing")
+        grouped_boxes = [row["bbox"] for row in nearby_words] + [
+            row["bbox"] for row in nearby_images
+        ]
+        crop = _expanded_normalized_bbox(
+            _bbox_union_normalized(grouped_boxes),
+            NATIVE_PRICE_GROUP_PADDING,
+        )
         candidates.append(
             {
                 "candidate_id": f"native-price-{index}",
@@ -138,7 +217,8 @@ def _native_price_anchor_candidates(
                 "native_text": [row["text"] for row in nearby_words],
                 "native_image_region_ids": [row["region_id"] for row in nearby_images],
                 "price_block_no": anchor_word["block_no"],
-                "basis": "native_pdf_price_anchor_window_v1",
+                "basis": "native_pdf_nearest_primary_price_group_v2",
+                "group_radius": NATIVE_PRICE_GROUP_RADIUS,
                 "product_boundary_proven": False,
                 "verified_product_identity": None,
                 "hermes_offer_link": None,
@@ -210,10 +290,11 @@ def native_page_structure(page) -> dict:
         for row in words
         if _NATIVE_PRICE.fullmatch(row["text"].replace("€", "").strip())
     ]
+    primary_price_candidates = _primary_price_candidates(price_candidates)
     price_anchor_candidates = _native_price_anchor_candidates(
         words,
         images,
-        price_candidates,
+        primary_price_candidates,
     )
 
     return {
@@ -221,10 +302,12 @@ def native_page_structure(page) -> dict:
         "text_regions": words,
         "image_regions": images,
         "price_candidates": price_candidates,
+        "primary_price_candidates": primary_price_candidates,
         "price_anchor_candidates": price_anchor_candidates,
         "text_region_count": len(words),
         "image_region_count": len(images),
         "price_candidate_count": len(price_candidates),
+        "primary_price_candidate_count": len(primary_price_candidates),
         "price_anchor_candidate_count": len(price_anchor_candidates),
         "product_boundaries_proven": 0,
         "verified_product_identities": 0,
