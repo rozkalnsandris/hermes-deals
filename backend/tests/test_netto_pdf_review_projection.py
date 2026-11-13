@@ -27,7 +27,7 @@ def fixture():
         "candidate_count": 1,
         "pages": [
             {"pdf_page_number": 1, "candidates": [{
-                "candidate_id": "p1-g1",
+                "candidate_id": "g001",
                 "marker_bbox": [0.1, 0.2, 0.3, 0.1],
                 "marker_basis": "observed_pdf_price_group_only",
                 "candidate_text_unverified": "<unsafe>",
@@ -82,6 +82,8 @@ def test_exact_alignment_projects_review_geometry_only():
     result = project()
     assert result["candidate_count"] == 1
     row = result["pages"][0]["candidates"][0]
+    assert row["candidate_id"] == "p001-g001"
+    assert row["source_candidate_id"] == "g001"
     assert row["rectangle"] == {"left": .1, "top": .2, "width": .3, "height": .1}
     assert row["candidate_text_unverified"] == "<unsafe>"
     assert row["printed_normal_price_candidates_unverified"] == ["1.99"]
@@ -89,6 +91,35 @@ def test_exact_alignment_projects_review_geometry_only():
     assert row["source"] == "pdf_review_only"
     assert row["hermes_offer_link"] is None
     assert row["verified_product_identity"] is None
+
+
+def test_same_page_local_group_id_on_different_pages_gets_stable_scoped_ids():
+    markers, alignment, images = fixture()
+    duplicate = dict(markers["pages"][0]["candidates"][0])
+    markers["pages"][1]["candidates"] = [duplicate]
+    markers["candidate_count"] = 2
+    result = build_projection(
+        markers, alignment, images, store_id="5659", group="regionale-hz",
+        slug="hz46_hasb_4", review_markers_sha256=MARKERS,
+        alignment_review_sha256=ALIGN, image_manifest_sha256=IMG,
+    )
+    rows = [page["candidates"][0] for page in result["pages"]]
+    assert [row["candidate_id"] for row in rows] == ["p001-g001", "p002-g001"]
+    assert [row["source_candidate_id"] for row in rows] == ["g001", "g001"]
+
+
+def test_duplicate_page_local_group_id_on_same_page_fails_closed():
+    markers, alignment, images = fixture()
+    markers["pages"][0]["candidates"].append(
+        dict(markers["pages"][0]["candidates"][0])
+    )
+    markers["candidate_count"] = 2
+    with pytest.raises(ReviewProjectionError, match="page-local candidate identity"):
+        build_projection(
+            markers, alignment, images, store_id="5659", group="regionale-hz",
+            slug="hz46_hasb_4", review_markers_sha256=MARKERS,
+            alignment_review_sha256=ALIGN, image_manifest_sha256=IMG,
+        )
 
 
 @pytest.mark.parametrize("field,value", [
