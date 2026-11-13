@@ -531,6 +531,105 @@ def test_price_text_candidates_preserve_rejected_and_losing_alternatives():
     assert "nonproduct_card_copy" in alternatives["+APP"]["rejection_reasons"]
 
 
+
+def test_price_text_candidates_use_unit_price_proof_beyond_geometry_radius():
+    words = [
+        _native_row(
+            "tafelspitz-title",
+            "Tafelspitz vom Irischen Weiderind ca. 2 kg 100 g (14.90 / kg)",
+            [0.10, 0.10, 0.26, 0.04],
+            1,
+        ),
+        _native_row("correct-price", "1.49", [0.70, 0.70, 0.08, 0.05], 2),
+        _native_row("near-wrong-price", "2.99", [0.34, 0.18, 0.08, 0.05], 3),
+    ]
+    prices = [
+        _native_price("correct-price", "1.49", [0.70, 0.70, 0.08, 0.05]),
+        _native_price("near-wrong-price", "2.99", [0.34, 0.18, 0.08, 0.05]),
+    ]
+
+    candidates = _native_price_text_candidates(words, prices)
+    by_price = {row["price_region_id"]: row for row in candidates}
+
+    correct = by_price["correct-price"]
+    assert correct["assignment_state"] == "SELECTED"
+    assert correct["product_text"].startswith("Tafelspitz")
+    selected = next(
+        alt for alt in correct["alternatives"]
+        if alt["selection_state"] == "SELECTED"
+    )
+    assert selected["price_basis_state"] == "MATCH"
+    assert selected["price_basis_expected_total"] == 1.49
+    assert selected["price_basis_quantity_kg"] == 0.1
+    assert selected["price_basis_unit_price_per_kg"] == 14.9
+
+    wrong = by_price["near-wrong-price"]
+    matching_text = next(
+        alt for alt in wrong["alternatives"]
+        if alt["product_text"].startswith("Tafelspitz")
+    )
+    assert matching_text["price_basis_state"] == "MISMATCH"
+    assert "printed_price_unit_price_mismatch" in matching_text["rejection_reasons"]
+
+
+def test_price_text_candidates_lock_arithmetic_proof_before_geometry_fallback():
+    words = [
+        _native_row(
+            "spanferkel-title",
+            "Spanferkel-Cevapcici vorgegart 300 g (9.97 / kg)",
+            [0.10, 0.20, 0.22, 0.04],
+            1,
+        ),
+        _native_row(
+            "gyros-title",
+            "Geschnetzeltes Gyros Art 800 g (5.61 / kg)",
+            [0.55, 0.20, 0.22, 0.04],
+            2,
+        ),
+        _native_row("price-299", "2.99", [0.62, 0.28, 0.08, 0.05], 3),
+        _native_row("price-449", "4.49", [0.30, 0.28, 0.08, 0.05], 4),
+    ]
+    prices = [
+        _native_price("price-299", "2.99", [0.62, 0.28, 0.08, 0.05]),
+        _native_price("price-449", "4.49", [0.30, 0.28, 0.08, 0.05]),
+    ]
+
+    candidates = _native_price_text_candidates(words, prices)
+    by_price = {row["price_region_id"]: row for row in candidates}
+
+    assert by_price["price-299"]["product_text"].startswith("Spanferkel-Cevapcici")
+    assert by_price["price-449"]["product_text"].startswith("Geschnetzeltes Gyros Art")
+    assert all(
+        next(
+            alt for alt in row["alternatives"]
+            if alt["selection_state"] == "SELECTED"
+        )["price_basis_state"] == "MATCH"
+        for row in by_price.values()
+    )
+
+
+def test_price_text_candidates_leave_unit_price_range_unproven():
+    words = [
+        _native_row(
+            "title",
+            "Nestle Gold Mousse 4 x 57 g - 59 g (8.43 - 8.73 / kg)",
+            [0.30, 0.30, 0.30, 0.04],
+            1,
+        ),
+        _native_row("price", "1.99", [0.62, 0.36, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "1.99", [0.62, 0.36, 0.08, 0.05])]
+
+    row = _native_price_text_candidates(words, prices)[0]
+    selected = next(
+        alt for alt in row["alternatives"]
+        if alt["selection_state"] == "SELECTED"
+    )
+
+    assert selected["price_basis_state"] == "UNAVAILABLE"
+    assert selected["price_basis_expected_total"] is None
+
+
 def test_product_card_v2_excludes_validity_dates_and_uses_text_image_price_union():
     words = [
         _native_row("date-a", "Donnerstag", [0.28, 0.01, 0.11, 0.02], 1, 0, 0),
