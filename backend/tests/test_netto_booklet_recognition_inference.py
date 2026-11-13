@@ -342,7 +342,7 @@ def test_native_page_structure_skips_zero_size_image_occurrence_but_keeps_other_
     class ZeroSizePage:
         rect = Rect()
 
-        def get_text(self, mode):
+        def get_text(self, mode, sort=False):
             assert mode == "words"
             return []
 
@@ -395,7 +395,7 @@ def test_native_page_structure_skips_fully_offpage_image_occurrence():
     class FakePage:
         rect = Rect()
 
-        def get_text(self, mode):
+        def get_text(self, mode, sort=False):
             assert mode == "words"
             return []
 
@@ -625,7 +625,7 @@ def test_native_page_structure_skips_zero_dimension_image_occurrences_when_pixel
     class FakePage:
         rect = Rect()
 
-        def get_text(self, mode):
+        def get_text(self, mode, sort=False):
             assert mode == "words"
             return []
 
