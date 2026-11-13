@@ -642,10 +642,20 @@ def native_page_structure(page) -> dict:
             digest = digest.hex()
         elif digest is not None:
             digest = str(digest)
+        try:
+            normalized_bbox = _normalized_visible_image_bbox(
+                info["bbox"],
+                width,
+                height,
+            )
+        except InferenceRunnerError as exc:
+            if str(exc) == "native PDF image rectangle does not intersect page":
+                continue
+            raise
         images.append(
             {
                 "region_id": f"native-image-{index}",
-                "bbox": _normalized_visible_image_bbox(info["bbox"], width, height),
+                "bbox": normalized_bbox,
                 "pixel_width": int(info.get("width") or 0),
                 "pixel_height": int(info.get("height") or 0),
                 "xref": int(info.get("xref") or 0),
