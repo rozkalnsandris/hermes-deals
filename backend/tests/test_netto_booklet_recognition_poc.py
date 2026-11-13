@@ -15,6 +15,7 @@ from netto_booklet_recognition_poc import (
     build_manifest,
     build_page,
     florence_regions,
+    native_price_candidates,
     ocr_price_clusters,
     paddle_text_regions,
 )
@@ -40,6 +41,26 @@ def _florence():
             "bboxes": [[70, 60, 360, 280]],
             "labels": ["a chocolate bar product block"],
         }
+    }
+
+
+def _native():
+    return {
+        "price_anchor_candidates": [
+            {
+                "candidate_id": "native-price-1",
+                "price_region_id": "native-word-3",
+                "price_text": "0,99",
+                "crop_bbox": [0.08, 0.06, 0.31, 0.16],
+                "native_text": ["Milka Alpenmilch", "100 g", "0,99"],
+                "native_image_region_ids": ["native-image-1"],
+                "basis": "native_pdf_nearest_primary_price_group_v2",
+                "product_boundary_proven": False,
+                "verified_product_identity": None,
+                "hermes_offer_link": None,
+                "state": "REVIEW_ONLY",
+            }
+        ]
     }
 
 
@@ -72,6 +93,39 @@ def test_build_page_never_creates_offer_identity():
     assert page["automatic_offer_links"] == 0
     assert page["verified_product_identities"] == 0
     assert len(page["vision_regions"]) == 1
+
+
+def test_native_price_candidates_normalize_review_only_hotspot():
+    rows = native_price_candidates(_native())
+    assert len(rows) == 1
+    assert rows[0]["bbox"] == [0.08, 0.06, 0.31, 0.16]
+    assert rows[0]["price_anchor_text"] == "0,99"
+    assert rows[0]["texts"] == ["Milka Alpenmilch", "100 g", "0,99"]
+    assert rows[0]["basis"] == "native_pdf_primary_price_group"
+    assert rows[0]["source_basis"] == "native_pdf_nearest_primary_price_group_v2"
+    assert rows[0]["state"] == "REVIEW_ONLY"
+    assert rows[0]["product_boundary_proven"] is False
+    assert rows[0]["verified_product_identity"] is None
+    assert rows[0]["hermes_offer_link"] is None
+
+
+def test_build_page_prefers_native_hotspots_and_allows_native_only():
+    page = build_page(7, 1000, 1400, native_payload=_native())
+    assert page["page_number"] == 7
+    assert page["ocr_text_regions"] == []
+    assert page["ocr_price_candidates"] == []
+    assert page["hotspot_candidate_source"] == "native"
+    assert page["hotspot_candidates"] == page["native_price_candidates"]
+    assert page["hotspot_candidates"][0]["price_anchor_text"] == "0,99"
+    assert page["automatic_offer_links"] == 0
+    assert page["verified_product_identities"] == 0
+
+
+def test_native_candidate_promotion_fails_closed():
+    promoted = _native()
+    promoted["price_anchor_candidates"][0]["verified_product_identity"] = "sku-123"
+    with pytest.raises(RecognitionEvidenceError, match="Review-only"):
+        native_price_candidates(promoted)
 
 
 def test_bad_geometry_and_model_arrays_fail_closed():
@@ -124,6 +178,38 @@ def test_manifest_binds_exact_pdf_sha_store_validity_and_stays_review_only(tmp_p
     assert result["automatic_offer_links"] == 0
     assert result["verified_product_identities"] == 0
     assert result["identity_policy"] == "REVIEW_ONLY_NO_VLM_OR_OCR_IDENTITY_PROMOTION"
+
+
+def test_manifest_accepts_native_only_review_hotspots(tmp_path):
+    pdf = tmp_path / "native.pdf"
+    with fitz.open() as doc:
+        doc.new_page(width=300, height=420)
+        doc.save(pdf)
+    digest = sha256(pdf.read_bytes()).hexdigest()
+    result = build_manifest(
+        pdf,
+        digest,
+        {
+            "pages": [
+                {
+                    "page_number": 1,
+                    "image_width": 1000,
+                    "image_height": 1400,
+                    "native": _native(),
+                }
+            ]
+        },
+        store="5659",
+        valid_from="2026-11-16",
+        valid_to="2026-11-21",
+        publication_url="https://example.invalid/netto/native",
+    )
+    page = result["pages"][0]
+    assert page["hotspot_candidate_source"] == "native"
+    assert len(page["hotspot_candidates"]) == 1
+    assert page["hotspot_candidates"][0]["state"] == "REVIEW_ONLY"
+    assert result["automatic_offer_links"] == 0
+    assert result["verified_product_identities"] == 0
 
 
 def test_manifest_rejects_wrong_sha_store_duplicate_page_and_bad_url(tmp_path):
