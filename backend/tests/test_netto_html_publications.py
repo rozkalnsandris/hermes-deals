@@ -42,6 +42,32 @@ def test_metadata_requires_actual_official_validity_and_pages():
     assert json.loads(capture.publication_json) == PUBLICATION
 
 
+def test_viewer_can_start_later_within_teaser_discovery_window():
+    viewer = "https://wochenprospekt.netto-online.de/hz46_hasb_4/?storeid=5659"
+    pub = "https://api.publitas.com/v1/groups/regionale-hz/publications/hz46_hasb_4.json"
+    html = (
+        '<meta name="description" content="Donnerstag, 12.11.26 - Samstag, 14.11.26">'
+        '<script>{"groupSlug":"regionale-hz"}</script>'
+    )
+    publication = {"spreads": [{"pages": ["/netto/hz46/page-1"]}]}
+    requested = []
+
+    def handler(req):
+        requested.append(str(req.url))
+        if str(req.url) == viewer:
+            return httpx.Response(200, text=html, headers={"content-type": "text/html"})
+        if str(req.url) == pub:
+            return httpx.Response(200, json=publication)
+        raise AssertionError("unexpected external request: " + str(req.url))
+
+    with source(handler) as client:
+        capture = fetch_one(client, "hz46_hasb_4", date(2026, 11, 9))
+
+    assert requested == [viewer, pub]
+    assert (capture.start, capture.end) == (date(2026, 11, 12), date(2026, 11, 14))
+    assert json.loads(capture.publication_json) == publication
+
+
 @pytest.mark.parametrize("bad_html", [
     "<html>No validity</html>",
     '<meta name="description" content="Montag, 09.11.26 - Samstag, 14.11.26"><script>{"groupSlug":"netto"}</script>',
