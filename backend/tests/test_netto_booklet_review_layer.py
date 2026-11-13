@@ -69,14 +69,14 @@ def capture(tmp_path, monkeypatch):
     return call, review_root, trust
 
 
-def test_hz46_default_trust_is_disabled_until_exact_projection_hash():
+def test_hz46_trust_pins_exact_retained_review_evidence():
     trust = layer._TRUSTED_REVIEW_LAYERS["hz46_hasb_4"]
     assert trust["pdf_sha256"] == "9d6337beb029977cf8c119cbe2d216b4aab5052523c5e49e6bad0b102418f8cf"
     assert trust["image_manifest_sha256"] == "a23db82f42f2fc2ccc81802aab65b8454979d29c64967077eada59523e87764c"
     assert trust["alignment_review_sha256"] == "0b7fe988e655597480235d927b20e9b14fa920525655e27400a5f4a333c28b93"
     assert trust["candidate_count"] == 686
-    assert trust["review_markers_sha256"] is None
-    assert trust["projection_sha256"] is None
+    assert trust["review_markers_sha256"] == "344ee5f838d922cb0db42c85cb2a497459c81e2233fcea6c0db3c4a5c567b709"
+    assert trust["projection_sha256"] == "24d1b980c06bbdbb0c58cfe8f00cb4153022f0053684ce5a8e565034e0ea570c"
 
 
 def test_verified_review_projection_exposes_only_review_marker(tmp_path, monkeypatch):
