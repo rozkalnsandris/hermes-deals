@@ -24,7 +24,7 @@ from netto_booklet_recognition_inference import (  # noqa: E402
     native_page_structure,
 )
 
-FORMAT = "hermes.netto.pdf_product_card_review_markers.v2"
+FORMAT = "hermes.netto.pdf_product_card_review_markers.v3"
 MARKER_BASIS = "observed_pdf_product_card_candidate"
 _PRICE = re.compile(r"^(\d{1,3})[.,](\d{2})")
 
@@ -72,7 +72,7 @@ def review_page(native: dict, page_number: int) -> dict:
     for ordinal, row in enumerate(rows, 1):
         if (
             not isinstance(row, dict)
-            or row.get("basis") != "native_pdf_product_text_image_price_card_v2"
+            or row.get("basis") != "native_pdf_product_text_image_price_card_v3"
             or row.get("state") != "REVIEW_ONLY"
             or row.get("product_boundary_proven") is not False
             or row.get("verified_product_identity") is not None
