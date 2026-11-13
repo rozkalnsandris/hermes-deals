@@ -35,6 +35,12 @@ NATIVE_PRODUCT_TEXT_MARGIN_Y = 0.12
 NATIVE_PRODUCT_CARD_MAX_PAGE_AREA = 0.40
 NATIVE_PRODUCT_CARD_MAX_WIDTH = 0.68
 NATIVE_PRODUCT_CARD_MAX_HEIGHT = 0.72
+NATIVE_LAYOUT_REGION_MIN_AREA = 0.08
+NATIVE_LAYOUT_REGION_MAX_AREA = 0.40
+NATIVE_LAYOUT_REGION_MIN_WIDTH = 0.20
+NATIVE_LAYOUT_REGION_MAX_WIDTH = 0.70
+NATIVE_LAYOUT_REGION_MIN_HEIGHT = 0.12
+NATIVE_LAYOUT_REGION_MAX_HEIGHT = 0.60
 
 
 class InferenceRunnerError(ValueError):
@@ -135,109 +141,70 @@ def _bbox_gap_distance(a: list[float], b: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
-def _separator_crosses(
-    a: list[float],
-    b: list[float],
-    separator: dict,
-    *,
-    tolerance: float = 0.003,
-) -> bool:
-    ax, ay = _bbox_center(a)
-    bx, by = _bbox_center(b)
-    orientation = separator.get("orientation")
-    position = float(separator.get("position"))
-    start = float(separator.get("start"))
-    end = float(separator.get("end"))
-    if orientation == "vertical":
-        if abs(bx - ax) <= 1e-9:
-            return False
-        low, high = sorted((ax, bx))
-        if not low + tolerance < position < high - tolerance:
-            return False
-        ratio = (position - ax) / (bx - ax)
-        cross = ay + ratio * (by - ay)
-    elif orientation == "horizontal":
-        if abs(by - ay) <= 1e-9:
-            return False
-        low, high = sorted((ay, by))
-        if not low + tolerance < position < high - tolerance:
-            return False
-        ratio = (position - ay) / (by - ay)
-        cross = ax + ratio * (bx - ax)
-    else:
-        raise InferenceRunnerError("invalid native PDF separator orientation")
-    return start - 0.01 <= cross <= end + 0.01
+def _bbox_contains_center(container: list[float], bbox: list[float]) -> bool:
+    cx, cy = _bbox_center(bbox)
+    x, y, width, height = container
+    return x <= cx <= x + width and y <= cy <= y + height
 
 
-def _separated_normalized(
-    a: list[float],
-    b: list[float],
-    separators: list[dict],
-) -> bool:
-    return any(_separator_crosses(a, b, row) for row in separators)
+def _native_layout_regions(page, width: float, height: float) -> list[list[float]]:
+    """Extract substantial filled rectangle regions from source-native PDF drawings.
 
-
-def _native_layout_separators(page, width: float, height: float) -> list[dict]:
-    """Extract long source-native drawing boundaries in normalized page space."""
-    result: list[dict] = []
-    seen: set[tuple[str, float, float, float]] = set()
-
-    def add(orientation: str, position: float, start: float, end: float) -> None:
-        if orientation == "horizontal":
-            position /= height
-            start /= width
-            end /= width
-        else:
-            position /= width
-            start /= height
-            end /= height
-        position = round(position, 6)
-        start, end = sorted((round(start, 6), round(end, 6)))
-        if not (0 <= position <= 1 and 0 <= start < end <= 1.000001):
-            return
-        minimum = 0.10 if orientation == "horizontal" else 0.08
-        if end - start < minimum:
-            return
-        key = (orientation, position, start, end)
-        if key in seen:
-            return
-        seen.add(key)
-        result.append({
-            "orientation": orientation,
-            "position": position,
-            "start": start,
-            "end": end,
-        })
-
+    Small badges, price boxes and full-page backgrounds are excluded. Regions
+    are only hard product-card boundaries when exactly one primary price anchor
+    falls inside them.
+    """
+    result: list[list[float]] = []
+    seen: set[tuple[float, float, float, float]] = set()
     for drawing in page.get_drawings():
+        if drawing.get("fill") is None:
+            continue
         for item in drawing.get("items", []):
-            kind = item[0]
-            if kind == "l" and len(item) >= 3:
-                first, second = item[1], item[2]
-                x0, y0 = float(first.x), float(first.y)
-                x1, y1 = float(second.x), float(second.y)
-                if abs(y1 - y0) <= 1.5:
-                    add("horizontal", (y0 + y1) / 2.0, min(x0, x1), max(x0, x1))
-                elif abs(x1 - x0) <= 1.5:
-                    add("vertical", (x0 + x1) / 2.0, min(y0, y1), max(y0, y1))
-            elif kind == "re" and len(item) >= 2:
-                rect = item[1]
-                x0, y0, x1, y1 = map(float, (rect.x0, rect.y0, rect.x1, rect.y1))
-                if x1 - x0 >= width * 0.10 and y1 - y0 >= height * 0.06:
-                    add("horizontal", y0, x0, x1)
-                    add("horizontal", y1, x0, x1)
-                    add("vertical", x0, y0, y1)
-                    add("vertical", x1, y0, y1)
+            if item[0] != "re" or len(item) < 2:
+                continue
+            rect = item[1]
+            try:
+                box = _normalized_bbox(
+                    [rect.x0, rect.y0, rect.x1, rect.y1],
+                    width,
+                    height,
+                )
+            except InferenceRunnerError:
+                continue
+            area = float(box[2]) * float(box[3])
+            if not (
+                NATIVE_LAYOUT_REGION_MIN_AREA <= area <= NATIVE_LAYOUT_REGION_MAX_AREA
+                and NATIVE_LAYOUT_REGION_MIN_WIDTH <= float(box[2]) <= NATIVE_LAYOUT_REGION_MAX_WIDTH
+                and NATIVE_LAYOUT_REGION_MIN_HEIGHT <= float(box[3]) <= NATIVE_LAYOUT_REGION_MAX_HEIGHT
+            ):
+                continue
+            key = tuple(round(value, 6) for value in box)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(list(key))
+    return sorted(result, key=lambda row: (row[1], row[0], row[2], row[3]))
 
-    return sorted(
-        result,
-        key=lambda row: (
-            row["orientation"],
-            row["position"],
-            row["start"],
-            row["end"],
-        ),
-    )
+
+def _single_price_layout_region(
+    anchor: dict,
+    primary_price_candidates: list[dict],
+    layout_regions: list[list[float]],
+) -> list[float] | None:
+    choices = []
+    for region in layout_regions:
+        if not _bbox_contains_center(region, anchor["bbox"]):
+            continue
+        contained = [
+            row
+            for row in primary_price_candidates
+            if _bbox_contains_center(region, row["bbox"])
+        ]
+        if len(contained) == 1 and contained[0]["region_id"] == anchor["region_id"]:
+            choices.append(region)
+    if not choices:
+        return None
+    return min(choices, key=lambda row: (row[2] * row[3], row[1], row[0]))
 
 
 def _bbox_union_normalized(boxes: list[list[float]]) -> list[float]:
@@ -351,10 +318,10 @@ def _product_text_token(text: object) -> bool:
 def _product_text_block(
     rows: list[dict],
     visual_bbox: list[float],
-    image_bbox: list[float],
     anchor_bbox: list[float],
     anchor_region_id: str,
-    separators: list[dict],
+    *,
+    container_bbox: list[float] | None = None,
 ) -> tuple[list[dict], str] | None:
     by_block: dict[int, list[dict]] = {}
     for row in rows:
@@ -379,36 +346,33 @@ def _product_text_block(
                 row["bbox"][0],
             ),
         )
-        full_text = " ".join(str(row.get("text") or "") for row in ordered).strip()
-        if (
-            not full_text
-            or _NATIVE_WEEKDAY.search(full_text)
-            or _NATIVE_KW_LABEL.search(full_text)
-            or _NATIVE_DISCLAIMER.search(full_text)
-            or _NATIVE_NONPRODUCT_NOTE.search(full_text)
-        ):
-            continue
-
         local_rows = []
         for row in ordered:
             cx, cy = _bbox_center(row["bbox"])
             if not (local_x0 <= cx <= local_x1 and local_y0 <= cy <= local_y1):
                 continue
+            if container_bbox is not None and not _bbox_contains_center(
+                container_bbox, row["bbox"]
+            ):
+                continue
             if _bbox_gap_distance(row["bbox"], visual_bbox) > NATIVE_PRICE_GROUP_RADIUS:
                 continue
             local_rows.append(row)
-        if not local_rows or not any(
-            _product_text_token(row.get("text")) for row in local_rows
-        ):
+        if not local_rows:
             continue
 
         text = " ".join(str(row.get("text") or "") for row in local_rows).strip()
-        block_bbox = _bbox_union_normalized([row["bbox"] for row in local_rows])
         if (
-            _separated_normalized(block_bbox, anchor_bbox, separators)
-            or _separated_normalized(block_bbox, image_bbox, separators)
+            not text
+            or _NATIVE_WEEKDAY.search(text)
+            or _NATIVE_KW_LABEL.search(text)
+            or _NATIVE_DISCLAIMER.search(text)
+            or _NATIVE_NONPRODUCT_NOTE.search(text)
+            or not any(_product_text_token(row.get("text")) for row in local_rows)
         ):
             continue
+
+        block_bbox = _bbox_union_normalized([row["bbox"] for row in local_rows])
         gap = _bbox_gap_distance(block_bbox, visual_bbox)
         score = (
             gap * 2.0
@@ -441,12 +405,12 @@ def _native_product_card_candidates(
     words: list[dict],
     images: list[dict],
     primary_price_candidates: list[dict],
-    separators: list[dict] | None = None,
+    layout_regions: list[list[float]] | None = None,
 ) -> list[dict]:
     """Build strict Review-only product-card geometry from price + image + text."""
     if not primary_price_candidates:
         return []
-    separators = list(separators or [])
+    layout_regions = list(layout_regions or [])
 
     date_ids = _date_price_region_ids(words, primary_price_candidates)
     eligible = [
@@ -459,11 +423,12 @@ def _native_product_card_candidates(
     for image in images:
         if not _product_image_candidate(image):
             continue
-        possible_owners = [
-            row
-            for row in eligible
-            if not _separated_normalized(image["bbox"], row["bbox"], separators)
-        ]
+        possible_owners = []
+        for row in eligible:
+            region = _single_price_layout_region(row, eligible, layout_regions)
+            if region is not None and not _bbox_contains_center(region, image["bbox"]):
+                continue
+            possible_owners.append(row)
         if not possible_owners:
             continue
         owner = min(
@@ -483,6 +448,7 @@ def _native_product_card_candidates(
 
     accepted: list[dict] = []
     for anchor in eligible:
+        region = _single_price_layout_region(anchor, eligible, layout_regions)
         ranked_images = sorted(
             images_by_price[anchor["region_id"]],
             key=lambda row: (
@@ -500,20 +466,22 @@ def _native_product_card_candidates(
         selected_text = _product_text_block(
             words,
             visual_bbox,
-            image["bbox"],
             anchor["bbox"],
             anchor["region_id"],
-            separators,
+            container_bbox=region,
         )
         if selected_text is None:
             continue
         text_rows, product_text = selected_text
         text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
 
-        card_bbox = _expanded_normalized_bbox(
-            _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
-            NATIVE_PRICE_GROUP_PADDING,
-        )
+        if region is not None:
+            card_bbox = [round(value, 6) for value in region]
+        else:
+            card_bbox = _expanded_normalized_bbox(
+                _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
+                NATIVE_PRICE_GROUP_PADDING,
+            )
         card_area = float(card_bbox[2]) * float(card_bbox[3])
         if (
             card_area > NATIVE_PRODUCT_CARD_MAX_PAGE_AREA
@@ -526,8 +494,7 @@ def _native_product_card_candidates(
             row["region_id"]
             for row in eligible
             if row["region_id"] != anchor["region_id"]
-            and card_bbox[0] <= _bbox_center(row["bbox"])[0] <= card_bbox[0] + card_bbox[2]
-            and card_bbox[1] <= _bbox_center(row["bbox"])[1] <= card_bbox[1] + card_bbox[3]
+            and _bbox_contains_center(card_bbox, row["bbox"])
         ]
         if other_price_centers:
             continue
@@ -543,6 +510,7 @@ def _native_product_card_candidates(
                 "product_image_region_id": image["region_id"],
                 "product_image_bbox": image["bbox"],
                 "card_bbox": card_bbox,
+                "layout_region_bound": region is not None,
                 "basis": "native_pdf_product_text_image_price_card_v2",
                 "review_reasons": [
                     "product_boundary_review_only",
@@ -686,7 +654,7 @@ def native_page_structure(page) -> dict:
             }
         )
 
-    layout_separators = _native_layout_separators(page, width, height)
+    layout_regions = _native_layout_regions(page, width, height)
 
     price_candidates = [
         {
@@ -713,14 +681,14 @@ def native_page_structure(page) -> dict:
         words,
         images,
         primary_price_candidates,
-        layout_separators,
+        layout_regions,
     )
 
     return {
         "page_size_points": [round(width, 3), round(height, 3)],
         "text_regions": words,
         "image_regions": images,
-        "layout_separators": layout_separators,
+        "layout_regions": layout_regions,
         "price_candidates": price_candidates,
         "primary_price_candidates": primary_price_candidates,
         "price_anchor_candidates": price_anchor_candidates,
@@ -728,7 +696,7 @@ def native_page_structure(page) -> dict:
         "date_price_region_ids_excluded": sorted(date_price_region_ids),
         "text_region_count": len(words),
         "image_region_count": len(images),
-        "layout_separator_count": len(layout_separators),
+        "layout_region_count": len(layout_regions),
         "price_candidate_count": len(price_candidates),
         "primary_price_candidate_count": len(primary_price_candidates),
         "price_anchor_candidate_count": len(price_anchor_candidates),
