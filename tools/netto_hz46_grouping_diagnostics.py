@@ -256,11 +256,12 @@ def _validate_golden(golden: dict) -> None:
         raise GroupingDiagnosticsError("golden fixture crosses identity boundary")
 
 
-def evaluate_page(native: dict, golden_page: dict) -> dict:
-    candidates = native.get("product_card_candidates")
-    if not isinstance(candidates, list):
-        raise GroupingDiagnosticsError("native product-card candidates are missing")
-
+def _evaluate_candidate_family(
+    candidates: list[dict],
+    golden_page: dict,
+    *,
+    family: str,
+) -> dict:
     outcomes = []
     resolved_slots = 0
     matched_title_slots = 0
@@ -290,8 +291,13 @@ def evaluate_page(native: dict, golden_page: dict) -> dict:
         title_matches = []
         exact_matches = []
         for candidate in candidates:
+            if candidate.get("assignment_state") == "UNRESOLVED":
+                continue
             normalized_candidate = _normalized_text(candidate.get("product_text"))
-            if not all(token and token in normalized_candidate for token in normalized_tokens):
+            if not all(
+                token and token in normalized_candidate
+                for token in normalized_tokens
+            ):
                 continue
             title_matches.append(candidate)
             if expected_price is None:
@@ -328,16 +334,52 @@ def evaluate_page(native: dict, golden_page: dict) -> dict:
             }
         )
 
-    expected_count = int(golden_page.get("expected_offer_count") or 0)
     return {
-        "pdf_page_number": int(golden_page["page_number"]),
-        "expected_offer_count": expected_count,
+        "family": family,
+        "candidate_count": len(candidates),
         "resolved_truth_slots": resolved_slots,
-        "current_product_card_count": len(candidates),
         "matched_title_slots": matched_title_slots,
         "matched_title_price_slots": matched_title_price_slots,
         "ambiguous_slots": ambiguous_slots,
         "outcomes": outcomes,
+    }
+
+
+def evaluate_page(native: dict, golden_page: dict) -> dict:
+    cards = native.get("product_card_candidates")
+    price_text = native.get("price_text_candidates")
+    if not isinstance(cards, list):
+        raise GroupingDiagnosticsError("native product-card candidates are missing")
+    if not isinstance(price_text, list):
+        raise GroupingDiagnosticsError("native price-text candidates are missing")
+
+    card_eval = _evaluate_candidate_family(
+        cards,
+        golden_page,
+        family="product_card",
+    )
+    price_text_eval = _evaluate_candidate_family(
+        price_text,
+        golden_page,
+        family="price_text",
+    )
+
+    return {
+        "pdf_page_number": int(golden_page["page_number"]),
+        "expected_offer_count": int(golden_page.get("expected_offer_count") or 0),
+        "resolved_truth_slots": card_eval["resolved_truth_slots"],
+        "current_product_card_count": card_eval["candidate_count"],
+        "matched_title_slots": card_eval["matched_title_slots"],
+        "matched_title_price_slots": card_eval["matched_title_price_slots"],
+        "ambiguous_slots": card_eval["ambiguous_slots"],
+        "outcomes": card_eval["outcomes"],
+        "price_text_candidate_count": price_text_eval["candidate_count"],
+        "price_text_matched_title_slots": price_text_eval["matched_title_slots"],
+        "price_text_matched_title_price_slots": (
+            price_text_eval["matched_title_price_slots"]
+        ),
+        "price_text_ambiguous_slots": price_text_eval["ambiguous_slots"],
+        "price_text_outcomes": price_text_eval["outcomes"],
     }
 
 
@@ -377,6 +419,18 @@ def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
             row["matched_title_price_slots"] for row in evaluations
         ),
         "ambiguous_slots": sum(row["ambiguous_slots"] for row in evaluations),
+        "price_text_candidates": sum(
+            row["price_text_candidate_count"] for row in evaluations
+        ),
+        "price_text_matched_title_slots": sum(
+            row["price_text_matched_title_slots"] for row in evaluations
+        ),
+        "price_text_matched_title_price_slots": sum(
+            row["price_text_matched_title_price_slots"] for row in evaluations
+        ),
+        "price_text_ambiguous_slots": sum(
+            row["price_text_ambiguous_slots"] for row in evaluations
+        ),
     }
 
     return {
