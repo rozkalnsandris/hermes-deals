@@ -37,7 +37,11 @@ References:
 manifest, the exact alignment Review, and the exact image manifest. It fails
 closed unless every page pair is same-ordinal one-to-one and every marker is
 still Review-only with no product/offer identity. It emits a deterministic
-publication-page projection.
+publication-page projection. Native analyzer group IDs such as `g001` are
+page-local and repeat on different PDF pages, so the projection namespaces them
+as stable `pNNN-gNNN` candidate IDs while retaining the original value as
+`source_candidate_id`. Duplicate source IDs within the same page still fail
+closed.
 
 `app.netto_booklet_review_layer` reads only an exact SHA-pinned projection
 from `netto-html/review-layers/`. The HZ46 trust entry intentionally has
