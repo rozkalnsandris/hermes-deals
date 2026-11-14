@@ -71,7 +71,7 @@ def test_all_72_pages_are_complete_and_preliminary_not_promoted():
             assert 0 < rect["width"] <= 1 and 0 < rect["height"] <= 1
             assert rect["left"] + rect["width"] <= 1
             assert rect["top"] + rect["height"] <= 1
-    assert total == draft["candidate_count_draft"] == 262
+    assert total == draft["candidate_count_draft"] == 261
 
 
 @pytest.mark.parametrize("page_no", [22,23,39,40,41,44,45,66,67,68,69,70,71])
@@ -88,3 +88,47 @@ def test_draft_has_no_runtime_offer_or_sku_fields():
         assert field not in raw
     assert DRAFT.stat().st_size < 300_000
     assert SHA.fullmatch(sha256(DRAFT.read_bytes()).hexdigest())
+
+def test_hz47_visual_pixel_correspondence_corrections():
+    """Spot-checked PDF pixels: do not borrow adjacent product price labels."""
+    draft = get_draft()
+    assert len(draft["pages"][0]["candidates"]) == 8
+    assert all(c["source_label_unverified"] != "Adventskranz"
+               for c in draft["pages"][0]["candidates"])
+
+    def rect(page, index):
+        cid = f"hz47-p{page:02d}-c{index:02d}"
+        return next(c["rectangle"] for c in draft["pages"][page-1]["candidates"]
+                    if c["candidate_id"] == cid)
+
+    # Page 28: left tea names/prices belong to left, not right.
+    assert rect(28, 1)["width"] == 0.64
+    assert rect(28, 2)["left"] == 0.66
+    # Page 31: separate Faber and Weingold above; four distinct spirits below.
+    assert rect(31, 1)["width"] == 0.48
+    assert [(rect(31, n)["left"], rect(31, n)["width"])
+            for n in (3, 4, 5, 6)] == [
+                (0.02, 0.26), (0.28, 0.23), (0.51, 0.23), (0.74, 0.24)]
+    # Page 57: Felix Soup on right; two visible variants of Vivil/Skittles on left.
+    assert rect(57, 4)["width"] == 0.64
+    assert rect(57, 5)["left"] == 0.66
+    assert rect(57, 6)["width"] == rect(57, 7)["width"] == 0.64
+    # Hero-image pages: include product caption/price, not only hero image.
+    assert rect(13, 7)["left"] == 0.35
+    assert rect(30, 7)["left"] == 0.52
+    assert rect(56, 4)["top"] == 0.72
+    assert rect(60, 1)["height"] == 0.29
+    assert rect(60, 2)["top"] == 0.34
+    assert rect(62, 1)["height"] == 0.28
+    assert rect(62, 4)["top"] == 0.34
+
+
+def test_pixel_review_corrections_do_not_activate_unverified_offers():
+    draft = get_draft()
+    assert draft["candidate_count_draft"] == 261
+    assert draft["publication_ready"] is False
+    assert draft["publisher_page_alignment_proven"] is False
+    assert draft["store_5659_binding_proven"] is False
+    assert draft["automatic_offer_links"] == 0
+    assert draft["verified_product_identities"] == 0
+    assert all(p["full_resolution_pixel_review_completed"] is False for p in draft["pages"])

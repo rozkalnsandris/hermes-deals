@@ -11,7 +11,7 @@ bytes are **not in GitHub**.
 
 - 72 contiguous PDF page records, each bound to the SHA256 of its
   user-uploaded-PDF derived page JPEG (1352×1893).
-- 262 **tentative** normalized `left/top/width/height` proposals on 49 pages.
+- 261 **tentative** normalized `left/top/width/height` proposals on 49 pages.
   23 pages have zero proposals with **unconfirmed scope exclusion** notes.
 - Proposals were manually interpreted from page contact sheets and
   page previews. **No page has passed exhaustive full-resolution, per-card
@@ -26,6 +26,13 @@ bytes are **not in GitHub**.
   is preserved: a PDF-local box must not be rendered on a different Publitas
   page until exact immutable publication/image identity, 72-page order and
   source/store/validity mapping are independently verified.
+
+## Source-only pixel correction checkpoint (2026-11-14)
+
+- Visually inspected full-resolution PDF renderings for pages **1, 13, 28, 30, 31, 35, 56, 57, 60 and 62**. Removed page-1 Adventskranz: decorative, outside food/drinks/household-consumables scope.
+- Corrected **41 provisional rectangles across nine pages** to keep visible labels, packages and price tags with their own card rather than adjacent cards. Notably: p28 tea-card price ownership; p31 distinct Faber/Weingold and four spirits; p57 right-hand Felix Soup versus two left-hand reis-fit variants; p60/p62 Friday-start hero image plus caption; and p56 two-row grid.
+- New count **261** tentative candidates across 49 pages. This is a bounded spot-check, **not** 72/72 exhaustive card acceptance. All per-page `full_resolution_pixel_review_completed=false`, prices remain unverified, and the overlay is still non-promotable.
+- Focused source-only local validation: 19 passed. Exact-head GitHub CI, installation identity, retailer-store proof, every remaining card/scope review and a separate future LIVE gate remain outstanding.
 
 ## Next acceptance checks (not done)
 
