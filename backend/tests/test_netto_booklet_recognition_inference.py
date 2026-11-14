@@ -18,6 +18,7 @@ from netto_booklet_recognition_inference import (
     _date_price_region_ids,
     _native_layout_regions,
     _native_product_card_candidates,
+    _native_price_text_candidates,
     _filter_ambiguous_product_cards,
     _read_pdf,
     _validate_florence_generation,
@@ -467,6 +468,168 @@ def _native_price(region_id, text, bbox):
     }
 
 
+def test_price_text_candidates_use_global_one_to_one_competition():
+    words = [
+        _native_row("title-a", "Popp Fleischsalat", [0.44, 0.40, 0.08, 0.03], 1),
+        _native_row("title-b", "Nestle Gold Mousse", [0.55, 0.40, 0.08, 0.03], 2),
+        _native_row("price-a", "1.29", [0.40, 0.50, 0.06, 0.05], 3),
+        _native_row("price-b", "1.99", [0.70, 0.50, 0.06, 0.05], 4),
+    ]
+    prices = [
+        _native_price("price-a", "1.29", [0.40, 0.50, 0.06, 0.05]),
+        _native_price("price-b", "1.99", [0.70, 0.50, 0.06, 0.05]),
+    ]
+
+    candidates = _native_price_text_candidates(words, prices)
+    by_price = {row["price_region_id"]: row for row in candidates}
+
+    assert by_price["price-a"]["assignment_state"] == "SELECTED"
+    assert by_price["price-a"]["product_text"] == "Popp Fleischsalat"
+    assert by_price["price-b"]["assignment_state"] == "SELECTED"
+    assert by_price["price-b"]["product_text"] == "Nestle Gold Mousse"
+    assert (
+        by_price["price-a"]["product_text_region_ids"]
+        != by_price["price-b"]["product_text_region_ids"]
+    )
+
+
+def test_price_text_candidate_survives_without_product_image():
+    words = [
+        _native_row("title", "Chiquita Bananen", [0.20, 0.20, 0.16, 0.03], 1),
+        _native_row("price", "1.99", [0.30, 0.34, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "1.99", [0.30, 0.34, 0.08, 0.05])]
+
+    candidates = _native_price_text_candidates(words, prices)
+
+    assert len(candidates) == 1
+    row = candidates[0]
+    assert row["assignment_state"] == "SELECTED"
+    assert row["product_text"] == "Chiquita Bananen"
+    assert row["image_state"] == "UNRESOLVED"
+    assert row["product_image_region_id"] is None
+    assert row["product_image_bbox"] is None
+    assert row["product_boundary_proven"] is False
+    assert row["verified_product_identity"] is None
+    assert row["hermes_offer_link"] is None
+
+
+def test_price_text_candidates_preserve_rejected_and_losing_alternatives():
+    words = [
+        _native_row("promo", "+APP", [0.42, 0.42, 0.06, 0.03], 1),
+        _native_row("title", "Bio Mozzarella", [0.50, 0.42, 0.12, 0.03], 2),
+        _native_row("price", "1.29", [0.62, 0.50, 0.08, 0.05], 3),
+    ]
+    prices = [_native_price("price", "1.29", [0.62, 0.50, 0.08, 0.05])]
+
+    row = _native_price_text_candidates(words, prices)[0]
+    alternatives = {alt["product_text"]: alt for alt in row["alternatives"]}
+
+    assert row["product_text"] == "Bio Mozzarella"
+    assert alternatives["Bio Mozzarella"]["selection_state"] == "SELECTED"
+    assert alternatives["+APP"]["selection_state"] == "REJECTED"
+    assert "nonproduct_card_copy" in alternatives["+APP"]["rejection_reasons"]
+
+
+
+def test_price_text_candidates_use_unit_price_proof_beyond_geometry_radius():
+    words = [
+        _native_row(
+            "tafelspitz-title",
+            "Tafelspitz vom Irischen Weiderind ca. 2 kg 100 g (14.90 / kg)",
+            [0.10, 0.10, 0.26, 0.04],
+            1,
+        ),
+        _native_row("correct-price", "1.49", [0.70, 0.70, 0.08, 0.05], 2),
+        _native_row("near-wrong-price", "2.99", [0.34, 0.18, 0.08, 0.05], 3),
+    ]
+    prices = [
+        _native_price("correct-price", "1.49", [0.70, 0.70, 0.08, 0.05]),
+        _native_price("near-wrong-price", "2.99", [0.34, 0.18, 0.08, 0.05]),
+    ]
+
+    candidates = _native_price_text_candidates(words, prices)
+    by_price = {row["price_region_id"]: row for row in candidates}
+
+    correct = by_price["correct-price"]
+    assert correct["assignment_state"] == "SELECTED"
+    assert correct["product_text"].startswith("Tafelspitz")
+    selected = next(
+        alt for alt in correct["alternatives"]
+        if alt["selection_state"] == "SELECTED"
+    )
+    assert selected["price_basis_state"] == "MATCH"
+    assert selected["price_basis_expected_total"] == 1.49
+    assert selected["price_basis_quantity_kg"] == 0.1
+    assert selected["price_basis_unit_price_per_kg"] == 14.9
+
+    wrong = by_price["near-wrong-price"]
+    matching_text = next(
+        alt for alt in wrong["alternatives"]
+        if alt["product_text"].startswith("Tafelspitz")
+    )
+    assert matching_text["price_basis_state"] == "MISMATCH"
+    assert "printed_price_unit_price_mismatch" in matching_text["rejection_reasons"]
+
+
+def test_price_text_candidates_lock_arithmetic_proof_before_geometry_fallback():
+    words = [
+        _native_row(
+            "spanferkel-title",
+            "Spanferkel-Cevapcici vorgegart 300 g (9.97 / kg)",
+            [0.10, 0.20, 0.22, 0.04],
+            1,
+        ),
+        _native_row(
+            "gyros-title",
+            "Geschnetzeltes Gyros Art 800 g (5.61 / kg)",
+            [0.55, 0.20, 0.22, 0.04],
+            2,
+        ),
+        _native_row("price-299", "2.99", [0.62, 0.28, 0.08, 0.05], 3),
+        _native_row("price-449", "4.49", [0.30, 0.28, 0.08, 0.05], 4),
+    ]
+    prices = [
+        _native_price("price-299", "2.99", [0.62, 0.28, 0.08, 0.05]),
+        _native_price("price-449", "4.49", [0.30, 0.28, 0.08, 0.05]),
+    ]
+
+    candidates = _native_price_text_candidates(words, prices)
+    by_price = {row["price_region_id"]: row for row in candidates}
+
+    assert by_price["price-299"]["product_text"].startswith("Spanferkel-Cevapcici")
+    assert by_price["price-449"]["product_text"].startswith("Geschnetzeltes Gyros Art")
+    assert all(
+        next(
+            alt for alt in row["alternatives"]
+            if alt["selection_state"] == "SELECTED"
+        )["price_basis_state"] == "MATCH"
+        for row in by_price.values()
+    )
+
+
+def test_price_text_candidates_leave_unit_price_range_unproven():
+    words = [
+        _native_row(
+            "title",
+            "Nestle Gold Mousse 4 x 57 g - 59 g (8.43 - 8.73 / kg)",
+            [0.30, 0.30, 0.30, 0.04],
+            1,
+        ),
+        _native_row("price", "1.99", [0.62, 0.36, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("price", "1.99", [0.62, 0.36, 0.08, 0.05])]
+
+    row = _native_price_text_candidates(words, prices)[0]
+    selected = next(
+        alt for alt in row["alternatives"]
+        if alt["selection_state"] == "SELECTED"
+    )
+
+    assert selected["price_basis_state"] == "UNAVAILABLE"
+    assert selected["price_basis_expected_total"] is None
+
+
 def test_product_card_v2_excludes_validity_dates_and_uses_text_image_price_union():
     words = [
         _native_row("date-a", "Donnerstag", [0.28, 0.01, 0.11, 0.02], 1, 0, 0),
@@ -753,38 +916,66 @@ def test_product_card_v3_rejects_image_spilling_outside_single_price_region():
     assert _native_product_card_candidates(words, images, prices, regions) == []
 
 
-def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
+def test_product_card_v3_rejects_composite_image_that_envelops_text_and_price():
     words = [
-        _native_row(
-            "leerdammer-title",
-            "Leerdammer Scheiben XXL",
-            [0.55, 0.12, 0.12, 0.03],
-            1,
-        ),
-        _native_row("leerdammer-price", "3.99", [0.60, 0.22, 0.08, 0.05], 2),
-        _native_row(
-            "moevenpick-title",
-            "Mövenpick Feinjoghurt",
-            [0.45, 0.32, 0.15, 0.03],
-            3,
-        ),
-        _native_row("moevenpick-price", "0.69", [0.52, 0.42, 0.08, 0.05], 4),
+        _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.08, 0.12, 0.03], 1),
+        _native_row("price", "3.99", [0.60, 0.22, 0.08, 0.05], 2),
     ]
-    prices = [
-        _native_price("leerdammer-price", "3.99", [0.60, 0.22, 0.08, 0.05]),
-        _native_price("moevenpick-price", "0.69", [0.52, 0.42, 0.08, 0.05]),
-    ]
+    prices = [_native_price("price", "3.99", [0.60, 0.22, 0.08, 0.05])]
     images = [
         {
-            "region_id": "shared-nearer-to-leerdammer-price",
-            "bbox": [0.50, 0.25, 0.16, 0.12],
-            "pixel_width": 480,
-            "pixel_height": 360,
-            "xref": 21,
-            "digest": "aa",
-            "state": "REVIEW_ONLY",
-        }
+            "region_id": "isolated-product-image",
+            "bbox": [0.40, 0.08, 0.12, 0.12],
+            "pixel_width": 260, "pixel_height": 260, "xref": 1,
+            "digest": "aa", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "composite-background-image",
+            "bbox": [0.53, 0.06, 0.16, 0.22],
+            "pixel_width": 480, "pixel_height": 660, "xref": 2,
+            "digest": "bb", "state": "REVIEW_ONLY",
+        },
     ]
+
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["product_image_region_id"] == "isolated-product-image"
+    assert card["card_bbox"] == [0.388, 0.068, 0.304, 0.214]
+
+
+def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
+    # The image is closer to Leerdammer's printed price, but touches
+    # Mövenpick's title. Neither product card may contain the other price.
+    words = [
+        _native_row(
+            "leerdammer-title", "Leerdammer Scheiben XXL",
+            [0.72, 0.12, 0.12, 0.03], 1,
+        ),
+        _native_row(
+            "leerdammer-price", "3.99", [0.72, 0.22, 0.08, 0.05], 2,
+        ),
+        _native_row(
+            "moevenpick-title", "Mövenpick Feinjoghurt",
+            [0.45, 0.32, 0.15, 0.03], 3,
+        ),
+        _native_row(
+            "moevenpick-price", "0.69", [0.52, 0.55, 0.08, 0.05], 4,
+        ),
+    ]
+    prices = [
+        _native_price("leerdammer-price", "3.99", [0.72, 0.22, 0.08, 0.05]),
+        _native_price("moevenpick-price", "0.69", [0.52, 0.55, 0.08, 0.05]),
+    ]
+    images = [{
+        "region_id": "shared-nearer-to-leerdammer-price",
+        "bbox": [0.49, 0.25, 0.12, 0.12],
+        "pixel_width": 480,
+        "pixel_height": 360,
+        "xref": 21,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
 
     cards = _native_product_card_candidates(words, images, prices)
 
@@ -792,8 +983,13 @@ def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
     card = cards[0]
     assert card["price_region_id"] == "moevenpick-price"
     assert card["product_text"] == "Mövenpick Feinjoghurt"
-    assert card["product_image_region_id"] == "shared-nearer-to-leerdammer-price"
-
+    assert (
+        card["product_image_region_id"]
+        == "shared-nearer-to-leerdammer-price"
+    )
+    assert card["product_boundary_proven"] is False
+    assert card["verified_product_identity"] is None
+    assert card["hermes_offer_link"] is None
 
 
 def test_product_card_v3_prefers_compact_evidence_over_nearer_lifestyle_image():
