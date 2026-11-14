@@ -115,6 +115,9 @@ def test_diagnostics_preserve_text_and_image_alternatives_when_card_is_not_emitt
         ],
         "product_card_candidates": [],
         "date_price_region_ids_excluded": [],
+        "product_card_selection_trace": {"by_price": {
+            "price": {"state": "NO_IMAGE_OWNERSHIP", "viable_image_ids": ["native-image-21"]}
+        }},
     }
 
     result = MODULE.diagnose_page(native, 4)
@@ -131,6 +134,10 @@ def test_diagnostics_preserve_text_and_image_alternatives_when_card_is_not_emitt
     assert anchor["image_alternatives"][0]["region_id"] == "native-image-21"
     assert anchor["image_alternatives"][0]["within_current_gap_limit"] is True
     assert anchor["image_alternatives"][0]["within_current_owner_radius"] is True
+    assert anchor["card_selection_trace"] == {
+        "state": "NO_IMAGE_OWNERSHIP",
+        "viable_image_ids": ["native-image-21"],
+    }
 
 
 def test_diagnostics_distinguish_missing_image_evidence_from_grouping_rejection():

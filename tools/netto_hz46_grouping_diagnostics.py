@@ -183,6 +183,13 @@ def diagnose_page(native: dict, page_number: int) -> dict:
         if isinstance(price_id, str):
             cards_by_price.setdefault(price_id, []).append(card)
 
+    card_trace = native.get("product_card_selection_trace")
+    if card_trace is not None and (
+        not isinstance(card_trace, dict)
+        or not isinstance(card_trace.get("by_price"), dict)
+    ):
+        raise GroupingDiagnosticsError("malformed optional card selection trace")
+
     anchors = []
     for anchor in prices:
         price_id = anchor.get("region_id")
@@ -214,8 +221,7 @@ def diagnose_page(native: dict, page_number: int) -> dict:
             status = "rejected_or_ambiguous"
             reasons.append("evidence_exists_but_current_card_not_emitted")
 
-        anchors.append(
-            {
+        detail = {
                 "price_region_id": price_id,
                 "price_text": str(anchor.get("text") or ""),
                 "price_bbox": anchor.get("bbox"),
@@ -227,7 +233,12 @@ def diagnose_page(native: dict, page_number: int) -> dict:
                 "text_alternatives": text_alternatives,
                 "image_alternatives": image_alternatives,
             }
-        )
+        if card_trace is not None:
+            by_price = card_trace["by_price"]
+            if price_id not in by_price:
+                raise GroupingDiagnosticsError("missing traced price anchor")
+            detail["card_selection_trace"] = by_price[price_id]
+        anchors.append(detail)
 
     return {
         "pdf_page_number": page_number,
@@ -406,7 +417,9 @@ def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
             raise GroupingDiagnosticsError("PDF page count differs from golden fixture")
         for golden_page in page_specs:
             page_number = int(golden_page["page_number"])
-            native = native_page_structure(document[page_number - 1])
+            native = native_page_structure(
+                document[page_number - 1], trace_product_cards=True
+            )
             diagnostics.append(diagnose_page(native, page_number))
             evaluations.append(evaluate_page(native, golden_page))
 

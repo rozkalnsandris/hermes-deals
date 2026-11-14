@@ -935,6 +935,8 @@ def _native_product_card_candidates(
     images: list[dict],
     primary_price_candidates: list[dict],
     layout_regions: list[list[float]] | None = None,
+    *,
+    diagnostic_trace: dict | None = None,
 ) -> list[dict]:
     """Build Review-only geometry from complete price/text/image alternatives.
 
@@ -942,11 +944,36 @@ def _native_product_card_candidates(
     not establish image ownership. Prefer isolated evidence over images that
     enclose the entire price/text pair, then use compactness and text proximity.
     """
+    if diagnostic_trace is not None:
+        diagnostic_trace["by_price"] = {
+            anchor["region_id"]: {
+                "viable_image_ids": [],
+                "image_wins": [],
+                "image_losses": [],
+                "ambiguous_image_ids": [],
+                "skipped_image_counts": {},
+                "selected_before_filter": None,
+                "selected_after_filter": None,
+                "state": "NOT_EVALUATED",
+            }
+            for anchor in primary_price_candidates
+        }
+
+    def note_skip(anchor: dict, reason: str) -> None:
+        if diagnostic_trace is not None:
+            counts = diagnostic_trace["by_price"][anchor["region_id"]][
+                "skipped_image_counts"
+            ]
+            counts[reason] = counts.get(reason, 0) + 1
+
     if not primary_price_candidates:
         return []
     layout_regions = list(layout_regions or [])
 
     date_ids = _date_price_region_ids(words, primary_price_candidates)
+    if diagnostic_trace is not None:
+        for price_id in date_ids:
+            diagnostic_trace["by_price"][price_id]["state"] = "DATE_PRICE_EXCLUDED"
     eligible = [
         row for row in primary_price_candidates if row["region_id"] not in date_ids
     ]
@@ -964,6 +991,7 @@ def _native_product_card_candidates(
         for anchor in eligible:
             region = _single_price_layout_region(anchor, eligible, layout_regions)
             if region is not None and not _bbox_contains_box(region, image["bbox"]):
+                note_skip(anchor, "outside_single_price_layout_region")
                 continue
             if (
                 _bbox_distance(image["bbox"], anchor["bbox"])
@@ -971,6 +999,7 @@ def _native_product_card_candidates(
                 or _bbox_gap_distance(image["bbox"], anchor["bbox"])
                 > NATIVE_PRODUCT_IMAGE_MAX_GAP
             ):
+                note_skip(anchor, "outside_image_radius_or_gap")
                 continue
 
             visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
@@ -983,6 +1012,7 @@ def _native_product_card_candidates(
                 if _bbox_contains_center(context_bbox, row["bbox"])
             )
             if _NATIVE_ONLINE_ONLY_CONTEXT.search(context_text):
+                note_skip(anchor, "online_only_context")
                 continue
 
             selected_text = _product_text_block(
@@ -994,6 +1024,7 @@ def _native_product_card_candidates(
                 anchor_price_text=anchor["text"],
             )
             if selected_text is None:
+                note_skip(anchor, "no_product_text_in_image_price_context")
                 continue
             text_rows, product_text = selected_text
             text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
@@ -1012,14 +1043,20 @@ def _native_product_card_candidates(
                 or float(card_bbox[2]) > NATIVE_PRODUCT_CARD_MAX_WIDTH
                 or float(card_bbox[3]) > NATIVE_PRODUCT_CARD_MAX_HEIGHT
             ):
+                note_skip(anchor, "oversized_card_bbox")
                 continue
             if any(
                 other["region_id"] != anchor["region_id"]
                 and _bbox_contains_center(card_bbox, other["bbox"])
                 for other in eligible
             ):
+                note_skip(anchor, "card_contains_other_price")
                 continue
 
+            if diagnostic_trace is not None:
+                diagnostic_trace["by_price"][anchor["region_id"]][
+                    "viable_image_ids"
+                ].append(image["region_id"])
             candidates_for_image.append(
                 (
                     int(encloses_semantics),
@@ -1047,8 +1084,24 @@ def _native_product_card_candidates(
             for index in range(6)
         ):
             # Equal geometric evidence cannot justify choosing an image owner.
+            if diagnostic_trace is not None:
+                for option in ranked:
+                    diagnostic_trace["by_price"][option[8]["region_id"]][
+                        "ambiguous_image_ids"
+                    ].append(image["region_id"])
             continue
         chosen = ranked[0]
+        if diagnostic_trace is not None:
+            owner_price_id = chosen[8]["region_id"]
+            for option in ranked:
+                entry = diagnostic_trace["by_price"][option[8]["region_id"]]
+                if option is chosen:
+                    entry["image_wins"].append(image["region_id"])
+                else:
+                    entry["image_losses"].append({
+                        "image_region_id": image["region_id"],
+                        "owner_price_region_id": owner_price_id,
+                    })
         variants_by_price[chosen[8]["region_id"]].append(chosen)
 
     accepted: list[dict] = []
@@ -1084,7 +1137,38 @@ def _native_product_card_candidates(
                 "state": "REVIEW_ONLY",
             }
         )
-    return _filter_ambiguous_product_cards(accepted)
+    result = _filter_ambiguous_product_cards(accepted)
+    if diagnostic_trace is not None:
+        for candidate in accepted:
+            diagnostic_trace["by_price"][candidate["price_region_id"]][
+                "selected_before_filter"
+            ] = {
+                "image_region_id": candidate["product_image_region_id"],
+                "text_region_ids": candidate["product_text_region_ids"],
+                "bbox": candidate["card_bbox"],
+            }
+        for candidate in result:
+            entry = diagnostic_trace["by_price"][candidate["price_region_id"]]
+            entry["selected_after_filter"] = candidate["product_image_region_id"]
+            entry["state"] = "EMITTED_REVIEW_ONLY"
+        for anchor in eligible:
+            entry = diagnostic_trace["by_price"][anchor["region_id"]]
+            if entry["state"] == "EMITTED_REVIEW_ONLY":
+                continue
+            if entry["selected_before_filter"] is not None:
+                ids = tuple(entry["selected_before_filter"]["text_region_ids"])
+                duplicated = sum(
+                    tuple(c["product_text_region_ids"]) == ids for c in accepted
+                ) > 1
+                entry["state"] = (
+                    "FILTERED_SHARED_TEXT" if duplicated
+                    else "FILTERED_OVERLAPPING_CARD"
+                )
+            elif entry["viable_image_ids"]:
+                entry["state"] = "NO_IMAGE_OWNERSHIP"
+            else:
+                entry["state"] = "NO_VIABLE_IMAGE_TEXT_PRICE_TRIAD"
+    return result
 
 
 def _native_price_anchor_candidates(
@@ -1169,7 +1253,7 @@ def _native_price_anchor_candidates(
     return candidates
 
 
-def native_page_structure(page) -> dict:
+def native_page_structure(page, *, trace_product_cards: bool = False) -> dict:
     """Extract source-native PDF text/image geometry without OCR or model inference."""
     width = float(page.rect.width)
     height = float(page.rect.height)
@@ -1272,14 +1356,16 @@ def native_page_structure(page) -> dict:
         primary_price_candidates,
         layout_regions,
     )
+    card_trace: dict = {}
     product_card_candidates = _native_product_card_candidates(
         words,
         images,
         primary_price_candidates,
         layout_regions,
+        diagnostic_trace=card_trace if trace_product_cards else None,
     )
 
-    return {
+    result = {
         "page_size_points": [round(width, 3), round(height, 3)],
         "text_regions": words,
         "image_regions": images,
@@ -1311,6 +1397,9 @@ def native_page_structure(page) -> dict:
         "verified_product_identities": 0,
         "automatic_offer_links": 0,
     }
+    if trace_product_cards:
+        result["product_card_selection_trace"] = card_trace
+    return result
 
 
 def _read_pdf(path: Path, expected_sha256: str) -> bytes:

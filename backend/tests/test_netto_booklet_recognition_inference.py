@@ -1078,6 +1078,49 @@ def test_product_card_v3_prefers_price_proof_over_adjacent_column_geometry():
     assert selected_text.startswith("Popp Fleischsalat")
 
 
+def test_product_card_v3_diagnostic_trace_is_opt_in_and_does_not_change_cards():
+    words = [
+        _native_row(
+            "title", "Mövenpick Feinjoghurt 150 g (4.60 / kg)",
+            [0.36, 0.429733, 0.152676, 0.06144], 1,
+        ),
+        _native_row("price", "0.69*", [0.541497, 0.437061, 0.103503, 0.051046], 2),
+    ]
+    prices = [
+        _native_price("price", "0.69*", [0.541497, 0.437061, 0.103503, 0.051046]),
+    ]
+    images = [{
+        "region_id": "moevenpick-cup",
+        "bbox": [0.359832, 0.299917, 0.171721, 0.11089],
+        "pixel_width": 204, "pixel_height": 190, "xref": 23,
+        "digest": "moevenpick", "state": "REVIEW_ONLY",
+    }]
+    baseline = _native_product_card_candidates(words, images, prices)
+    trace = {}
+    traced = _native_product_card_candidates(
+        words, images, prices, diagnostic_trace=trace
+    )
+    assert traced == baseline
+    assert len(traced) == 1
+    detail = trace["by_price"]["price"]
+    assert detail["state"] == "EMITTED_REVIEW_ONLY"
+    assert detail["viable_image_ids"] == ["moevenpick-cup"]
+    assert detail["image_wins"] == ["moevenpick-cup"]
+    assert detail["image_losses"] == []
+    assert detail["skipped_image_counts"] == {}
+    assert detail["selected_before_filter"]["image_region_id"] == "moevenpick-cup"
+    assert detail["selected_after_filter"] == "moevenpick-cup"
+
+    no_images = {}
+    assert _native_product_card_candidates(
+        words, [], prices, diagnostic_trace=no_images
+    ) == []
+    assert no_images["by_price"]["price"]["state"] == (
+        "NO_VIABLE_IMAGE_TEXT_PRICE_TRIAD"
+    )
+    assert no_images["by_price"]["price"]["selected_after_filter"] is None
+
+
 def test_product_card_v3_excludes_large_corner_bleed_lifestyle_image():
     # HZ46 page 4: the 430x643 editorial photograph covers the top-right
     # page corner. Its proximity to Leerdammer's 3.99 price is not evidence
