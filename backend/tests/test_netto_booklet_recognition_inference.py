@@ -1131,6 +1131,54 @@ def test_product_card_v3_preserves_chocomel_moevenpick_cross_column_ownership():
     assert all(card["hermes_offer_link"] is None for card in cards)
 
 
+def test_product_card_v3_hz46_p49_truncated_disclaimer_is_not_a_product():
+    # Pinned HZ46 v3-r9 page 49 has a false REVIEW_ONLY card, source
+    # price native-word-24 (1.49), whose title was only the truncated
+    # publisher disclaimer. Its local text is missing netto-online.de.
+    # PDF page 49 visually has several different candle-related offers,
+    # so this footer must not be used as any product identity or title.
+    disclaimer = (
+        "Artikel mit diesem Hinweis sind im Aktionszeitraum auch "
+        "bestellbar unter zzgl. Versandkosten. Konkrete Angaben "
+        "finden Sie beim jeweiligen Artikel im"
+    )
+    price_bbox = [0.60, 0.83, 0.075, 0.05]
+    words = [
+        _native_row("footer-note", disclaimer, [0.52, 0.925, 0.44, 0.055], 1),
+        _native_row("price", "1.49", price_bbox, 2),
+    ]
+    visual_bbox = [0.20, 0.72, 0.48, 0.21]
+    assert _product_text_block(
+        words, visual_bbox, price_bbox, "price", anchor_price_text="1.49",
+    ) is None
+
+    # The shared text filter must prevent a source-native card from
+    # escaping through a plausible image and a printed price alone.
+    images = [{
+        "region_id": "product-artwork",
+        "bbox": [0.22, 0.72, 0.25, 0.16],
+        "pixel_width": 300, "pixel_height": 250, "xref": 23,
+        "digest": "source-artwork", "state": "REVIEW_ONLY",
+    }]
+    prices = [_native_price("price", "1.49", price_bbox)]
+    assert _native_product_card_candidates(words, images, prices) == []
+
+    # Keep genuine physical-store consumer product labels available.
+    ordinary_words = [
+        _native_row(
+            "real-title", "Duftstumpen mit hochwertigem Duftkonzentrat",
+            [0.44, 0.813, 0.16, 0.055], 1,
+        ),
+        _native_row("price", "1.49", price_bbox, 2),
+    ]
+    selected = _product_text_block(
+        ordinary_words, visual_bbox, price_bbox, "price",
+        anchor_price_text="1.49",
+    )
+    assert selected is not None
+    assert selected[1].startswith("Duftstumpen")
+
+
 def test_product_card_v3_hz46_p63_adjacent_app_price_does_not_claim_cillit():
     # HZ46 p63: Cillit Bang 70 g x 31.71/kg proves printed 2.22.
     # Zewa's neighbouring APP price 2.19 differs by only 3 cents but is

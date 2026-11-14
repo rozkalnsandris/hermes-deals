@@ -59,7 +59,8 @@ _NATIVE_WEEKDAY = re.compile(
 _NATIVE_KW_LABEL = re.compile(r"\bkw\s*\d{1,2}\b", re.I)
 _NATIVE_DISCLAIMER = re.compile(
     r"(?:erhältlich\s+bei\s+netto\s+city|abgebildeten\s+artikel|"
-    r"begrenzten\s+angebots|ausverkauft\s+sein|netto-online\.de)",
+    r"begrenzten\s+angebots|ausverkauft\s+sein|netto-online\.de|"
+    r"\bartikel\s+mit\s+diesem\s+hinweis\b)",
     re.I,
 )
 _NATIVE_NONPRODUCT_NOTE = re.compile(
