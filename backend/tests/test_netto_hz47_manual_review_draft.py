@@ -110,6 +110,7 @@ def test_hz47_visual_pixel_correspondence_corrections():
             for n in (3, 4, 5, 6)] == [
                 (0.02, 0.26), (0.28, 0.23), (0.51, 0.23), (0.74, 0.24)]
     # Page 57: Felix Soup on right; two visible variants of Vivil/Skittles on left.
+    assert rect(5, 5)["height"] == 0.43
     assert rect(57, 4)["width"] == 0.64
     assert rect(57, 5)["left"] == 0.66
     assert rect(57, 6)["width"] == rect(57, 7)["width"] == 0.64
