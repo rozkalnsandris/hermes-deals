@@ -781,6 +781,7 @@ def _product_text_block(
     anchor_bbox: list[float],
     anchor_region_id: str,
     *,
+    anchor_price_text: str,
     container_bbox: list[float] | None = None,
 ) -> tuple[list[dict], str] | None:
     by_block: dict[int, list[dict]] = {}
@@ -795,7 +796,7 @@ def _product_text_block(
     local_x1 = min(1.0, vx + vw + NATIVE_PRODUCT_TEXT_MARGIN_X)
     local_y1 = min(1.0, vy + vh + NATIVE_PRODUCT_TEXT_MARGIN_Y)
 
-    choices: list[tuple[float, float, int, list[dict], str]] = []
+    choices: list[tuple[int, float, float, float, int, list[dict], str]] = []
     for block_no, block_rows in by_block.items():
         ordered = sorted(
             block_rows,
@@ -841,13 +842,26 @@ def _product_text_block(
             + _bbox_distance(block_bbox, visual_bbox) * 0.20
             + _bbox_distance(block_bbox, anchor_bbox) * 0.65
         )
+        # A neighbouring column can overlap the price on the Y axis without
+        # belonging to that price. Prefer printed pack/unit-price evidence and
+        # the actual 2D gap to the anchor over single-axis alignment.
+        price_basis_state = _price_text_unit_price_evidence(
+            text, anchor_price_text
+        )["state"]
+        price_basis_rank = {"MATCH": 0, "UNAVAILABLE": 1, "MISMATCH": 2}[
+            price_basis_state
+        ]
+        price_gap = _bbox_gap_distance(block_bbox, anchor_bbox)
         alignment = _bbox_axis_overlap_ratio(block_bbox, anchor_bbox)
-        choices.append((-alignment, score, block_no, local_rows, text))
+        choices.append((
+            price_basis_rank, price_gap, -alignment, score,
+            block_no, local_rows, text,
+        ))
 
     if not choices:
         return None
     choices.sort(key=lambda row: (row[0], row[1], row[2]))
-    _, _, _, ordered, text = choices[0]
+    _, _, _, _, _, ordered, text = choices[0]
     return ordered, text
 
 def _product_image_candidate(row: dict) -> bool:
@@ -977,6 +991,7 @@ def _native_product_card_candidates(
                 anchor["bbox"],
                 anchor["region_id"],
                 container_bbox=region,
+                anchor_price_text=anchor["text"],
             )
             if selected_text is None:
                 continue

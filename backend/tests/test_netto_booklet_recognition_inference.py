@@ -19,6 +19,7 @@ from netto_booklet_recognition_inference import (
     _native_layout_regions,
     _native_product_card_candidates,
     _native_price_text_candidates,
+    _product_text_block,
     _filter_ambiguous_product_cards,
     _read_pdf,
     _validate_florence_generation,
@@ -990,6 +991,91 @@ def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
     assert card["product_boundary_proven"] is False
     assert card["verified_product_identity"] is None
     assert card["hermes_offer_link"] is None
+
+
+def test_product_card_v3_preserves_chocomel_moevenpick_cross_column_ownership():
+    # Source-native HZ46 page 4 geometry. Single-axis alignment previously
+    # selected Mövenpick's text for Chocomel's 1.11 price, sharing title
+    # ownership and removing both REVIEW_ONLY cards.
+    words = [
+        _native_row(
+            "chocomel-title", "Chocomel gekühlt 300 ml zzgl. Pfand 0.25 (3.70 / l)",
+            [0.258, 0.336457, 0.067839, 0.072611], 1,
+        ),
+        _native_row(
+            "moevenpick-title",
+            "Mövenpick Feinjoghurt oder Sahnepudding gekühlt, "
+            "versch. Sorten 150 g (4.60 / kg)",
+            [0.36, 0.429733, 0.152676, 0.06144], 2,
+        ),
+        _native_row(
+            "chocomel-price", "1.11",
+            [0.254275, 0.437061, 0.048957, 0.051046], 3,
+        ),
+        _native_row(
+            "moevenpick-price", "0.69*",
+            [0.541497, 0.437061, 0.103503, 0.051046], 4,
+        ),
+    ]
+    prices = [
+        _native_price("chocomel-price", "1.11", [0.254275, 0.437061, 0.048957, 0.051046]),
+        _native_price("moevenpick-price", "0.69*", [0.541497, 0.437061, 0.103503, 0.051046]),
+    ]
+    images = [
+        {
+            "region_id": "chocomel-bottle",
+            "bbox": [0.03175, 0.273403, 0.305153, 0.217966],
+            "pixel_width": 360, "pixel_height": 320, "xref": 36,
+            "digest": "chocomel", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "moevenpick-yoghurt",
+            "bbox": [0.359832, 0.299917, 0.171721, 0.11089],
+            "pixel_width": 203, "pixel_height": 184, "xref": 23,
+            "digest": "moevenpick", "state": "REVIEW_ONLY",
+        },
+    ]
+
+    cards = _native_product_card_candidates(words, images, prices)
+    by_price = {card["price_region_id"]: card for card in cards}
+    assert set(by_price) == {"chocomel-price", "moevenpick-price"}
+    assert by_price["chocomel-price"]["product_text"].startswith("Chocomel")
+    assert by_price["chocomel-price"]["product_image_region_id"] == "chocomel-bottle"
+    assert by_price["moevenpick-price"]["product_text"].startswith("Mövenpick")
+    assert by_price["moevenpick-price"]["product_image_region_id"] == "moevenpick-yoghurt"
+    assert all(card["state"] == "REVIEW_ONLY" for card in cards)
+    assert all(card["product_boundary_proven"] is False for card in cards)
+    assert all(card["verified_product_identity"] is None for card in cards)
+    assert all(card["hermes_offer_link"] is None for card in cards)
+
+
+def test_product_card_v3_prefers_price_proof_over_adjacent_column_geometry():
+    # HZ46 page 4: Nestlé title is geometrically closer to this composite
+    # inspection area, but Popp 200 g x 6.45/kg proves the printed 1.29.
+    words = [
+        _native_row(
+            "popp-title", "Popp Fleischsalat gekühlt, versch. Sorten "
+            "200 g (6.45 / kg)",
+            [0.045, 0.667332, 0.140369, 0.048841], 1,
+        ),
+        _native_row(
+            "nestle-title", "Nestle Gold Mousse gekühlt, versch. Sorten "
+            "4 x 57 g – 59 g (8.43 – 8.73 / kg)",
+            [0.36, 0.667332, 0.140421, 0.048841], 2,
+        ),
+        _native_row(
+            "popp-price", "1.29*", [0.240764, 0.662061, 0.075972, 0.051046], 3,
+        ),
+    ]
+    selected = _product_text_block(
+        words, [0.18, 0.54, 0.35, 0.18],
+        [0.240764, 0.662061, 0.075972, 0.051046],
+        "popp-price", anchor_price_text="1.29*",
+    )
+    assert selected is not None
+    selected_words, selected_text = selected
+    assert [row["region_id"] for row in selected_words] == ["popp-title"]
+    assert selected_text.startswith("Popp Fleischsalat")
 
 
 def test_product_card_v3_excludes_large_corner_bleed_lifestyle_image():
