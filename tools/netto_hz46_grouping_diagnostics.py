@@ -29,6 +29,7 @@ from netto_booklet_recognition_inference import (  # noqa: E402
     _product_text_token,
     _read_pdf,
     native_page_structure,
+    parse_pages,
 )
 
 
@@ -394,7 +395,13 @@ def evaluate_page(native: dict, golden_page: dict) -> dict:
     }
 
 
-def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
+def build_report(
+    pdf: Path,
+    golden_path: Path,
+    expected_sha256: str,
+    *,
+    extra_pages: str | None = None,
+) -> dict:
     golden = json.loads(golden_path.read_text(encoding="utf-8"))
     _validate_golden(golden)
     raw = _read_pdf(pdf, expected_sha256)
@@ -410,6 +417,7 @@ def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
 
     diagnostics = []
     evaluations = []
+    diagnostic_only_pages = []
     with fitz.open(stream=raw, filetype="pdf") as document:
         publication = golden.get("publication") or {}
         expected_pages = publication.get("page_count")
@@ -422,6 +430,31 @@ def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
             )
             diagnostics.append(diagnose_page(native, page_number))
             evaluations.append(evaluate_page(native, golden_page))
+
+        if extra_pages is not None:
+            golden_numbers = {int(page["page_number"]) for page in page_specs}
+            for page_number in parse_pages(extra_pages, document.page_count):
+                if page_number in golden_numbers:
+                    continue
+                native = native_page_structure(
+                    document[page_number - 1], trace_product_cards=True
+                )
+                diagnostic = diagnose_page(native, page_number)
+                # These pages have no human-reviewed full-page golden truth:
+                # report source geometry and rejection stages, never recall.
+                diagnostic["diagnostic_only"] = True
+                diagnostic["native_text_region_count"] = native["text_region_count"]
+                diagnostic["native_image_region_count"] = native["image_region_count"]
+                diagnostic["native_price_like_tokens"] = [
+                    {
+                        "region_id": row["region_id"],
+                        "text": row["text"],
+                        "bbox": row["bbox"],
+                    }
+                    for row in native["price_candidates"]
+                ]
+                diagnostics.append(diagnostic)
+                diagnostic_only_pages.append(page_number)
 
     totals = {
         "expected_offer_slots": sum(row["expected_offer_count"] for row in evaluations),
@@ -446,7 +479,7 @@ def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
         ),
     }
 
-    return {
+    result = {
         "format": FORMAT,
         "pdf_sha256": sha256(raw).hexdigest(),
         "golden_strategy": GOLDEN_STRATEGY,
@@ -458,6 +491,9 @@ def build_report(pdf: Path, golden_path: Path, expected_sha256: str) -> dict:
         "evaluations": evaluations,
         "diagnostics": diagnostics,
     }
+    if extra_pages is not None:
+        result["diagnostic_only_pdf_pages"] = diagnostic_only_pages
+    return result
 
 
 def main() -> int:
@@ -466,6 +502,10 @@ def main() -> int:
     parser.add_argument("golden_json", type=Path)
     parser.add_argument("output_json", type=Path)
     parser.add_argument("--pdf-sha256", required=True)
+    parser.add_argument(
+        "--extra-pages",
+        help="Additional bounded PDF pages for source diagnostics only; no golden scoring",
+    )
     args = parser.parse_args()
 
     output = args.output_json.resolve()
@@ -476,6 +516,7 @@ def main() -> int:
         args.source_pdf,
         args.golden_json.resolve(strict=True),
         args.pdf_sha256,
+        extra_pages=args.extra_pages,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x", encoding="utf-8") as stream:

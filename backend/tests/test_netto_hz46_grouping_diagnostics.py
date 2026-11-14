@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from hashlib import sha256
 import json
 from pathlib import Path
 import sys
@@ -285,3 +286,46 @@ def test_golden_fixture_fails_closed_if_identity_boundary_is_relaxed():
         match="identity boundary",
     ):
         MODULE._validate_golden(golden)
+
+
+def test_extra_hz46_pages_are_diagnostic_only_without_unverified_recall(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    pdf = tmp_path / "hz46-synthetic-80-pages.pdf"
+    with fitz.open() as document:
+        for _ in range(80):
+            document.new_page()
+        # Synthetic page 17 has visible text and price, but no image.
+        # It tests diagnostic observability, NOT real HZ46 page geometry.
+        document[16].insert_text((80, 90), "Auberginen", fontsize=14)
+        document[16].insert_text((200, 150), "0.77", fontsize=24)
+        document.save(pdf)
+
+    digest = sha256(pdf.read_bytes()).hexdigest()
+    baseline = MODULE.build_report(pdf, FIXTURE, digest)
+    assert "diagnostic_only_pdf_pages" not in baseline
+    report = MODULE.build_report(
+        pdf, FIXTURE, digest, extra_pages="17,18,25,79"
+    )
+    assert report["diagnostic_only_pdf_pages"] == [17, 18, 25, 79]
+    assert [row["pdf_page_number"] for row in report["evaluations"]] == [3, 4, 5]
+    assert [row["pdf_page_number"] for row in report["diagnostics"]] == [
+        3, 4, 5, 17, 18, 25, 79,
+    ]
+    assert report["totals"] == baseline["totals"]
+    assert report["totals"]["expected_offer_slots"] == 23
+    p17 = next(row for row in report["diagnostics"] if row["pdf_page_number"] == 17)
+    assert p17["diagnostic_only"] is True
+    assert p17["native_image_region_count"] == 0
+    assert any(row["text"] == "0.77" for row in p17["native_price_like_tokens"])
+    assert p17["current_product_card_count"] == 0
+    assert any(
+        "no_product_image_alternative_within_current_limits" in row["rejection_reasons"]
+        for row in p17["anchors"]
+    )
+    assert report["state"] == "REVIEW_ONLY"
+    assert report["automatic_offer_links"] == 0
+    assert report["verified_product_identities"] == 0
+    assert report["product_boundaries_proven"] == 0
+
+    with pytest.raises(MODULE.InferenceRunnerError, match="outside PDF"):
+        MODULE.build_report(pdf, FIXTURE, digest, extra_pages="81")
