@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 DRAFT = ROOT / "evidence/netto/hz47_manual_pdf_geometry_draft_v1.json"
 PDF_SHA = "c8551dd197ac3050e11a9419a73b174803e5b8684890404b10b77520d3e7436a"
-SHA = re.compile(r"[0-9a-f]{64}\\Z")
+SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def get_draft():
