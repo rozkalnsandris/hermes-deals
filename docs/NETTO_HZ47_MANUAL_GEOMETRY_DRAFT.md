@@ -42,16 +42,23 @@ bytes are **not in GitHub**.
 - Bounded local PDF text/geometry QA on all **261** draft candidates: **257** contain a PDF-native decimal-price-like token inside their original rectangle; **4** needed investigation. Full-resolution p5 visual inspection exposed the tomato price `1.49*` just outside the old rectangle. Expanded p5 Tomaten from `top=0.06,height=0.39` to `top=0.06,height=0.43`; PDF text then includes the observed current/UVP price region. **258/261** now have at least one decimal-price-like token inside the box, with remaining exceptions p34 (Käse-Laugen Breze, Roggenmischbrot: price labels extend beyond candidate rectangles) and p42 (OSRAM batteries printed `1.–`, a format intentionally unmatched by the decimal-price heuristic).
 - Five small rectangle intersections remain on p2/p3 (max tentative IoU ~0.021); these and all print-price ownership still require review. A price-like token is **not** a verified offer price (may be UVP, APP, PAYBACK, saving, or unrelated nearby text). This audit does **not** increase product boundary proof counts, verified offer identity or page-level completion.
 
+## HZ47 source-only eleven-coordinate QA correction (2026-11-14)
+
+- Exact original user PDF SHA256 `c8551dd197ac3050e11a9419a73b174803e5b8684890404b10b77520d3e7436a`; prior authorized Lenovo read-only scan compared all 72 rendered PDF pages against the 72 first-party `at600` publisher images. Bidirectional **72/72 ordinal-best matching**, no ambiguous margins; grayscale 48×68 MAE median **4.559**, max **7.123**. This proves robust page-level visual correspondence but **not identical source bytes** or each candidate's geometry.
+- Earlier 11 proposed geometry corrections were validated against full-resolution source-page imagery, PDF-native text, and all 261 rectangles. A faulty local QA script expected 13 changes when the last two refinements targeted **existing** candidates `hz47-p03-c01` and `hz47-p30-c04`; corrected assertion expects **11 unique IDs**. Final p3 Lindt ends before orange/apple products (`top=0.035,height=0.515`); p30 Hell Energy Drink ends before Coca-Cola (`top=0.50,height=0.22`).
+- Other 9 corrections cover pages 2, 5 and 34, including separated Weihenstephan, Tomaten/Zespri Kiwi, and Backstube product columns. **261 proposals across 49 pages** remain; **0 intersecting candidate rectangles** in the local draft after corrections.
+- PDF text heuristic finds price-shaped text in **260/261** rectangles; p4 Kanzi Apfel text has a split `2 49*` token, not a verified price. This is **not** price ownership validation. All 72 pages remain `full_resolution_pixel_review_completed=false`; review/offer/identity/promotability flags remain fail-closed. No RPi5 publication/DB/collector/deploy writes.
+
 ## Next acceptance checks (not done)
 
 1. Inspect all 72 original full-resolution pages and every proposed region,
    correcting misplaced boundaries and omissions. Record per-page
    `reviewed` counts, excluded scope and unresolved ambiguities without
    guessing. Check Tuesday/Wednesday/Thursday/Friday start-date conditions.
-2. Verify the **actual running** HZ47 selected-store-5659 booklet page count,
-   immutable page image receipts and exact per-page visual alignment. The
-   owner's statement that the booklet is auto-installed is not byte-level
-   proof of these boundaries.
+2. Preserve the verified RPi5 selected-store-5659 72-page publication identity
+   and independently matched PDF↔publisher ordinal proof; still check every
+   candidate against the publisher image at full resolution before display.
+   Visual matching is not PDF-byte or offer/product-boundary identity.
 3. Produce a new complete, immutable, separately hash-pinned
    `REVIEW_ONLY` projection and source tests. No SKU links or verified
    product prices without independent authority.

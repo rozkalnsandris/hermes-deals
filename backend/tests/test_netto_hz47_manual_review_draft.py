@@ -110,7 +110,7 @@ def test_hz47_visual_pixel_correspondence_corrections():
             for n in (3, 4, 5, 6)] == [
                 (0.02, 0.26), (0.28, 0.23), (0.51, 0.23), (0.74, 0.24)]
     # Page 57: Felix Soup on right; two visible variants of Vivil/Skittles on left.
-    assert rect(5, 5)["height"] == 0.43
+    assert rect(5, 5)["height"] == 0.44
     assert rect(57, 4)["width"] == 0.64
     assert rect(57, 5)["left"] == 0.66
     assert rect(57, 6)["width"] == rect(57, 7)["width"] == 0.64
@@ -133,3 +133,47 @@ def test_pixel_review_corrections_do_not_activate_unverified_offers():
     assert draft["automatic_offer_links"] == 0
     assert draft["verified_product_identities"] == 0
     assert all(p["full_resolution_pixel_review_completed"] is False for p in draft["pages"])
+
+def test_hz47_eleven_unique_scoped_geometry_updates():
+    """Exactly eleven visually corrected boxes; two extra fixes replace existing IDs."""
+    draft = get_draft()
+    expected = {
+        "hz47-p02-c03": (0.52, 0.28, 0.46, 0.23),
+        "hz47-p03-c01": (0.02, 0.035, 0.62, 0.515),
+        "hz47-p05-c05": (0.35, 0.06, 0.63, 0.44),
+        "hz47-p05-c06": (0.35, 0.50, 0.63, 0.22),
+        "hz47-p30-c04": (0.27, 0.50, 0.25, 0.22),
+        "hz47-p34-c01": (0.02, 0.06, 0.645, 0.45),
+        "hz47-p34-c02": (0.665, 0.05, 0.315, 0.25),
+        "hz47-p34-c03": (0.665, 0.30, 0.315, 0.21),
+        "hz47-p34-c04": (0.34, 0.51, 0.325, 0.23),
+        "hz47-p34-c05": (0.665, 0.51, 0.315, 0.27),
+        "hz47-p34-c06": (0.665, 0.78, 0.315, 0.19),
+    }
+    by_id = {entry["candidate_id"]: entry
+             for page in draft["pages"] for entry in page["candidates"]}
+    assert len(expected) == 11 and len(by_id) == draft["candidate_count_draft"] == 261
+    for candidate_id, geometry in expected.items():
+        row = by_id[candidate_id]
+        box = row["rectangle"]
+        assert tuple(box[k] for k in ("left", "top", "width", "height")) == geometry
+        assert row["product_boundary_proven"] is False
+        assert row["printed_price_verified"] is None
+        assert row["hermes_offer_link"] is None
+
+
+def test_hz47_preliminary_boxes_do_not_overlap_at_runtime_geometry_scale():
+    """Source-only QA: overlapping adjacent products must never be implied."""
+    draft = get_draft()
+    for page in draft["pages"]:
+        for index, a in enumerate(page["candidates"]):
+            x = a["rectangle"]
+            for b in page["candidates"][index + 1:]:
+                y = b["rectangle"]
+                width = max(0, min(x["left"] + x["width"], y["left"] + y["width"])
+                            - max(x["left"], y["left"]))
+                height = max(0, min(x["top"] + x["height"], y["top"] + y["height"])
+                             - max(x["top"], y["top"]))
+                assert width * height <= 1e-10, (
+                    page["pdf_page_number"], a["candidate_id"], b["candidate_id"]
+                )

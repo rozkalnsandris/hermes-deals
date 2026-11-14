@@ -175,9 +175,9 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.25,
+            "height": 0.23,
             "left": 0.52,
-            "top": 0.27,
+            "top": 0.28,
             "width": 0.46
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
@@ -276,7 +276,7 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.655,
+            "height": 0.515,
             "left": 0.02,
             "top": 0.035,
             "width": 0.62
@@ -493,7 +493,7 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.43,
+            "height": 0.44,
             "left": 0.35,
             "top": 0.06,
             "width": 0.63
@@ -508,9 +508,9 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.27,
+            "height": 0.22,
             "left": 0.35,
-            "top": 0.45,
+            "top": 0.5,
             "width": 0.63
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
@@ -2598,7 +2598,7 @@
           "rectangle": {
             "height": 0.22,
             "left": 0.27,
-            "top": 0.53,
+            "top": 0.5,
             "width": 0.25
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
@@ -2910,10 +2910,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.4,
+            "height": 0.45,
             "left": 0.02,
-            "top": 0.12,
-            "width": 0.52
+            "top": 0.06,
+            "width": 0.645
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Käse-Laugen Breze",
@@ -2925,10 +2925,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.19,
-            "left": 0.54,
-            "top": 0.12,
-            "width": 0.44
+            "height": 0.25,
+            "left": 0.665,
+            "top": 0.05,
+            "width": 0.315
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "High Protein Pizza",
@@ -2941,9 +2941,9 @@
           "product_boundary_proven": false,
           "rectangle": {
             "height": 0.21,
-            "left": 0.54,
-            "top": 0.31,
-            "width": 0.44
+            "left": 0.665,
+            "top": 0.3,
+            "width": 0.315
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Pizzatasche Philly Cheese",
@@ -2955,10 +2955,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.26,
-            "left": 0.25,
-            "top": 0.52,
-            "width": 0.29
+            "height": 0.23,
+            "left": 0.34,
+            "top": 0.51,
+            "width": 0.325
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Roggenmischbrot",
@@ -2970,10 +2970,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.26,
-            "left": 0.54,
-            "top": 0.52,
-            "width": 0.44
+            "height": 0.27,
+            "left": 0.665,
+            "top": 0.51,
+            "width": 0.315
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Käse-Schinken-Croissant",
@@ -2986,9 +2986,9 @@
           "product_boundary_proven": false,
           "rectangle": {
             "height": 0.19,
-            "left": 0.54,
+            "left": 0.665,
             "top": 0.78,
-            "width": 0.44
+            "width": 0.315
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Apfeltasche",
