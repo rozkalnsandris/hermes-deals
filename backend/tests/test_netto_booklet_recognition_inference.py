@@ -993,6 +993,88 @@ def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
     assert card["hermes_offer_link"] is None
 
 
+def test_product_card_v3_page4_avoids_false_moevenpick_nestle_overlap():
+    # Retained HZ46 page-4 source-native geometry. The lower adjacent raster
+    # image-17 is slightly nearer to the Mövenpick title than its actual
+    # above-title package image-23. Picking image-17 makes two otherwise
+    # independent cards overlap and the existing safety filter rejects both.
+    words = [
+        _native_row(
+            "moevenpick-title",
+            "Mövenpick Feinjoghurt oder Sahnepudding gekühlt, versch. Sorten "
+            "150 g (4.60 / kg)",
+            [0.36, 0.429733, 0.152676, 0.06144], 1,
+        ),
+        _native_row(
+            "nestle-title",
+            "Nestle Gold Mousse gekühlt, versch. Sorten "
+            "4 x 57 g – 59 g (8.43 – 8.73 / kg)",
+            [0.36, 0.667332, 0.140421, 0.048841], 2,
+        ),
+        _native_row(
+            "moevenpick-price", "0.69*",
+            [0.541497, 0.437061, 0.103503, 0.051046], 3,
+        ),
+        _native_row(
+            "nestle-price", "1.99",
+            [0.559645, 0.662061, 0.068209, 0.051046], 4,
+        ),
+    ]
+    prices = [
+        _native_price(
+            "moevenpick-price", "0.69*",
+            [0.541497, 0.437061, 0.103503, 0.051046],
+        ),
+        _native_price(
+            "nestle-price", "1.99",
+            [0.559645, 0.662061, 0.068209, 0.051046],
+        ),
+    ]
+    images = [
+        {
+            "region_id": "native-image-17",
+            "bbox": [0.432879, 0.507143, 0.207121, 0.109133],
+            "pixel_width": 260, "pixel_height": 320, "xref": 17,
+            "digest": "lower-raster", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "native-image-19",
+            "bbox": [0.36, 0.551072, 0.207121, 0.109133],
+            "pixel_width": 260, "pixel_height": 320, "xref": 19,
+            "digest": "nestle-raster", "state": "REVIEW_ONLY",
+        },
+        {
+            "region_id": "native-image-23",
+            "bbox": [0.359832, 0.299917, 0.171721, 0.11089],
+            "pixel_width": 203, "pixel_height": 184, "xref": 23,
+            "digest": "moevenpick-raster", "state": "REVIEW_ONLY",
+        },
+    ]
+    cards = _native_product_card_candidates(words, images, prices)
+    by_price = {card["price_region_id"]: card for card in cards}
+    assert set(by_price) == {"moevenpick-price", "nestle-price"}
+    yoghurt = by_price["moevenpick-price"]
+    mousse = by_price["nestle-price"]
+    assert yoghurt["product_image_region_id"] == "native-image-23"
+    assert mousse["product_image_region_id"] == "native-image-19"
+    assert yoghurt["product_text"].startswith("Mövenpick")
+    assert mousse["product_text"].startswith("Nestle")
+    # The existing 15% IoU fail-closed filter is not relaxed.
+    assert yoghurt["card_bbox"][1] + yoghurt["card_bbox"][3] < mousse["card_bbox"][1]
+    assert all(card["state"] == "REVIEW_ONLY" for card in cards)
+    assert all(card["product_boundary_proven"] is False for card in cards)
+    assert all(card["verified_product_identity"] is None for card in cards)
+    assert all(card["hermes_offer_link"] is None for card in cards)
+
+    # An image below the title remains usable if it is the only native
+    # image: vertical order ranks alternatives; it is not a hard exclusion.
+    below_only = _native_product_card_candidates(
+        words[:1] + words[2:3], images[:1], prices[:1]
+    )
+    assert len(below_only) == 1
+    assert below_only[0]["product_image_region_id"] == "native-image-17"
+
+
 def test_product_card_v3_preserves_chocomel_moevenpick_cross_column_ownership():
     # Source-native HZ46 page 4 geometry. Single-axis alignment previously
     # selected Mövenpick's text for Chocomel's 1.11 price, sharing title

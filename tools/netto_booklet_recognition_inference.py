@@ -1057,9 +1057,17 @@ def _native_product_card_candidates(
                 diagnostic_trace["by_price"][anchor["region_id"]][
                     "viable_image_ids"
                 ].append(image["region_id"])
+            # Source-native HZ46 page 4: a neighbouring lower raster can be
+            # marginally closer to the title than the actual package above it.
+            # Prefer images not wholly below their selected product text,
+            # without treating this REVIEW_ONLY geometry as identity proof.
+            image_below_text = (
+                float(image["bbox"][1])
+                >= float(text_bbox[1]) + float(text_bbox[3])
+            )
             candidates_for_image.append(
                 (
-                    int(encloses_semantics),
+                    2 * int(encloses_semantics) + int(image_below_text),
                     _bbox_gap_distance(image["bbox"], text_bbox),
                     card_area,
                     _bbox_distance(image["bbox"], text_bbox),
