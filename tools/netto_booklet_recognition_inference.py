@@ -868,6 +868,10 @@ def _product_text_block(
             and price_basis_evidence["delta"] <= 0.12 + 1e-9
             and price_gap <= 0.08
             and y_overlap >= 0.6 * min(block_bbox[3], anchor_bbox[3])
+            # A price to the LEFT of the title may be an adjacent offer
+            # (HZ46 p63: Zewa APP 2.19 beside Cillit Bang 2.22).
+            # Never override unavailable arithmetic in that case.
+            and float(anchor_bbox[0]) >= float(block_bbox[0] + block_bbox[2]) - 0.012
             and _bbox_contains_center(visual_bbox, block_bbox)
         )
         if price_basis_state == "MATCH":

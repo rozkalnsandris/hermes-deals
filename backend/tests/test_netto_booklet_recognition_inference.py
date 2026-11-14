@@ -1131,6 +1131,78 @@ def test_product_card_v3_preserves_chocomel_moevenpick_cross_column_ownership():
     assert all(card["hermes_offer_link"] is None for card in cards)
 
 
+def test_product_card_v3_hz46_p63_adjacent_app_price_does_not_claim_cillit():
+    # HZ46 p63: Cillit Bang 70 g x 31.71/kg proves printed 2.22.
+    # Zewa's neighbouring APP price 2.19 differs by only 3 cents but is
+    # to the LEFT of Cillit's label; it must never claim Cillit's text.
+    # The image rectangles and price coordinates are source-native evidence.
+    words = [
+        _native_row(
+            "cillit-title",
+            "Cillit Bang WC Duft- und Farbspüler versch. Sorten "
+            "2 x 35 g; 70 g (31.71 / kg)",
+            [0.36, 0.879733, 0.135179, 0.06144], 1,
+        ),
+        _native_row(
+            "zewa-title",
+            "Zewa Wisch & Weg Küchentücher Original oder Sparblatt "
+            "4 x 45 Blatt – 74 Blatt",
+            [0.045, 0.857568, 0.13, 0.083], 2,
+        ),
+        _native_row(
+            "cillit-price", "2.22",
+            [0.552174, 0.887061, 0.083152, 0.051046], 3,
+        ),
+        _native_row(
+            "zewa-app-price", "2.19",
+            [0.255392, 0.88321, 0.052084, 0.03587], 4,
+        ),
+    ]
+    prices = [
+        _native_price(
+            "cillit-price", "2.22",
+            [0.552174, 0.887061, 0.083152, 0.051046],
+        ),
+        _native_price(
+            "zewa-app-price", "2.19",
+            [0.255392, 0.88321, 0.052084, 0.03587],
+        ),
+    ]
+    image = {
+        "region_id": "native-image-8",
+        "bbox": [0.392725, 0.737641, 0.113177, 0.13476],
+        "pixel_width": 134, "pixel_height": 223, "xref": 8401,
+        "digest": "cillit-pack", "state": "REVIEW_ONLY",
+    }
+
+    zewa_selection = _product_text_block(
+        words, [0.255392, 0.737641, 0.25051, 0.181439],
+        prices[1]["bbox"], "zewa-app-price", anchor_price_text="2.19",
+    )
+    assert zewa_selection is not None
+    assert zewa_selection[1].startswith("Zewa")
+    exact_cillit = _product_text_block(
+        words, [0.392725, 0.737641, 0.242601, 0.200466],
+        prices[0]["bbox"], "cillit-price", anchor_price_text="2.22",
+    )
+    assert exact_cillit is not None
+    assert exact_cillit[1].startswith("Cillit Bang")
+
+    # The native Cillit raster belongs to the proved 2.22 title/price
+    # triad, not the unrelated neighbouring Zewa APP anchor.
+    cards = _native_product_card_candidates(words, [image], prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["price_region_id"] == "cillit-price"
+    assert card["price_text"] == "2.22"
+    assert card["product_text"].startswith("Cillit Bang")
+    assert card["product_image_region_id"] == "native-image-8"
+    assert card["state"] == "REVIEW_ONLY"
+    assert card["product_boundary_proven"] is False
+    assert card["verified_product_identity"] is None
+    assert card["hermes_offer_link"] is None
+
+
 def test_product_card_v3_hz46_p3_local_price_mismatch_does_not_drop_spitzpaprika():
     # HZ46 p3 native source geometry: the visibly printed 1.89* contradicts
     # 500 g x 3.58/kg (1.79); the discrepancy is retained, not corrected.
