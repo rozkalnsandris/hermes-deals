@@ -992,6 +992,58 @@ def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
     assert card["hermes_offer_link"] is None
 
 
+def test_product_card_v3_excludes_large_corner_bleed_lifestyle_image():
+    # HZ46 page 4: the 430x643 editorial photograph covers the top-right
+    # page corner. Its proximity to Leerdammer's 3.99 price is not evidence
+    # that the person shown is the product image. Native geometry only.
+    words = [
+        _native_row("leerdammer-title", "Leerdammer Scheiben XXL", [0.55, 0.09, 0.14, 0.035], 1),
+        _native_row("leerdammer-price", "3.99", [0.60, 0.22, 0.08, 0.05], 2),
+    ]
+    prices = [_native_price("leerdammer-price", "3.99", [0.60, 0.22, 0.08, 0.05])]
+    lifestyle = {
+        "region_id": "full-bleed-editorial-image",
+        "bbox": [0.663, 0.0, 0.337, 0.36924],
+        "pixel_width": 430, "pixel_height": 643, "xref": 1,
+        "digest": "editorial", "state": "REVIEW_ONLY",
+    }
+    # A lifestyle photo alone must not create a clickable product card.
+    assert _native_product_card_candidates(words, [lifestyle], prices) == []
+
+    package = {
+        "region_id": "isolated-leerdammer-package",
+        "bbox": [0.33, 0.07, 0.18, 0.19],
+        "pixel_width": 300, "pixel_height": 310, "xref": 2,
+        "digest": "product", "state": "REVIEW_ONLY",
+    }
+    cards = _native_product_card_candidates(words, [lifestyle, package], prices)
+    assert len(cards) == 1
+    assert cards[0]["product_image_region_id"] == "isolated-leerdammer-package"
+    assert cards[0]["price_region_id"] == "leerdammer-price"
+    assert cards[0]["product_boundary_proven"] is False
+    assert cards[0]["verified_product_identity"] is None
+    assert cards[0]["hermes_offer_link"] is None
+
+
+def test_product_card_v3_keeps_single_edge_product_image():
+    words = [
+        _native_row("title", "Chiquita Bananen", [0.60, 0.42, 0.14, 0.03], 1),
+        _native_row("price", "1.99", [0.78, 0.47, 0.09, 0.05], 2),
+    ]
+    prices = [_native_price("price", "1.99", [0.78, 0.47, 0.09, 0.05])]
+    images = [{
+        "region_id": "single-edge-banana-image",
+        "bbox": [0.55, 0.32, 0.45, 0.20],
+        "pixel_width": 709, "pixel_height": 295, "xref": 1,
+        "digest": "banana", "state": "REVIEW_ONLY",
+    }]
+    cards = _native_product_card_candidates(words, images, prices)
+    assert len(cards) == 1
+    assert cards[0]["product_image_region_id"] == "single-edge-banana-image"
+    assert cards[0]["verified_product_identity"] is None
+    assert cards[0]["hermes_offer_link"] is None
+
+
 def test_product_card_v3_prefers_compact_evidence_over_nearer_lifestyle_image():
     words = [
         _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.55, 0.12, 0.03], 1),

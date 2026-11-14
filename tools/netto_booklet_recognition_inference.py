@@ -857,6 +857,17 @@ def _product_image_candidate(row: dict) -> bool:
     if not isinstance(bbox, list) or len(bbox) != 4:
         raise InferenceRunnerError("native product image bbox is malformed")
     area = float(bbox[2]) * float(bbox[3])
+    x, y, width, height = map(float, bbox)
+    # A substantial image touching two adjacent page edges is page artwork,
+    # not isolated evidence of an offer product (HZ46 p4 lifestyle photograph).
+    # Fail closed on this corner-bleed class; a smaller product tile may still
+    # touch an edge, and a one-edge hero image is not rejected by this rule.
+    if (
+        area >= 0.10
+        and (x <= 1e-6 or x + width >= 1.0 - 1e-6)
+        and (y <= 1e-6 or y + height >= 1.0 - 1e-6)
+    ):
+        return False
     return (
         NATIVE_PRODUCT_IMAGE_MIN_PAGE_AREA <= area <= NATIVE_PRODUCT_IMAGE_MAX_PAGE_AREA
         and float(bbox[2]) <= NATIVE_PRODUCT_CARD_MAX_WIDTH
