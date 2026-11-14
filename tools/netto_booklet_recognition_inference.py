@@ -14,6 +14,7 @@ from pathlib import Path
 import resource
 import re
 import math
+from collections import deque
 import tempfile
 import time
 
@@ -171,13 +172,13 @@ def _bbox_gap_distance(a: list[float], b: list[float]) -> float:
 
 
 def _bbox_axis_overlap_ratio(a: list[float], b: list[float]) -> float:
-    """Return the stronger normalized overlap on either page axis."""
+    """Return the strongest overlap fraction on either page axis."""
     ax0, ay0, aw, ah = a
     bx0, by0, bw, bh = b
-    x_overlap = max(0.0, min(ax0 + aw, bx0 + bw) - max(ax0, bx0))
-    y_overlap = max(0.0, min(ay0 + ah, by0 + bh) - max(ay0, by0))
-    x_ratio = x_overlap / min(aw, bw) if min(aw, bw) > 0 else 0.0
-    y_ratio = y_overlap / min(ah, bh) if min(ah, bh) > 0 else 0.0
+    overlap_x = max(0.0, min(ax0 + aw, bx0 + bw) - max(ax0, bx0))
+    overlap_y = max(0.0, min(ay0 + ah, by0 + bh) - max(ay0, by0))
+    x_ratio = overlap_x / min(aw, bw) if min(aw, bw) > 0 else 0.0
+    y_ratio = overlap_y / min(ah, bh) if min(ah, bh) > 0 else 0.0
     return max(x_ratio, y_ratio)
 
 
@@ -384,6 +385,396 @@ def _product_text_token(text: object) -> bool:
     )
 
 
+def _product_text_rejection_reasons(text: str, rows: list[dict]) -> list[str]:
+    reasons = []
+    if not text:
+        reasons.append("empty_text")
+    if _NATIVE_WEEKDAY.search(text) or _NATIVE_KW_LABEL.search(text):
+        reasons.append("calendar_or_week_copy")
+    if _NATIVE_DISCLAIMER.search(text):
+        reasons.append("disclaimer_copy")
+    if _NATIVE_NONPRODUCT_NOTE.search(text):
+        reasons.append("nonproduct_note")
+    if _NATIVE_NONPRODUCT_CARD_COPY.search(text):
+        reasons.append("nonproduct_card_copy")
+    if _NATIVE_LOWERCASE_FRAGMENT.search(text):
+        reasons.append("lowercase_fragment")
+    if not any(_product_text_token(row.get("text")) for row in rows):
+        reasons.append("no_product_text_signal")
+    return reasons
+
+
+def _printed_price_value(text: object) -> float | None:
+    value = str(text or "").replace("€", "").strip().rstrip("*")
+    match = re.fullmatch(r"(\d{1,3})[.,](\d{2})", value)
+    if match is None:
+        return None
+    return int(match.group(1)) + int(match.group(2)) / 100
+
+
+def _price_text_unit_price_evidence(
+    product_text: str,
+    price_text: object,
+) -> dict:
+    """Verify printed price from pack mass and explicit per-kilogram price."""
+    printed_price = _printed_price_value(price_text)
+    unit_match = re.search(
+        r"\((\d{1,3}[.,]\d{2})\s*/\s*kg\)",
+        product_text,
+        re.I,
+    )
+    if printed_price is None or unit_match is None:
+        return {
+            "state": "UNAVAILABLE",
+            "expected_total": None,
+            "delta": None,
+            "quantity_kg": None,
+            "unit_price_per_kg": None,
+        }
+
+    prefix = product_text[:unit_match.start()]
+    mass_matches = list(
+        re.finditer(
+            r"(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(kg|g)\b",
+            prefix,
+            re.I,
+        )
+    )
+    if not mass_matches:
+        return {
+            "state": "UNAVAILABLE",
+            "expected_total": None,
+            "delta": None,
+            "quantity_kg": None,
+            "unit_price_per_kg": None,
+        }
+
+    mass = mass_matches[-1]
+    quantity = float(mass.group(1).replace(",", "."))
+    unit = mass.group(2).casefold()
+    quantity_kg = quantity if unit == "kg" else quantity / 1000
+    if not 0 < quantity_kg <= 50:
+        return {
+            "state": "UNAVAILABLE",
+            "expected_total": None,
+            "delta": None,
+            "quantity_kg": None,
+            "unit_price_per_kg": None,
+        }
+
+    unit_price = float(unit_match.group(1).replace(",", "."))
+    expected_total = quantity_kg * unit_price
+    delta = abs(expected_total - printed_price)
+    return {
+        "state": "MATCH" if delta <= 0.02 + 1e-9 else "MISMATCH",
+        "expected_total": round(expected_total, 4),
+        "delta": round(delta, 4),
+        "quantity_kg": round(quantity_kg, 6),
+        "unit_price_per_kg": round(unit_price, 4),
+    }
+
+
+def _minimum_cost_price_text_assignment(
+    price_ids: list[str],
+    alternatives_by_price: dict[str, list[dict]],
+) -> dict[str, tuple[str, ...]]:
+    """Prefer arithmetic price proof, then resolve remaining geometry globally."""
+
+    def solve(
+        solve_price_ids: list[str],
+        solve_alternatives: dict[str, list[dict]],
+    ) -> dict[str, tuple[str, ...]]:
+        text_keys = sorted({
+            tuple(alt["product_text_region_ids"])
+            for price_id in solve_price_ids
+            for alt in solve_alternatives.get(price_id, [])
+            if alt["eligible"]
+        })
+        if not solve_price_ids or not text_keys:
+            return {}
+
+        source = 0
+        price_offset = 1
+        text_offset = price_offset + len(solve_price_ids)
+        sink = text_offset + len(text_keys)
+        graph: list[list[list[int]]] = [[] for _ in range(sink + 1)]
+
+        def add_edge(left: int, right: int, capacity: int, cost: int) -> int:
+            forward = [right, len(graph[right]), capacity, cost]
+            reverse = [left, len(graph[left]), 0, -cost]
+            graph[left].append(forward)
+            graph[right].append(reverse)
+            return len(graph[left]) - 1
+
+        price_index = {value: index for index, value in enumerate(solve_price_ids)}
+        text_index = {value: index for index, value in enumerate(text_keys)}
+        for price_id, index in price_index.items():
+            add_edge(source, price_offset + index, 1, 0)
+        for text_key, index in text_index.items():
+            add_edge(text_offset + index, sink, 1, 0)
+
+        edge_refs: dict[tuple[str, tuple[str, ...]], tuple[int, int]] = {}
+        for price_id in solve_price_ids:
+            eligible = [
+                alt for alt in solve_alternatives.get(price_id, [])
+                if alt["eligible"]
+            ]
+            eligible.sort(
+                key=lambda alt: (
+                    float(alt["selection_score"]),
+                    tuple(alt["product_text_region_ids"]),
+                )
+            )
+            for rank, alt in enumerate(eligible):
+                text_key = tuple(alt["product_text_region_ids"])
+                left = price_offset + price_index[price_id]
+                right = text_offset + text_index[text_key]
+                scaled = int(round(float(alt["selection_score"]) * 1_000_000))
+                cost = scaled * 10_000 + rank
+                edge_index = add_edge(left, right, 1, cost)
+                edge_refs[(price_id, text_key)] = (left, edge_index)
+
+        node_count = sink + 1
+        while True:
+            infinity = 10**30
+            distance = [infinity] * node_count
+            previous: list[tuple[int, int] | None] = [None] * node_count
+            queued = [False] * node_count
+            distance[source] = 0
+            queue = deque([source])
+            queued[source] = True
+
+            while queue:
+                left = queue.popleft()
+                queued[left] = False
+                for edge_index, edge in enumerate(graph[left]):
+                    right, _, capacity, cost = edge
+                    if capacity <= 0:
+                        continue
+                    candidate = distance[left] + cost
+                    if candidate >= distance[right]:
+                        continue
+                    distance[right] = candidate
+                    previous[right] = (left, edge_index)
+                    if not queued[right]:
+                        queue.append(right)
+                        queued[right] = True
+
+            if previous[sink] is None:
+                break
+
+            node = sink
+            while node != source:
+                left, edge_index = previous[node]
+                edge = graph[left][edge_index]
+                edge[2] -= 1
+                reverse_index = edge[1]
+                graph[node][reverse_index][2] += 1
+                node = left
+
+        selected = {}
+        for (price_id, text_key), (left, edge_index) in edge_refs.items():
+            if graph[left][edge_index][2] == 0:
+                selected[price_id] = text_key
+        return selected
+
+    proven_alternatives = {
+        price_id: [
+            alt for alt in alternatives_by_price.get(price_id, [])
+            if alt["eligible"] and alt.get("price_basis_state") == "MATCH"
+        ]
+        for price_id in price_ids
+    }
+    selected = solve(price_ids, proven_alternatives)
+    locked_texts = set(selected.values())
+
+    remaining_prices = [price_id for price_id in price_ids if price_id not in selected]
+    fallback_alternatives = {
+        price_id: [
+            alt for alt in alternatives_by_price.get(price_id, [])
+            if (
+                alt["eligible"]
+                and tuple(alt["product_text_region_ids"]) not in locked_texts
+            )
+        ]
+        for price_id in remaining_prices
+    }
+    selected.update(solve(remaining_prices, fallback_alternatives))
+    return selected
+
+
+def _native_price_text_candidates(
+    words: list[dict],
+    primary_price_candidates: list[dict],
+    layout_regions: list[list[float]] | None = None,
+) -> list[dict]:
+    """Preserve global Review-only price/text competition before image ownership."""
+    if not primary_price_candidates:
+        return []
+    layout_regions = list(layout_regions or [])
+    date_ids = _date_price_region_ids(words, primary_price_candidates)
+    eligible_prices = [
+        row for row in primary_price_candidates if row["region_id"] not in date_ids
+    ]
+    if not eligible_prices:
+        return []
+
+    by_block: dict[int, list[dict]] = {}
+    for row in words:
+        if _NATIVE_PRICE.fullmatch(str(row.get("text") or "").replace("€", "").strip()):
+            continue
+        by_block.setdefault(int(row["block_no"]), []).append(row)
+
+    alternatives_by_price: dict[str, list[dict]] = {}
+    for anchor in eligible_prices:
+        region = _single_price_layout_region(
+            anchor,
+            eligible_prices,
+            layout_regions,
+        )
+        alternatives = []
+        for block_no, block_rows in by_block.items():
+            ordered = sorted(
+                block_rows,
+                key=lambda row: (
+                    int(row.get("line_no") or 0),
+                    int(row.get("word_no") or 0),
+                    row["bbox"][1],
+                    row["bbox"][0],
+                ),
+            )
+            if region is not None:
+                ordered = [
+                    row for row in ordered
+                    if _bbox_contains_center(region, row["bbox"])
+                ]
+            if not ordered:
+                continue
+
+            block_bbox = _bbox_union_normalized([row["bbox"] for row in ordered])
+            gap = _bbox_gap_distance(block_bbox, anchor["bbox"])
+            distance = _bbox_distance(block_bbox, anchor["bbox"])
+
+            text = " ".join(str(row.get("text") or "") for row in ordered).strip()
+            rejection_reasons = _product_text_rejection_reasons(text, ordered)
+            price_basis = _price_text_unit_price_evidence(text, anchor["text"])
+            if (
+                gap > NATIVE_PRICE_GROUP_RADIUS
+                and distance > NATIVE_PRICE_GROUP_RADIUS
+                and price_basis["state"] != "MATCH"
+            ):
+                continue
+            if price_basis["state"] == "MISMATCH":
+                rejection_reasons.append("printed_price_unit_price_mismatch")
+
+            score = gap * 2.0 + distance * 0.65
+            alternatives.append({
+                "block_no": block_no,
+                "product_text": text,
+                "product_text_region_ids": [row["region_id"] for row in ordered],
+                "product_text_bbox": block_bbox,
+                "gap_to_price": round(gap, 6),
+                "center_distance_to_price": round(distance, 6),
+                "selection_score": round(score, 9),
+                "price_basis_state": price_basis["state"],
+                "price_basis_expected_total": price_basis["expected_total"],
+                "price_basis_delta": price_basis["delta"],
+                "price_basis_quantity_kg": price_basis["quantity_kg"],
+                "price_basis_unit_price_per_kg": price_basis["unit_price_per_kg"],
+                "eligible": not rejection_reasons,
+                "rejection_reasons": rejection_reasons,
+            })
+        alternatives.sort(
+            key=lambda alt: (
+                not alt["eligible"],
+                float(alt["selection_score"]),
+                tuple(alt["product_text_region_ids"]),
+            )
+        )
+        alternatives_by_price[anchor["region_id"]] = alternatives
+
+    price_ids = [row["region_id"] for row in eligible_prices]
+    selected = _minimum_cost_price_text_assignment(
+        price_ids,
+        alternatives_by_price,
+    )
+
+    results = []
+    for index, anchor in enumerate(eligible_prices, 1):
+        selected_key = selected.get(anchor["region_id"])
+        selected_alt = None
+        rendered_alternatives = []
+        for alternative in alternatives_by_price[anchor["region_id"]]:
+            row = dict(alternative)
+            key = tuple(row["product_text_region_ids"])
+            if not row["eligible"]:
+                row["selection_state"] = "REJECTED"
+            elif key == selected_key:
+                row["selection_state"] = "SELECTED"
+                selected_alt = row
+            else:
+                row["selection_state"] = "NOT_SELECTED"
+                row["rejection_reasons"] = [
+                    *row["rejection_reasons"],
+                    "lost_global_price_text_competition",
+                ]
+            rendered_alternatives.append(row)
+
+        if selected_alt is None:
+            assignment_state = "UNRESOLVED"
+            product_text = None
+            text_ids = []
+            text_bbox = None
+            semantic_bbox = anchor["bbox"]
+            assignment_score = None
+            rejection_reasons = (
+                ["no_eligible_product_text_alternative"]
+                if not any(row["eligible"] for row in rendered_alternatives)
+                else ["global_price_text_competition_unresolved"]
+            )
+        else:
+            assignment_state = "SELECTED"
+            product_text = selected_alt["product_text"]
+            text_ids = selected_alt["product_text_region_ids"]
+            text_bbox = selected_alt["product_text_bbox"]
+            semantic_bbox = _expanded_normalized_bbox(
+                _bbox_union_normalized([anchor["bbox"], text_bbox]),
+                NATIVE_PRICE_GROUP_PADDING,
+            )
+            assignment_score = selected_alt["selection_score"]
+            rejection_reasons = []
+
+        results.append({
+            "candidate_id": f"native-price-text-{index}",
+            "price_region_id": anchor["region_id"],
+            "price_text": anchor["text"],
+            "price_bbox": anchor["bbox"],
+            "product_text": product_text,
+            "product_text_region_ids": text_ids,
+            "product_text_bbox": text_bbox,
+            "semantic_bbox": semantic_bbox,
+            "assignment_state": assignment_state,
+            "assignment_score": assignment_score,
+            "alternative_count": len(rendered_alternatives),
+            "alternatives": rendered_alternatives,
+            "image_state": "UNRESOLVED",
+            "product_image_region_id": None,
+            "product_image_bbox": None,
+            "basis": "native_pdf_price_text_candidate_v1",
+            "review_reasons": [
+                "product_boundary_review_only",
+                "product_identity_unverified",
+                "image_ownership_unresolved",
+            ],
+            "rejection_reasons": rejection_reasons,
+            "product_boundary_proven": False,
+            "verified_product_identity": None,
+            "hermes_offer_link": None,
+            "state": "REVIEW_ONLY",
+        })
+    return results
+
+
 def _product_text_block(
     rows: list[dict],
     visual_bbox: list[float],
@@ -520,12 +911,11 @@ def _native_product_card_candidates(
     primary_price_candidates: list[dict],
     layout_regions: list[list[float]] | None = None,
 ) -> list[dict]:
-    """Build compact Review-only product-card geometry from price + text + image.
+    """Build Review-only geometry from complete price/text/image alternatives.
 
-    Filled PDF rectangles are ownership hints only. They are vector drawing
-    primitives, not semantic product-card boundaries. Product text is selected
-    from the price anchor before any image participates; image ownership is then
-    resolved against those fixed price + text semantic clusters.
+    An image may compete across multiple prices; the nearest price alone does
+    not establish image ownership. Prefer isolated evidence over images that
+    enclose the entire price/text pair, then use compactness and text proximity.
     """
     if not primary_price_candidates:
         return []
@@ -538,27 +928,6 @@ def _native_product_card_candidates(
     if not eligible:
         return []
 
-    text_by_price: dict[str, tuple[list[float] | None, list[dict], str, list[float]]] = {}
-    for anchor in eligible:
-        region = _single_price_layout_region(anchor, eligible, layout_regions)
-        selected_text = _product_text_block(
-            words,
-            anchor["bbox"],
-            anchor["bbox"],
-            anchor["region_id"],
-            container_bbox=region,
-        )
-        if selected_text is None:
-            continue
-        text_rows, product_text = selected_text
-        text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
-        text_by_price[anchor["region_id"]] = (
-            region,
-            text_rows,
-            product_text,
-            text_bbox,
-        )
-
     variants_by_price: dict[str, list[tuple]] = {
         row["region_id"]: [] for row in eligible
     }
@@ -566,12 +935,9 @@ def _native_product_card_candidates(
         if not _product_image_candidate(image):
             continue
 
-        ownership_variants = []
+        candidates_for_image: list[tuple] = []
         for anchor in eligible:
-            text_evidence = text_by_price.get(anchor["region_id"])
-            if text_evidence is None:
-                continue
-            region, text_rows, product_text, text_bbox = text_evidence
+            region = _single_price_layout_region(anchor, eligible, layout_regions)
             if region is not None and not _bbox_contains_box(region, image["bbox"]):
                 continue
             if (
@@ -584,8 +950,7 @@ def _native_product_card_candidates(
 
             visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
             context_bbox = _expanded_normalized_bbox(
-                visual_bbox,
-                NATIVE_PRODUCT_CONTEXT_PADDING,
+                visual_bbox, NATIVE_PRODUCT_CONTEXT_PADDING
             )
             context_text = " ".join(
                 str(row.get("text") or "")
@@ -594,6 +959,22 @@ def _native_product_card_candidates(
             )
             if _NATIVE_ONLINE_ONLY_CONTEXT.search(context_text):
                 continue
+
+            selected_text = _product_text_block(
+                words,
+                visual_bbox,
+                anchor["bbox"],
+                anchor["region_id"],
+                container_bbox=region,
+            )
+            if selected_text is None:
+                continue
+            text_rows, product_text = selected_text
+            text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
+            semantic_bbox = _bbox_union_normalized([anchor["bbox"], text_bbox])
+            encloses_semantics = _bbox_contains_box(
+                image["bbox"], semantic_bbox
+            )
 
             card_bbox = _expanded_normalized_bbox(
                 _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
@@ -606,18 +987,16 @@ def _native_product_card_candidates(
                 or float(card_bbox[3]) > NATIVE_PRODUCT_CARD_MAX_HEIGHT
             ):
                 continue
-
-            other_price_centers = [
-                row["region_id"]
-                for row in eligible
-                if row["region_id"] != anchor["region_id"]
-                and _bbox_contains_center(card_bbox, row["bbox"])
-            ]
-            if other_price_centers:
+            if any(
+                other["region_id"] != anchor["region_id"]
+                and _bbox_contains_center(card_bbox, other["bbox"])
+                for other in eligible
+            ):
                 continue
 
-            ownership_variants.append(
+            candidates_for_image.append(
                 (
+                    int(encloses_semantics),
                     _bbox_gap_distance(image["bbox"], text_bbox),
                     card_area,
                     _bbox_distance(image["bbox"], text_bbox),
@@ -626,20 +1005,25 @@ def _native_product_card_candidates(
                     anchor["region_id"],
                     image["region_id"],
                     anchor,
+                    region,
                     image,
                     text_rows,
                     product_text,
                     card_bbox,
-                    region is not None,
                 )
             )
 
-        if not ownership_variants:
+        if not candidates_for_image:
             continue
-
-        owner_variant = min(ownership_variants, key=lambda row: row[:7])
-        anchor = owner_variant[7]
-        variants_by_price[anchor["region_id"]].append(owner_variant)
+        ranked = sorted(candidates_for_image, key=lambda row: row[:8])
+        if len(ranked) > 1 and all(
+            math.isclose(float(ranked[0][index]), float(ranked[1][index]), abs_tol=1e-9)
+            for index in range(6)
+        ):
+            # Equal geometric evidence cannot justify choosing an image owner.
+            continue
+        chosen = ranked[0]
+        variants_by_price[chosen[8]["region_id"]].append(chosen)
 
     accepted: list[dict] = []
     for anchor in eligible:
@@ -647,20 +1031,9 @@ def _native_product_card_candidates(
         if not variants:
             continue
         (
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            image,
-            text_rows,
-            product_text,
-            card_bbox,
-            layout_region_bound,
-        ) = min(variants, key=lambda row: row[:7])
+            _, _, _, _, _, _, _, _, _, region,
+            image, text_rows, product_text, card_bbox,
+        ) = min(variants, key=lambda row: row[:8])
 
         accepted.append(
             {
@@ -673,7 +1046,7 @@ def _native_product_card_candidates(
                 "product_image_region_id": image["region_id"],
                 "product_image_bbox": image["bbox"],
                 "card_bbox": card_bbox,
-                "layout_region_bound": layout_region_bound,
+                "layout_region_bound": region is not None,
                 "basis": "native_pdf_product_text_image_price_card_v3",
                 "review_reasons": [
                     "product_boundary_review_only",
@@ -686,6 +1059,7 @@ def _native_product_card_candidates(
             }
         )
     return _filter_ambiguous_product_cards(accepted)
+
 
 def _native_price_anchor_candidates(
     words: list[dict],
@@ -867,6 +1241,11 @@ def native_page_structure(page) -> dict:
         images,
         primary_price_candidates,
     )
+    price_text_candidates = _native_price_text_candidates(
+        words,
+        primary_price_candidates,
+        layout_regions,
+    )
     product_card_candidates = _native_product_card_candidates(
         words,
         images,
@@ -882,6 +1261,7 @@ def native_page_structure(page) -> dict:
         "price_candidates": price_candidates,
         "primary_price_candidates": primary_price_candidates,
         "price_anchor_candidates": price_anchor_candidates,
+        "price_text_candidates": price_text_candidates,
         "product_card_candidates": product_card_candidates,
         "date_price_region_ids_excluded": sorted(date_price_region_ids),
         "text_region_count": len(words),
@@ -890,6 +1270,15 @@ def native_page_structure(page) -> dict:
         "price_candidate_count": len(price_candidates),
         "primary_price_candidate_count": len(primary_price_candidates),
         "price_anchor_candidate_count": len(price_anchor_candidates),
+        "price_text_candidate_count": len(price_text_candidates),
+        "price_text_selected_count": sum(
+            1 for row in price_text_candidates
+            if row["assignment_state"] == "SELECTED"
+        ),
+        "price_text_unresolved_count": sum(
+            1 for row in price_text_candidates
+            if row["assignment_state"] == "UNRESOLVED"
+        ),
         "product_card_candidate_count": len(product_card_candidates),
         "date_price_candidate_count_excluded": len(date_price_region_ids),
         "product_boundaries_proven": 0,
