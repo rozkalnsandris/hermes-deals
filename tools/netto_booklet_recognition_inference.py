@@ -845,14 +845,39 @@ def _product_text_block(
         # A neighbouring column can overlap the price on the Y axis without
         # belonging to that price. Prefer printed pack/unit-price evidence and
         # the actual 2D gap to the anchor over single-axis alignment.
-        price_basis_state = _price_text_unit_price_evidence(
+        price_basis_evidence = _price_text_unit_price_evidence(
             text, anchor_price_text
-        )["state"]
-        price_basis_rank = {"MATCH": 0, "UNAVAILABLE": 1, "MISMATCH": 2}[
-            price_basis_state
-        ]
+        )
+        price_basis_state = price_basis_evidence["state"]
         price_gap = _bbox_gap_distance(block_bbox, anchor_bbox)
         alignment = _bbox_axis_overlap_ratio(block_bbox, anchor_bbox)
+        # A source flyer can disagree by 10 cents with its printed pack/unit
+        # price (HZ46 p3 Spitzpaprika: 500 g x 3.58/kg vs printed 1.89).
+        # Do not let a distant block with UNAVAILABLE arithmetic displace a
+        # text block in the same price row and inside the image/price footprint.
+        # This is a bounded REVIEW_ONLY text choice, not price correction or
+        # verified product identity. Exact MATCH retains highest priority.
+        y_overlap = max(
+            0.0,
+            min(block_bbox[1] + block_bbox[3], anchor_bbox[1] + anchor_bbox[3])
+            - max(block_bbox[1], anchor_bbox[1]),
+        )
+        small_local_disagreement = (
+            price_basis_state == "MISMATCH"
+            and price_basis_evidence["delta"] is not None
+            and price_basis_evidence["delta"] <= 0.12 + 1e-9
+            and price_gap <= 0.08
+            and y_overlap >= 0.6 * min(block_bbox[3], anchor_bbox[3])
+            and _bbox_contains_center(visual_bbox, block_bbox)
+        )
+        if price_basis_state == "MATCH":
+            price_basis_rank = 0
+        elif small_local_disagreement:
+            price_basis_rank = 1
+        elif price_basis_state == "UNAVAILABLE":
+            price_basis_rank = 2
+        else:
+            price_basis_rank = 3
         choices.append((
             price_basis_rank, price_gap, -alignment, score,
             block_no, local_rows, text,
