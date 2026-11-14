@@ -1131,6 +1131,91 @@ def test_product_card_v3_preserves_chocomel_moevenpick_cross_column_ownership():
     assert all(card["hermes_offer_link"] is None for card in cards)
 
 
+def test_product_card_v3_hz46_p3_local_price_mismatch_does_not_drop_spitzpaprika():
+    # HZ46 p3 native source geometry: the visibly printed 1.89* contradicts
+    # 500 g x 3.58/kg (1.79); the discrepancy is retained, not corrected.
+    # Before this guard an unrelated Zwetschgen 1 kg label with no price
+    # arithmetic won title ranking, causing a box containing the 2.22 price.
+    words = [
+        _native_row(
+            "zwetschgen-title", "Zwetschgen Moldau, Kl. I 1 kg offene Schale",
+            [0.36, 0.679185, 0.112217, 0.037047], 1,
+        ),
+        _native_row(
+            "mini-tomatoes-title",
+            "Mini-Rispentomaten Niederlande, Kl. I 400 g Schale (7.48 / kg)",
+            [0.675, 0.892332, 0.135315, 0.048841], 2,
+        ),
+        _native_row(
+            "spitzpaprika-title",
+            "Spitzpaprika rot Marokko/Spanien, Kl. I 500 g Beutel (3.58 / kg)",
+            [0.36, 0.892332, 0.137471, 0.048841], 3,
+        ),
+        _native_row(
+            "spitzpaprika-price", "1.89*",
+            [0.555539, 0.887061, 0.076424, 0.051046], 4,
+        ),
+        _native_row(
+            "zwetschgen-price", "2.22*",
+            [0.548374, 0.662061, 0.090754, 0.051046], 5,
+        ),
+        _native_row(
+            "mini-tomatoes-price", "2.99*",
+            [0.862726, 0.887061, 0.092049, 0.051046], 6,
+        ),
+    ]
+    prices = [
+        _native_price(
+            "spitzpaprika-price", "1.89*",
+            [0.555539, 0.887061, 0.076424, 0.051046],
+        ),
+        _native_price(
+            "zwetschgen-price", "2.22*",
+            [0.548374, 0.662061, 0.090754, 0.051046],
+        ),
+        _native_price(
+            "mini-tomatoes-price", "2.99*",
+            [0.862726, 0.887061, 0.092049, 0.051046],
+        ),
+    ]
+    image = {
+        "region_id": "native-image-4",
+        "bbox": [0.367224, 0.725, 0.282776, 0.181572],
+        "pixel_width": 320, "pixel_height": 260, "xref": 4,
+        "digest": "spitzpaprika-geometry", "state": "REVIEW_ONLY",
+    }
+    visual_bbox = [0.367224, 0.725, 0.282776, 0.213107]
+    selected = _product_text_block(
+        words, visual_bbox, prices[0]["bbox"], "spitzpaprika-price",
+        anchor_price_text="1.89*",
+    )
+    assert selected is not None
+    assert selected[1].startswith("Spitzpaprika")
+    cards = _native_product_card_candidates(words, [image], prices)
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["price_region_id"] == "spitzpaprika-price"
+    assert card["price_text"] == "1.89*"
+    assert card["product_text"].startswith("Spitzpaprika")
+    assert "(3.58 / kg)" in card["product_text"]
+    assert card["product_image_region_id"] == "native-image-4"
+    assert card["card_bbox"] == [0.348, 0.713, 0.314, 0.240173]
+    assert card["state"] == "REVIEW_ONLY"
+    assert card["product_boundary_proven"] is False
+    assert card["verified_product_identity"] is None
+    assert card["hermes_offer_link"] is None
+
+    # Only a small, geometrically supported mismatch can outrank UNAVAILABLE.
+    # A 20-cent discrepancy is still not enough evidence to displace a
+    # nearby generic title, even when image and row geometry otherwise match.
+    larger_disagreement = _product_text_block(
+        words, visual_bbox, prices[0]["bbox"], "spitzpaprika-price",
+        anchor_price_text="1.99*",
+    )
+    assert larger_disagreement is not None
+    assert larger_disagreement[1].startswith("Zwetschgen")
+
+
 def test_product_card_v3_prefers_price_proof_over_adjacent_column_geometry():
     # HZ46 page 4: Nestlé title is geometrically closer to this composite
     # inspection area, but Popp 200 g x 6.45/kg proves the printed 1.29.
