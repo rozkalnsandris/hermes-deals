@@ -562,15 +562,28 @@
   ],
   "completed_issue_count": 292,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-11-13T13:03:44.593926Z",
-  "generated_at_local": "2026-11-13T14:03:44.593926+01:00",
+  "generated_at": "2026-11-14T12:08:31.870844Z",
+  "generated_at_local": "2026-11-14T13:08:31.870844+01:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-11-12",
+  "previous_day": "2026-11-13",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
-  "previous_day_completed_issue_count": 0,
-  "previous_day_completed_issues": [],
+  "previous_day_completed_issue_count": 2,
+  "previous_day_completed_issues": [
+    {
+      "closed_at": "2026-11-13T07:40:32Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/1123",
+      "number": 1123,
+      "title": "Netto 5659: verified product-to-page hotspots in original booklet (#1069)"
+    },
+    {
+      "closed_at": "2026-11-13T01:08:11Z",
+      "html_url": "https://github.com/rozkalnsandris/hermes-deals/issues/1140",
+      "number": 1140,
+      "title": "Netto HZ46 current-week booklet: open-source product recognition PoC"
+    }
+  ],
   "previous_day_progress_units": 0,
   "project": "Hermes Deals",
   "repository": "rozkalnsandris/hermes-deals",
