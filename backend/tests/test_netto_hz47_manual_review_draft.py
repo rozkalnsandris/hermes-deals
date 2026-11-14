@@ -177,3 +177,28 @@ def test_hz47_preliminary_boxes_do_not_overlap_at_runtime_geometry_scale():
                 assert width * height <= 1e-10, (
                     page["pdf_page_number"], a["candidate_id"], b["candidate_id"]
                 )
+
+
+@pytest.mark.parametrize("candidate_id, expected", [
+    ("hz47-p09-c03", (0.35, 0.28, 0.63, 0.25)),
+    ("hz47-p09-c04", (0.70, 0.53, 0.28, 0.20)),
+    ("hz47-p11-c02", (0.02, 0.53, 0.63, 0.21)),
+    ("hz47-p11-c03", (0.65, 0.53, 0.33, 0.21)),
+    ("hz47-p21-c05", (0.02, 0.55, 0.65, 0.21)),
+    ("hz47-p21-c07", (0.02, 0.76, 0.65, 0.21)),
+])
+def test_hz47_six_price_owner_bounding_box_corrections(candidate_id, expected):
+    """Guard six visually reviewed source-only draft rectangles, not offer prices."""
+    draft = get_draft()
+    candidates = {
+        c["candidate_id"]: c
+        for page in draft["pages"] for c in page["candidates"]
+    }
+    c = candidates[candidate_id]
+    assert tuple(c["rectangle"][k] for k in ("left", "top", "width", "height")) == expected
+    assert c["review_state"] == "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW"
+    assert c["printed_price_verified"] is None
+    assert c["product_boundary_proven"] is False
+    assert c["verified_product_identity"] is None
+    assert c["hermes_offer_link"] is None
+

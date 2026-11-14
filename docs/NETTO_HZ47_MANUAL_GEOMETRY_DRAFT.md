@@ -49,6 +49,13 @@ bytes are **not in GitHub**.
 - Other 9 corrections cover pages 2, 5 and 34, including separated Weihenstephan, Tomaten/Zespri Kiwi, and Backstube product columns. **261 proposals across 49 pages** remain; **0 intersecting candidate rectangles** in the local draft after corrections.
 - PDF text heuristic finds price-shaped text in **260/261** rectangles; p4 Kanzi Apfel text has a split `2 49*` token, not a verified price. This is **not** price ownership validation. All 72 pages remain `full_resolution_pixel_review_completed=false`; review/offer/identity/promotability flags remain fail-closed. No RPi5 publication/DB/collector/deploy writes.
 
+## Six HZ47 price-label region corrections (2026-11-14)
+
+- Local QA proposal `netto_hz47_candidate_rectangles_proposed_v4_REVIEW_ONLY.json`, SHA256 `5f385f38978504ea0d49d380c0aa4d25ba60dfdcc451d3dc2b144091847f03fb`; source Git blob `436f737f0876a7e1aacbc80e706e87e3455b7554`. Compared **exactly six** amended rectangles against the current PR evidence, with no other candidate/page/metadata changes.
+- Pages **9** (`hz47-p09-c03`, `c04`), **11** (`hz47-p11-c02`, `c03`) and **21** (`hz47-p21-c05`, `c07`): updated positions separate adjacent meat, deli and beverage products and include visible headline price regions where identified. Example visible text `2.49`, `2.89`, `1.29`, `7.49`, `14.99` remains **unverified printed-price evidence**, not an offer-price or SKU assignment; APP prices/deposit/multiple products may share cards.
+- **72 pages, 261 candidates, 49 candidate-bearing pages, zero intersecting rectangles** in source draft. Each candidate and page remains `REVIEW_ONLY` / `DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW` / `full_resolution_pixel_review_completed=false`. Publisher source URL, PDF source identity and offer links are not promoted or inferred.
+- Diff is limited to source JSON, focused guard tests and this handoff; **no UI, API, DB, collector, schedule, deploy or runtime changes**. Completion still requires full-resolution card-by-card acceptance and separately authorized LIVE gates.
+
 ## Next acceptance checks (not done)
 
 1. Inspect all 72 original full-resolution pages and every proposed region,

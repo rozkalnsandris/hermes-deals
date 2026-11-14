@@ -735,7 +735,7 @@
             "height": 0.25,
             "left": 0.35,
             "top": 0.28,
-            "width": 0.35
+            "width": 0.63
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Frikadellen",
@@ -747,9 +747,9 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.45,
+            "height": 0.2,
             "left": 0.7,
-            "top": 0.28,
+            "top": 0.53,
             "width": 0.28
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
@@ -907,7 +907,7 @@
             "height": 0.21,
             "left": 0.02,
             "top": 0.53,
-            "width": 0.48
+            "width": 0.63
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Geflügel-Gutsherrenbrühwurstpastete",
@@ -920,9 +920,9 @@
           "product_boundary_proven": false,
           "rectangle": {
             "height": 0.21,
-            "left": 0.5,
+            "left": 0.65,
             "top": 0.53,
-            "width": 0.48
+            "width": 0.33
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Leberwurst",
@@ -1932,7 +1932,7 @@
             "height": 0.21,
             "left": 0.02,
             "top": 0.55,
-            "width": 0.34
+            "width": 0.65
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Paulaner Spezi oder Cola",
@@ -1962,7 +1962,7 @@
             "height": 0.21,
             "left": 0.02,
             "top": 0.76,
-            "width": 0.34
+            "width": 0.65
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Allgäuer Büble Edelbräu oder Bayrisch Hell",
