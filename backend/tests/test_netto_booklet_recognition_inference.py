@@ -944,6 +944,54 @@ def test_product_card_v3_rejects_composite_image_that_envelops_text_and_price():
     assert card["card_bbox"] == [0.388, 0.068, 0.304, 0.214]
 
 
+def test_product_card_v3_assigns_shared_image_by_price_text_image_triad():
+    # The image is closer to Leerdammer's printed price, but touches
+    # Mövenpick's title. Neither product card may contain the other price.
+    words = [
+        _native_row(
+            "leerdammer-title", "Leerdammer Scheiben XXL",
+            [0.72, 0.12, 0.12, 0.03], 1,
+        ),
+        _native_row(
+            "leerdammer-price", "3.99", [0.72, 0.22, 0.08, 0.05], 2,
+        ),
+        _native_row(
+            "moevenpick-title", "Mövenpick Feinjoghurt",
+            [0.45, 0.32, 0.15, 0.03], 3,
+        ),
+        _native_row(
+            "moevenpick-price", "0.69", [0.52, 0.55, 0.08, 0.05], 4,
+        ),
+    ]
+    prices = [
+        _native_price("leerdammer-price", "3.99", [0.72, 0.22, 0.08, 0.05]),
+        _native_price("moevenpick-price", "0.69", [0.52, 0.55, 0.08, 0.05]),
+    ]
+    images = [{
+        "region_id": "shared-nearer-to-leerdammer-price",
+        "bbox": [0.49, 0.25, 0.12, 0.12],
+        "pixel_width": 480,
+        "pixel_height": 360,
+        "xref": 21,
+        "digest": "aa",
+        "state": "REVIEW_ONLY",
+    }]
+
+    cards = _native_product_card_candidates(words, images, prices)
+
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["price_region_id"] == "moevenpick-price"
+    assert card["product_text"] == "Mövenpick Feinjoghurt"
+    assert (
+        card["product_image_region_id"]
+        == "shared-nearer-to-leerdammer-price"
+    )
+    assert card["product_boundary_proven"] is False
+    assert card["verified_product_identity"] is None
+    assert card["hermes_offer_link"] is None
+
+
 def test_product_card_v3_prefers_compact_evidence_over_nearer_lifestyle_image():
     words = [
         _native_row("title", "Leerdammer Scheiben XXL", [0.55, 0.55, 0.12, 0.03], 1),

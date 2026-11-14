@@ -171,6 +171,17 @@ def _bbox_gap_distance(a: list[float], b: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
+def _bbox_axis_overlap_ratio(a: list[float], b: list[float]) -> float:
+    """Return the strongest overlap fraction on either page axis."""
+    ax0, ay0, aw, ah = a
+    bx0, by0, bw, bh = b
+    overlap_x = max(0.0, min(ax0 + aw, bx0 + bw) - max(ax0, bx0))
+    overlap_y = max(0.0, min(ay0 + ah, by0 + bh) - max(ay0, by0))
+    x_ratio = overlap_x / min(aw, bw) if min(aw, bw) > 0 else 0.0
+    y_ratio = overlap_y / min(ah, bh) if min(ah, bh) > 0 else 0.0
+    return max(x_ratio, y_ratio)
+
+
 def _bbox_contains_center(container: list[float], bbox: list[float]) -> bool:
     cx, cy = _bbox_center(bbox)
     x, y, width, height = container
@@ -784,7 +795,7 @@ def _product_text_block(
     local_x1 = min(1.0, vx + vw + NATIVE_PRODUCT_TEXT_MARGIN_X)
     local_y1 = min(1.0, vy + vh + NATIVE_PRODUCT_TEXT_MARGIN_Y)
 
-    choices: list[tuple[float, int, list[dict], str]] = []
+    choices: list[tuple[float, float, int, list[dict], str]] = []
     for block_no, block_rows in by_block.items():
         ordered = sorted(
             block_rows,
@@ -830,12 +841,13 @@ def _product_text_block(
             + _bbox_distance(block_bbox, visual_bbox) * 0.20
             + _bbox_distance(block_bbox, anchor_bbox) * 0.65
         )
-        choices.append((score, block_no, local_rows, text))
+        alignment = _bbox_axis_overlap_ratio(block_bbox, anchor_bbox)
+        choices.append((-alignment, score, block_no, local_rows, text))
 
     if not choices:
         return None
-    choices.sort(key=lambda row: (row[0], row[1]))
-    _, _, ordered, text = choices[0]
+    choices.sort(key=lambda row: (row[0], row[1], row[2]))
+    _, _, _, ordered, text = choices[0]
     return ordered, text
 
 def _product_image_candidate(row: dict) -> bool:
@@ -899,11 +911,11 @@ def _native_product_card_candidates(
     primary_price_candidates: list[dict],
     layout_regions: list[list[float]] | None = None,
 ) -> list[dict]:
-    """Build compact Review-only product-card geometry from price + image + text.
+    """Build Review-only geometry from complete price/text/image alternatives.
 
-    Filled PDF rectangles are ownership hints only. They are vector drawing
-    primitives, not semantic product-card boundaries, so emitted geometry is
-    always derived from the selected price, product text and product image.
+    An image may compete across multiple prices; the nearest price alone does
+    not establish image ownership. Prefer isolated evidence over images that
+    enclose the entire price/text pair, then use compactness and text proximity.
     """
     if not primary_price_candidates:
         return []
@@ -916,42 +928,29 @@ def _native_product_card_candidates(
     if not eligible:
         return []
 
-    images_by_price: dict[str, list[dict]] = {row["region_id"]: [] for row in eligible}
+    variants_by_price: dict[str, list[tuple]] = {
+        row["region_id"]: [] for row in eligible
+    }
     for image in images:
         if not _product_image_candidate(image):
             continue
-        possible_owners = []
-        for row in eligible:
-            region = _single_price_layout_region(row, eligible, layout_regions)
+
+        candidates_for_image: list[tuple] = []
+        for anchor in eligible:
+            region = _single_price_layout_region(anchor, eligible, layout_regions)
             if region is not None and not _bbox_contains_box(region, image["bbox"]):
                 continue
-            possible_owners.append(row)
-        if not possible_owners:
-            continue
-        owner = min(
-            possible_owners,
-            key=lambda row: (
-                _bbox_distance(image["bbox"], row["bbox"]),
-                row["region_id"],
-            ),
-        )
-        if (
-            _bbox_distance(image["bbox"], owner["bbox"])
-            <= NATIVE_PRODUCT_IMAGE_OWNER_RADIUS
-            and _bbox_gap_distance(image["bbox"], owner["bbox"])
-            <= NATIVE_PRODUCT_IMAGE_MAX_GAP
-        ):
-            images_by_price[owner["region_id"]].append(image)
+            if (
+                _bbox_distance(image["bbox"], anchor["bbox"])
+                > NATIVE_PRODUCT_IMAGE_OWNER_RADIUS
+                or _bbox_gap_distance(image["bbox"], anchor["bbox"])
+                > NATIVE_PRODUCT_IMAGE_MAX_GAP
+            ):
+                continue
 
-    accepted: list[dict] = []
-    for anchor in eligible:
-        region = _single_price_layout_region(anchor, eligible, layout_regions)
-        variants = []
-        for image in images_by_price[anchor["region_id"]]:
             visual_bbox = _bbox_union_normalized([anchor["bbox"], image["bbox"]])
             context_bbox = _expanded_normalized_bbox(
-                visual_bbox,
-                NATIVE_PRODUCT_CONTEXT_PADDING,
+                visual_bbox, NATIVE_PRODUCT_CONTEXT_PADDING
             )
             context_text = " ".join(
                 str(row.get("text") or "")
@@ -973,12 +972,10 @@ def _native_product_card_candidates(
             text_rows, product_text = selected_text
             text_bbox = _bbox_union_normalized([row["bbox"] for row in text_rows])
             semantic_bbox = _bbox_union_normalized([anchor["bbox"], text_bbox])
-            if _bbox_contains_box(image["bbox"], semantic_bbox):
-                # A single raster object that fully envelops both the selected
-                # source-native product text and price is not local enough to
-                # prove isolated product-image ownership. Treat it as a
-                # composite/background image and fail closed.
-                continue
+            encloses_semantics = _bbox_contains_box(
+                image["bbox"], semantic_bbox
+            )
+
             card_bbox = _expanded_normalized_bbox(
                 _bbox_union_normalized([anchor["bbox"], text_bbox, image["bbox"]]),
                 NATIVE_PRICE_GROUP_PADDING,
@@ -990,23 +987,25 @@ def _native_product_card_candidates(
                 or float(card_bbox[3]) > NATIVE_PRODUCT_CARD_MAX_HEIGHT
             ):
                 continue
-
-            other_price_centers = [
-                row["region_id"]
-                for row in eligible
-                if row["region_id"] != anchor["region_id"]
-                and _bbox_contains_center(card_bbox, row["bbox"])
-            ]
-            if other_price_centers:
+            if any(
+                other["region_id"] != anchor["region_id"]
+                and _bbox_contains_center(card_bbox, other["bbox"])
+                for other in eligible
+            ):
                 continue
 
-            variants.append(
+            candidates_for_image.append(
                 (
+                    int(encloses_semantics),
+                    _bbox_gap_distance(image["bbox"], text_bbox),
                     card_area,
+                    _bbox_distance(image["bbox"], text_bbox),
                     _bbox_gap_distance(image["bbox"], anchor["bbox"]),
                     _bbox_distance(image["bbox"], anchor["bbox"]),
-                    -(float(image["bbox"][2]) * float(image["bbox"][3])),
+                    anchor["region_id"],
                     image["region_id"],
+                    anchor,
+                    region,
                     image,
                     text_rows,
                     product_text,
@@ -1014,19 +1013,27 @@ def _native_product_card_candidates(
                 )
             )
 
+        if not candidates_for_image:
+            continue
+        ranked = sorted(candidates_for_image, key=lambda row: row[:8])
+        if len(ranked) > 1 and all(
+            math.isclose(float(ranked[0][index]), float(ranked[1][index]), abs_tol=1e-9)
+            for index in range(6)
+        ):
+            # Equal geometric evidence cannot justify choosing an image owner.
+            continue
+        chosen = ranked[0]
+        variants_by_price[chosen[8]["region_id"]].append(chosen)
+
+    accepted: list[dict] = []
+    for anchor in eligible:
+        variants = variants_by_price[anchor["region_id"]]
         if not variants:
             continue
         (
-            _,
-            _,
-            _,
-            _,
-            _,
-            image,
-            text_rows,
-            product_text,
-            card_bbox,
-        ) = min(variants, key=lambda row: row[:5])
+            _, _, _, _, _, _, _, _, _, region,
+            image, text_rows, product_text, card_bbox,
+        ) = min(variants, key=lambda row: row[:8])
 
         accepted.append(
             {
@@ -1052,6 +1059,7 @@ def _native_product_card_candidates(
             }
         )
     return _filter_ambiguous_product_cards(accepted)
+
 
 def _native_price_anchor_candidates(
     words: list[dict],
