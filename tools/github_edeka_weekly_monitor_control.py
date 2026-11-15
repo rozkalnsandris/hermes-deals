@@ -17,6 +17,12 @@ EXPECTED_CI_WORKFLOW = "Hermes Deals CI checks"
 EXPECTED_CI_PATH = ".github/workflows/ci.yml"
 EXPECTED_REGISTRATION_SHA = "85c3aca4ac62cbffa281365562af52c5e52d8d24"
 EXPECTED_REGISTRATION_FINGERPRINT = "970fac96fd487fe2a027f6dd1055e6563ccec331e53e889511c1e35c5038f947"
+MONDAY_REGISTRATION_SHA = "afe83b066ab97a41b269433e288401b1f0465eac"
+MONDAY_REGISTRATION_FINGERPRINT = "0bcc33eda2d25ec556e8e7d7176984b16b23a1845e464e428176375661761c61"
+EXACT_REGISTRATION_BINDINGS = {
+    (EXPECTED_REGISTRATION_SHA, EXPECTED_REGISTRATION_FINGERPRINT),
+    (MONDAY_REGISTRATION_SHA, MONDAY_REGISTRATION_FINGERPRINT),
+}
 REQUIRED_CONTROL_PATHS = {
     ".github/workflows/hermes-edeka-weekly-monitor-control.yml",
     "tools/github_edeka_weekly_monitor_control.py",
@@ -63,10 +69,10 @@ def parse_comment(body: str) -> EdekaMonitorCommand:
         refetch=match.group("refetch"),
         retries=match.group("retries"),
     )
-    if command.registration_sha != EXPECTED_REGISTRATION_SHA:
-        raise BridgeAuthorizationError("registration SHA is not the reviewed EDEKA monitor registration")
-    if command.fingerprint != EXPECTED_REGISTRATION_FINGERPRINT:
-        raise BridgeAuthorizationError("registration fingerprint is not the reviewed EDEKA monitor registration")
+    # The two exact pairs allow old management until the separately gated
+    # Monday cutover; no mixed SHA/fingerprint combination is accepted.
+    if (command.registration_sha, command.fingerprint) not in EXACT_REGISTRATION_BINDINGS:
+        raise BridgeAuthorizationError("registration identity is not an exact reviewed EDEKA monitor binding")
     if command.operation == "activate":
         if command.refetch != "authorized" or command.retries != "authorized":
             raise BridgeAuthorizationError("activate requires explicit source-refetch and bounded-retry authority")
@@ -146,8 +152,16 @@ def _validate_required_control_files(
     control_sha: str,
     token: str,
     get_json: Callable[[str, str], Any],
+    *,
+    registration_sha: str = EXPECTED_REGISTRATION_SHA,
 ) -> None:
-    for path in sorted(REQUIRED_CONTROL_PATHS):
+    extra_paths = (
+        {"tools/runner/edeka_weekly_monitor_control_monday.py",
+         "tools/runner/edeka_monday_forward_cutover.py"}
+        if registration_sha == MONDAY_REGISTRATION_SHA
+        else set()
+    )
+    for path in sorted(REQUIRED_CONTROL_PATHS | extra_paths):
         encoded = urllib.parse.quote(path, safe="/")
         payload = _require_mapping(
             get_json(
@@ -219,7 +233,10 @@ def authorize_event(
     command = parse_comment(str(comment.get("body") or ""))
 
     current_main = _validate_control_reachable(repository, command.control_sha, token, get_json)
-    _validate_required_control_files(repository, command.control_sha, token, get_json)
+    _validate_required_control_files(
+        repository, command.control_sha, token, get_json,
+        registration_sha=command.registration_sha,
+    )
     ci_run_id = "not-required"
     if command.operation == "activate":
         ci_run_id = _validate_green_exact_main_ci(repository, current_main, token, get_json)
