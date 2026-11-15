@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import subprocess
 import unittest
 import yaml
@@ -82,6 +84,39 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "edeka-scheduler-armed",
         ):
             self.assertNotIn(forbidden, text)
+
+    def test_runner_binds_only_active_python313_manifest_and_fails_closed(self) -> None:
+        runner = RUNNER.read_text(encoding="utf-8")
+        manifest = json.loads(
+            (ROOT / "backend/locks/manifest.json").read_text(encoding="utf-8")
+        )
+        active_lock = ROOT / "backend/locks/runtime-py313.txt"
+        assert set(manifest["locks"]) == {"runtime-py313.txt", "ci-py313.txt"}
+        assert manifest["locks"]["runtime-py313.txt"]["python"] == "3.13"
+        assert manifest["locks"]["runtime-py313.txt"]["sha256"] == hashlib.sha256(
+            active_lock.read_bytes()
+        ).hexdigest()
+
+        for required in (
+            'PYTHON_BIN="python3.13"',
+            'for command in awk bash cat date find flock git gzip id install mkdir mktemp mv readlink rm sha256sum sort stat tar tee xargs "$PYTHON_BIN"; do',
+            'manifest["locks"]["runtime-py313.txt"]',
+            'identity["python"] != "3.13"',
+            '"$PYTHON_BIN" -m venv "$temporary_venv"',
+            '"$python_implementation" == "CPython"',
+            '"$python_line" == "3.13"',
+            'cached EDEKA venv Python implementation/version mismatch',
+            '--require-hashes',
+            '--only-binary=:all:',
+        ):
+            self.assertIn(required, runner)
+
+        for forbidden in (
+            "runtime-py311", "Python 3.11", '"python_line" == "3.11"',
+            "python3 -m venv", '$(python3 -', "pip install --upgrade",
+            "apt install", "apt-get", "docker run", "systemctl start",
+        ):
+            self.assertNotIn(forbidden, runner)
 
     def test_installer_registers_only_fixed_root_owned_dispatcher(self) -> None:
         text = INSTALLER.read_text(encoding="utf-8")
