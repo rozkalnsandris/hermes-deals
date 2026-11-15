@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import stat
 import subprocess
 from typing import Any, Mapping
@@ -242,10 +241,12 @@ def readonly_host_attestation() -> None:
 
     def git(*args: str) -> str:
         done = subprocess.run(
-            ["/usr/bin/git", "-C", str(repo), *args],
+            ["/usr/sbin/runuser", "-u", "andris", "--", "/usr/bin/env", "-i",
+             "HOME=/home/andris", "USER=andris", "LOGNAME=andris",
+             "PATH=/usr/bin:/bin", "LANG=C.UTF-8", "GIT_OPTIONAL_LOCKS=0",
+             "/usr/bin/git", "-C", str(repo), *args],
             check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=45, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8",
-                             "GIT_OPTIONAL_LOCKS": "0"},
+            timeout=45,
         )
         require(done.returncode == 0 and not done.stderr, "audit Git read failed")
         return done.stdout.strip()
