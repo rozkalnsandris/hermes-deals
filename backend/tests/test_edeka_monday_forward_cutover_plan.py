@@ -214,6 +214,30 @@ def test_persistent_timer_stamp_is_exact_sunday_and_never_modified(monkeypatch) 
     assert cutover.PERSISTENT_STAMP is fake
 
 
+def test_cutover_blocks_pinned_app_source_with_noncanonical_runtime() -> None:
+    cutover = module(CUTOVER, "edeka_forward_runtime_guard")
+    runner = (ROOT / "tools/run-hermes-deals-edeka-shadow-cycle-v01.sh").read_bytes()
+    manifest = (ROOT / "backend/locks/manifest.json").read_bytes()
+    runtime_lock = (ROOT / "backend/locks/runtime-py313.txt").read_bytes()
+    cutover.validate_exact_python313_source(runner, manifest, runtime_lock)
+
+    with pytest.raises(cutover.StopCutover, match="old Python runtime contract"):
+        cutover.validate_exact_python313_source(
+            runner.replace(b'PYTHON_BIN="python3.13"', b'PYTHON_BIN="python3"'),
+            manifest, runtime_lock,
+        )
+    with pytest.raises(cutover.StopCutover, match="lock digest drift"):
+        cutover.validate_exact_python313_source(runner, manifest, runtime_lock + b"\\n")
+    altered = json.loads(manifest)
+    altered["locks"]["runtime-py311.txt"] = {
+        "python": "3.11", "sha256": "0" * 64,
+    }
+    with pytest.raises(cutover.StopCutover, match="not canonical"):
+        cutover.validate_exact_python313_source(
+            runner, json.dumps(altered).encode(), runtime_lock,
+        )
+
+
 def test_readonly_mode_has_no_host_mutation_authority() -> None:
     src = CUTOVER.read_text(encoding="utf-8")
     assert 'choices=("preflight", "apply")' in src

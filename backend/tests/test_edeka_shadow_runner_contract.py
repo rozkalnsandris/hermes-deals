@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import subprocess
 import unittest
 import yaml
@@ -24,19 +26,23 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
         text = RUNNER.read_text(encoding="utf-8")
         for required in (
             'RUNNER_VERSION="edeka-shadow-cycle-v01"',
-            'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-hash-lock-v02"',
+            'RUNTIME_BOUNDARY_VERSION="edeka-shadow-cycle-hash-lock-v03-py313"',
             'AUDIT_REPO="/home/andris/hermes-deals-audit-source-edeka"',
             'PRIMARY_REPO="/home/andris/hermes-deals"',
-            'RUNTIME_LOCK_REL="backend/locks/runtime-py311.txt"',
+            'RUNTIME_LOCK_REL="backend/locks/runtime-py313.txt"',
             'RUNTIME_LOCK_MANIFEST_REL="backend/locks/manifest.json"',
             'RUNTIME_ENV_VERIFIER_REL="scripts/verify-python-lock-environment.py"',
+            'PYTHON_BIN="python3.13"',
+            'manifest["locks"]["runtime-py313.txt"]',
+            '"$PYTHON_BIN" -m venv "$temporary_venv"',
+            'cached EDEKA venv Python implementation/version mismatch',
             'GIT_OPTIONAL_LOCKS=0 git -C "$AUDIT_REPO"',
             'GIT_OPTIONAL_LOCKS=0 git -C "$PRIMARY_REPO"',
             'AUDIT_INDEX="$AUDIT_REPO/.git/index"',
             'PRIMARY_INDEX="$PRIMARY_REPO/.git/index"',
             '[[ "$manifest_lock_sha" == "$runtime_lock_sha" ]]',
             '[[ "$python_implementation" == "CPython" ]]',
-            '[[ "$python_line" == "3.11" ]]',
+            '[[ "$python_line" == "3.13" ]]',
             'cache_identity="cpython-${python_version}-${runtime_lock_sha}"',
             '--require-hashes',
             '--only-binary=:all:',
@@ -78,6 +84,39 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "edeka-scheduler-armed",
         ):
             self.assertNotIn(forbidden, text)
+
+    def test_runner_binds_only_active_python313_manifest_and_fails_closed(self) -> None:
+        runner = RUNNER.read_text(encoding="utf-8")
+        manifest = json.loads(
+            (ROOT / "backend/locks/manifest.json").read_text(encoding="utf-8")
+        )
+        active_lock = ROOT / "backend/locks/runtime-py313.txt"
+        assert set(manifest["locks"]) == {"runtime-py313.txt", "ci-py313.txt"}
+        assert manifest["locks"]["runtime-py313.txt"]["python"] == "3.13"
+        assert manifest["locks"]["runtime-py313.txt"]["sha256"] == hashlib.sha256(
+            active_lock.read_bytes()
+        ).hexdigest()
+
+        for required in (
+            'PYTHON_BIN="python3.13"',
+            'for command in awk bash cat date find flock git gzip id install mkdir mktemp mv readlink rm sha256sum sort stat tar tee xargs "$PYTHON_BIN"; do',
+            'manifest["locks"]["runtime-py313.txt"]',
+            'identity["python"] != "3.13"',
+            '"$PYTHON_BIN" -m venv "$temporary_venv"',
+            '"$python_implementation" == "CPython"',
+            '"$python_line" == "3.13"',
+            'cached EDEKA venv Python implementation/version mismatch',
+            '--require-hashes',
+            '--only-binary=:all:',
+        ):
+            self.assertIn(required, runner)
+
+        for forbidden in (
+            "runtime-py311", "Python 3.11", '"python_line" == "3.11"',
+            "python3 -m venv", '$(python3 -', "pip install --upgrade",
+            "apt install", "apt-get", "docker run", "systemctl start",
+        ):
+            self.assertNotIn(forbidden, runner)
 
     def test_installer_registers_only_fixed_root_owned_dispatcher(self) -> None:
         text = INSTALLER.read_text(encoding="utf-8")
@@ -149,7 +188,7 @@ class EdekaShadowRunnerContractTest(unittest.TestCase):
             "two real consecutive weekly campaigns",
             "/home/andris/hermes-deals-audit-source-edeka",
             "GIT_OPTIONAL_LOCKS=0",
-            "runtime-py311.txt",
+            "runtime-py313.txt",
             "--require-hashes --only-binary=:all:",
             "never upgrades pip",
             "install-edeka-shadow-cycle-dispatcher.sh",
