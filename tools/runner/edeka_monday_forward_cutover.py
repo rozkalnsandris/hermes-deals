@@ -153,7 +153,7 @@ def verify_host_python313() -> None:
         "PATH=/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1",
         "python3.13", "-c", probe,
     ])
-    require(result == b"PY313_RUNTIME_PREFLIGHT_PASS\\n",
+    require(result == b"PY313_RUNTIME_PREFLIGHT_PASS\n",
             "EDEKA Python 3.13 host preflight receipt mismatch")
 
 

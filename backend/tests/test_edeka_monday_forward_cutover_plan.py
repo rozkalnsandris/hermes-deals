@@ -243,7 +243,7 @@ def test_host_python313_preflight_is_exact_and_readonly(monkeypatch) -> None:
     observed = []
     def fake_command(argv):
         observed.append(argv)
-        return b"PY313_RUNTIME_PREFLIGHT_PASS\\n"
+        return b"PY313_RUNTIME_PREFLIGHT_PASS\n"
     monkeypatch.setattr(cutover, "command", fake_command)
     cutover.verify_host_python313()
     assert len(observed) == 1
@@ -252,7 +252,7 @@ def test_host_python313_preflight_is_exact_and_readonly(monkeypatch) -> None:
     assert "PYTHONDONTWRITEBYTECODE=1" in observed[0]
     assert "-c" in observed[0]
 
-    monkeypatch.setattr(cutover, "command", lambda argv: b"not-valid\\n")
+    monkeypatch.setattr(cutover, "command", lambda argv: b"not-valid\n")
     with pytest.raises(cutover.StopCutover, match="receipt mismatch"):
         cutover.verify_host_python313()
 
