@@ -122,3 +122,33 @@ def test_duplicate_manual_links_fail_closed():
     duplicate["pairs"].append(deepcopy(duplicate["pairs"][0]))
     with pytest.raises(ValueError, match="Duplicate"):
         accept_links(source, duplicate)
+
+
+def test_split_integer_price_stays_unverified_until_source_review():
+    words = [(10, 10, 22, 25, "2", 0, 0, 0),
+             (24, 10, 48, 25, "49*", 0, 0, 1)]
+    row = analyze_words(words, 34, 100, 100)
+    assert len(row["anchors"]) == 1
+    assert row["anchors"][0]["literal_text"] == "2 49*"
+    assert row["anchors"][0]["interactive"] is False
+    assert "SPLIT_FORMAT" in row["anchors"][0]["flags"]
+
+
+def test_batch_review_error_is_atomic():
+    source = manifest()
+    invalid_later = review()
+    invalid_later["pairs"].append({**invalid_later["pairs"][0],
+                                    "price_anchor_id": "p01-price-002"})
+    with pytest.raises(ValueError):
+        accept_links(source, invalid_later)
+    assert all(not a["interactive"] for a in source["pages"][0]["anchors"])
+    assert source["source_local_reviewed_pairs"] == 0
+
+
+def test_overlap_with_other_unreviewed_anchor_fails_closed():
+    source = manifest()
+    price = next(a for a in source["pages"][0]["anchors"] if a["anchor_id"] == "p01-price-001")
+    source["pages"][0]["anchors"].append({**price, "anchor_id": "p01-price-other"})
+    with pytest.raises(ValueError, match="Conflicting anchor rectangles"):
+        accept_links(source, review())
+    assert not any(a["interactive"] for a in source["pages"][0]["anchors"])
