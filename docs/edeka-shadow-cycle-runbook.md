@@ -30,15 +30,15 @@ It does not deploy, access Docker, write the production database, activate syste
 The authoritative RPi5 shadow wrapper does not resolve dependencies from `backend/requirements.txt`. It requires the registered commit to contain:
 
 ```text
-backend/locks/runtime-py311.txt
+backend/locks/runtime-py313.txt
 backend/locks/manifest.json
 scripts/verify-python-lock-environment.py
 ```
 
 Before creating or reusing a cached venv, the wrapper:
 
-- verifies that the runtime lock SHA-256 exactly matches the manifest identity for `runtime-py311.txt`;
-- requires CPython 3.11;
+- verifies that the runtime lock SHA-256 exactly matches the manifest identity for `runtime-py313.txt`;
+- requires an explicitly available CPython 3.13 interpreter (`python3.13` on the approved execution PATH);
 - uses an exact cache identity composed of the CPython patch version plus the runtime-lock SHA-256;
 - installs a new venv only with `--require-hashes --only-binary=:all:` and the reviewed runtime lock;
 - runs `pip check` before use;
@@ -47,6 +47,26 @@ Before creating or reusing a cached venv, the wrapper:
 - never upgrades pip and never falls back to `-r backend/requirements.txt`.
 
 `run-request.txt` records the runtime lock file/SHA, CPython implementation/version, pip version, cache identity and locked-inventory SHA-256. This makes dependency/runtime drift visible in retained audit evidence without modifying production state.
+
+**Runtime and LIVE boundary (#1183, 2026-11-15):** The canonical Python 3.13
+lock manifest excludes `runtime-py311.txt`. The isolated EDEKA runner
+must not restore historical 3.11 lock entries or silently run under
+`/usr/bin/python3` when that interpreter is 3.11. It checks for
+`python3.13` on PATH, validates the interpreter and its cached venv as
+CPython 3.13, then checks the hash-locked `runtime-py313.txt` against
+the exact registered Git commit and active manifest. If any requirement
+is missing, it **fails closed**; it does not download Python, alter APT,
+Docker, `systemd` or the production host.
+
+RPi5 read-only observation (2026-11-15): the system `/usr/bin/python3`
+is Python 3.11.2; no `python3.13` binary was found in the three
+usual tested paths. A new isolated Python 3.13 runtime **has not
+been installed**. Interpreter provenance, binary path/hash, host
+compatibility (ARM64), locked wheel availability and storage must be
+reviewed in a **separate owner-authorized LIVE preparation** before
+any EDEKA shadow execution. Source-only changes do not authorize
+interpreter installation, virtualenv creation, package download,
+evidence retention writes, deploy or scheduler modification.
 
 ## Prepare the isolated clone
 
