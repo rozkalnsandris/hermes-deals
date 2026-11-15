@@ -56,6 +56,13 @@ bytes are **not in GitHub**.
 - **72 pages, 261 candidates, 49 candidate-bearing pages, zero intersecting rectangles** in source draft. Each candidate and page remains `REVIEW_ONLY` / `DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW` / `full_resolution_pixel_review_completed=false`. Publisher source URL, PDF source identity and offer links are not promoted or inferred.
 - Diff is limited to source JSON, focused guard tests and this handoff; **no UI, API, DB, collector, schedule, deploy or runtime changes**. Completion still requires full-resolution card-by-card acceptance and separately authorized LIVE gates.
 
+## HZ47 twenty-title visual QA (v5) — 2026-11-15
+
+- Reviewed **20** draft cards flagged by PDF title-text heuristics against the user-uploaded PDF's visual content. These are **source label/region plausibility checks only**, not full-card pixel approval or confirmed retailer product/price identities. QA report `netto_hz47_20_titles_visual_QA_v5_READ_ONLY.json`, SHA256 `196a869e7065a03cb590148b25b06f27de6a7688370f050ee2d411d3d3b19716` (local, not committed).
+- Precisely **four** proposed rectangle changes against baseline geometry blob `d11174e3f4f98a1072954fc64ed29f1db84815e8` and prior PR HEAD `967876f44839be530c28fea285b86e2ddd92f032`: p21 `hz47-p21-c06` and `c08` include Freixenet headings; p49 `hz47-p49-c02` includes `13.99*` text while neighboring salmon `c06` begins below it.
+- Read-only PDF word evidence: p21 Freixenet at normalized y≈0.5047 / 0.7454; p49 `13.99*` extends to y≈0.5391. Overlay previews were inspected at 1352×1893 for p21/p49. Proposed JSON `netto_hz47_visual_boundary_proposal_v5_REVIEW_ONLY.json`, SHA256 `9b88246d542620d082bd371ac98671ac93059496be0b159d2c312c95f0d62f42` (local, not committed).
+- **72 pages, 261 candidates, zero overlapping rectangles** after source-only adjustments. Conditional APP/PAYBACK/bundle and standard prices require individual evidence. No verified identity, price, product boundary, or validity; all pages `full_resolution_pixel_review_completed=false`, `publication_ready=false`, `REVIEW_ONLY`, zero offer links. No runtime activation, collector, deploy or DB changes.
+
 ## Next acceptance checks (not done)
 
 1. Inspect all 72 original full-resolution pages and every proposed region,

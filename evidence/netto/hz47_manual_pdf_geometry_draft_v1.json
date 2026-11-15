@@ -1944,10 +1944,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.21,
             "left": 0.69,
-            "top": 0.55,
-            "width": 0.29
+            "top": 0.5,
+            "width": 0.29,
+            "height": 0.24
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Freixenet Solare Aperitivo",
@@ -1974,10 +1974,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.21,
             "left": 0.69,
-            "top": 0.76,
-            "width": 0.29
+            "top": 0.74,
+            "width": 0.29,
+            "height": 0.24
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Freixenet Carta Premium oder 0,0 % alkoholfrei",
@@ -3456,10 +3456,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.45,
             "left": 0.65,
             "top": 0.07,
-            "width": 0.33
+            "width": 0.33,
+            "height": 0.475
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Mövenpick Kaffee",
@@ -3516,10 +3516,10 @@
           "printed_price_verified": null,
           "product_boundary_proven": false,
           "rectangle": {
-            "height": 0.22,
             "left": 0.65,
-            "top": 0.53,
-            "width": 0.33
+            "top": 0.545,
+            "width": 0.33,
+            "height": 0.205
           },
           "review_state": "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW",
           "source_label_unverified": "Norwegische Lachsfilets",

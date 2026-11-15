@@ -202,3 +202,25 @@ def test_hz47_six_price_owner_bounding_box_corrections(candidate_id, expected):
     assert c["verified_product_identity"] is None
     assert c["hermes_offer_link"] is None
 
+
+@pytest.mark.parametrize("candidate_id, expected", [
+    ("hz47-p21-c06", (0.69, 0.50, 0.29, 0.24)),
+    ("hz47-p21-c08", (0.69, 0.74, 0.29, 0.24)),
+    ("hz47-p49-c02", (0.65, 0.07, 0.33, 0.475)),
+    ("hz47-p49-c06", (0.65, 0.545, 0.33, 0.205)),
+])
+def test_hz47_four_title_visual_boundary_corrections(candidate_id, expected):
+    """Visual/PDF-word bounding-box proof, never SKU/printed-price acceptance."""
+    draft = get_draft()
+    matches = [c for p in draft["pages"] for c in p["candidates"]
+               if c["candidate_id"] == candidate_id]
+    assert len(matches) == 1
+    candidate = matches[0]
+    assert tuple(candidate["rectangle"][key]
+                 for key in ("left", "top", "width", "height")) == expected
+    assert candidate["review_state"] == "DRAFT_NEEDS_FULL_RESOLUTION_PIXEL_REVIEW"
+    assert candidate["product_boundary_proven"] is False
+    assert candidate["printed_price_verified"] is None
+    assert candidate["verified_product_identity"] is None
+    assert candidate["hermes_offer_link"] is None
+
