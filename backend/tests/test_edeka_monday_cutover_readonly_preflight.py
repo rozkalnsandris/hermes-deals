@@ -52,7 +52,14 @@ def test_exact_source_candidate_and_pure_cutover_plan(tmp_path: Path) -> None:
         "planner_blob": "749f4d2ff09d50a9d53e45887013d6d4d79ed69a",
         "runtime_blob": "4c863cf516a7de6cf8684b9b3ba3f1eb22785141",
         "installer_blob": "91ddc076ec6407b567a3ae3300bef0e8a7adfca5",
-        "schedule": plan["schedule"],
+        "schedule": {
+            "on_calendar": cutover.OLD_CALENDAR,
+            "retry_delay": "30min",
+            "retry_window": "6h",
+            "max_attempts": 3,
+            "timeout_start": "50min",
+            "runner_timeout_seconds": 2700,
+        },
         "unit_sha256": dict(cutover.OLD_UNIT_HASHES),
         "shadow_evidence_root": "/home/andris/hermes-deals-shadow-evidence/edeka",
         "monitor_evidence_root": "/home/andris/hermes-deals-edeka-weekly-monitor",
@@ -86,6 +93,7 @@ def test_exact_source_candidate_and_pure_cutover_plan(tmp_path: Path) -> None:
     # by patching only the expected hash constants in the isolated module.
     cutover.OLD_DISPATCHER_SHA256 = cutover.digest(b"synthetic-dispatcher")
     cutover.OLD_SUDOERS_SHA256 = cutover.digest(b"synthetic-sudoers")
+    control["dispatcher_sha256"] = cutover.OLD_DISPATCHER_SHA256
     input_args = dict(
         service=old_units[cutover.SERVICE],
         timer=old_units[cutover.TIMER],
