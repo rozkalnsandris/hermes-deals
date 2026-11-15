@@ -75,11 +75,13 @@ def json_bytes(obj: dict) -> bytes:
 
 
 def command(argv: list[str], *, check: bool = True, as_audit: bool = False,
-            timeout: int = 50, input_bytes: bytes | None = None) -> bytes:
+            audit_mutation: bool = False, timeout: int = 50,
+            input_bytes: bytes | None = None) -> bytes:
     if as_audit:
         argv = ["/usr/sbin/runuser", "-u", "andris", "--",
                 "/usr/bin/env", "-i", "HOME=/home/andris", "USER=andris",
                 "LOGNAME=andris", "PATH=/usr/bin:/bin", "LANG=C.UTF-8",
+                "GIT_OPTIONAL_LOCKS=" + ("1" if audit_mutation else "0"),
                 *argv]
     p = subprocess.run(
         argv, input=input_bytes, stdin=subprocess.DEVNULL if input_bytes is None else None,
@@ -138,6 +140,21 @@ def check_source_and_get_assets(control_sha: str) -> tuple[ModuleType, bytes, st
     return helper, dispatcher, dispatcher_blob
 
 
+def require_sunday_no_catchup_window(now: datetime, last_trigger: str) -> None:
+    require(now.tzinfo is not None and now.utcoffset() is not None,
+            "wall clock must be timezone-aware")
+    local = now.astimezone(ZoneInfo("Europe/Berlin"))
+    require(local.weekday() == 6 and time(2, 0) <= local.time() < time(23, 30),
+            "Sunday no-catchup safe window not current")
+    require(
+        re.fullmatch(r"Sun \d{4}-\d\d-\d\d 00:10:00 (?:CET|CEST)",
+                     last_trigger) is not None,
+        "last Sunday timer trigger identity drift",
+    )
+    require(last_trigger.split(" ")[1] == local.date().isoformat(),
+            "last Sunday timer trigger not from today")
+
+
 def verify_status(*, sunday: bool) -> dict[str, str]:
     def props(unit: str) -> dict[str, str]:
         output = command(["/usr/bin/systemctl", "show", unit,
@@ -157,16 +174,9 @@ def verify_status(*, sunday: bool) -> dict[str, str]:
     require(service.get("ExecMainStatus") == "30", "service failure exit drift")
     require(not Path("/run/reboot-required").exists(), "reboot pending")
     if sunday:
-        now = datetime.now(ZoneInfo("Europe/Berlin"))
-        require(now.weekday() == 6 and time(2, 0) <= now.time() < time(23, 30),
-                "Sunday no-catchup safe window not current")
-        prior = timer.get("LastTriggerUSec", "")
-        require(
-            re.fullmatch(r"Sun \d{4}-\d\d-\d\d 00:10:00 (?:CET|CEST)", prior) is not None,
-            "last Sunday timer trigger identity drift",
+        require_sunday_no_catchup_window(
+            datetime.now(ZoneInfo("Europe/Berlin")), timer.get("LastTriggerUSec", ""),
         )
-        require(prior.split(" ")[1] == now.date().isoformat(),
-                "last Sunday timer trigger not from today")
         require(timer.get("NextElapseUSecRealtime", "").startswith("Sun "),
                 "installed Sunday next elapse drift")
     return {"timer_active": "active", "service_failed": "true"}
@@ -300,6 +310,11 @@ def apply_once(control_sha: str, token: str) -> None:
     fd = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     # This is the first host mutation when the lock file did not exist.
     try:
+        lock_stat = os.fstat(fd)
+        require(stat.S_ISREG(lock_stat.st_mode) and lock_stat.st_uid == 0
+                and lock_stat.st_gid == 0
+                and stat.S_IMODE(lock_stat.st_mode) == 0o600,
+                "cutover lock metadata drift")
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Revalidate under the exclusive cutover lock before first service mutation.
         latest, refreshed = make_plan(control_sha)
@@ -313,7 +328,7 @@ def apply_once(control_sha: str, token: str) -> None:
         # All objects were staged before apply; no implicit network, fetch or reset.
         command(["/usr/bin/git", "-C", str(APP_ROOT), "-c",
                  "core.hooksPath=/dev/null", "merge", "--ff-only", APP_SOURCE],
-                as_audit=True)
+                as_audit=True, audit_mutation=True)
         require(git_str("rev-parse", "HEAD") == APP_SOURCE, "audit HEAD post-merge drift")
         require(git_read("status", "--porcelain=v1", "-z", "--untracked-files=all") == b"",
                 "audit checkout post-merge dirty")
@@ -325,8 +340,10 @@ def apply_once(control_sha: str, token: str) -> None:
         # A catch-up from Persistent=true is forbidden. Do not start after
         # Sunday's previously observed trigger and before Monday window lapses.
         now = datetime.now(ZoneInfo("Europe/Berlin"))
-        require(now.weekday() == 6 and time(2, 0) <= now.time() < time(23, 30),
-                "no-catchup start window elapsed after mutation; STOP")
+        require_sunday_no_catchup_window(now, command([
+            "/usr/bin/systemctl", "show", TIMER,
+            "-p", "LastTriggerUSec", "--no-pager"
+        ]).decode().strip().partition("=")[2])
         command(["/usr/bin/systemctl", "start", TIMER])
 
         status = command(["/usr/bin/systemctl", "show", TIMER,
