@@ -8,7 +8,10 @@ from collections import Counter
 ROOT = Path(__file__).resolve().parents[2]
 GEOMETRY = ROOT / "evidence/netto/hz47_manual_pdf_geometry_draft_v1.json"
 TEMPORAL = ROOT / "evidence/netto/hz47_offline_temporal_context_v1.json"
-EXPECTED_GEOMETRY_BLOB = "d11174e3f4f98a1072954fc64ed29f1db84815e8"
+# Historical temporal evidence retains its original source pin.
+ORIGINAL_EVIDENCE_GEOMETRY_BLOB = "d11174e3f4f98a1072954fc64ed29f1db84815e8"
+# Four reviewed bbox-only adjustments; 72 pages and 261 labels remain unchanged.
+EXPECTED_GEOMETRY_BLOB = "8dd3d26675a6e22ba407865c417cf99903627358"
 PDF_SHA = "c8551dd197ac3050e11a9419a73b174803e5b8684890404b10b77520d3e7436a"
 EXPECTED_HEAD = "c0e61edd2ee417ad98c9f742582536febcb2381a"
 
@@ -26,7 +29,7 @@ def test_temporal_receipt_is_offline_and_source_pinned():
     assert context["schema"] == "hermes.netto.hz47.offline_temporal_screening.v1"
     assert context["status"] == "READ_ONLY_DIAGNOSTIC_NOT_PRODUCTION_TRUST"
     assert context["summary"]["source_commit_checked"] == EXPECTED_HEAD
-    assert context["summary"]["source_data_blob"] == EXPECTED_GEOMETRY_BLOB
+    assert context["summary"]["source_data_blob"] == ORIGINAL_EVIDENCE_GEOMETRY_BLOB
     assert context["summary"]["deployment_allowed"] is False
     assert geometry["state"] == "REVIEW_ONLY"
     assert geometry["publication_ready"] is False
