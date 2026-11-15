@@ -5,6 +5,8 @@ from datetime import datetime
 import importlib.util
 import json
 from pathlib import Path
+import stat
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -175,6 +177,41 @@ def test_no_catchup_window_exact_sunday_only(observed: str, last_trigger: str,
     else:
         with pytest.raises(cutover.StopCutover):
             cutover.require_sunday_no_catchup_window(now, last_trigger)
+
+
+def test_persistent_timer_stamp_is_exact_sunday_and_never_modified(monkeypatch) -> None:
+    cutover = module(CUTOVER, "edeka_forward_persistent_stamp")
+    now = datetime.fromisoformat("2026-11-15T12:00:00+01:00")
+    stamp = datetime.fromisoformat("2026-11-15T00:10:00+01:00")
+    mtime = stamp.timestamp()
+    details = SimpleNamespace(
+        st_mode=stat.S_IFREG | 0o644, st_uid=0, st_gid=0,
+        st_size=0, st_mtime=mtime, st_mtime_ns=int(mtime * 1_000_000_000),
+    )
+
+    class FakeStamp:
+        def __init__(self, snapshot) -> None:
+            self.snapshot = snapshot
+
+        def lstat(self):
+            return self.snapshot
+
+        def is_symlink(self):
+            return False
+
+    fake = FakeStamp(details)
+    monkeypatch.setattr(cutover, "PERSISTENT_STAMP", fake)
+    assert cutover.verify_persistent_stamp(now) == details.st_mtime_ns
+    for changed in (
+        SimpleNamespace(**{**vars(details), "st_mtime": mtime - 86400}),
+        SimpleNamespace(**{**vars(details), "st_mode": stat.S_IFREG | 0o666}),
+        SimpleNamespace(**{**vars(details), "st_size": 1}),
+        SimpleNamespace(**{**vars(details), "st_uid": 1000}),
+    ):
+        fake.snapshot = changed
+        with pytest.raises(cutover.StopCutover):
+            cutover.verify_persistent_stamp(now)
+    assert cutover.PERSISTENT_STAMP is fake
 
 
 def test_readonly_mode_has_no_host_mutation_authority() -> None:
