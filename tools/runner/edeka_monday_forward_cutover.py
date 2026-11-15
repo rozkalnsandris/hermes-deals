@@ -23,13 +23,13 @@ from types import ModuleType
 from zoneinfo import ZoneInfo
 
 
-APP_SOURCE = "afe83b066ab97a41b269433e288401b1f0465eac"
+APP_SOURCE = "684b562084492eebecc76a898b1b5d92e6a8c2e4"
 OLD_SOURCE = "85c3aca4ac62cbffa281365562af52c5e52d8d24"
-EXPECTED_NEW_FP = "0bcc33eda2d25ec556e8e7d7176984b16b23a1845e464e428176375661761c61"
-EXPECTED_NEW_REG_SHA256 = "9ca5e1892ff48c86dad6e1217ea159e2776e1b8f76ae42d7d7587ae816ec419b"
-EXPECTED_NEW_SERVICE_SHA256 = "412d04a122d895e75df9d99749a888f4c77767f8d52438d5f89193103e0dc9f5"
+EXPECTED_NEW_FP = "19162a6e25844ff21f96f385e11715cecc34d8ede8dad971c03381d911aa0957"
+EXPECTED_NEW_REG_SHA256 = "6fa3268c6add7e0356654a231b7d1f9dee87d06d76d6949a861cd6278cc95d7e"
+EXPECTED_NEW_SERVICE_SHA256 = "d642a9e922a28dfeb982f9930b5091609fd1eebea7e7e27998a8486ab3f77824"
 EXPECTED_NEW_TIMER_SHA256 = "214a54a9c652dd38169987ba0672ec5853cc8f17f59734a318f7044ffa0d8178"
-EXPECTED_HELPER_BLOB = "1010b480e44ae2b37c8b7cf5547e9973ddaea8f8"
+EXPECTED_HELPER_BLOB = "3691f5c28e8e10d06f7ca0a96728257db2268cc1"
 APP_ROOT = Path("/home/andris/hermes-deals-audit-source-edeka")
 UNIT_ROOT = Path("/etc/systemd/system")
 REG_PATH = Path("/etc/hermes-deals-audits.d/edeka-weekly-monitor-unit-registration.json")
@@ -135,6 +135,26 @@ def validate_exact_python313_source(
         require(expected in runner, "registered EDEKA runner has old Python runtime contract")
     require("runtime-py311" not in runner and "Python 3.11" not in runner,
             "registered EDEKA runner still selects retired Python 3.11")
+
+
+def verify_host_python313() -> None:
+    """Read-only gate: interpreter needed by the reviewed EDEKA shadow runner."""
+    probe = (
+        "import platform,sys,venv,ensurepip;"
+        "assert platform.python_implementation() == 'CPython';"
+        "assert sys.version_info[:2] == (3,13);"
+        "assert platform.machine() in ('aarch64','arm64');"
+        "print('PY313_RUNTIME_PREFLIGHT_PASS')"
+    )
+    result = command([
+        "/usr/sbin/runuser", "-u", "andris", "--",
+        "/usr/bin/env", "-i",
+        "HOME=/home/andris", "USER=andris", "LOGNAME=andris",
+        "PATH=/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1",
+        "python3.13", "-c", probe,
+    ])
+    require(result == b"PY313_RUNTIME_PREFLIGHT_PASS\\n",
+            "EDEKA Python 3.13 host preflight receipt mismatch")
 
 
 def check_source_and_get_assets(control_sha: str) -> tuple[ModuleType, bytes, str]:
@@ -338,6 +358,7 @@ def write_once(path: Path, payload: bytes, mode: int) -> None:
 def make_plan(control_sha: str) -> tuple[dict[Path, tuple[bytes, int]], dict]:
     require(os.geteuid() == 0, "root required to inspect current exact registration")
     helper, dispatcher, dispatcher_blob = check_source_and_get_assets(control_sha)
+    verify_host_python313()
     helper.readonly_host_attestation()
     verify_status(sunday=True)
     result = build_candidates(helper, control_sha, dispatcher, dispatcher_blob)

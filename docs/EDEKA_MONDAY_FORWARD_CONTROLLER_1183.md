@@ -3,49 +3,45 @@
 ## Fixed, previously reviewed identities
 
 - Installed audit source: `85c3aca4ac62cbffa281365562af52c5e52d8d24`
-- Reviewed app source target: `afe83b066ab97a41b269433e288401b1f0465eac`
-  (merged #945 parser and #1184 Monday timer).
+- Reviewed app source target: `684b562084492eebecc76a898b1b5d92e6a8c2e4`
+  (merged #945 parser, #1184 Monday timer and #1189 Python 3.13 runner).
 - Existing installed Sunday timer SHA-256:
   `6bc3cddbd77a925546032ae0a22abc75631d5f9ef36d01d98731a1bcb54fc31d`.
 - Reviewed Monday timer SHA-256:
   `214a54a9c652dd38169987ba0672ec5853cc8f17f59734a318f7044ffa0d8178`.
 - Proposed service SHA-256:
-  `412d04a122d895e75df9d99749a888f4c77767f8d52438d5f89193103e0dc9f5`.
+  `d642a9e922a28dfeb982f9930b5091609fd1eebea7e7e27998a8486ab3f77824`.
 - Proposed registration fingerprint:
-  `0bcc33eda2d25ec556e8e7d7176984b16b23a1845e464e428176375661761c61`.
+  `19162a6e25844ff21f96f385e11715cecc34d8ede8dad971c03381d911aa0957`.
 - Proposed canonical registration-file SHA-256:
-  `9ca5e1892ff48c86dad6e1217ea159e2776e1b8f76ae42d7d7587ae816ec419b`.
+  `6fa3268c6add7e0356654a231b7d1f9dee87d06d76d6949a861cd6278cc95d7e`.
 
 Read-only RPi5 source-of-truth baseline and old host metadata:
 [`EDEKA_MONDAY_FORWARD_PREFLIGHT_1183.md`](EDEKA_MONDAY_FORWARD_PREFLIGHT_1183.md).
 All hashes are **expected values**, not evidence that LIVE has been updated.
 
-## Python 3.13 prerequisite — HOLD (2026-11-15)
+## Python 3.13 source rebind completed; host provisioning remains gated (2026-11-15)
 
-The original Monday forward controller was reviewed against application source
-`afe83b066ab97a41b269433e288401b1f0465eac`. That commit has the
-market-bound EDEKA parser fix but retains the 3.11 shadow runner while its
-active `backend/locks/manifest.json` has *only* `runtime-py313.txt`.
-Consequently that original application SHA is **not executable** for a
-successful EDEKA Monday shadow cycle. Its cutover MUST NOT be authorized
-or run; source SHA/fingerprint hashes below are historical proposal
-identities, not approval to use them.
+The obsolete Monday controller target `afe83b066ab97a41b269433e288401b1f0465eac` retained a
+Python 3.11 shadow runner while the active lock manifest required Python 3.13.
+Its old service hash `412d04a122d895e75df9d99749a888f4c77767f8d52438d5f89193103e0dc9f5` and registration fingerprint
+`0bcc33eda2d25ec556e8e7d7176984b16b23a1845e464e428176375661761c61` are **superseded and must not be installed**.
 
-The source-only Python 3.13 change introduces a strict source-level
-`validate_exact_python313_source` gate in the forward controller, checking
-the pinned application Git blob, exact active manifest and runtime lock
-*before* any cutover mutation. The old pinned SHA fails this guard.
+PR #1189 merged to immutable app source `684b562084492eebecc76a898b1b5d92e6a8c2e4`, with Python 3.13
+shadow runner, active `runtime-py313.txt` manifest entry and wheel-locked
+dependency verification. The forward controller, root dispatcher, GitHub
+owner-control exact pair and read-only helper are rebound to that immutable
+source and the candidate hashes above. The controller verifies the reviewed
+Git source runtime contract and additionally requires CPython 3.13 and
+`ensurepip` to be executable by `andris` on the ARM64 host **before any
+cutover mutation**.
 
-After a reviewed **new application source commit is merged**, a further
-GitHub source-only PR must explicitly rebind the forward controller's
-`APP_SOURCE`, service SHA-256, registration JSON/fingerprint, dispatcher,
-GitHub owner-control allowlist and tests to that **new exact immutable SHA**.
-Do not reuse the old `afe83...` application pin or its calculated
-registration fingerprint. The new RPi5 runtime also needs a real verified
-CPython 3.13 interpreter, not currently provided on the host. Interpreter
-provisioning, storage/cache changes, source staging, root controller
-installation, Git object fetch and any systemd mutation are all **separate
-explicit LIVE owner gates**, not part of a source merge.
+**The RPi5 LIVE host is NOT ready:** on 2026-11-15 it had
+`/usr/bin/python3 = 3.11.2`; `python3.13` was absent from its PATH.
+No interpreter, packages, venv, Git objects, source checkout, systemd unit
+or timer have been staged or changed. Provisioning and verifying Python
+3.13, along with immutable source staging, require a separate owner LIVE
+authorization. Do not attempt `--phase=apply` until all those gates pass.
 
 ## Source boundaries
 

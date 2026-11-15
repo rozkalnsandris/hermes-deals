@@ -14,8 +14,8 @@ FORWARD = ROOT / "tools" / "runner" / "edeka_monday_forward_cutover.py"
 
 OLD_SHA = "85c3aca4ac62cbffa281365562af52c5e52d8d24"
 OLD_FP = "970fac96fd487fe2a027f6dd1055e6563ccec331e53e889511c1e35c5038f947"
-NEW_SHA = "afe83b066ab97a41b269433e288401b1f0465eac"
-NEW_FP = "0bcc33eda2d25ec556e8e7d7176984b16b23a1845e464e428176375661761c61"
+NEW_SHA = "684b562084492eebecc76a898b1b5d92e6a8c2e4"
+NEW_FP = "19162a6e25844ff21f96f385e11715cecc34d8ede8dad971c03381d911aa0957"
 
 
 def load_module(path: Path, name: str):
@@ -94,7 +94,7 @@ def test_new_dispatcher_is_exactly_source_bindings_plus_fail_closed_activation()
         (f'EXPECTED_REGISTRATION_FINGERPRINT = "{OLD_FP}"',
          f'EXPECTED_REGISTRATION_FINGERPRINT = "{NEW_FP}"'),
         ('"hermes-edeka-weekly-monitor.service": "d33710d7bf5b02c948d4e3e089b6fec435457d174b0ef6ca444368bfadc984de"',
-         '"hermes-edeka-weekly-monitor.service": "412d04a122d895e75df9d99749a888f4c77767f8d52438d5f89193103e0dc9f5"'),
+         '"hermes-edeka-weekly-monitor.service": "d642a9e922a28dfeb982f9930b5091609fd1eebea7e7e27998a8486ab3f77824"'),
         ('"hermes-edeka-weekly-monitor.timer": "6bc3cddbd77a925546032ae0a22abc75631d5f9ef36d01d98731a1bcb54fc31d"',
          '"hermes-edeka-weekly-monitor.timer": "214a54a9c652dd38169987ba0672ec5853cc8f17f59734a318f7044ffa0d8178"'),
         ('"on_calendar": "Sun *-*-* 00:10:00 Europe/Berlin"',
