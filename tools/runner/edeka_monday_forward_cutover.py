@@ -37,6 +37,7 @@ CTL_PATH = Path("/etc/hermes-deals-audits.d/edeka-weekly-monitor-control.json")
 DISPATCHER_PATH = Path("/usr/local/sbin/hermes-deals-edeka-weekly-monitor-control")
 SUDOERS_PATH = Path("/etc/sudoers.d/hermes-deals-edeka-weekly-monitor-control")
 LOCK = Path("/run/lock/hermes-deals-edeka-monday-cutover.lock")
+PERSISTENT_STAMP = Path("/var/lib/systemd/timers/stamp-hermes-edeka-weekly-monitor.timer")
 SERVICE = "hermes-edeka-weekly-monitor.service"
 TIMER = "hermes-edeka-weekly-monitor.timer"
 ALERT = "hermes-edeka-weekly-monitor-failure@.service"
@@ -155,12 +156,30 @@ def require_sunday_no_catchup_window(now: datetime, last_trigger: str) -> None:
             "last Sunday timer trigger not from today")
 
 
+def verify_persistent_stamp(local_now: datetime) -> int:
+    """Read the actual systemd Persistent=true catch-up marker, never alter it."""
+    st = PERSISTENT_STAMP.lstat()
+    require(stat.S_ISREG(st.st_mode) and not PERSISTENT_STAMP.is_symlink(),
+            "persistent stamp must be a regular non-symlink")
+    require(st.st_uid == 0 and st.st_gid == 0
+            and stat.S_IMODE(st.st_mode) == 0o644 and st.st_size == 0,
+            "persistent stamp metadata drift")
+    stamped = datetime.fromtimestamp(st.st_mtime, ZoneInfo("Europe/Berlin"))
+    local = local_now.astimezone(ZoneInfo("Europe/Berlin"))
+    require(stamped.date() == local.date() and stamped.weekday() == 6,
+            "persistent stamp is not from today's Sunday invocation")
+    require(stamped.hour == 0 and 10 <= stamped.minute <= 15,
+            "persistent stamp is outside Sunday 00:10 accuracy window")
+    return st.st_mtime_ns
+
+
 def verify_status(*, sunday: bool) -> dict[str, str]:
     def props(unit: str) -> dict[str, str]:
         output = command(["/usr/bin/systemctl", "show", unit,
                           "-p", "Id", "-p", "UnitFileState", "-p", "ActiveState",
                           "-p", "Result", "-p", "ExecMainStatus",
                           "-p", "LastTriggerUSec", "-p", "NextElapseUSecRealtime",
+                          "-p", "Persistent",
                           "--no-pager"])
         return dict(line.split("=", 1) for line in output.decode().splitlines()
                     if "=" in line)
@@ -174,9 +193,11 @@ def verify_status(*, sunday: bool) -> dict[str, str]:
     require(service.get("ExecMainStatus") == "30", "service failure exit drift")
     require(not Path("/run/reboot-required").exists(), "reboot pending")
     if sunday:
-        require_sunday_no_catchup_window(
-            datetime.now(ZoneInfo("Europe/Berlin")), timer.get("LastTriggerUSec", ""),
-        )
+        now = datetime.now(ZoneInfo("Europe/Berlin"))
+        require_sunday_no_catchup_window(now, timer.get("LastTriggerUSec", ""))
+        require(timer.get("Persistent") in ("yes", "true"),
+                "Persistent timer setting drift")
+        verify_persistent_stamp(now)
         require(timer.get("NextElapseUSecRealtime", "").startswith("Sun "),
                 "installed Sunday next elapse drift")
     return {"timer_active": "active", "service_failed": "true"}
@@ -305,6 +326,9 @@ def apply_once(control_sha: str, token: str) -> None:
     require(os.geteuid() == 0, "root required")
     # Read-only checks before opening even the lock file.
     candidate, plan = make_plan(control_sha)
+    stamp_mtime_ns = verify_persistent_stamp(
+        datetime.now(ZoneInfo("Europe/Berlin")),
+    )
     require(LOCK.parent.is_dir() and not LOCK.parent.is_symlink(), "lock directory unsafe")
     require(not LOCK.is_symlink(), "lock path unsafe")
     fd = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
@@ -319,6 +343,9 @@ def apply_once(control_sha: str, token: str) -> None:
         # Revalidate under the exclusive cutover lock before first service mutation.
         latest, refreshed = make_plan(control_sha)
         require(refreshed == plan and latest == candidate, "preflight drift under lock")
+        require(verify_persistent_stamp(
+            datetime.now(ZoneInfo("Europe/Berlin"))
+        ) == stamp_mtime_ns, "Persistent timer stamp drift under lock")
 
         command(["/usr/bin/systemctl", "stop", TIMER])
         state = command(["/usr/bin/systemctl", "show", TIMER,
@@ -344,6 +371,8 @@ def apply_once(control_sha: str, token: str) -> None:
             "/usr/bin/systemctl", "show", TIMER,
             "-p", "LastTriggerUSec", "--no-pager"
         ]).decode().strip().partition("=")[2])
+        require(verify_persistent_stamp(now) == stamp_mtime_ns,
+                "Persistent timer stamp changed during cutover")
         command(["/usr/bin/systemctl", "start", TIMER])
 
         status = command(["/usr/bin/systemctl", "show", TIMER,
@@ -352,6 +381,9 @@ def apply_once(control_sha: str, token: str) -> None:
         require("ActiveState=active" in status and "UnitFileState=enabled" in status,
                 "timer failed post-cutover verification")
         require("NextElapseUSecRealtime=Mon " in status, "Monday next elapse missing")
+        require(verify_persistent_stamp(
+            datetime.now(ZoneInfo("Europe/Berlin"))
+        ) == stamp_mtime_ns, "unexpected Persistent timer catch-up trigger")
         require(git_str("rev-parse", "HEAD") == APP_SOURCE, "final audit HEAD drift")
         for path, (payload, mode) in candidate.items():
             require(sha256(helper_read_root_regular(path, mode)) == sha256(payload),
