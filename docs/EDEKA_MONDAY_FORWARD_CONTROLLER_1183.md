@@ -20,6 +20,33 @@ Read-only RPi5 source-of-truth baseline and old host metadata:
 [`EDEKA_MONDAY_FORWARD_PREFLIGHT_1183.md`](EDEKA_MONDAY_FORWARD_PREFLIGHT_1183.md).
 All hashes are **expected values**, not evidence that LIVE has been updated.
 
+## Python 3.13 prerequisite — HOLD (2026-11-15)
+
+The original Monday forward controller was reviewed against application source
+`afe83b066ab97a41b269433e288401b1f0465eac`. That commit has the
+market-bound EDEKA parser fix but retains the 3.11 shadow runner while its
+active `backend/locks/manifest.json` has *only* `runtime-py313.txt`.
+Consequently that original application SHA is **not executable** for a
+successful EDEKA Monday shadow cycle. Its cutover MUST NOT be authorized
+or run; source SHA/fingerprint hashes below are historical proposal
+identities, not approval to use them.
+
+The source-only Python 3.13 change introduces a strict source-level
+`validate_exact_python313_source` gate in the forward controller, checking
+the pinned application Git blob, exact active manifest and runtime lock
+*before* any cutover mutation. The old pinned SHA fails this guard.
+
+After a reviewed **new application source commit is merged**, a further
+GitHub source-only PR must explicitly rebind the forward controller's
+`APP_SOURCE`, service SHA-256, registration JSON/fingerprint, dispatcher,
+GitHub owner-control allowlist and tests to that **new exact immutable SHA**.
+Do not reuse the old `afe83...` application pin or its calculated
+registration fingerprint. The new RPi5 runtime also needs a real verified
+CPython 3.13 interpreter, not currently provided on the host. Interpreter
+provisioning, storage/cache changes, source staging, root controller
+installation, Git object fetch and any systemd mutation are all **separate
+explicit LIVE owner gates**, not part of a source merge.
+
 ## Source boundaries
 
 1. `tools/runner/edeka_monday_forward_cutover.py` is a one-shot
