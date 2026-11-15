@@ -238,6 +238,25 @@ def test_cutover_blocks_pinned_app_source_with_noncanonical_runtime() -> None:
         )
 
 
+def test_host_python313_preflight_is_exact_and_readonly(monkeypatch) -> None:
+    cutover = module(CUTOVER, "edeka_host_python313_contract")
+    observed = []
+    def fake_command(argv):
+        observed.append(argv)
+        return b"PY313_RUNTIME_PREFLIGHT_PASS\n"
+    monkeypatch.setattr(cutover, "command", fake_command)
+    cutover.verify_host_python313()
+    assert len(observed) == 1
+    assert observed[0][:4] == ["/usr/sbin/runuser", "-u", "andris", "--"]
+    assert "python3.13" in observed[0]
+    assert "PYTHONDONTWRITEBYTECODE=1" in observed[0]
+    assert "-c" in observed[0]
+
+    monkeypatch.setattr(cutover, "command", lambda argv: b"not-valid\n")
+    with pytest.raises(cutover.StopCutover, match="receipt mismatch"):
+        cutover.verify_host_python313()
+
+
 def test_readonly_mode_has_no_host_mutation_authority() -> None:
     src = CUTOVER.read_text(encoding="utf-8")
     assert 'choices=("preflight", "apply")' in src
