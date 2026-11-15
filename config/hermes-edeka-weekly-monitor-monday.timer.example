@@ -1,0 +1,12 @@
+[Unit]
+Description=Hermes Deals EDEKA Patzer bounded weekly monitor timer
+OnFailure=hermes-edeka-weekly-monitor-failure@%n.service
+
+[Timer]
+OnCalendar=Mon *-*-* 00:10:00 Europe/Berlin
+Unit=hermes-edeka-weekly-monitor.service
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
