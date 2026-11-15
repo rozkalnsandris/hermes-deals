@@ -44,6 +44,9 @@ ALERT = "hermes-edeka-weekly-monitor-failure@.service"
 SELF_REL = "tools/runner/edeka_monday_forward_cutover.py"
 DISPATCHER_REL = "tools/runner/edeka_weekly_monitor_control_monday.py"
 HELPER_REL = "tools/edeka_monday_cutover_readonly_preflight.py"
+RUNNER_REL = "tools/run-hermes-deals-edeka-shadow-cycle-v01.sh"
+RUNTIME_MANIFEST_REL = "backend/locks/manifest.json"
+RUNTIME_LOCK_REL = "backend/locks/runtime-py313.txt"
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 LIVE_TOKEN = "EXACT-ONE-SHOT-MONDAY-NO-CATCHUP"
 EXPECTED_ORIGINS = {
@@ -104,6 +107,36 @@ def git_str(*args: str) -> str:
     return git_read(*args).decode("utf-8").strip()
 
 
+def validate_exact_python313_source(
+    runner_bytes: bytes, manifest_bytes: bytes, runtime_lock_bytes: bytes,
+) -> None:
+    """Fail closed on an active-source/runtime mismatch before any LIVE write."""
+    try:
+        manifest = json.loads(manifest_bytes.decode("utf-8", "strict"))
+        runner = runner_bytes.decode("utf-8", "strict")
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise StopCutover("registered EDEKA Python runtime contract invalid") from exc
+    require(isinstance(manifest, dict) and isinstance(manifest.get("locks"), dict),
+            "registered Python lock manifest invalid")
+    require(set(manifest["locks"]) == {"runtime-py313.txt", "ci-py313.txt"},
+            "registered Python runtime manifest not canonical")
+    runtime = manifest["locks"]["runtime-py313.txt"]
+    require(isinstance(runtime, dict) and runtime.get("python") == "3.13",
+            "registered Python runtime not CPython 3.13")
+    require(runtime.get("sha256") == sha256(runtime_lock_bytes),
+            "registered Python 3.13 lock digest drift")
+    for expected in (
+        'PYTHON_BIN="python3.13"',
+        'RUNTIME_LOCK_REL="backend/locks/runtime-py313.txt"',
+        'manifest["locks"]["runtime-py313.txt"]',
+        'identity["python"] != "3.13"',
+        '"$python_line" == "3.13"',
+    ):
+        require(expected in runner, "registered EDEKA runner has old Python runtime contract")
+    require("runtime-py311" not in runner and "Python 3.11" not in runner,
+            "registered EDEKA runner still selects retired Python 3.11")
+
+
 def check_source_and_get_assets(control_sha: str) -> tuple[ModuleType, bytes, str]:
     require(SHA40.fullmatch(control_sha) is not None, "control SHA invalid")
     require(APP_ROOT.is_dir() and not APP_ROOT.is_symlink(), "audit root unsafe")
@@ -120,6 +153,13 @@ def check_source_and_get_assets(control_sha: str) -> tuple[ModuleType, bytes, st
              "merge-base", "--is-ancestor", OLD_SOURCE, APP_SOURCE], as_audit=True)
     command(["/usr/bin/git", "-C", str(APP_ROOT),
              "merge-base", "--is-ancestor", APP_SOURCE, control_sha], as_audit=True)
+    # The reviewed APP_SOURCE must itself contain the canonical Python 3.13
+    # runner, manifest and lock. A source pin change alone is not enough.
+    validate_exact_python313_source(
+        git_read("show", APP_SOURCE + ":" + RUNNER_REL),
+        git_read("show", APP_SOURCE + ":" + RUNTIME_MANIFEST_REL),
+        git_read("show", APP_SOURCE + ":" + RUNTIME_LOCK_REL),
+    )
     path = Path(__file__)
     st = path.lstat()
     require(stat.S_ISREG(st.st_mode) and not path.is_symlink(), "source executable unsafe")
