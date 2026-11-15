@@ -18,7 +18,7 @@ PAGES = (1, 21, 34, 49, 57)
 PDF_SHA256 = "c8551dd197ac3050e11a9419a73b174803e5b8684890404b10b77520d3e7436a"
 SCHEMA = "hermes.netto.hz47.text_price_pilot.v1"
 DIRECT_PRICE = re.compile(r"\d{1,3}[.,]\d{2}[*∗]?\Z|\d{1,3}[.]?[–-][*∗]?\Z")
-MAJOR = re.compile(r"\d{1,3}[.]\Z")
+MAJOR = re.compile(r"\d{1,3}[.]?\Z")
 CENTS = re.compile(r"\d{2}[*∗]?\Z")
 BLOCKED = {"UVP", "APP", "PAYBACK", "UNIT", "PFAND", "BUNDLE"}
 
@@ -159,9 +159,15 @@ def accept_links(manifest: dict, review: dict) -> None:
     if (review.get("pdf_sha256") != manifest.get("pdf_sha256")
             or review.get("schema") != "hermes.netto.hz47.source_local_link_review.v1"):
         raise ValueError("Review provenance mismatch")
+    pairs = review.get("pairs")
+    if not isinstance(pairs, list):
+        raise ValueError("Missing review pairs")
     by_page = {p["pdf_page_number"]: p for p in manifest["pages"]}
     used = set()
-    for pair in review.get("pairs", []):
+    staged = []
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            raise ValueError("Malformed review pair")
         page = pair.get("pdf_page_number")
         if (page not in by_page or pair.get("reviewed_against_source") is not True
                 or type(pair.get("rationale")) is not str
@@ -174,21 +180,29 @@ def accept_links(manifest: dict, review: dict) -> None:
         label, price = anchors.get(lid), anchors.get(pid)
         if (not label or not price or label["kind"] != "label" or price["kind"] != "price"
                 or label["candidate_id"] != pair.get("candidate_id")
+                or price["candidate_id"] is not None
+                or label["interactive"] or price["interactive"]
                 or set(price["flags"]) & BLOCKED
                 or _intersects(label["rectangle"], price["rectangle"])):
             raise ValueError("Ambiguous price-to-label link")
+        # All overlapping text regions require manual adjudication before any
+        # clickable target. Compare even unpaired regions, not only accepted ones.
         for other in by_page[page]["anchors"]:
-            if other not in (label, price) and other["interactive"] and (
+            if other is not label and other is not price and (
                 _intersects(other["rectangle"], label["rectangle"])
                 or _intersects(other["rectangle"], price["rectangle"])
             ):
-                raise ValueError("Conflicting interactive rectangles")
+                raise ValueError("Conflicting anchor rectangles")
         used.update(((page, lid), (page, pid)))
+        staged.append((label, price, pair["candidate_id"]))
+    # Apply as one unit: an invalid later pair must not leave earlier anchors
+    # looking reviewed/interactive in memory or in a serialized preview.
+    for label, price, candidate_id in staged:
         for anchor in (label, price):
-            anchor["candidate_id"] = pair["candidate_id"]
+            anchor["candidate_id"] = candidate_id
             anchor["review_state"] = "SOURCE_LOCAL_PAIR_REVIEWED_NOT_OFFER_VERIFIED"
             anchor["interactive"] = True
-    manifest["source_local_reviewed_pairs"] = len(used) // 2
+    manifest["source_local_reviewed_pairs"] = len(staged)
 
 
 def extract(pdf: Path, draft: dict | None = None, review: dict | None = None) -> dict:
