@@ -83,3 +83,44 @@ images must be reviewed together before any live hotspot path is developed.
 
 No unverified source-only data may be relabeled as a validated product, offer,
 price, selected-store publication, or full booklet coverage.
+
+
+## Five-page text-index risk register (2026-11-15; not coordinate evidence)
+
+The following cases were observed in the indexed text of the **user-uploaded
+72-page PDF**. The text index did not expose the original PDF bytes or
+PyMuPDF word bounding boxes in this workspace. These cases are for **manual
+full-resolution source adjudication** only: they are not price ownership
+decisions, confirmed store eligibility or publisher-image alignment.
+
+- **Page 1:** Split headline-price text appears as "3. 49*" near
+  "Hackfleisch gemischt" together with a separately printed UVP. "Melitta
+  Auslese" is broken into short words/lines; a nearby "Adventskranz"
+  promotion is outside grocery/beverage/household-consumable scope. Reject
+  cross-column and out-of-scope pairings; no box is automatically clickable.
+- **Page 21:** "Maggi Guten Appetit Suppe" and "Knorr Delikatess Soßen"
+  each appear with APP-qualified and ordinary price-like numbers and
+  variant/quantity text. Separate headline vs APP vs UVP vs unit price;
+  a generic nearest-number rule would be unsafe.
+- **Page 34:** Bakery layout includes "Käse-Laugen Breze", "High Protein
+  Pizza", "Pizzatasche Philly Cheese" and split "0. 49*" / "1. 29*"
+  typography. "Angebot gilt nur in ausgewählten Filialen mit Backofen"
+  restricts store eligibility, and "10 Brote kaufen ... 11. Brot gratis"
+  is a loyalty offer rather than an ordinary headline-price anchor.
+- **Page 49:** This page explicitly starts **Thursday 19 November**,
+  later than the publication's Monday start. "Mövenpick" coffee shows
+  competing APP, ordinary and UVP price-like numbers in the indexed text;
+  "Rouladen vom Rind" carries a "pro 100g" basis. Price pairs must not
+  inherit Monday validity or collapse conditional and unit price displays.
+- **Page 57:** Multiple "Extra°Punkte" PAYBACK callouts (10/20/100)
+  appear near ordinary headline-price-shaped values for "Kikis Frosti
+  Pops", "Andechser Bio Skyr" and "Somat Tabs". Pet-food and other
+  lower-page groups have additional neighboring numbers. Distinguish
+  loyalty points, package-size variation and independent product groups.
+
+Expected review output for **each** page: eligible visible group count,
+unambiguous native title count, unambiguous headline price count, two-anchor
+pair count, unresolved/multiple-price count, false activations, manual
+corrections and mobile gesture/touch acceptance. All figures are currently
+**UNKNOWN**; neither the 8/8/6/8/7 preliminary #1182 card hints nor the
+indexed text establish successful five-page coverage.
