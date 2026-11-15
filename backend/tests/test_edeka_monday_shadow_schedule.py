@@ -158,7 +158,7 @@ def test_monday_run_does_not_relax_market_header_or_footer_guards() -> None:
             monday,
         )
     # Do not infer an alternative store binding from the same source body.
-    with pytest.raises(ValueError, match="configured market"):
+    with pytest.raises(ValueError, match="configured public market"):
         parse_edeka_html(
             html,
             replace(monday, public_market_id="999999"),
