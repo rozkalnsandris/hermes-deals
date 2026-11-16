@@ -560,13 +560,13 @@
       "weight_units": 30
     }
   ],
-  "completed_issue_count": 292,
+  "completed_issue_count": 293,
   "completed_weighted_gate_count": 57,
-  "generated_at": "2026-11-15T12:42:30.624850Z",
-  "generated_at_local": "2026-11-15T13:42:30.624850+01:00",
+  "generated_at": "2026-11-16T13:35:50.421732Z",
+  "generated_at_local": "2026-11-16T14:35:50.421732+01:00",
   "overall_completed_units": 770,
   "overall_percent_tenths": 770,
-  "previous_day": "2026-11-14",
+  "previous_day": "2026-11-15",
   "previous_day_completed_gate_count": 0,
   "previous_day_completed_gates": [],
   "previous_day_completed_issue_count": 0,
