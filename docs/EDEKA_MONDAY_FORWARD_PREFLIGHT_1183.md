@@ -1,7 +1,14 @@
-# EDEKA #1183 — Monday forward cutover: verified baseline and next gate
+# EDEKA #1183 — Monday forward cutover: historical verified baseline
 
-This is a **non-activating** continuity artifact following merged PR #1184.
-It does **not** authorize or perform any LIVE/RPi5 mutation.
+This is a **dated, non-activating pre-cutover baseline** following PR #1184.
+It does **not** authorize any LIVE/RPi5 mutation. The recorded candidate
+`afe83b066ab97a41b269433e288401b1f0465eac` was later superseded by
+`684b562084492eebecc76a898b1b5d92e6a8c2e4` after the Python 3.13 runner
+correction. The actual, successful 2026-11-15 cutover and 2026-11-16 Monday
+scheduled receipt are documented in
+[`EDEKA_MONDAY_FORWARD_CONTROLLER_1183.md`](EDEKA_MONDAY_FORWARD_CONTROLLER_1183.md).
+Do not reuse the historical pins, old host state or this document's future-tense
+preconditions as an authorization or description of current production state.
 
 ## Dated source and installed baseline
 
@@ -32,7 +39,7 @@ next scheduled occurrence was 2026-11-22 00:10 CET. Service remains
 exclusive lock was unheld; `/run/reboot-required` absent. These are **dated
 observations** and do not authorize a later mutation.
 
-## Current non-mutating verification tool
+## Historical non-mutating verification tool
 
 `tools/edeka_monday_cutover_readonly_preflight.py` runs a read-only,
 root-owned-files and Git inspection against that exact baseline. It rejects
@@ -55,7 +62,7 @@ The historical `tools/runner/reschedule_edeka_weekly_monitor.py` only
 migrates the older Monday schedule **to Sunday** and contains obsolete pins;
 never reuse it for this forward migration.
 
-## Separate forward-migration source gate
+## Historical forward-migration source gate (fulfilled)
 
 Before requesting LIVE authority, independently review an exact,
 **forward-only** controller (new source task/PR) that binds:
