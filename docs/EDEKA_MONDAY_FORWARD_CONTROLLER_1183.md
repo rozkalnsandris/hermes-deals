@@ -1,4 +1,54 @@
-# #1183 — EDEKA Monday shadow cutover controller (source-only review)
+# #1183 — EDEKA Monday shadow cutover and verified first scheduled recovery
+
+## Verified LIVE recovery — 2026-11-16 (Europe/Berlin)
+
+The owner-authorized one-shot cutover on Sunday 2026-11-15 completed with
+`CUTOVER_SOURCE_AND_TIMER_APPLIED` (exit 0); a separate read-only verification
+returned `READONLY_POSTVERIFY_PASS` (exit 0). The dedicated audit checkout was
+fast-forwarded to the immutable app source
+`684b562084492eebecc76a898b1b5d92e6a8c2e4` and remained clean.
+The reviewed controller/source identity is
+`4e02d87ea85dd8bd816ea77e558148f13d1ac5d3`. Installed root-owned
+service, timer, registration, control JSON, dispatcher and sudoers were verified
+against their exact reviewed contents and metadata. No manual or catch-up
+monitor run occurred during the cutover.
+
+The **first real scheduled Monday** run on **2026-11-16** started at
+**00:10:00 CET**, finished at **00:10:38 CET**, and returned systemd
+`Result=success`, `ExecMainStatus=0`. The read-only journal and
+`monitor-receipt.json` agree on:
+
+- `result=COMPLETE`, `reason=campaign_current`, `trigger_event=schedule`,
+  `exit_code=0`, `stale_days=0`, registered repo SHA
+  `684b562084492eebecc76a898b1b5d92e6a8c2e4`.
+- EDEKA Patzer campaign valid **2026-11-16 through 2026-11-21** with
+  **221 parsed offers**; retained snapshot
+  `1cede615-99fd-4062-96c3-69244aea7132` and manifest SHA-256
+  `a2847d9c2d5a7aa938dd905e7d328b4099c90160d12d4f6f0be0ddbb0a787a7f`.
+- No production database, Review, publication, deployment or scheduler write was
+  reported by the scheduled monitor receipt. The affected service journal
+  contained no warning-or-higher entries for this run. Notification delivery
+  was **not** independently verified; this successful run did not require
+  failure notification.
+- Timer remained **active/enabled**, `Persistent=true`, next scheduled
+  occurrence **2026-11-23 00:10 CET**. Reboot not required.
+
+This confirms recovery **of the isolated EDEKA Monday weekly shadow monitor**
+from the Sunday/future-campaign parser mismatch (#1183), **not** the entire
+EDEKA production pipeline. Parent [#26](https://github.com/rozkalnsandris/hermes-deals/issues/26)
+requires two distinct consecutive weekly campaigns and additional
+failure/rollback observations; it stays OPEN. A successful #1183 run does not
+prove those remaining acceptance criteria. Evidence and LIVE mutation receipts
+are recorded in [#1183](https://github.com/rozkalnsandris/hermes-deals/issues/1183).
+Do not manually replay, reset failure states, alter timers, or write production
+data without separate scoped owner authority.
+
+## Historical pre-cutover review and one-shot safeguards
+
+The sections below record **dated pre-installation** baselines and the reviewed
+one-shot procedure. Their future-tense gates describe what was required **before
+the completed 2026-11-15 cutover**; they are not a pending instruction, current
+live-state claim, or authority to run the one-shot controller again.
 
 ## Fixed, previously reviewed identities
 
@@ -18,9 +68,9 @@
 
 Read-only RPi5 source-of-truth baseline and old host metadata:
 [`EDEKA_MONDAY_FORWARD_PREFLIGHT_1183.md`](EDEKA_MONDAY_FORWARD_PREFLIGHT_1183.md).
-All hashes are **expected values**, not evidence that LIVE has been updated.
+The entries in this historical proposal are **pre-cutover expected values**. The verified 2026-11-16 runtime outcome is recorded above; do not interpret this old proposal as today's host state.
 
-## Python 3.13 source rebind completed; host provisioning remains gated (2026-11-15)
+## Historical Python 3.13 source rebind and provisioning gate (2026-11-15)
 
 The obsolete Monday controller target `afe83b066ab97a41b269433e288401b1f0465eac` retained a
 Python 3.11 shadow runner while the active lock manifest required Python 3.13.
@@ -36,12 +86,12 @@ Git source runtime contract and additionally requires CPython 3.13 and
 `ensurepip` to be executable by `andris` on the ARM64 host **before any
 cutover mutation**.
 
-**The RPi5 LIVE host is NOT ready:** on 2026-11-15 it had
-`/usr/bin/python3 = 3.11.2`; `python3.13` was absent from its PATH.
-No interpreter, packages, venv, Git objects, source checkout, systemd unit
-or timer have been staged or changed. Provisioning and verifying Python
-3.13, along with immutable source staging, require a separate owner LIVE
-authorization. Do not attempt `--phase=apply` until all those gates pass.
+**Pre-provisioning observation (2026-11-15, since superseded):** the host had
+`/usr/bin/python3 = 3.11.2` and lacked `python3.13`. A separate owner-authorized
+LIVE operation subsequently installed isolated Python 3.13.18 without replacing
+system Python. Immutable Git object/controller staging and the one-shot cutover
+were separately authorized and completed. **Do not repeat `--phase=apply`:** its
+one-time authorization was consumed.
 
 ## Source boundaries
 
