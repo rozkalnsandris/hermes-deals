@@ -1,6 +1,16 @@
 # EDEKA Patzer weekly shadow-cycle runbook
 
-This runbook captures one real EDEKA Patzer weekly source cycle without using the production database or changing the primary Hermes Deals worktree.
+This runbook describes the isolated EDEKA Patzer source cycle without using the
+production database or changing the primary Hermes Deals worktree. Historical
+manual setup examples below are **not LIVE authorization**.
+
+**Verified scheduled recovery (#1183):** The first Monday timer cycle on
+2026-11-16 ran 00:10:00–00:10:38 CET and returned `COMPLETE / campaign_current`
+(exit 0), 221 offers, and campaign dates 2026-11-16 through 2026-11-21.
+The timer is active/enabled with the next occurrence 2026-11-23 00:10 CET.
+See [`EDEKA_MONDAY_FORWARD_CONTROLLER_1183.md`](EDEKA_MONDAY_FORWARD_CONTROLLER_1183.md)
+for exact immutable source, hashes and read-only runtime evidence. Parent #26
+still requires a second distinct weekly campaign and other acceptance checks.
 
 ## Safety model
 
@@ -58,15 +68,17 @@ the exact registered Git commit and active manifest. If any requirement
 is missing, it **fails closed**; it does not download Python, alter APT,
 Docker, `systemd` or the production host.
 
-RPi5 read-only observation (2026-11-15): the system `/usr/bin/python3`
-is Python 3.11.2; no `python3.13` binary was found in the three
-usual tested paths. A new isolated Python 3.13 runtime **has not
-been installed**. Interpreter provenance, binary path/hash, host
-compatibility (ARM64), locked wheel availability and storage must be
-reviewed in a **separate owner-authorized LIVE preparation** before
-any EDEKA shadow execution. Source-only changes do not authorize
-interpreter installation, virtualenv creation, package download,
-evidence retention writes, deploy or scheduler modification.
+**Historical observation, superseded 2026-11-15:** Python 3.13 was not installed
+at the initial read-only preflight. A later separately owner-authorized LIVE
+provisioning successfully installed **CPython 3.13.18** (ARM64) under
+`/opt/hermes-edeka-python-3.13.18-20261110`, with the root-owned executable
+link `/usr/local/bin/python3.13`; archive SHA-256 was verified as
+`d25a65036d5e149db902fa52ad65878d0c00e9301360ec197832f99063087e9e`.
+The Debian system `/usr/bin/python3` remains 3.11.2. This was independently
+confirmed in the successful scheduled 2026-11-16 shadow monitor cycle.
+Neither this documentation nor an earlier LIVE authorization permits a new
+interpreter install, venv creation, evidence-write replay, deploy or scheduler
+change. Scheduled runs may operate only within their already approved policy.
 
 ## Prepare the isolated clone
 
