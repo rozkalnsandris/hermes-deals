@@ -13,6 +13,7 @@ from app.lidl_family_source_discovery import (
     FLYER_API_URL,
     HUB_URL,
     FlyerCandidate,
+    LidlFamilyAmbiguityError,
     LidlFamilyDiscoveryError,
     StoreBinding,
     _validate_flyer_payload,
@@ -120,6 +121,48 @@ class LidlFamilySourceDiscoveryTest(unittest.TestCase):
         ]
         with self.assertRaises(LidlFamilyDiscoveryError):
             select_current_and_next(rows, today=date(2026, 7, 30))
+
+    def test_two_distinct_next_campaigns_require_structured_review(self) -> None:
+        rows = [
+            candidate(
+                "aktionsprospekt-23-11-2026-28-11-2026-cde58d",
+                "21", date(2026, 11, 23), date(2026, 11, 28),
+            ),
+            candidate(
+                "aktionsprospekt-23-11-2026-28-11-2026-36518f",
+                "10", date(2026, 11, 23), date(2026, 11, 28),
+            ),
+        ]
+        with self.assertRaises(LidlFamilyAmbiguityError) as context:
+            select_current_and_next(rows, today=date(2026, 11, 21))
+        review = context.exception.review
+        self.assertEqual(review["decision"], "UNRESOLVED")
+        self.assertTrue(review["review_required"])
+        self.assertFalse(review["selection_authorized"])
+        self.assertEqual(review["target"], "next")
+        self.assertEqual(review["candidate_count"], 2)
+        self.assertFalse(review["truncated"])
+        self.assertEqual(
+            [(row["flyer_identifier"][-6:], row["route_region"]) for row in review["candidates"]],
+            [("36518f", "10"), ("cde58d", "21")],
+        )
+        self.assertTrue(all(set(row) == {
+            "flyer_identifier", "route_region", "valid_from", "valid_until",
+        } for row in review["candidates"]))
+        with self.assertRaises(LidlFamilyAmbiguityError) as reversed_context:
+            select_current_and_next(list(reversed(rows)), today=date(2026, 11, 21))
+        self.assertEqual(reversed_context.exception.review, review)
+
+    def test_current_ambiguity_is_also_review_only(self) -> None:
+        rows = [
+            candidate(CURRENT_SLUG, "7", date(2026, 7, 27), date(2026, 8, 1)),
+            candidate(CURRENT_SLUG, "21", date(2026, 7, 27), date(2026, 8, 1)),
+        ]
+        with self.assertRaises(LidlFamilyAmbiguityError) as context:
+            select_current_and_next(rows, today=date(2026, 7, 30))
+        self.assertEqual(context.exception.review["target"], "current")
+        self.assertEqual(context.exception.review["candidate_count"], 2)
+        self.assertFalse(context.exception.review["selection_authorized"])
 
     def test_select_current_and_next_allows_sunday_gap_with_unique_next(self) -> None:
         rows = [

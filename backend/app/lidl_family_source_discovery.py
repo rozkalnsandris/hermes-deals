@@ -52,6 +52,37 @@ class FlyerCandidate:
     label: str = ""
 
 
+class LidlFamilyAmbiguityError(LidlFamilyDiscoveryError):
+    """A review-only, deterministic account of competing official candidates."""
+
+    def __init__(self, *, target: str, candidates: Iterable[FlyerCandidate]) -> None:
+        rows = sorted(
+            candidates,
+            key=lambda row: (row.valid_from, row.valid_until, row.slug, row.route_region),
+        )
+        if target not in {"current", "next"} or len(rows) < 2:
+            raise ValueError("multi-candidate review requires multiple rows and a valid target")
+        self.review = {
+            "schema_version": 1,
+            "target": target,
+            "decision": "UNRESOLVED",
+            "review_required": True,
+            "selection_authorized": False,
+            "candidate_count": len(rows),
+            "truncated": len(rows) > 12,
+            "candidates": [
+                {
+                    "flyer_identifier": row.slug,
+                    "route_region": row.route_region,
+                    "valid_from": row.valid_from.isoformat(),
+                    "valid_until": row.valid_until.isoformat(),
+                }
+                for row in rows[:12]
+            ],
+        }
+        super().__init__(f"selected-store {target} ambiguity: count={len(rows)}")
+
+
 @dataclass(frozen=True)
 class FlyerEvidence:
     target: str
@@ -168,9 +199,7 @@ def select_current_and_next(
         if row.valid_from <= today <= row.valid_until
     ]
     if len(current) > 1:
-        raise LidlFamilyDiscoveryError(
-            f"selected-store current ambiguity: count={len(current)} rows={current}"
-        )
+        raise LidlFamilyAmbiguityError(target="current", candidates=current)
 
     future = [row for row in rows if row.valid_from > today]
     nearest: list[FlyerCandidate] = []
@@ -178,9 +207,7 @@ def select_current_and_next(
         start = min(row.valid_from for row in future)
         nearest = [row for row in future if row.valid_from == start]
         if len(nearest) != 1:
-            raise LidlFamilyDiscoveryError(
-                f"selected-store next ambiguity: count={len(nearest)} rows={nearest}"
-            )
+            raise LidlFamilyAmbiguityError(target="next", candidates=nearest)
     return {
         "current": current[0] if current else None,
         "next": nearest[0] if nearest else None,

@@ -19,6 +19,7 @@ for candidate in (TOOLS_ROOT, BACKEND_ROOT):
     if text not in sys.path:
         sys.path.insert(0, text)
 
+from app.lidl_family_source_discovery import LidlFamilyAmbiguityError  # noqa: E402
 from lidl_weekly_one_shot import (  # noqa: E402
     StoreBinding,
     berlin_today,
@@ -312,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _blocked_manifest(args: argparse.Namespace, exc: Exception) -> dict[str, Any]:
+    review = exc.review if isinstance(exc, LidlFamilyAmbiguityError) else None
     return {
         "schema_version": 1,
         "controller_version": CONTROLLER_VERSION,
@@ -319,6 +321,7 @@ def _blocked_manifest(args: argparse.Namespace, exc: Exception) -> dict[str, Any
         "reason": f"controller_contract_error:{type(exc).__name__}:{exc}",
         "one_shot_result": None,
         "one_shot_reason": None,
+        "multi_candidate_review": review,
         "target": args.target,
         "today_berlin": args.today.isoformat(),
         "execution_fingerprint": None,

@@ -175,6 +175,7 @@ ONE_SHOT="$RUN_DIR/controller/one-shot/one-shot-status.json"
 python3 - "$MANIFEST" "$ONE_SHOT" "$RUN_DIR/sanitized-summary.json" "$EXPECTED_SHA" "$IMAGE_ID" "$TARGET" "$AS_OF" "$CONTROLLER_RC" <<'PY'
 from __future__ import annotations
 import json
+from datetime import date
 from pathlib import Path
 import re
 import sys
@@ -285,6 +286,69 @@ summary = {
     'systemd_change_authorized': False,
     'bounded_retry_authorized': False,
 }
+review = manifest.get('multi_candidate_review')
+if review is not None:
+    if state != 'BLOCKED' or one_shot_present:
+        raise SystemExit('multi-candidate review requires an early BLOCKED state')
+    if not isinstance(review, dict) or set(review) != {
+        'schema_version', 'target', 'decision', 'review_required',
+        'selection_authorized', 'candidate_count', 'truncated', 'candidates',
+    }:
+        raise SystemExit('invalid multi-candidate review schema')
+    if (type(review['schema_version']) is not int or review['schema_version'] != 1
+        or review['target'] not in {'current', 'next'}
+        or review['decision'] != 'UNRESOLVED'
+        or review['review_required'] is not True
+        or review['selection_authorized'] is not False
+        or type(review['candidate_count']) is not int
+        or type(review['truncated']) is not bool
+        or not isinstance(review['candidates'], list)):
+        raise SystemExit('invalid multi-candidate review contract')
+    rows = review['candidates']
+    total = review['candidate_count']
+    if not 2 <= len(rows) <= 12 or total < len(rows):
+        raise SystemExit('invalid multi-candidate review count')
+    if review['truncated'] != (total > len(rows)) or (review['truncated'] and len(rows) != 12):
+        raise SystemExit('invalid multi-candidate review truncation')
+    checked = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {
+            'flyer_identifier', 'route_region', 'valid_from', 'valid_until',
+        }:
+            raise SystemExit('unsafe multi-candidate entry')
+        flyer = row['flyer_identifier']
+        region = row['route_region']
+        if (not isinstance(flyer, str)
+            or not re.fullmatch(r'aktionsprospekt-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}-\d{4}-[a-z0-9]{1,32}', flyer)
+            or not isinstance(region, str)
+            or not re.fullmatch(r'\d{1,4}', region)):
+            raise SystemExit('unsafe multi-candidate identity')
+        try:
+            start = date.fromisoformat(row['valid_from'])
+            end = date.fromisoformat(row['valid_until'])
+        except (TypeError, ValueError) as exc:
+            raise SystemExit('invalid multi-candidate date') from exc
+        if (start > end or start.isoformat() != row['valid_from']
+            or end.isoformat() != row['valid_until']):
+            raise SystemExit('invalid multi-candidate period')
+        checked.append(row)
+    sort_key = lambda row: (
+        row['valid_from'], row['valid_until'],
+        row['flyer_identifier'], row['route_region'],
+    )
+    if (checked != sorted(checked, key=sort_key)
+        or len({(row['flyer_identifier'], row['route_region']) for row in checked}) != len(checked)):
+        raise SystemExit('multi-candidate identities are unordered or duplicated')
+    summary['multi_candidate_review'] = {
+        'schema_version': 1,
+        'target': review['target'],
+        'decision': 'UNRESOLVED',
+        'review_required': True,
+        'selection_authorized': False,
+        'candidate_count': total,
+        'truncated': review['truncated'],
+        'candidates': checked,
+    }
 output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 PY
 chown andris:andris "$RUN_DIR/sanitized-summary.json"
