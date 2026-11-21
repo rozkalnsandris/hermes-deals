@@ -246,6 +246,12 @@ def capture_parallel_campaign_sources(
     """
     _require(isinstance(client, httpx.Client), "CLIENT_REQUIRED")
     _require(
+        client.auth is None
+        and "authorization" not in client.headers
+        and "proxy-authorization" not in client.headers,
+        "AUTHENTICATED_CLIENT_NOT_ALLOWED",
+    )
+    _require(
         isinstance(binding, StoreBinding) and binding == StoreBinding(),
         "UNSUPPORTED_SELECTED_STORE",
     )
