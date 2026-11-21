@@ -134,16 +134,22 @@ def _fetch_candidate(
     cookies: str,
     pdf_hosts: frozenset[str],
 ) -> tuple[FlyerEvidence, dict[str, Any]]:
+    # The selected-store hub may decorate the same route with a query or
+    # trailing slash. Bind the exact first-party path and request only its
+    # canonical form; never forward hub-provided query parameters.
+    canonical_viewer_url = (
+        f"https://www.lidl.de/l/prospekte/{candidate.slug}/ar/{candidate.route_region}"
+    )
+    expected_path = urlsplit(canonical_viewer_url).path
     _require(
-        _trusted_https_url(
-            candidate.viewer_url, frozenset({"www.lidl.de"})
-        )
-        and candidate.viewer_url
-        == f"https://www.lidl.de/l/prospekte/{candidate.slug}/ar/{candidate.route_region}",
+        _trusted_https_url(candidate.viewer_url, frozenset({"www.lidl.de"}))
+        and urlsplit(candidate.viewer_url).path in (
+            expected_path, expected_path + "/"
+        ),
         "INVALID_VIEWER_ROUTE",
     )
     viewer_html = _read_only_get(
-        client, candidate.viewer_url,
+        client, canonical_viewer_url,
         allowed_hosts=frozenset({"www.lidl.de"}),
         headers={"Cookie": cookies, "Accept": "text/html"},
         limit=_VIEWER_LIMIT,
@@ -205,8 +211,8 @@ def _fetch_candidate(
         route_region=candidate.route_region,
         valid_from=candidate.valid_from.isoformat(),
         valid_until=candidate.valid_until.isoformat(),
-        viewer_url=candidate.viewer_url,
-        viewer_final_url=candidate.viewer_url,
+        viewer_url=canonical_viewer_url,
+        viewer_final_url=canonical_viewer_url,
         official_flyer_id=official_id,
         document_url=pdf_url,
         advertised_regions=advertised,
@@ -220,6 +226,13 @@ def _fetch_candidate(
     )
     capture = {
         "viewer_sha256": sha256(viewer_html).hexdigest(),
+        "hub_viewer_url_sha256": sha256(
+            candidate.viewer_url.encode("utf-8")
+        ).hexdigest(),
+        "viewer_request_url_sha256": sha256(
+            canonical_viewer_url.encode("utf-8")
+        ).hexdigest(),
+        "viewer_url_normalized": candidate.viewer_url != canonical_viewer_url,
         "api_request_url_sha256": sha256(
             f"{FLYER_API_URL}?{urlencode(api_params)}".encode("utf-8")
         ).hexdigest(),

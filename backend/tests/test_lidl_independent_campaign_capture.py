@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from hashlib import sha256
 import unittest
 
 import httpx
@@ -201,6 +202,60 @@ class LidlIndependentCampaignCaptureTests(unittest.TestCase):
                               "viewer_url"} & set(lane))
         self.assertEqual(len(result["hub_raw_sha256"]), 64)
         self.assertEqual(len(result["selected_store_context_sha256"]), 64)
+
+    def test_safe_hub_viewer_decorations_are_not_sent_as_requests(self) -> None:
+        transport = FakeOfficialTransport()
+        original_first = f"https://www.lidl.de/l/prospekte/{FIRST}/ar/10/?origin=hub"
+        original_second = f"https://www.lidl.de/l/prospekte/{SECOND}/ar/21?ref=hub"
+        transport.hub_body = (
+            f'<a href="{original_first}">first</a>\n'
+            f'<a href="{original_second}">second</a>'
+        )
+        report, sources = capture(transport)
+        self.assert_blocked(report)
+        self.assertTrue(report["capture_complete"])
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(len(transport.requests), 7)
+        for (slug, region), original in (
+            ((FIRST, "10"), original_first),
+            ((SECOND, "21"), original_second),
+        ):
+            canonical = f"https://www.lidl.de/l/prospekte/{slug}/ar/{region}"
+            evidence = sources[(slug, region)]
+            self.assertEqual(evidence.viewer_url, canonical)
+            self.assertEqual(evidence.viewer_final_url, canonical)
+            self.assertTrue(any(str(r.url) == canonical for r in transport.requests))
+            lane = next(row for row in report["campaigns"]
+                        if row["flyer_identifier"] == slug)
+            self.assertEqual(lane["hub_viewer_url_sha256"],
+                             sha256(original.encode("utf-8")).hexdigest())
+            self.assertEqual(lane["viewer_request_url_sha256"],
+                             sha256(canonical.encode("utf-8")).hexdigest())
+            self.assertTrue(lane["viewer_url_normalized"])
+        self.assertFalse(any(req.url.query for req in transport.requests
+                             if req.url.host == "www.lidl.de"))
+
+    def test_different_viewer_path_and_fragment_stay_fail_closed(self) -> None:
+        for href in (
+            f"/untrusted/l/prospekte/{FIRST}/ar/10",
+            f"/l/prospekte/{FIRST}/ar/10/more",
+            f"/l/prospekte/{FIRST}/ar/10#unexpected",
+        ):
+            with self.subTest(href=href):
+                transport = FakeOfficialTransport()
+                transport.hub_body = (
+                    f'<a href="{href}">first</a>\n'
+                    f'<a href="/l/prospekte/{SECOND}/ar/21">second</a>'
+                )
+                report, sources = capture(transport)
+                self.assert_blocked(report)
+                self.assertFalse(report["capture_complete"])
+                self.assertEqual(set(sources), {(SECOND, "21")})
+                self.assertEqual(
+                    report["campaigns"][0]["capture_failure_code"],
+                    "INVALID_VIEWER_ROUTE",
+                )
+                self.assertEqual(len(transport.requests), 4)
 
     def test_selected_store_cookies_are_not_sent_to_api_or_pdf(self) -> None:
         transport = FakeOfficialTransport()
