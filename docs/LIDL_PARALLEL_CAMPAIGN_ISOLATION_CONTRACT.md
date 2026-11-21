@@ -15,24 +15,24 @@ The observed source validity, regions and hashes were confirmed in memory, **not
 
 ## Pure, testable contract
 
-Module: \`backend/app/lidl_parallel_campaign_isolation.py\`.
+Module: `backend/app/lidl_parallel_campaign_isolation.py`.
 
-\`plan_parallel_campaign_isolation(ambiguity, store_external_id, berlin_as_of, source_evidence)\` accepts a complete BLOCKED ambiguity plus each candidate's independently acquired \`FlyerEvidence\` (raw JSON/PDF bytes held by the caller). It delegates full validation to \`inspect_independent_campaign_sources\`: campaign identity, canonical dates, selected-store binding, official flyer UUID, advertised route region, API metadata, PDF header, raw/PDF lengths and SHA-256, and URL properties. Unsupported/truncated/extra/injected candidates are rejected by the existing strict validators.
+`plan_parallel_campaign_isolation(ambiguity, store_external_id, berlin_as_of, source_evidence)` accepts a complete BLOCKED ambiguity plus each candidate's independently acquired `FlyerEvidence` (raw JSON/PDF bytes held by the caller). It delegates full validation to `inspect_independent_campaign_sources`: campaign identity, canonical dates, selected-store binding, official flyer UUID, advertised route region, API metadata, PDF header, raw/PDF lengths and SHA-256, and URL properties. Unsupported/truncated/extra/injected candidates are rejected by the existing strict validators.
 
-Each independently validated snapshot receives a source-revision-specific \`campaign_namespace_sha256\` binding store, target, flyer slug and route, date range, official UUID and verified provenance SHA-256. These digests are **logical identity only**: no directories, tables, offer IDs or publisher namespaces are created. Missing or invalid snapshots are quarantined without a trusted namespace; another candidate can never replace them.
+Each independently validated snapshot receives a source-revision-specific `campaign_namespace_sha256` binding store, target, flyer slug and route, date range, official UUID and verified provenance SHA-256. These digests are **logical identity only**: no directories, tables, offer IDs or publisher namespaces are created. Missing or invalid snapshots are quarantined without a trusted namespace; another candidate can never replace them.
 
-For **already verified** campaign pairs, the pure routine produces review-only \`conflict_quarantine\` records if:
+For **already verified** campaign pairs, the pure routine produces review-only `conflict_quarantine` records if:
 
 - the official API advertised region sets overlap within overlapping validity dates;
 - the official flyer UUID is reused across distinct campaign identities;
 - the exact PDF SHA-256 is reused across distinct campaign identities.
 
-Each matching pair quarantines **both** source lanes; all relevant reasons are retained. Source order does not imply priority. Shared regions or PDF bytes do not establish equal products. There is no candidate parsing, price comparison, automatic product linking, product identity inference or deduplication. Without a detected pairwise conflict, a validated lane remains \`AWAITING_PROGRAM_APPLICABILITY\`, **not approved**. A source missing/invalid lane stays \`QUARANTINED\`.
+Each matching pair quarantines **both** source lanes; all relevant reasons are retained. Source order does not imply priority. Shared regions or PDF bytes do not establish equal products. There is no candidate parsing, price comparison, automatic product linking, product identity inference or deduplication. Without a detected pairwise conflict, a validated lane remains `AWAITING_PROGRAM_APPLICABILITY`, **not approved**. A source missing/invalid lane stays `QUARANTINED`.
 
-The output contains only selected-store and candidate identity metadata, hashed source provenance, advisory conflict codes, shared region codes and validity intervals. No raw PDF/JSON, source URLs, product mappings, prices, offers, credentials or network access. All outputs explicitly preserve \`gate_a_result=BLOCKED\`, \`decision=UNRESOLVED\`, \`review_required=true\`, \`origin_attested=false\`, and every selection/classification/collection/deduplication/production/write authorization as false. Hash matching is integrity checking, **not cryptographic proof of origin**.
+The output contains only selected-store and candidate identity metadata, hashed source provenance, advisory conflict codes, shared region codes and validity intervals. No raw PDF/JSON, source URLs, product mappings, prices, offers, credentials or network access. All outputs explicitly preserve `gate_a_result=BLOCKED`, `decision=UNRESOLVED`, `review_required=true`, `origin_attested=false`, and every selection/classification/collection/deduplication/production/write authorization as false. Hash matching is integrity checking, **not cryptographic proof of origin**.
 
 ## Acceptance and next authority gates
 
-\`backend/tests/test_lidl_parallel_campaign_isolation.py\` exercises the two-campaign overlap, deterministic order, incomplete and tampered snapshots, unrelated regions, official UUID and PDF content collisions, source revision changes, three-campaign pairs, swapped inputs, injected authority and invalid extra/truncated identities. Tests are synthetic fixtures; do not confuse them with live Lidl product or program evidence.
+`backend/tests/test_lidl_parallel_campaign_isolation.py` exercises the two-campaign overlap, deterministic order, incomplete and tampered snapshots, unrelated regions, official UUID and PDF content collisions, source revision changes, three-campaign pairs, swapped inputs, injected authority and invalid extra/truncated identities. Tests are synthetic fixtures; do not confuse them with live Lidl product or program evidence.
 
 The source-only PR must pass required exact-head CI/reviews, then requires a separate owner MERGE. A subsequent data-processing stage still needs separately reviewed provenance-bound product-level parsing, explicit campaign applicability rules, review procedures for real offer duplicates/conflicts, and independent LIVE authorities for any on-host capture, Gate A/B integration, immutable retention, production DB/Review or publication. The present module cannot produce any of those effects.
