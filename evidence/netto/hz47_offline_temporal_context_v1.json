@@ -1,0 +1,4447 @@
+{
+  "schema": "hermes.netto.hz47.offline_temporal_screening.v1",
+  "status": "READ_ONLY_DIAGNOSTIC_NOT_PRODUCTION_TRUST",
+  "rules": "page headings are not individual offer validity; no product mapping, price ownership or activation is authorized",
+  "summary": {
+    "pages": 72,
+    "candidate_count": 261,
+    "candidate_pages": 49,
+    "page_heading_categories": {
+      "printed_range": 49,
+      "single_day_potential": 2,
+      "permanent_catalog": 14,
+      "november_catalog": 1,
+      "unknown_or_campaign": 4,
+      "checkout_area_condition": 2
+    },
+    "candidate_heading_categories": {
+      "printed_range": 199,
+      "single_day_potential": 2,
+      "permanent_catalog": 56,
+      "november_catalog": 3,
+      "checkout_area_condition": 1
+    },
+    "candidate_page_special_cases": {
+      "single_day_potential": [
+        6,
+        7
+      ],
+      "printed_range": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        8,
+        9,
+        12,
+        13,
+        18,
+        19,
+        20,
+        21,
+        24,
+        25,
+        26,
+        27,
+        30,
+        31,
+        34,
+        35,
+        38,
+        42,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        56,
+        57,
+        60,
+        62
+      ],
+      "permanent_catalog": [
+        10,
+        11,
+        14,
+        15,
+        16,
+        17,
+        28,
+        29,
+        33,
+        37,
+        54,
+        55
+      ],
+      "november_catalog": [
+        32
+      ],
+      "checkout_area_condition": [
+        65
+      ]
+    },
+    "unknown_category_candidate_pages": [],
+    "pages_with_explicit_thursday_start": [
+      46,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53
+    ],
+    "pages_with_explicit_friday_start": [
+      60,
+      61,
+      62
+    ],
+    "source_commit_checked": "c0e61edd2ee417ad98c9f742582536febcb2381a",
+    "source_data_blob": "d11174e3f4f98a1072954fc64ed29f1db84815e8",
+    "pdf_sha256": "c8551dd197ac3050e11a9419a73b174803e5b8684890404b10b77520d3e7436a",
+    "verified_product_prices": 0,
+    "verified_candidate_specific_validity": 0,
+    "verified_product_identities": 0,
+    "deployment_allowed": false
+  },
+  "scope_uncertainties": {
+    "p37": "Medicinal teas/honey and vitamin drinks were excluded from this draft, while plasters and seawater nasal spray are included; scope remains subject to policy review.",
+    "p42": "OSRAM batteries are one draft candidate; treatment as household consumables versus excluded electronics is unresolved.",
+    "p62": "Fuel/briquettes are one draft candidate; product category acceptance remains unresolved.",
+    "p65": "Wrigley gum is shown under checkout-area-only banner; do not assume general shelf or store availability."
+  },
+  "pages": [
+    {
+      "page": 1,
+      "candidates": 8,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "0d1acf365f00905008cbe2529a2cae7c61a8751a09d7308a04ac0a8ceaf22d27",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 2,
+      "candidates": 8,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "MontagMontag 16.11.16.11. –– SamstagSamstag 21.11.2621.11.26 Top Angebote Bananen Costa Rica/ der Woche",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "90dd6e4ba5ed1510d13f82f7b14fa2fdd74dbe54a17c7956083bab3b62b6f713",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 3,
+      "candidates": 3,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Gratis bis zu Lindt Lindor! 50fach °Punkte",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "aed108ff53a0508a97305be6d1039ab78d11bb09d81848e4e77db1cb84943ad1",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 4,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Knackige Frische zum Sparpreis.",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "083d782c87b4fb5bb13989e1f1316361392b54083d97fc9e3626222b1cdcba77",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 5,
+      "candidates": 7,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "cb2e2b2de5d9184f2d2b317412f8f32bebf9bf09fa787bbd42b7c68001679f07",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 6,
+      "candidates": 1,
+      "page_category": "single_day_potential",
+      "heading_source_excerpt": "Dienstag, 17.11.2026 DIENSTAGS-",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-17",
+        "through": "2026-11-17"
+      },
+      "limitation": "Dienstags-Kracher heading; exact day needs offer-specific conditions",
+      "page_image_sha256": "3b6c65f588fbf34b94c6a5e4b85961b73817e504125d5529b65f5b29346efc69",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 7,
+      "candidates": 1,
+      "page_category": "single_day_potential",
+      "heading_source_excerpt": "Mittwoch, 18.11.2026 MITTWOCHS-",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-18",
+        "through": "2026-11-18"
+      },
+      "limitation": "Mittwochs-Kracher heading; exact day needs offer-specific conditions",
+      "page_image_sha256": "a7810a8e7299a413c82f4073e3a3dcac7b723b72ae8be18c6174bda494f7949e",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 8,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Top Auswahl. 3.91 SPARENTop Preis.",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "ae3e8558c67fa32c38f087ee4304e0b8b88286ee94a023f3328713bbe14cb2de",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 9,
+      "candidates": 8,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 bis zu 21g PROTEIN pro 100g",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "72a6b7358f559b1bf29f5b4907bbd6f75f8763668b3398d3303fdb1227ff1d89",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 10,
+      "candidates": 3,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Bester Preis: Unsere Eigenmarke",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "ef47b6928ea29fe0821d7b0fba832b1615be8b8320d5def70e4898b1e0aa5aeb",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 11,
+      "candidates": 6,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "b092728bd90f62fa4a987377131b801c7d9524f61e202ba6fd71e44c9e61da0d",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 12,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Große Frische-Vielfalt kl i P i",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "9b4c9626dc79c67ef24eb5244c876fd31138a9250ade8b456f76074137952b2e",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 13,
+      "candidates": 7,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Raclette Scheiben 400 g (8.73 / kg)",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "14e7847bf9caa5911c89d08634c0661578f29cde352597f1a984b88004cba00e",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 14,
+      "candidates": 4,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Bester Preis: Unsere Eigenmarke",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "a2ba39e307a7cefcc46913a56115d3537a20cf79437f5812bd2e4116101cc976",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 15,
+      "candidates": 7,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "7709fbfbe23430fccd34dd3a09039abff62e29791fa5278807fda1e76f636405",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 16,
+      "candidates": 5,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Der beste Preis: Unsere Eigenmarke",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "3d554f29bd9812cde44492c7c03eec4e1c190101138769377c0f24421bf62182",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 17,
+      "candidates": 7,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "5ce7227e77e0098989d746cb52b5d1ece481a670132d318bcc010393d04305f0",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 18,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "b169f391a9dd99abff34e4321d23e725dafd99c6e480860aba60398c7261d691",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 19,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "3c689ed26322f0bed065df0e6b647495cd8e82964300911b75c3d12dcaac7173",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 20,
+      "candidates": 4,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "7033136c2e785b0fd609b2072e8864f2b7ed165c6d9bba9a95db600799ade01b",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 21,
+      "candidates": 8,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Maggi Guten RTL+Appetit Suppe versch. Sorten 0,75 Liter – 1 Liter GRATIS (0.79 – 1",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "2e9b2f38211b5e4506be09a3d10bc356bda0c708eec2c85f85bb118fee2ef42c",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 22,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Advents- zauber",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "252f5008814f6165c7c94141c1417b020e395b23659ce7e67ac73904bfbf9fc6",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 23,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "f14fe94bea2b1d9c6aa0fd94a8919f2383382d8cda2dc2b5a7fa16d7d6b8a15b",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 24,
+      "candidates": 7,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Teile die Vorfreude: Der 2. Adventskalender zum halben Preis Beim Kauf eines",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "e26418ab98d81029b725bc0b59ab71aff78cb40302f7c380544821875a1ae762",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 25,
+      "candidates": 5,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Exklusiv mit der App 1 20%",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "87d6aacb3a3cf60329e6ba70504c4c571be2e52f44b06e4b3c58b240e99cadb2",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 26,
+      "candidates": 4,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 PREIS-SENKUNG",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "f06a7cea0f1f8c171c2e97ab55cb15e9168187cc85b591846b124bdf1c2b475f",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 27,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "2dd34b2d82076f86365506a7081f63437270db2ec59556780be5c4725eaa4399",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 28,
+      "candidates": 4,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Bester Preis: Unsere Eigenmarke",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "fcd3c2521e5203268af39b5e733c2442f5c0f4e8c47e3c121d6f08c241f1b5fc",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 29,
+      "candidates": 5,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Früchtetee versch. Sorten",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "df0b589103c24c47bd798ddc4b464bc4b69e100fcfdbac76cd744befaa476e5e",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 30,
+      "candidates": 7,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Brinkhoff’s Premium Pilsener No.1 Dortmund 20 x 0,5 Liter zzgl. Pfand 3.10",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "2c8e08cd4c59cea6ef8504d89fc50d99d4875231056b9dcf828b219668aea159",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 31,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Prost auf starke Los-Nr.: 4000126917Angebote!",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "6261eb112fe78c1e334996c1b9e93b99bb6f8331a1903c0a07685be1359bdbfb",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 32,
+      "candidates": 3,
+      "page_category": "november_catalog",
+      "heading_source_excerpt": "Dauerhaft im November 1 Monat. 3 Weine. Top Preis.",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-01",
+        "through": "2026-11-30"
+      },
+      "limitation": "printed month-wide catalog headline, no weekly offer guarantee",
+      "page_image_sha256": "afc21ad21c979956f0336a86d5527d619fb3dc85f7aaf32f9b203aa283fccb7d",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 33,
+      "candidates": 5,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Entdecke unsere Eigenmarken Deutschland Deutschland",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "1985fda9c2a61c887adada9f035bb38672df6cc224b0bc345a8776fa8cb4ce54",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 34,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 13g täglich PROTEIN pro 100g über 80 frisch gebackene Artikel",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "d5ddc638a00fdb0df67d6794642a73f3c589f1b5c5248e3966cbfa227ca7b0c7",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 35,
+      "candidates": 5,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Rinder-Bur- ger, Chicken-Heist Deal: Burger oder Hot-Dog 2 x 150 g; 2 x",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "62e9c171ef1b28a9166be9f8dbcd8c97778d3c3b1e5767a364d7796644a9de47",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 36,
+      "candidates": 0,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "8ad11a74922c07e2a7024712d92f1ff36eb3d58d8977d93da41c6a3255f8110a",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 37,
+      "candidates": 3,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "898a23e2dc8206fdd17c56ff3dafe723fa8cfcffab50d16c3e636cf94e9e4896",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 38,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 zu 1 ird w30% sparen",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "59b82fb39c2cda9c3e341d16e1cd1faae4b1496bfb01dd3388de22e2648ced74",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 39,
+      "candidates": 0,
+      "page_category": "unknown_or_campaign",
+      "heading_source_excerpt": "ANGEBOTE DER TV WERBUNG ONLINE BESTELLBAR netto-online.de/tv-hits Traum-BH Shiatsu-Massagegerät FRISCH & mit Reißve",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "no reliable product validity window in upper page heading",
+      "page_image_sha256": "856fec2c69670bfb616332b1bd6fe6b8a7466a36fc951e4b0f01594b670bdd40",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 40,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Herren Größen: M – XL weitere Farben erhältlich",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "82082c9c88598cfdfc0bc5ae8bd78f8bed7190d5c61a43dc55b3d467376681f6",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 41,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Kissenbezug: ca. 80 x 80 cm Bettdeckenbezug: weitere ca. 135 x 200 cm Microfaser- ",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "f1b516ca730f7826fcdf38256f36735d334dc1424c01f98ccf31989dc112d05a",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 42,
+      "candidates": 1,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Leuchtende Adventsstimmung.",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "a0666e170130474394dcce1c46792382258b0226e4287ba5800331a10bc73b64",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 43,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Maße ca. Ø 38 x 8 cm Maße ca. 33 x 22 x 33 cm Maße ca. 15 x 10 x 18 cm",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "79204bad1df72df412c9e8204e10c20942e04905d421b8eec618de5dfbfec602",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 44,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Jetzt nur30 € online netto-online.de schon Filial-Gutschein!1 ab 200€ Mindestbeste",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "c132519ebf30c8bd23d51958a2690135ba32c1eeed6cec1f128e4117b8c4f31e",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 45,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 netto-online.de weitere Farbe Holzspalter 25t online erhältlich",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "df7b1713f1c5e4e2be6c23eb816857c03f4a65d79f4fc20cc12d35c17788fc23",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 46,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26 Großer Spielspaß",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "4314734e70379a52ed4775131d611f029d9121012a24e85b5abb5f3d518e05fb",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 47,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 EXKLUSIV BEI NETTO Volkswagen T1 Camping Bus – NETTO Winteredi-",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "67b1a441fe60aed2732394f92d8ec3e8fabdf4e146e4af54a26c01b7a08ecb46",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 48,
+      "candidates": 4,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26 Ab Donnerstag f ll di P i",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "405ad4a7853dd0faae7762aaa96d9f94fa447a0a37fd65dd61423a5c633d11b8",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 49,
+      "candidates": 8,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26 max. Abgabemenge 4 Packungen",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "8cecec2a1e1cd20d034f5d9b5e1a11188f302f63e8c738516352de3e18929432",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 50,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26 Sparen beim Preissieger",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "442760ed5cddc5cc2e8bd663eed9be02da3b6266370eba96cc1c6be8ae2aea43",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 51,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "332e9af6c67f97475d55ea1ee3f646bc325d9feed91cd36942fb2b5cd6927acb",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 52,
+      "candidates": 7,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "bc6c0614201637218fda5c5bd19d95ae688daa4cd5dad07915ee3a35577fac27",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 53,
+      "candidates": 8,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Donnerstag 19.11. – Samstag 21.11.26",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-19",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Thursday–Saturday page headline",
+      "page_image_sha256": "b794b8b332b5e302df15f8f38cd7630d140f614490f7f5886502eb58be66a932",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 54,
+      "candidates": 3,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Bester Preis: U Ei k",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "6ac37f89850c1c64c4941720ca1d18456014f3f51b5d125043a60da92da78c5d",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 55,
+      "candidates": 4,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "01401bc74172955582b516548277a68eaae706fd24c6529490d0af959dece98d",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 56,
+      "candidates": 5,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 °Punkte sammeln",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "43c5f5caa8817e0cc148db8d15de88bdf5643bdb0d054207e722a196197582b5",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 57,
+      "candidates": 7,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 bis zu 11g PROTEIN pro 100g 1010 2020 100100 Extra°PunkteExtra°Punkte Extra°Punkte",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "a75fc42c2c8afc9481c0942ba2b9c94d1bc81d0bdeff43c79d66d0638aacf532",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 58,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Noch mehr °punkten",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "64f70d8d6e5ceed41e1270eb3a704434c016709deb3cfccf5e5d42299e583462",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 59,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "MontagMontag 16.11.16.11. –– SamstagSamstag 21.11.2621.11.26 == 22%22% == 15%15% RabattRabatt RabattRabatt44FACH °P",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "f1b95bf2d60f6af97d25d41671cfa46cbe45fd483e730836fb44baf19930e57c",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 60,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Jetzt Neu Freitag 20.11.26 – Samstag 21.11.26 Ab jetzt neu 2020Freitags –",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-20",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Friday–Saturday page headline",
+      "page_image_sha256": "ae5d59e2ac7cfa8c6b44703131cd7915e35c7796476e856c3bf0c9ae9dfd8860",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 61,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Jetzt Neu Freitag 20.11.26 – Samstag 21.11.26 °Punkte Knaller Diesen Freitag- Samstag Preisknüller extra °punkten",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-20",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Friday–Saturday page headline",
+      "page_image_sha256": "af4aa85cf34dc22d0c712cedc236b8890aab8eadaf36f6753a3eae309e8fedd2",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 62,
+      "candidates": 6,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Jetzt Neu Freitag 20.11.26 – Samstag 21.11.26 Ab jetzt neu Freitags –",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-20",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Friday–Saturday page headline",
+      "page_image_sha256": "d6ca762df434aab26bc3f4c6a18ea63bee85fb404c2f86aad9fc14376647ff1b",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 63,
+      "candidates": 0,
+      "page_category": "unknown_or_campaign",
+      "heading_source_excerpt": "Noch mehr entdecken mit dem Newsletter",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "no reliable product validity window in upper page heading",
+      "page_image_sha256": "eab843e385782ad9390b2c8ef1cec5821ba1534b44ae969a8da8e4c7db7ef88d",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 64,
+      "candidates": 0,
+      "page_category": "checkout_area_condition",
+      "heading_source_excerpt": "im Kassenbereich entdecken Exklusive Angebote im Kassenbereich deines Netto Marktes",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "checkout-area only; dates and selected store not yet verified per product",
+      "page_image_sha256": "b3249d536d58cb04c12195ac88a1f61cb2fc3de1c831d25c75f1b2592facd1e9",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 65,
+      "candidates": 1,
+      "page_category": "checkout_area_condition",
+      "heading_source_excerpt": "im Kassenbereich entdecken Exklusive Angebote im Kassenbereich deines Netto Marktes",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "checkout-area only; dates and selected store not yet verified per product",
+      "page_image_sha256": "d1ab369783da5f0c2178909070f1ba3ebba692c2964ece15ba022c282a603ca5",
+      "in_scope_screening_only": "candidate_proposal"
+    },
+    {
+      "page": 66,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 MaßeMaße GesamtGesamt (B(B xx TT xx H):H): ca.ca. 140140 xx 7070 xx 5353 cmcmJetzt",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "30dee6c62a3aa4b92cfe968297ecf77922ce12550321e085484ee67901d66e8a",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 67,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 Gesamtmaße (L x B x H): ab ca. 180 x 90 x 75 cm Schminktisch mit Spiegel und LED-B",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "c680c4612f489ca1164656121cda704a517d5f3d6f2adf5dfec53a483e460b87",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 68,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 JetztJetzt netto-online.denetto-online.deschonschon",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "981fad78b9408b52a3c1074843964926168ef0fcdb2395d312d3b7c57e149d49",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 69,
+      "candidates": 0,
+      "page_category": "printed_range",
+      "heading_source_excerpt": "Montag 16.11. – Samstag 21.11.26 netto-online.de Alle Schlitten in verschieden Farben erhätlich",
+      "printed_candidate_window_not_verified": {
+        "from": "2026-11-16",
+        "through": "2026-11-21"
+      },
+      "limitation": "explicit Monday–Saturday page headline",
+      "page_image_sha256": "87a2a06951370cbe8518f54aaf4686101b6ef6d2d98c7990ce8d968bc79f2c55",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 70,
+      "candidates": 0,
+      "page_category": "unknown_or_campaign",
+      "heading_source_excerpt": "PAYBACK bei Netto Jetzt PAYBACK mit der",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "no reliable product validity window in upper page heading",
+      "page_image_sha256": "7497c4ebfb741d6c274e43a6ff6183c1854cb4b6fd327cc903b96934819b65c7",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 71,
+      "candidates": 0,
+      "page_category": "unknown_or_campaign",
+      "heading_source_excerpt": "RTL+Entdecke die Netto plus App",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "no reliable product validity window in upper page heading",
+      "page_image_sha256": "34c500739f984158ca3ece9d9f594eaa3febf37230f926074c2b1614411fe3e7",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    },
+    {
+      "page": 72,
+      "candidates": 0,
+      "page_category": "permanent_catalog",
+      "heading_source_excerpt": "Dauerhaft im Sortiment Mehr Angebote",
+      "printed_candidate_window_not_verified": {
+        "from": null,
+        "through": null
+      },
+      "limitation": "permanent assortment statement, not HZ47 promo validity",
+      "page_image_sha256": "4ab13bbd7e11a68119ad44da9731f95c9ca2a800bef6d1659beda9746fbbd3ad",
+      "in_scope_screening_only": "excluded_pending_scope_confirmation"
+    }
+  ],
+  "candidates": [
+    {
+      "candidate_id": "hz47-p01-c01",
+      "page": 1,
+      "source_label_unverified": "Hackfleisch gemischt",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c02",
+      "page": 1,
+      "source_label_unverified": "Melitta Auslese",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c04",
+      "page": 1,
+      "source_label_unverified": "Paprika rot",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c05",
+      "page": 1,
+      "source_label_unverified": "Rama",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c06",
+      "page": 1,
+      "source_label_unverified": "Ritter Sport Bunte Vielfalt",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c07",
+      "page": 1,
+      "source_label_unverified": "Bauer Fruchtjoghurt",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c08",
+      "page": 1,
+      "source_label_unverified": "Coca-Cola Kombikiste",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p01-c09",
+      "page": 1,
+      "source_label_unverified": "Veltins Pilsener oder Alkoholfrei",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c01",
+      "page": 2,
+      "source_label_unverified": "Bananen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c02",
+      "page": 2,
+      "source_label_unverified": "Schnittbrötchen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c03",
+      "page": 2,
+      "source_label_unverified": "Weihenstephan Butter oder Streichzart",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c04",
+      "page": 2,
+      "source_label_unverified": "Marken-Metzger Salami-Sortiment",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c05",
+      "page": 2,
+      "source_label_unverified": "Maggi Fix",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c06",
+      "page": 2,
+      "source_label_unverified": "Glücksblatt Küchentücher",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c07",
+      "page": 2,
+      "source_label_unverified": "Monster Energy Drink",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p02-c08",
+      "page": 2,
+      "source_label_unverified": "Jack Daniels Tennessee",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p03-c01",
+      "page": 3,
+      "source_label_unverified": "Lindt Weihnachtsmänner",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p03-c02",
+      "page": 3,
+      "source_label_unverified": "Orangen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p03-c03",
+      "page": 3,
+      "source_label_unverified": "Apfel rot",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p04-c01",
+      "page": 4,
+      "source_label_unverified": "Kanzi Apfel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p04-c02",
+      "page": 4,
+      "source_label_unverified": "Champignons weiß",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p04-c03",
+      "page": 4,
+      "source_label_unverified": "Chiquita Avocado",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p04-c04",
+      "page": 4,
+      "source_label_unverified": "Speisekartoffeln",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p04-c05",
+      "page": 4,
+      "source_label_unverified": "Snackradieschen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p04-c06",
+      "page": 4,
+      "source_label_unverified": "Auberginen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c01",
+      "page": 5,
+      "source_label_unverified": "Bio Möhren",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c02",
+      "page": 5,
+      "source_label_unverified": "Suppengemüse",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c03",
+      "page": 5,
+      "source_label_unverified": "Eisbergsalat",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c04",
+      "page": 5,
+      "source_label_unverified": "Chiquita Mango",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c05",
+      "page": 5,
+      "source_label_unverified": "Tomaten",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c06",
+      "page": 5,
+      "source_label_unverified": "Zespri Kiwi gold",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p05-c07",
+      "page": 5,
+      "source_label_unverified": "Kaki",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p06-c01",
+      "page": 6,
+      "source_label_unverified": "Rispentomaten",
+      "page_heading_category": "single_day_potential",
+      "printed_page_start_provisional": "2026-11-17",
+      "printed_page_end_provisional": "2026-11-17",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p07-c01",
+      "page": 7,
+      "source_label_unverified": "Pomelo Pink",
+      "page_heading_category": "single_day_potential",
+      "printed_page_start_provisional": "2026-11-18",
+      "printed_page_end_provisional": "2026-11-18",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p08-c01",
+      "page": 8,
+      "source_label_unverified": "Schweinefilet",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p08-c02",
+      "page": 8,
+      "source_label_unverified": "Schweine-Bauch",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p08-c03",
+      "page": 8,
+      "source_label_unverified": "Schweine-Schnitzel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p08-c04",
+      "page": 8,
+      "source_label_unverified": "Suppenfleisch vom Rind",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p08-c05",
+      "page": 8,
+      "source_label_unverified": "Gulasch vom Rind",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p08-c06",
+      "page": 8,
+      "source_label_unverified": "Mais-Hähnchen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c01",
+      "page": 9,
+      "source_label_unverified": "Hähnchen- oder Putenbrustfilet",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c02",
+      "page": 9,
+      "source_label_unverified": "Snack It Kabanossi to go",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c03",
+      "page": 9,
+      "source_label_unverified": "Frikadellen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c04",
+      "page": 9,
+      "source_label_unverified": "Geflügelwiener",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c05",
+      "page": 9,
+      "source_label_unverified": "Mettenden",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c06",
+      "page": 9,
+      "source_label_unverified": "Bockwurst",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c07",
+      "page": 9,
+      "source_label_unverified": "Bacon",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p09-c08",
+      "page": 9,
+      "source_label_unverified": "Prosciutto Cotto",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p10-c01",
+      "page": 10,
+      "source_label_unverified": "Salami Sticks Geflügel",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p10-c02",
+      "page": 10,
+      "source_label_unverified": "Geflügelsalami",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p10-c03",
+      "page": 10,
+      "source_label_unverified": "Wiener Würstchen",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p11-c01",
+      "page": 11,
+      "source_label_unverified": "Chicken Nuggets",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p11-c02",
+      "page": 11,
+      "source_label_unverified": "Geflügel-Gutsherrenbrühwurstpastete",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p11-c03",
+      "page": 11,
+      "source_label_unverified": "Leberwurst",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p11-c04",
+      "page": 11,
+      "source_label_unverified": "Hähnchenfleisch im eigenen Saft",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p11-c05",
+      "page": 11,
+      "source_label_unverified": "Truthahnfleisch im eigenen Saft",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p11-c06",
+      "page": 11,
+      "source_label_unverified": "Schweinefleisch im eigenen Saft",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p12-c01",
+      "page": 12,
+      "source_label_unverified": "Weihenstephan Rahm- oder Mascarpone Joghurt",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p12-c02",
+      "page": 12,
+      "source_label_unverified": "Müller Pudding",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p12-c03",
+      "page": 12,
+      "source_label_unverified": "Oatly Hafer Drink Barista",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p12-c04",
+      "page": 12,
+      "source_label_unverified": "Milram Gewürzquark",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p12-c05",
+      "page": 12,
+      "source_label_unverified": "Hitchcock Ingwer Shots",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p12-c06",
+      "page": 12,
+      "source_label_unverified": "Ergüllü mediterrane Cremes",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c01",
+      "page": 13,
+      "source_label_unverified": "Raclette Scheiben",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c02",
+      "page": 13,
+      "source_label_unverified": "Raclettekäse Scheiben",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c03",
+      "page": 13,
+      "source_label_unverified": "Giovanni Rana Pfannengnocchi",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c04",
+      "page": 13,
+      "source_label_unverified": "Rehwild Keule ohne Knochen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c05",
+      "page": 13,
+      "source_label_unverified": "Burgis Kartoffelknödel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c06",
+      "page": 13,
+      "source_label_unverified": "Wagner Steinofen Pizza oder Flammkuchen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p13-c07",
+      "page": 13,
+      "source_label_unverified": "Grünkohl",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p14-c01",
+      "page": 14,
+      "source_label_unverified": "Fertiggericht gekühlt",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p14-c02",
+      "page": 14,
+      "source_label_unverified": "Pfannengemüse",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p14-c03",
+      "page": 14,
+      "source_label_unverified": "High Protein Fertiggerichte",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p14-c04",
+      "page": 14,
+      "source_label_unverified": "Schnelle Küche Fertiggerichte",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c01",
+      "page": 15,
+      "source_label_unverified": "Asia Fertiggericht",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c02",
+      "page": 15,
+      "source_label_unverified": "Pizzateig mit Tomatensauce",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c03",
+      "page": 15,
+      "source_label_unverified": "Pfannengerichte",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c04",
+      "page": 15,
+      "source_label_unverified": "Italienisches Fertiggericht",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c05",
+      "page": 15,
+      "source_label_unverified": "Lasagne Bolognese",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c06",
+      "page": 15,
+      "source_label_unverified": "Blätterteig",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p15-c07",
+      "page": 15,
+      "source_label_unverified": "Tiramisu",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p16-c01",
+      "page": 16,
+      "source_label_unverified": "Bio Blütenhonig oder Landhonig",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p16-c02",
+      "page": 16,
+      "source_label_unverified": "Bio Natives Olivenöl",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p16-c03",
+      "page": 16,
+      "source_label_unverified": "Bio Konfitüre Extra",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p16-c04",
+      "page": 16,
+      "source_label_unverified": "Bio Honig",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p16-c05",
+      "page": 16,
+      "source_label_unverified": "Natives Rapsöl",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c01",
+      "page": 17,
+      "source_label_unverified": "Bio Langkornreis",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c02",
+      "page": 17,
+      "source_label_unverified": "Bio Basmati Naturreis",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c03",
+      "page": 17,
+      "source_label_unverified": "Bio pflanzlicher Brotaufstrich",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c04",
+      "page": 17,
+      "source_label_unverified": "Bio Kanadischer Ahornsirup",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c05",
+      "page": 17,
+      "source_label_unverified": "Bio Pesto",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c06",
+      "page": 17,
+      "source_label_unverified": "Bio-Tomaten Sahne Sauce",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p17-c07",
+      "page": 17,
+      "source_label_unverified": "Bio Vollkorn Teigwaren",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p18-c01",
+      "page": 18,
+      "source_label_unverified": "Tassimo Kaffeekapseln",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p18-c02",
+      "page": 18,
+      "source_label_unverified": "Ferrero Küsschen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p18-c03",
+      "page": 18,
+      "source_label_unverified": "Sheba Katzennahrung",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p18-c04",
+      "page": 18,
+      "source_label_unverified": "Purina Adventuros / Dentalife Hundesnacks",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p18-c05",
+      "page": 18,
+      "source_label_unverified": "Hengstenberg Knax Gewürzgurken",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p18-c06",
+      "page": 18,
+      "source_label_unverified": "Miracel Whip",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p19-c01",
+      "page": 19,
+      "source_label_unverified": "Coppenrath & Wiese Meistertorte",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p19-c02",
+      "page": 19,
+      "source_label_unverified": "Weihenstephan Cremig & Quarkig",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p19-c03",
+      "page": 19,
+      "source_label_unverified": "Coppenrath & Wiese Brötchen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p19-c04",
+      "page": 19,
+      "source_label_unverified": "Kerrygold Käsescheiben",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p19-c05",
+      "page": 19,
+      "source_label_unverified": "Kinder Choco fresh oder Paradiso",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p19-c06",
+      "page": 19,
+      "source_label_unverified": "Raffaello",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p20-c01",
+      "page": 20,
+      "source_label_unverified": "Magnum Bon Bon Eis",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p20-c02",
+      "page": 20,
+      "source_label_unverified": "McCain Golden Longs oder Max Crunch",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p20-c03",
+      "page": 20,
+      "source_label_unverified": "Meica Curry King",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p20-c04",
+      "page": 20,
+      "source_label_unverified": "Mini Babybel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c01",
+      "page": 21,
+      "source_label_unverified": "Maggi Guten Appetit Suppe",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c02",
+      "page": 21,
+      "source_label_unverified": "Knorr Delikatess Soßen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c03",
+      "page": 21,
+      "source_label_unverified": "Bens Original Langkorn Reis",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c04",
+      "page": 21,
+      "source_label_unverified": "Birkel No. 1 Teigwaren",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c05",
+      "page": 21,
+      "source_label_unverified": "Paulaner Spezi oder Cola",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c06",
+      "page": 21,
+      "source_label_unverified": "Freixenet Solare Aperitivo",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c07",
+      "page": 21,
+      "source_label_unverified": "Allgäuer Büble Edelbräu oder Bayrisch Hell",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p21-c08",
+      "page": 21,
+      "source_label_unverified": "Freixenet Carta Premium oder 0,0 % alkoholfrei",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c01",
+      "page": 24,
+      "source_label_unverified": "Toblerone oder Milka Adventskalender",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c02",
+      "page": 24,
+      "source_label_unverified": "Bahlsen Comtess Kuchen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c03",
+      "page": 24,
+      "source_label_unverified": "Dänische Buttercookies",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c04",
+      "page": 24,
+      "source_label_unverified": "Kaba Schokolade",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c05",
+      "page": 24,
+      "source_label_unverified": "Kinder Bueno oder Country",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c06",
+      "page": 24,
+      "source_label_unverified": "Kinder Überraschung",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p24-c07",
+      "page": 24,
+      "source_label_unverified": "Duplo Weihnachtsmann",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p25-c01",
+      "page": 25,
+      "source_label_unverified": "Dominosteine",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p25-c02",
+      "page": 25,
+      "source_label_unverified": "Lambertz Gebäck",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p25-c03",
+      "page": 25,
+      "source_label_unverified": "Weihnachtsfiguren",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p25-c04",
+      "page": 25,
+      "source_label_unverified": "Baumkuchen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p25-c05",
+      "page": 25,
+      "source_label_unverified": "Weihnachtsmischbeutel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p26-c01",
+      "page": 26,
+      "source_label_unverified": "Studentenfutter Classic",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p26-c02",
+      "page": 26,
+      "source_label_unverified": "Nusskernmischung",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p26-c03",
+      "page": 26,
+      "source_label_unverified": "Cashew Cranberry-Mix",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p26-c04",
+      "page": 26,
+      "source_label_unverified": "Cashewkerne",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p27-c01",
+      "page": 27,
+      "source_label_unverified": "Erdnussflips",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p27-c02",
+      "page": 27,
+      "source_label_unverified": "Erdnüsse",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p27-c03",
+      "page": 27,
+      "source_label_unverified": "Erdnüsse im Teigmantel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p27-c04",
+      "page": 27,
+      "source_label_unverified": "Erdnüsse gewürzt",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p27-c05",
+      "page": 27,
+      "source_label_unverified": "Tortilla Chips",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p27-c06",
+      "page": 27,
+      "source_label_unverified": "Linsenchips",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p28-c01",
+      "page": 28,
+      "source_label_unverified": "Kamilletee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p28-c02",
+      "page": 28,
+      "source_label_unverified": "Kräutertee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p28-c03",
+      "page": 28,
+      "source_label_unverified": "Schwarztee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p28-c04",
+      "page": 28,
+      "source_label_unverified": "9-Kräutertee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p29-c01",
+      "page": 29,
+      "source_label_unverified": "Waldfrucht Tee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p29-c02",
+      "page": 29,
+      "source_label_unverified": "Früchtetee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p29-c03",
+      "page": 29,
+      "source_label_unverified": "Hagebutte Hibiskus",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p29-c04",
+      "page": 29,
+      "source_label_unverified": "Kräuter- oder Grüntee Mix",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p29-c05",
+      "page": 29,
+      "source_label_unverified": "Ingwer Tee",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c01",
+      "page": 30,
+      "source_label_unverified": "Brinkhoffs Premium Pilsener",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c02",
+      "page": 30,
+      "source_label_unverified": "Tyskie Pils",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c03",
+      "page": 30,
+      "source_label_unverified": "Bitburger",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c04",
+      "page": 30,
+      "source_label_unverified": "Hell Energy Drink",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c05",
+      "page": 30,
+      "source_label_unverified": "Goldmalz alkoholfreies Malzgetränk",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c06",
+      "page": 30,
+      "source_label_unverified": "Coca-Cola oder Fanta",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p30-c07",
+      "page": 30,
+      "source_label_unverified": "Paulaner Spezi oder Cola",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p31-c01",
+      "page": 31,
+      "source_label_unverified": "Faber Sekt",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p31-c02",
+      "page": 31,
+      "source_label_unverified": "Weingold Grauer Burgunder oder Müller-Thurgau",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p31-c03",
+      "page": 31,
+      "source_label_unverified": "Chantré Weinbrand",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p31-c04",
+      "page": 31,
+      "source_label_unverified": "Ouzo 12 Anis-Spirituose",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p31-c05",
+      "page": 31,
+      "source_label_unverified": "Smirnoff Red No. 21",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p31-c06",
+      "page": 31,
+      "source_label_unverified": "Campari Bitter Aperitif",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p32-c01",
+      "page": 32,
+      "source_label_unverified": "Grey Grauburgunder oder White Weissburgunder",
+      "page_heading_category": "november_catalog",
+      "printed_page_start_provisional": "2026-11-01",
+      "printed_page_end_provisional": "2026-11-30",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p32-c02",
+      "page": 32,
+      "source_label_unverified": "Faustino Rivero Ulecia Reserva",
+      "page_heading_category": "november_catalog",
+      "printed_page_start_provisional": "2026-11-01",
+      "printed_page_end_provisional": "2026-11-30",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p32-c03",
+      "page": 32,
+      "source_label_unverified": "Müller-Thurgau",
+      "page_heading_category": "november_catalog",
+      "printed_page_start_provisional": "2026-11-01",
+      "printed_page_end_provisional": "2026-11-30",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p33-c01",
+      "page": 33,
+      "source_label_unverified": "Dornfelder Qualitätswein",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p33-c02",
+      "page": 33,
+      "source_label_unverified": "Dornfelder Rosé Qualitätswein",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p33-c03",
+      "page": 33,
+      "source_label_unverified": "Grauburgunder Qualitätswein",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p33-c04",
+      "page": 33,
+      "source_label_unverified": "Sauvignon Blanc Qualitätswein",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p33-c05",
+      "page": 33,
+      "source_label_unverified": "Scheurebe Qualitätswein",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p34-c01",
+      "page": 34,
+      "source_label_unverified": "Käse-Laugen Breze",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p34-c02",
+      "page": 34,
+      "source_label_unverified": "High Protein Pizza",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p34-c03",
+      "page": 34,
+      "source_label_unverified": "Pizzatasche Philly Cheese",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p34-c04",
+      "page": 34,
+      "source_label_unverified": "Roggenmischbrot",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p34-c05",
+      "page": 34,
+      "source_label_unverified": "Käse-Schinken-Croissant",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p34-c06",
+      "page": 34,
+      "source_label_unverified": "Apfeltasche",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p35-c01",
+      "page": 35,
+      "source_label_unverified": "Gamberina Gaming Pizza + Booster + Donut",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p35-c02",
+      "page": 35,
+      "source_label_unverified": "Rinder-Burger, Chicken-Burger oder Hot-Dog",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p35-c03",
+      "page": 35,
+      "source_label_unverified": "Pringles",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p35-c04",
+      "page": 35,
+      "source_label_unverified": "M&Ms",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p35-c05",
+      "page": 35,
+      "source_label_unverified": "The Real Limonade oder Cola",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p37-c01",
+      "page": 37,
+      "source_label_unverified": "Wundpflaster Sensitiv",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p37-c02",
+      "page": 37,
+      "source_label_unverified": "Wundpflaster Classic",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p37-c03",
+      "page": 37,
+      "source_label_unverified": "Schnupfenspray Meerwasser",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p38-c01",
+      "page": 38,
+      "source_label_unverified": "duschdas Duschgel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p38-c02",
+      "page": 38,
+      "source_label_unverified": "Rexona Deospray",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p38-c03",
+      "page": 38,
+      "source_label_unverified": "Perwoll Waschmittel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p38-c04",
+      "page": 38,
+      "source_label_unverified": "Loreal Men Expert Dusche",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p38-c05",
+      "page": 38,
+      "source_label_unverified": "Loreal Elvital Shampoo",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p38-c06",
+      "page": 38,
+      "source_label_unverified": "Hakle Toilettenpapier",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p42-c01",
+      "page": 42,
+      "source_label_unverified": "OSRAM Batterien",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p48-c01",
+      "page": 48,
+      "source_label_unverified": "Clementinen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p48-c02",
+      "page": 48,
+      "source_label_unverified": "Gouda oder Butterkäse",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p48-c03",
+      "page": 48,
+      "source_label_unverified": "Ramazzotti Amaro",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p48-c04",
+      "page": 48,
+      "source_label_unverified": "Müller Müllermilch",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c01",
+      "page": 49,
+      "source_label_unverified": "Rouladen vom Rind",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c02",
+      "page": 49,
+      "source_label_unverified": "Mövenpick Kaffee",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c03",
+      "page": 49,
+      "source_label_unverified": "Minipflaumentomaten",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c04",
+      "page": 49,
+      "source_label_unverified": "Butterschmalz",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c05",
+      "page": 49,
+      "source_label_unverified": "Schwartau Konfitüre",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c06",
+      "page": 49,
+      "source_label_unverified": "Norwegische Lachsfilets",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c07",
+      "page": 49,
+      "source_label_unverified": "Ardey Quelle Mineralwasser",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p49-c08",
+      "page": 49,
+      "source_label_unverified": "Thunfischfilets oder -stücke",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p50-c01",
+      "page": 50,
+      "source_label_unverified": "Brokkoli",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p50-c02",
+      "page": 50,
+      "source_label_unverified": "Zwiebel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p50-c03",
+      "page": 50,
+      "source_label_unverified": "Bio Gurken",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p50-c04",
+      "page": 50,
+      "source_label_unverified": "Heidelbeeren",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p50-c05",
+      "page": 50,
+      "source_label_unverified": "Zitronen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p50-c06",
+      "page": 50,
+      "source_label_unverified": "Birnen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p51-c01",
+      "page": 51,
+      "source_label_unverified": "Bio Glühwein",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p51-c02",
+      "page": 51,
+      "source_label_unverified": "Freixenet Mederano Glühweine",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p51-c03",
+      "page": 51,
+      "source_label_unverified": "Valensina Frucht-Glühwein",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p51-c04",
+      "page": 51,
+      "source_label_unverified": "Kaltenburger Fruchtglühwein",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p51-c05",
+      "page": 51,
+      "source_label_unverified": "Hürschi Glühwein",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p51-c06",
+      "page": 51,
+      "source_label_unverified": "Nürnberger Christkindles Glühwein",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c01",
+      "page": 52,
+      "source_label_unverified": "Puten-Geschnetzeltes",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c02",
+      "page": 52,
+      "source_label_unverified": "Neuseeländische Lammlachse",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c03",
+      "page": 52,
+      "source_label_unverified": "Lachsschinken",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c04",
+      "page": 52,
+      "source_label_unverified": "Schinkenzwiebelmettwurst",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c05",
+      "page": 52,
+      "source_label_unverified": "Geflügelfleischwurst",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c06",
+      "page": 52,
+      "source_label_unverified": "Sucuk",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p52-c07",
+      "page": 52,
+      "source_label_unverified": "Frische Hafermastgans",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c01",
+      "page": 53,
+      "source_label_unverified": "Seagold Sahneheringsfilet",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c02",
+      "page": 53,
+      "source_label_unverified": "Le Rustique Weichkäse",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c03",
+      "page": 53,
+      "source_label_unverified": "Zum Dorfkrug Grütze, Pudding oder Milchreis",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c04",
+      "page": 53,
+      "source_label_unverified": "Frosta Fertiggerichte",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c05",
+      "page": 53,
+      "source_label_unverified": "Henglein Zimtschnecken-Kit",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c06",
+      "page": 53,
+      "source_label_unverified": "Joghurt pur nach griechischer Art",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c07",
+      "page": 53,
+      "source_label_unverified": "Boujee Bananen am Stiel",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p53-c08",
+      "page": 53,
+      "source_label_unverified": "High Protein Pouch",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-19",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p54-c01",
+      "page": 54,
+      "source_label_unverified": "Schweine-Schnitzel Wiener Art",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p54-c02",
+      "page": 54,
+      "source_label_unverified": "Hähnchen Cordon Bleu",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p54-c03",
+      "page": 54,
+      "source_label_unverified": "Hähnchengeschnetzeltes",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p55-c01",
+      "page": 55,
+      "source_label_unverified": "Gyrospfanne",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p55-c02",
+      "page": 55,
+      "source_label_unverified": "Hähnchen-Kebab Pfanne",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p55-c03",
+      "page": 55,
+      "source_label_unverified": "Hähnchenschenkel",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p55-c04",
+      "page": 55,
+      "source_label_unverified": "Hähnchenschenkel-Pfanne",
+      "page_heading_category": "permanent_catalog",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p56-c01",
+      "page": 56,
+      "source_label_unverified": "Blanchet Weine",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p56-c02",
+      "page": 56,
+      "source_label_unverified": "Valensina Saft oder Nektar",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p56-c03",
+      "page": 56,
+      "source_label_unverified": "Durstlöscher",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p56-c04",
+      "page": 56,
+      "source_label_unverified": "Knorr Brühe oder Bouillon",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p56-c05",
+      "page": 56,
+      "source_label_unverified": "Kotányi Gewürzmühlen",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c01",
+      "page": 57,
+      "source_label_unverified": "Kikis Frosti Pops",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c02",
+      "page": 57,
+      "source_label_unverified": "Andechser Bio Skyr",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c03",
+      "page": 57,
+      "source_label_unverified": "Somat Tabs",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c04",
+      "page": 57,
+      "source_label_unverified": "reis-fit",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c05",
+      "page": 57,
+      "source_label_unverified": "Felix Soup",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c06",
+      "page": 57,
+      "source_label_unverified": "Vivil Bonbon",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p57-c07",
+      "page": 57,
+      "source_label_unverified": "Skittles",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-16",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p60-c01",
+      "page": 60,
+      "source_label_unverified": "Schweine-Hinterhaxe",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p60-c02",
+      "page": 60,
+      "source_label_unverified": "Kohlrabi",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p60-c03",
+      "page": 60,
+      "source_label_unverified": "Doppio Passo",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p60-c04",
+      "page": 60,
+      "source_label_unverified": "Nescafé Gold",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p60-c05",
+      "page": 60,
+      "source_label_unverified": "Mars Mix",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p60-c06",
+      "page": 60,
+      "source_label_unverified": "Philadelphia Frischkäse",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p62-c01",
+      "page": 62,
+      "source_label_unverified": "Hähnchen-Innenfilet",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p62-c02",
+      "page": 62,
+      "source_label_unverified": "Aperol Aperitivo",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p62-c03",
+      "page": 62,
+      "source_label_unverified": "H-Vollmilch",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p62-c04",
+      "page": 62,
+      "source_label_unverified": "Speisekartoffeln",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p62-c05",
+      "page": 62,
+      "source_label_unverified": "Veltins Helles Pülleken",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p62-c06",
+      "page": 62,
+      "source_label_unverified": "Holzbriketts oder Kaminholz",
+      "page_heading_category": "printed_range",
+      "printed_page_start_provisional": "2026-11-20",
+      "printed_page_end_provisional": "2026-11-21",
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    },
+    {
+      "candidate_id": "hz47-p65-c01",
+      "page": 65,
+      "source_label_unverified": "Mars Wrigleys Kaugummi",
+      "page_heading_category": "checkout_area_condition",
+      "printed_page_start_provisional": null,
+      "printed_page_end_provisional": null,
+      "conditional_notes": [
+        "individual price and valid dates not verified",
+        "app/PAYBACK/quantity/store restrictions must be independently parsed"
+      ],
+      "must_not_claim_active_offer": true
+    }
+  ]
+}
