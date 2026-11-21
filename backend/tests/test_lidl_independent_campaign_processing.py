@@ -49,10 +49,11 @@ def ambiguity(rows: list[FlyerCandidate] | None = None) -> dict:
 def snapshot(slug: str, region: str, index: int) -> FlyerEvidence:
     uuid = f"00000000-0000-4000-8000-{index:012d}"
     document_url = f"https://flyers.example.test/{index}.pdf"
+    regions = tuple(dict.fromkeys((region, "7")))
     api = {
         "flyer": {
             "id": uuid,
-            "regions": [{"code": region}, {"code": "7"}],
+            "regions": [{"code": code} for code in regions],
             "offerStartDate": "2026-11-23",
             "offerEndDate": "2026-11-28",
             "hiResPdfUrl": document_url,
@@ -71,7 +72,7 @@ def snapshot(slug: str, region: str, index: int) -> FlyerEvidence:
         viewer_final_url=viewer,
         official_flyer_id=uuid,
         document_url=document_url,
-        advertised_regions=(region, "7"),
+        advertised_regions=regions,
         pdf_sha256=sha256(PDF).hexdigest(),
         raw_sha256=sha256(raw).hexdigest(),
         pdf_bytes=len(PDF),
