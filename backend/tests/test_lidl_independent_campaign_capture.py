@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from hashlib import sha256
-import json
 import unittest
 
 import httpx
@@ -271,7 +269,7 @@ class LidlIndependentCampaignCaptureTests(unittest.TestCase):
             ({"regions": [{"code": "9"}]}, "API_IDENTITY_MISMATCH"),
             ({"offerEndDate": "2026-11-29"}, "API_IDENTITY_MISMATCH"),
             ({"id": "00000000-0000-4000-8000-00000000000b"},
-             "INVALID_OFFICIAL_FLYER_ID" if False else None),
+             None),
             ({"id": "not-uuid"}, "INVALID_OFFICIAL_FLYER_ID"),
             ({"pages": []}, "INVALID_OFFICIAL_FLYER_METADATA"),
         )
@@ -342,6 +340,19 @@ class LidlIndependentCampaignCaptureTests(unittest.TestCase):
                     berlin_as_of=AS_OF, allowed_pdf_hosts=ALLOWED,
                 )
         self.assertEqual(transport.requests, [])
+
+    def test_inherited_http_auth_is_rejected_before_network(self) -> None:
+        for client_options in (
+            {"auth": ("username", "password")},
+            {"headers": {"Authorization": "Bearer secret"}},
+            {"headers": {"Proxy-Authorization": "Basic secret"}},
+        ):
+            with self.subTest(client_options=client_options):
+                transport = FakeOfficialTransport()
+                with self.assertRaisesRegex(IndependentCampaignCaptureError,
+                                            "AUTHENTICATED_CLIENT_NOT_ALLOWED"):
+                    capture(transport, client_options=client_options)
+                self.assertEqual(transport.requests, [])
 
     def test_empty_or_invalid_pdf_host_policy_fails_before_network(self) -> None:
         transport = FakeOfficialTransport()
