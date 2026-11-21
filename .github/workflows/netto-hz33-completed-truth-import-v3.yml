@@ -29,7 +29,7 @@ env:
 
 jobs:
   authorize:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       head_sha: ${{ steps.auth.outputs.head_sha }}
       head_ref: ${{ steps.auth.outputs.head_ref }}
@@ -71,7 +71,7 @@ jobs:
 
   import_exact_truth:
     needs: authorize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write

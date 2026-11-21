@@ -19,7 +19,7 @@ concurrency:
 jobs:
   classify:
     name: FAST-LANE classify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
@@ -72,7 +72,7 @@ jobs:
 
   policy-safety:
     name: Public repository safety
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout complete repository history
@@ -93,7 +93,7 @@ jobs:
     name: Frontend W3 deterministic build
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     defaults:
@@ -140,7 +140,7 @@ jobs:
     name: W3 immutable release image
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
@@ -243,7 +243,7 @@ jobs:
     name: Backend tests
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     defaults:
@@ -323,7 +323,7 @@ jobs:
     name: PostgreSQL 18 current-deals contract
     needs: classify
     if: needs.classify.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     services:
@@ -390,7 +390,7 @@ jobs:
     name: FAST-LANE Merge Gate
     needs: [classify, policy-safety, frontend-build, release-image, backend-tests, postgres-current-deals]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Verify required validation results

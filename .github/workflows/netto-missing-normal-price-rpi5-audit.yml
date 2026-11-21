@@ -21,7 +21,7 @@ concurrency:
 jobs:
   ensure-label:
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -56,7 +56,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action == 'labeled' &&
       github.event.label.name == 'audit:netto-missing-normal-price-v1'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
@@ -176,7 +176,7 @@ jobs:
   report:
     needs: [authorize, rpi5-audit]
     if: always() && github.event_name == 'pull_request_target' && github.event.label.name == 'audit:netto-missing-normal-price-v1'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

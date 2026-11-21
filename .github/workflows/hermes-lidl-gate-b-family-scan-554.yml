@@ -20,7 +20,7 @@ jobs:
       github.event.sender.login == 'rozkalnsandris' &&
       github.event.sender.id == 277435981 &&
       github.event.comment.body == '/hermes-lidl-gate-b-scan-554'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: read
@@ -299,7 +299,7 @@ jobs:
     needs:
       - authorize
       - scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write

@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   authorize:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.auth.outputs.sha }}
       pr: ${{ steps.auth.outputs.pr }}
@@ -129,7 +129,7 @@ jobs:
   report:
     if: always() && needs.authorize.result == 'success'
     needs: [authorize, rpi5]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}

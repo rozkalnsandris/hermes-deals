@@ -21,7 +21,7 @@ jobs:
       github.event.sender.login == 'rozkalnsandris' &&
       github.event.sender.id == 277435981 &&
       startsWith(github.event.comment.body, '/hermes-edeka monitor ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

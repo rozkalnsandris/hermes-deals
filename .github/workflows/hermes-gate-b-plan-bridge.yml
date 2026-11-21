@@ -17,7 +17,7 @@ jobs:
   authorize:
     name: Authorize owner Gate B plan command
     if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/hermes-gate-b-plan ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       pr_number: ${{ steps.authorize.outputs.pr_number }}
@@ -181,7 +181,7 @@ jobs:
     needs:
       - authorize
       - rpi5-plan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

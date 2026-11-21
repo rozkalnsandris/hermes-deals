@@ -21,7 +21,7 @@ concurrency:
 jobs:
   live-source-probe:
     name: Read-only Kaufland store 1503 source probe
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:

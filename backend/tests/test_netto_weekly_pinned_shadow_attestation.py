@@ -39,7 +39,7 @@ jobs:
     uses: {proof.REPO}/{proof.PINNED_WORKFLOW}@{proof.CALLED_WORKFLOW_SHA} # reviewed policy revision {proof.CALLED_WORKFLOW_SHA}
   report:
     {proof.LEGACY_REPORT_IF}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 """
 
 

@@ -15,7 +15,7 @@ def test_hz34_review_pack_workflow_is_owner_gated_and_github_hosted() -> None:
     assert "audit:netto-hz34-blind-review-pack-v1" in text
     assert "EXPECTED_OWNER_LOGIN: rozkalnsandris" in text
     assert 'EXPECTED_OWNER_ID: "277435981"' in text
-    assert "runs-on: ubuntu-latest" in text
+    assert "runs-on: ubuntu-24.04" in text
     assert "self-hosted" not in text
     assert "sudo " not in text
     assert "systemctl" not in text

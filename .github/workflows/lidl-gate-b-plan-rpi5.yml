@@ -28,7 +28,7 @@ concurrency:
 jobs:
   authorize:
     name: Resolve owner-authorized exact runtime
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       pr_number: ${{ steps.authorize.outputs.pr_number }}
@@ -266,7 +266,7 @@ jobs:
     needs:
       - authorize
       - rpi5-plan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

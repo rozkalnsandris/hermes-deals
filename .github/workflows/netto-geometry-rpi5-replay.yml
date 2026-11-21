@@ -26,7 +26,7 @@ jobs:
   ensure-label:
     name: Ensure Netto geometry replay label
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -89,7 +89,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action == 'labeled' &&
       github.event.label.name == 'audit:netto-geometry-replay-v1'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.authorize.outputs.should_run }}
@@ -265,7 +265,7 @@ jobs:
       always() &&
       needs.authorize.result == 'success' &&
       needs.authorize.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

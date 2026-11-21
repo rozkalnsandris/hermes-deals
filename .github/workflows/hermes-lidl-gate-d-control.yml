@@ -21,7 +21,7 @@ jobs:
       github.event.sender.id == 277435981 &&
       github.event.comment.author_association == 'OWNER' &&
       startsWith(github.event.comment.body, '/hermes-lidl gate-d ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

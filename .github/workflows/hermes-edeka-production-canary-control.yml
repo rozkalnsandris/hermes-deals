@@ -21,7 +21,7 @@ jobs:
       github.event.sender.id == 277435981 &&
       github.event.comment.author_association == 'OWNER' &&
       startsWith(github.event.comment.body, '/hermes-edeka canary ')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read
@@ -96,7 +96,7 @@ jobs:
       - authorize
       - control
     if: always() && needs.authorize.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write

@@ -36,7 +36,7 @@ jobs:
     # Retain the workflow for audit history, but never authorize old releases.
     if: ${{ github.event_name == 'issue_comment' }}
     name: Authorize exact main SHA
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read
