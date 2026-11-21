@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from datetime import date
 from pathlib import Path
 import subprocess
 
@@ -174,6 +175,43 @@ def test_blocked_states_fail_closed(one_shot_result: str) -> None:
     assert result["result"] == "BLOCKED"
     assert result["reason"] == f"one_shot_{one_shot_result.lower()}"
     assert result["shadow_execution_required"] is False
+
+
+def test_ambiguous_discovery_is_blocked_with_review_and_no_selection() -> None:
+    controller = load_controller()
+    from argparse import Namespace
+    from app.lidl_family_source_discovery import FlyerCandidate
+
+    rows = [
+        FlyerCandidate(
+            slug="aktionsprospekt-23-11-2026-28-11-2026-36518f",
+            route_region="10",
+            valid_from=date(2026, 11, 23),
+            valid_until=date(2026, 11, 28),
+            viewer_url="https://www.lidl.de/l/prospekte/example/ar/10",
+        ),
+        FlyerCandidate(
+            slug="aktionsprospekt-23-11-2026-28-11-2026-cde58d",
+            route_region="21",
+            valid_from=date(2026, 11, 23),
+            valid_until=date(2026, 11, 28),
+            viewer_url="https://www.lidl.de/l/prospekte/example/ar/21",
+        ),
+    ]
+    error = controller.LidlFamilyAmbiguityError(target="next", candidates=rows)
+    result = controller._blocked_manifest(
+        Namespace(target="next", today=date(2026, 11, 21)), error
+    )
+    assert result["result"] == "BLOCKED"
+    assert result["execution_fingerprint"] is None
+    assert result["one_shot_result"] is None
+    assert result["multi_candidate_review"]["candidate_count"] == 2
+    assert result["multi_candidate_review"]["decision"] == "UNRESOLVED"
+    assert result["multi_candidate_review"]["selection_authorized"] is False
+    assert result["shadow_execution_required"] is False
+    assert result["corpus_write_authorized"] is False
+    assert result["database_write_authorized"] is False
+    assert result["production_publish_authorized"] is False
 
 
 def test_unsafe_one_shot_flags_fail_closed() -> None:

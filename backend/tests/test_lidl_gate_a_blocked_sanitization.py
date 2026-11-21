@@ -90,3 +90,74 @@ def test_early_controller_blocked_is_sanitized_without_one_shot_status(tmp_path:
     assert summary["review_write_authorized"] is False
     assert summary["production_publish_authorized"] is False
     assert summary["production_deploy_authorized"] is False
+    assert "multi_candidate_review" not in summary
+
+
+def test_ambiguous_candidates_are_sanitized_and_invalid_review_is_rejected(tmp_path: Path) -> None:
+    sanitizer = embedded_python(RUNNER.read_text(encoding="utf-8"))[1]
+    manifest = {
+        "schema_version": 1,
+        "controller_version": "lidl-weekly-shadow-controller-v1",
+        "result": "BLOCKED",
+        "reason": "controller_contract_error:LidlFamilyAmbiguityError:selected-store next ambiguity: count=2",
+        "one_shot_result": None,
+        "one_shot_reason": None,
+        "target": "next",
+        "today_berlin": "2026-11-21",
+        "execution_fingerprint": None,
+        "previous_execution_fingerprint": None,
+        "unchanged_exact_input": False,
+        "new_immutable_snapshot_required": False,
+        "shadow_execution_required": False,
+        "dry_run": True,
+        "corpus_write_authorized": False,
+        "database_write_authorized": False,
+        "review_write_authorized": False,
+        "production_publish_authorized": False,
+        "systemd_change_authorized": False,
+        "bounded_retry_authorized": False,
+        "multi_candidate_review": {
+            "schema_version": 1,
+            "target": "next",
+            "decision": "UNRESOLVED",
+            "review_required": True,
+            "selection_authorized": False,
+            "candidate_count": 2,
+            "truncated": False,
+            "candidates": [
+                {
+                    "flyer_identifier": "aktionsprospekt-23-11-2026-28-11-2026-36518f",
+                    "route_region": "10",
+                    "valid_from": "2026-11-23",
+                    "valid_until": "2026-11-28",
+                },
+                {
+                    "flyer_identifier": "aktionsprospekt-23-11-2026-28-11-2026-cde58d",
+                    "route_region": "21",
+                    "valid_from": "2026-11-23",
+                    "valid_until": "2026-11-28",
+                },
+            ],
+        },
+    }
+    manifest_path = tmp_path / "manifest.json"
+    output_path = tmp_path / "summary.json"
+    missing_one_shot = tmp_path / "missing.json"
+    argv = [
+        "python", "-c", sanitizer, str(manifest_path),
+        str(missing_one_shot), str(output_path),
+        "a" * 40, "sha256:" + "b" * 64, "next", "2026-11-21", "30",
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    subprocess.run(argv, check=True)
+    summary = json.loads(output_path.read_text(encoding="utf-8"))
+    assert summary["result"] == "BLOCKED"
+    assert summary["one_shot_evidence_present"] is False
+    assert summary["multi_candidate_review"] == manifest["multi_candidate_review"]
+    assert summary["multi_candidate_review"]["selection_authorized"] is False
+
+    manifest["multi_candidate_review"]["candidates"][0]["viewer_url"] = "https://untrusted.invalid/"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    rejected = subprocess.run(argv, capture_output=True, text=True)
+    assert rejected.returncode != 0
+    assert "unsafe multi-candidate entry" in rejected.stderr

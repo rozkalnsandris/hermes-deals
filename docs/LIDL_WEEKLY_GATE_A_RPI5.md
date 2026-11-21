@@ -83,6 +83,25 @@ The GitHub artifact intentionally contains only:
 
 It does not upload the source PDF, source JSON, discovery capture, full one-shot evidence, completeness rows, or execution log.
 
+## Multi-candidate review (fail-closed)
+
+When more than one current or nearest-next selected-store flyer is advertised,
+Gate A remains \`BLOCKED\` (exit 30) and does not select a flyer. The controller
+produces a deterministic \`multi_candidate_review\` for each candidate containing
+only the canonical flyer identifier, per-link route region and validity dates.
+The fixed runner validates this bounded allowlist and includes it in the
+sanitized \`gate-a-summary.json\` GitHub artifact. The report explicitly keeps
+\`decision=UNRESOLVED\`, \`review_required=true\` and
+\`selection_authorized=false\`. It does not export raw discovery responses,
+store cookies, viewer query strings or PDF data.
+
+Reviewers must establish a trusted official campaign/applicability rule before
+any later source-only change may resolve the ambiguity. Neither numeric region,
+link order, page count nor cover labels are automatic selection authority.
+This report grants no Gate B corpus freeze, production write, retry, deployment
+or systemd authority. An authorized new exact-SHA Gate A run is required after
+a separate source merge and any applicable runtime registration gate.
+
 ## First exact run
 
 After the implementation PR is merged, use the GitHub-tracked owner finalizer with:
