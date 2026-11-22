@@ -35,7 +35,7 @@ cleanup(){ if [[ "$KEEP_TMP" == false ]]; then rm -rf -- "$TMP"; else printf 'IN
 cat > "$TMP/config" <<EOF_CONFIG
 bridge_contract_version='hermes-deals-lidl-gate-d-registration-refresh-v1'
 registered_bridge_sha='$EXPECTED_SHA'
-repo_path='/home/andris/hermes-deals-audit-source-lidl'
+repo_path='/home/andris/hermes-deals-audit-source-lidl-gate-d'
 dispatcher_path='$DISPATCHER'
 dispatcher_sha256='$DISPATCHER_SHA'
 EOF_CONFIG

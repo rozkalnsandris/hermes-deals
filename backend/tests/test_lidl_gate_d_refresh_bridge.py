@@ -8,6 +8,9 @@ REFRESH_WORKFLOW = ROOT / ".github/workflows/hermes-lidl-gate-d-registration-ref
 REFRESH_DISPATCHER = ROOT / "tools/runner/hermes-deals-lidl-gate-d-registration-refresh-dispatch"
 REFRESH_INSTALLER = ROOT / "tools/runner/install-lidl-gate-d-registration-refresh-bridge.sh"
 RUNBOOK = ROOT / "docs/LIDL_GATE_D_REFRESH_BRIDGE_RUNBOOK.md"
+GATE_A_RUNNER = ROOT / "tools/run-hermes-deals-lidl-weekly-gate-a-v01.sh"
+GATE_D_REPO = "/home/andris/hermes-deals-audit-source-lidl-gate-d"
+GATE_A_REPO = "/home/andris/hermes-deals-audit-source-lidl"
 
 
 def _text(path: Path) -> str:
@@ -16,7 +19,7 @@ def _text(path: Path) -> str:
 
 def test_lidl_source_sync_is_fixed_checkout_and_fast_forward_only():
     source = _text(SYNC_DISPATCHER)
-    assert "REPO='/home/andris/hermes-deals-audit-source-lidl'" in source
+    assert "REPO='/home/andris/hermes-deals-audit-source-lidl-gate-d'" in source
     assert "FIXED_FETCH_URL='https://github.com/rozkalnsandris/hermes-deals.git'" in source
     assert "artifact directory symlink or alias rejected" in source
     assert "/home/github-runner/_work/_temp/lidl-source-sync-*" in source
@@ -70,7 +73,7 @@ def test_source_sync_workflow_is_owner_exact_main_ci_bound_and_no_checkout():
 
 def test_registration_refresh_is_fixed_existing_installer_and_reviewed_source_bound():
     source = _text(REFRESH_DISPATCHER)
-    assert "REPO='/home/andris/hermes-deals-audit-source-lidl'" in source
+    assert "REPO='/home/andris/hermes-deals-audit-source-lidl-gate-d'" in source
     assert "INSTALLER_REL='tools/runner/install_lidl_gate_d_control_nonrewind.py'" in source
     assert "GATE_DISPATCHER_REL='tools/runner/lidl_gate_d_control.py'" in source
     assert "PLANNER_REL='tools/lidl_weekly_gate_d_activation_plan.py'" in source
@@ -198,3 +201,24 @@ def test_source_tests_never_execute_live_bridges_and_runbook_separates_owner_gat
     assert "non-authoritative after #910 source drift" in runbook
     assert "no automatic retry, rollback, cleanup" in runbook.lower()
     assert "**Production deploy: NO.**" in runbook
+
+def test_gate_d_checkout_is_isolated_from_gate_a():
+    sync = _text(SYNC_DISPATCHER)
+    sync_installer = _text(SYNC_INSTALLER)
+    refresh = _text(REFRESH_DISPATCHER)
+    refresh_installer = _text(REFRESH_INSTALLER)
+    workflow = _text(SYNC_WORKFLOW)
+    assert f"REPO='{GATE_D_REPO}'" in sync
+    assert f"REPO='{GATE_D_REPO}'" in refresh
+    assert f"repo_path='{GATE_D_REPO}'" in sync_installer
+    assert f"repo_path='{GATE_D_REPO}'" in refresh_installer
+    assert f"'source_checkout_path': '{GATE_D_REPO}'" in sync
+    assert f"x['source_checkout_path'] != '{GATE_D_REPO}'" in workflow
+    assert f"REPO='{GATE_A_REPO}'" not in sync
+    assert f"REPO='{GATE_A_REPO}'" not in refresh
+    assert f"AUDIT_REPO='{GATE_A_REPO}'" in _text(GATE_A_RUNNER)
+    assert "if k == 'repo_root' and mode == 'legacy':" in refresh
+    assert f"if x[k] not in {{v, '{GATE_A_REPO}'}}" in refresh
+    assert "elif x[k] != v: raise" in refresh
+    assert "if mode == 'next' and target != 'next'" in refresh
+    assert "if mode == 'next' and schedule != requested_schedule" in refresh

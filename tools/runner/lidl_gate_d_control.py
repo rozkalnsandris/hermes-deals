@@ -29,7 +29,7 @@ MIGRATION_PREFLIGHT_UNITS = (SERVICE_UNIT, TIMER_UNIT, *ALERT_INSTANCE_UNITS)
 CONFIG = Path("/etc/hermes-deals-audits.d/lidl-gate-d-control.json")
 UNIT_DIR = Path("/etc/systemd/system")
 CONTROL_ROOT = Path("/usr/local/libexec/hermes-deals-lidl-gate-d-control")
-EXPECTED_REPO_ROOT = "/home/andris/hermes-deals-audit-source-lidl"
+EXPECTED_REPO_ROOT = "/home/andris/hermes-deals-audit-source-lidl-gate-d"
 EXPECTED_PYTHON_PATH = "/usr/bin/python3"
 EXPECTED_CORPUS_ROOT = "/home/andris/hermes-deals-lidl-corpus"
 EXPECTED_EVIDENCE_ROOT = "/home/andris/hermes-deals-lidl-weekly-evidence"
@@ -327,6 +327,8 @@ LEGACY_UNIT_HASHES = {
 # Both other unit hashes must still match exactly; no broad drift allowlist.
 OBSERVED_LEGACY_SERVICE_SHA256 = "228d32d26ed6cd5cc76b5a4cfab347a7249c5b316065b23f8174f24f09ef8d77"
 OBSERVED_PRIOR_V2_SERVICE_SHA256 = "74bc57ec5bfb65a728dfe9b57310686aacf5bb945bb3f8d0f2bf98840cc51523"
+# Exact 2026-11-22 installed service that used the former shared checkout.
+OBSERVED_SHARED_CHECKOUT_V2_SERVICE_SHA256 = "b1608f7630ee62908dd8c64d6b5014da829bb8dfef276b391992a52ee62d6854"
 
 
 def legacy_unit_hashes() -> dict[str, str] | None:
@@ -340,7 +342,7 @@ def legacy_unit_hashes() -> dict[str, str] | None:
         return observed
     if (
         observed[SERVICE_UNIT]
-        in {OBSERVED_LEGACY_SERVICE_SHA256, OBSERVED_PRIOR_V2_SERVICE_SHA256}
+        in {OBSERVED_LEGACY_SERVICE_SHA256, OBSERVED_PRIOR_V2_SERVICE_SHA256, OBSERVED_SHARED_CHECKOUT_V2_SERVICE_SHA256}
         and all(observed[name] == LEGACY_UNIT_HASHES[name] for name in (TIMER_UNIT, ALERT_UNIT))
     ):
         return observed

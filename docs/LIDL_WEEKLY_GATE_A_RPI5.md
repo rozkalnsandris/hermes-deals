@@ -138,3 +138,9 @@ Every result requires:
 Gate B begins only after Gate A is merged and its exact-SHA RPi5 workflow is verified. Gate B will retain two consecutive real weekly family observations, promote only separately reviewed immutable source evidence, and prove reproducible shadow execution. It will still not authorize production writes.
 
 Production canary, replay against production persistence, timer installation, retry policy, monitoring, rollback, and activation remain later separately owner-authorized gates.
+## Gate A / Gate D checkout ownership
+
+Gate A retains `/home/andris/hermes-deals-audit-source-lidl`.
+Gate D uses `/home/andris/hermes-deals-audit-source-lidl-gate-d` (see
+`docs/LIDL_GATE_D_REFRESH_BRIDGE_RUNBOOK.md`). Gate A discovery must not
+advance the Gate D checkout HEAD; neither path may be repointed as a shortcut.
