@@ -196,7 +196,7 @@ def test_runtime_rejects_unsafe_evidence_permissions(tmp_path: Path, monkeypatch
 def build_plan(tmp_path: Path, planner, name: str = "plan"):
     return planner.build_activation_plan(
         output_dir=tmp_path / name,
-        repo_root=Path("/home/andris/hermes-deals-audit-source-lidl"),
+        repo_root=Path("/home/andris/hermes-deals-audit-source-lidl-gate-d"),
         repo_sha="b" * 40,
         python_path=Path("/usr/bin/python3"),
         corpus_root=Path("/home/andris/hermes-deals-lidl-corpus"),

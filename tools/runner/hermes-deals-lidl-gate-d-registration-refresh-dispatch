@@ -8,7 +8,7 @@ fail(){ printf 'ERROR: %s\n' "$*" >&2; exit 30; }
 [[ $# -eq 2 ]] || fail 'usage: hermes-deals-lidl-gate-d-registration-refresh-dispatch <target-sha> <artifact-dir>'
 
 TARGET_SHA="$1"; RAW_EXPORT_DIR="$2"
-REPO='/home/andris/hermes-deals-audit-source-lidl'
+REPO='/home/andris/hermes-deals-audit-source-lidl-gate-d'
 BRIDGE_CONFIG='/etc/hermes-deals-audits.d/lidl-gate-d-registration-refresh.conf'
 BRIDGE_DISPATCHER='/usr/local/sbin/hermes-deals-lidl-gate-d-registration-refresh-dispatch'
 RUNNER_SERVICE='actions.runner.rozkalnsandris-hermes-deals.rpi5-hermes-deals-audit.service'
@@ -72,9 +72,12 @@ sha=str(x['registration_sha']); fp=str(x['plan_fingerprint']); target=str(x['tar
 if re.fullmatch(r'[0-9a-f]{40}',sha) is None or re.fullmatch(r'[0-9a-f]{64}',fp) is None: raise SystemExit('Gate D registration identity invalid')
 if mode == 'legacy' and target not in {'current','next'}: raise SystemExit('legacy Gate D target invalid')
 if mode == 'next' and target != 'next': raise SystemExit('refreshed Gate D target is not next')
-paths={'repo_root':'/home/andris/hermes-deals-audit-source-lidl','python_path':'/usr/bin/python3','corpus_root':'/home/andris/hermes-deals-lidl-corpus','evidence_root':'/home/andris/hermes-deals-lidl-weekly-evidence'}
+paths={'repo_root':'/home/andris/hermes-deals-audit-source-lidl-gate-d','python_path':'/usr/bin/python3','corpus_root':'/home/andris/hermes-deals-lidl-corpus','evidence_root':'/home/andris/hermes-deals-lidl-weekly-evidence'}
 for k,v in paths.items():
-    if x[k] != v: raise SystemExit(f'Gate D {k} drift')
+    if k == 'repo_root' and mode == 'legacy':
+        # Only read-only inspection of the previous registration permits this old path.
+        if x[k] not in {v, '/home/andris/hermes-deals-audit-source-lidl'}: raise SystemExit('Gate D repo_root drift')
+    elif x[k] != v: raise SystemExit(f'Gate D {k} drift')
 if x['activation_requires_explicit_owner_authorization'] is not True or x['root_registration_only'] is not True or any(x[k] is not False for k in false_flags): raise SystemExit('Gate D unsafe authority drift')
 requested_schedule={'on_calendar':on_calendar,'retry_delay':retry_delay,'retry_window':retry_window,'max_attempts':int(max_attempts_raw),'timeout_start':timeout_start}
 schedule=x['schedule']

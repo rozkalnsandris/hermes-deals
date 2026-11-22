@@ -14,14 +14,14 @@ import subprocess
 import tempfile
 from typing import Any, Mapping
 
-SOURCE_REPO = Path("/home/andris/hermes-deals-audit-source-lidl")
+SOURCE_REPO = Path("/home/andris/hermes-deals-audit-source-lidl-gate-d")
 AUDIT_USER = "andris"
 RUNNER_USER = "github-runner"
 INSTALLER_REL = "tools/runner/install_lidl_gate_d_control_nonrewind.py"
 DISPATCHER_REL = "tools/runner/lidl_gate_d_control.py"
 PLANNER_REL = "tools/lidl_weekly_gate_d_activation_plan.py"
 RUNTIME_REL = "tools/lidl_weekly_gate_d_runtime.py"
-EXPECTED_DISPATCHER_BLOB = "d7f9fa2fd3e15ed0c1dfae6247e364933dd24355"
+EXPECTED_DISPATCHER_BLOB = "395fbd0f057c69140dd7ccc5baca805038aac661"
 EXPECTED_PLANNER_BLOB = "abef76aae57827357708b820fec399f1d0e6853f"
 EXPECTED_RUNTIME_BLOB = "6adab7914a2a3a0d41ee98e4b727b8f56a2f1226"
 EXPECTED_BRIDGE_PR = 656

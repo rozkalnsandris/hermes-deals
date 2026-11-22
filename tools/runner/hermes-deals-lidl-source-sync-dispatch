@@ -12,7 +12,7 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 30; }
 
 TARGET_SHA="$1"
 RAW_EXPORT_DIR="$2"
-REPO='/home/andris/hermes-deals-audit-source-lidl'
+REPO='/home/andris/hermes-deals-audit-source-lidl-gate-d'
 CONFIG='/etc/hermes-deals-audits.d/lidl-source-sync.conf'
 DISPATCHER='/usr/local/sbin/hermes-deals-lidl-source-sync-dispatch'
 FIXED_FETCH_URL='https://github.com/rozkalnsandris/hermes-deals.git'
@@ -90,7 +90,7 @@ payload = {
     'bridge_execution_status': bridge_status,
     'reason_code': reason,
     'registered_bridge_sha': registered_bridge_sha,
-    'source_checkout_path': '/home/andris/hermes-deals-audit-source-lidl',
+    'source_checkout_path': '/home/andris/hermes-deals-audit-source-lidl-gate-d',
     'head_before': opt(head_before_raw),
     'target_sha': target_sha,
     'remote_main_sha': opt(remote_main_raw),

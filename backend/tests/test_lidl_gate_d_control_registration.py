@@ -512,3 +512,25 @@ def test_migration_preconditions_prevent_host_mutation(tmp_path, monkeypatch, bl
         d.activate(config, staged)
     assert not any(c[1:2] == ['stop'] for c in commands)
     assert all((d.UNIT_DIR / n).read_text() == 'old ' + n for n in d.UNIT_NAMES)
+
+def test_gate_d_rejects_gate_a_checkout_even_with_matching_fingerprint():
+    dispatcher = load(DISPATCHER, "gate_d_isolated_checkout_validator")
+    installer = load(INSTALLER, "gate_d_isolated_checkout_installer")
+    assert dispatcher.EXPECTED_REPO_ROOT == "/home/andris/hermes-deals-audit-source-lidl-gate-d"
+    assert str(installer.SOURCE_REPO) == dispatcher.EXPECTED_REPO_ROOT
+    config = fixture_config(dispatcher)
+    config["repo_root"] = "/home/andris/hermes-deals-audit-source-lidl"
+    config["plan_fingerprint"] = dispatcher.plan_fingerprint(config)
+    with pytest.raises(dispatcher.ControlError, match="reviewed Gate D path"):
+        dispatcher.validate_config_data(config, config["plan_fingerprint"])
+
+
+def test_observed_legacy_service_requires_exact_triplet(monkeypatch):
+    dispatcher = load(DISPATCHER, "gate_d_exact_prior_triplet")
+    observed = dict(dispatcher.LEGACY_UNIT_HASHES)
+    observed[dispatcher.SERVICE_UNIT] = dispatcher.OBSERVED_SHARED_CHECKOUT_V2_SERVICE_SHA256
+    monkeypatch.setattr(dispatcher, "regular_root_file", lambda _path, _mode: True)
+    monkeypatch.setattr(dispatcher, "sha_file", lambda path: observed[path.name])
+    assert dispatcher.legacy_unit_hashes() == observed
+    observed[dispatcher.TIMER_UNIT] = "0" * 64
+    assert dispatcher.legacy_unit_hashes() is None
