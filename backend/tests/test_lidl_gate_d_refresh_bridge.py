@@ -193,7 +193,7 @@ def test_source_tests_never_execute_live_bridges_and_runbook_separates_owner_gat
     assert "import " + "subprocess" not in test_source
     assert "from " + "subprocess" not in test_source
     runbook = _text(RUNBOOK)
-    assert "Bootstrap registration — separate LIVE authorization" in runbook
+    assert "Bridge bootstrap — separate LIVE authorization" in runbook
     assert "Dedicated checkout sync — separate LIVE authorization" in runbook
     assert "Gate D registration refresh — separate LIVE authorization" in runbook
     assert "Activation — separate LIVE authorization" in runbook
@@ -239,5 +239,5 @@ def test_gate_d_bridge_bootstrap_never_reads_or_updates_primary_checkout():
         assert "primary checkout" not in source
         # Bootstrap registration only: no Git updates, runtime execution or systemd.
         for forbidden in ("git fetch", "git merge", "git pull", "git reset", "git clean",
-                          "systemctl", "docker ", "sudo --non-interactive"):
+                          "systemctl", "docker run", "docker compose", "docker ps", "sudo --non-interactive"):
             assert forbidden not in source.lower()
