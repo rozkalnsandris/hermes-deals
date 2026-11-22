@@ -7,7 +7,7 @@ fail(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] || fail 'run with sudo'
 [[ $# -eq 1 ]] || fail 'usage: sudo bash tools/runner/install-lidl-source-sync-bridge.sh <merged-main-sha>'
 EXPECTED_SHA="$1"
-REPO='/home/andris/hermes-deals'
+REPO='/home/andris/hermes-deals-audit-source-lidl-gate-d'
 SOURCE_REL='tools/runner/hermes-deals-lidl-source-sync-dispatch'
 SOURCE="$REPO/$SOURCE_REL"
 DISPATCHER='/usr/local/sbin/hermes-deals-lidl-source-sync-dispatch'
@@ -18,16 +18,16 @@ for user in andris github-runner; do id "$user" >/dev/null 2>&1 || fail "require
 for command in bash git id install mktemp readlink runuser sha256sum stat visudo; do command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"; done
 if id -nG github-runner | tr ' ' '\n' | grep -Fxq docker; then fail 'github-runner must not be a member of the docker group'; fi
 git_as_andris(){ runuser -u andris -- /usr/bin/env -i HOME=/home/andris USER=andris LOGNAME=andris PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null /usr/bin/git "$@"; }
-[[ -d "$REPO" && ! -L "$REPO" ]] || fail 'primary checkout path is missing or unsafe'
-[[ "$(readlink -f -- "$REPO")" == "$REPO" ]] || fail 'primary checkout path drift'
-[[ "$(stat -c '%U:%G' "$REPO")" == 'andris:andris' ]] || fail 'primary checkout owner drift'
-[[ -d "$REPO/.git" && ! -L "$REPO/.git" ]] || fail 'primary checkout .git is missing or unsafe'
-[[ "$(git_as_andris -C "$REPO" rev-parse --is-inside-work-tree)" == true ]] || fail 'primary checkout is not a Git worktree'
+[[ -d "$REPO" && ! -L "$REPO" ]] || fail 'dedicated Gate D checkout path is missing or unsafe'
+[[ "$(readlink -f -- "$REPO")" == "$REPO" ]] || fail 'dedicated Gate D checkout path drift'
+[[ "$(stat -c '%U:%G' "$REPO")" == 'andris:andris' ]] || fail 'dedicated Gate D checkout owner drift'
+[[ -d "$REPO/.git" && ! -L "$REPO/.git" ]] || fail 'dedicated Gate D checkout .git is missing or unsafe'
+[[ "$(git_as_andris -C "$REPO" rev-parse --is-inside-work-tree)" == true ]] || fail 'dedicated Gate D checkout is not a Git worktree'
 [[ "$(git_as_andris -C "$REPO" rev-parse --is-shallow-repository)" == false ]] || fail 'shallow checkout is unsupported'
-[[ "$(git_as_andris -C "$REPO" branch --show-current)" == main ]] || fail 'primary checkout branch must be main'
-[[ "$(git_as_andris -C "$REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail 'primary checkout HEAD mismatch'
-[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'primary checkout is not clean'
-case "$(git_as_andris -C "$REPO" remote get-url origin)" in https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;; *) fail 'primary checkout origin is not canonical Hermes Deals';; esac
+[[ "$(git_as_andris -C "$REPO" branch --show-current)" == main ]] || fail 'dedicated Gate D checkout branch must be main'
+[[ "$(git_as_andris -C "$REPO" rev-parse HEAD)" == "$EXPECTED_SHA" ]] || fail 'dedicated Gate D checkout HEAD mismatch'
+[[ -z "$(git_as_andris -C "$REPO" status --porcelain=v1 --untracked-files=all)" ]] || fail 'dedicated Gate D checkout is not clean'
+case "$(git_as_andris -C "$REPO" remote get-url origin)" in https://github.com/rozkalnsandris/hermes-deals|https://github.com/rozkalnsandris/hermes-deals.git|git@github.com:rozkalnsandris/hermes-deals.git) ;; *) fail 'dedicated Gate D checkout origin is not canonical Hermes Deals';; esac
 git_as_andris -C "$REPO" ls-files --error-unmatch "$SOURCE_REL" >/dev/null || fail 'dispatcher source is not tracked'
 [[ -f "$SOURCE" && ! -L "$SOURCE" ]] || fail 'dispatcher source is missing or unsafe'
 /usr/bin/bash -n "$SOURCE" || fail 'dispatcher source syntax check failed'

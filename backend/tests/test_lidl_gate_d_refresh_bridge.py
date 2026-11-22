@@ -42,7 +42,7 @@ def test_lidl_source_sync_is_fixed_checkout_and_fast_forward_only():
 def test_source_sync_bridge_bootstrap_is_inert_and_source_bound():
     installer = _text(SYNC_INSTALLER)
     assert "EXPECTED_SHA=\"$1\"" in installer
-    assert "REPO='/home/andris/hermes-deals'" in installer
+    assert f"REPO='{GATE_D_REPO}'" in installer
     assert "SOURCE_REL='tools/runner/hermes-deals-lidl-source-sync-dispatch'" in installer
     assert "github-runner must not be a member of the docker group" in installer
     assert "visudo -cf \"$TMP/sudoers\"" in installer
@@ -156,7 +156,7 @@ def test_registration_refresh_legacy_schedule_migration_uses_prior_declared_sche
 
 def test_registration_refresh_bootstrap_only_registers_fixed_bridge():
     installer = _text(REFRESH_INSTALLER)
-    assert "REPO='/home/andris/hermes-deals'" in installer
+    assert f"REPO='{GATE_D_REPO}'" in installer
     assert "SOURCE_REL='tools/runner/hermes-deals-lidl-gate-d-registration-refresh-dispatch'" in installer
     assert "github-runner must not be a member of the docker group" in installer
     assert "github-runner ALL=(root) NOPASSWD: /usr/local/sbin/hermes-deals-lidl-gate-d-registration-refresh-dispatch *" in installer
@@ -222,3 +222,22 @@ def test_gate_d_checkout_is_isolated_from_gate_a():
     assert "elif x[k] != v: raise" in refresh
     assert "if mode == 'next' and target != 'next'" in refresh
     assert "if mode == 'next' and schedule != requested_schedule" in refresh
+
+
+def test_gate_d_bridge_bootstrap_never_reads_or_updates_primary_checkout():
+    for installer_path in (SYNC_INSTALLER, REFRESH_INSTALLER):
+        source = _text(installer_path)
+        assert f"REPO='{GATE_D_REPO}'" in source
+        assert "REPO='/home/andris/hermes-deals'" not in source
+        assert "dedicated Gate D checkout HEAD mismatch" in source
+        assert 'rev-parse HEAD)" == "$EXPECTED_SHA"' in source
+        assert 'status --porcelain=v1 --untracked-files=all)' in source
+        assert 'rev-parse --is-shallow-repository)' in source
+        assert 'remote get-url origin)' in source
+        assert '[[ -d "$REPO/.git" && ! -L "$REPO/.git" ]]' in source
+        assert "git_as_andris -C \"$REPO\" ls-files --error-unmatch" in source
+        assert "primary checkout" not in source
+        # Bootstrap registration only: no Git updates, runtime execution or systemd.
+        for forbidden in ("git fetch", "git merge", "git pull", "git reset", "git clean",
+                          "systemctl", "docker ", "sudo --non-interactive"):
+            assert forbidden not in source.lower()
